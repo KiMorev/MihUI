@@ -30,6 +30,26 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+busybox_has_httpd() {
+  command_exists busybox || return 1
+  busybox --list 2>/dev/null | grep -qx httpd && return 0
+  busybox httpd --help >/dev/null 2>&1
+}
+
+find_httpd() {
+  if busybox_has_httpd; then
+    printf 'busybox\n'
+    return
+  fi
+
+  if command_exists httpd; then
+    printf 'httpd\n'
+    return
+  fi
+
+  return 1
+}
+
 cleanup() {
   if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
@@ -194,8 +214,14 @@ LOG_FILE="\$LOG_DIR/httpd.log"
 [ -f "\$ENV_FILE" ] && . "\$ENV_FILE"
 [ -n "\${MIHUI_PORT:-}" ] && PORT="\$MIHUI_PORT"
 
+busybox_has_httpd() {
+  command -v busybox >/dev/null 2>&1 || return 1
+  busybox --list 2>/dev/null | grep -qx httpd && return 0
+  busybox httpd --help >/dev/null 2>&1
+}
+
 find_httpd() {
-  if command -v busybox >/dev/null 2>&1; then
+  if busybox_has_httpd; then
     printf 'busybox\n'
     return
   fi
@@ -235,7 +261,7 @@ start() {
   rm -f "\$PID_FILE"
 
   httpd_kind=\$(find_httpd) || {
-    printf 'busybox httpd is required\n' >> "\$LOG_FILE"
+    printf 'busybox httpd applet or compatible httpd command is required\n' >> "\$LOG_FILE"
     exit 1
   }
 
@@ -282,9 +308,20 @@ EOF
   chmod +x "$INIT_SCRIPT"
 }
 
-if ! command_exists busybox && ! command_exists httpd; then
-  fail "busybox httpd is required"
-fi
+show_service_log() {
+  log "MihUI service log: $LOG_DIR/httpd.log"
+  if [ -f "$LOG_DIR/httpd.log" ]; then
+    log "--- httpd.log ---"
+    if command_exists tail; then
+      tail -n 40 "$LOG_DIR/httpd.log"
+    else
+      cat "$LOG_DIR/httpd.log"
+    fi
+    log "--- end httpd.log ---"
+  fi
+}
+
+find_httpd >/dev/null || fail "busybox httpd applet or compatible httpd command is required"
 
 assert_safe_init_target
 prepare_package
@@ -313,7 +350,10 @@ chmod +x "$INSTALL_DIR/uninstall.sh"
 
 write_env_file
 write_init_script
-sh "$INIT_SCRIPT" restart
+if ! sh "$INIT_SCRIPT" restart; then
+  show_service_log
+  fail "MihUI files were installed, but service did not start"
+fi
 
 log "MihUI installed"
 log "URL: http://<router-ip>:$SELECTED_PORT/"
