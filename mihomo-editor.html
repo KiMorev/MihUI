@@ -1759,7 +1759,7 @@ input.is-invalid {
           <button id="downloadButton" class="button" type="button" disabled>
             <span>Скачать</span>
           </button>
-          <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить WebMihomo через Mihomo /upgrade/ui">
+          <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить MihUI через локальный сервис">
             <span class="button-label">Обновить UI</span>
           </button>
           <button id="changesJumpButton" class="link-button" type="button" disabled hidden>
@@ -2182,7 +2182,7 @@ els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.copyButton.addEventListener('click', copyYaml);
-els.mihomoUiUpdateButton.addEventListener('click', updateMihomoUi);
+els.mihomoUiUpdateButton.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
@@ -5540,32 +5540,25 @@ async function copyYaml() {
   }, 1200);
 }
 
-async function updateMihomoUi() {
+async function updateMihui() {
   setMihomoUiUpdateButton(true, 'Обновление...');
 
   try {
     if (window.location?.protocol === 'file:') {
-      throw new Error('откройте страницу через Mihomo external-ui');
+      throw new Error('откройте страницу через MihUI на роутере');
     }
 
-    let response = await requestMihomoUiUpgrade(getStoredMihomoSecret());
-    if (response.status === 401 || response.status === 403) {
-      const secret = window.prompt('Secret Mihomo API') || '';
-      if (!secret.trim()) throw new Error('нужен secret Mihomo API');
-      setStoredMihomoSecret(secret.trim());
-      response = await requestMihomoUiUpgrade(secret.trim());
-    }
-
+    const response = await requestMihuiUpdate();
     if (!response.ok) {
-      throw new Error(await readMihomoUiUpdateError(response));
+      throw new Error(await readMihuiUpdateError(response));
     }
 
-    showMessage('Обновление UI запущено через Mihomo. Если версия уже скачалась, обновите страницу через несколько секунд.');
+    showMessage('Обновление MihUI запущено. Страница обновится через несколько секунд.');
     window.setTimeout(() => {
       try {
         window.location.reload();
       } catch (error) {
-        // Page reload is only a convenience after Mihomo finishes updating assets.
+        // Page reload is only a convenience after MihUI finishes updating assets.
       }
     }, 4000);
   } catch (error) {
@@ -5575,17 +5568,14 @@ async function updateMihomoUi() {
   }
 }
 
-async function requestMihomoUiUpgrade(secret) {
-  const headers = {};
-  if (secret) headers.Authorization = `Bearer ${secret}`;
-  return fetch('/upgrade/ui', {
+async function requestMihuiUpdate() {
+  return fetch('/cgi-bin/mihui-update', {
     method: 'POST',
-    headers,
     cache: 'no-store',
   });
 }
 
-async function readMihomoUiUpdateError(response) {
+async function readMihuiUpdateError(response) {
   const fallback = `HTTP ${response.status}`;
   const text = await response.text().catch(() => '');
   if (!text) return fallback;
@@ -5603,23 +5593,6 @@ function setMihomoUiUpdateButton(disabled, text) {
   const label = els.mihomoUiUpdateButton.querySelector('.button-label');
   if (label) label.textContent = text;
 }
-
-function getStoredMihomoSecret() {
-  try {
-    return window.sessionStorage.getItem('webmihomo.mihomoSecret') || '';
-  } catch (error) {
-    return '';
-  }
-}
-
-function setStoredMihomoSecret(secret) {
-  try {
-    window.sessionStorage.setItem('webmihomo.mihomoSecret', secret);
-  } catch (error) {
-    // Secret storage is optional; the update request can still use this value once.
-  }
-}
-
     </script>
   </body>
 </html>

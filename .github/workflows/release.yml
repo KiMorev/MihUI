@@ -15,15 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Pack external UI
+      - name: Pack UI
         run: |
-          mkdir -p dist
-          cp index.html styles.css app.js dist/
-          cp mihomo-editor.html dist/
-          cd dist
-          zip -r ../webmihomo-ui.zip .
-          cd ..
+          mkdir -p dist/external-ui dist/router/www dist/router/cgi-bin
+          cp index.html styles.css app.js mihomo-editor.html dist/external-ui/
+          cd dist/external-ui
+          zip -r ../../webmihomo-ui.zip .
+          cd ../..
+          cp index.html styles.css app.js mihomo-editor.html dist/router/www/
+          cp router/cgi-bin/mihui-update dist/router/cgi-bin/
+          cp router/install.sh router/uninstall.sh dist/router/
+          chmod +x dist/router/install.sh dist/router/uninstall.sh dist/router/cgi-bin/mihui-update
+          cd dist/router
+          zip -r ../../mihui-router.zip .
+          cd ../..
           sha256sum webmihomo-ui.zip > webmihomo-ui.zip.sha256
+          sha256sum mihui-router.zip > mihui-router.zip.sha256
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -31,3 +38,5 @@ jobs:
           files: |
             webmihomo-ui.zip
             webmihomo-ui.zip.sha256
+            mihui-router.zip
+            mihui-router.zip.sha256

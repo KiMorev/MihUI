@@ -1,0 +1,122 @@
+#!/bin/sh
+set -eu
+
+APP_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
+WWW_DIR="$APP_DIR/www"
+ENV_FILE="$APP_DIR/mihui.env"
+RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.zip}"
+TMP_DIR=""
+LOCK_DIR="${TMPDIR:-/tmp}/mihui-update.lock"
+
+[ -f /opt/etc/profile ] && . /opt/etc/profile
+[ -f "$ENV_FILE" ] && . "$ENV_FILE"
+[ -n "${MIHUI_RELEASE_URL:-}" ] && RELEASE_URL="$MIHUI_RELEASE_URL"
+
+respond_json() {
+  status="$1"
+  body="$2"
+  printf 'Status: %s\r\n' "$status"
+  printf 'Content-Type: application/json\r\n'
+  printf 'Cache-Control: no-store\r\n'
+  printf '\r\n'
+  printf '%s\n' "$body"
+  exit 0
+}
+
+fail() {
+  respond_json "500 Internal Server Error" "{\"ok\":false,\"message\":\"$1\"}"
+}
+
+cleanup() {
+  if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+    rm -rf "$TMP_DIR"
+  fi
+  if [ -d "$LOCK_DIR" ]; then
+    rmdir "$LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+trap cleanup EXIT
+
+command_exists() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+make_tmp_dir() {
+  mktemp -d "${TMPDIR:-/tmp}/mihui-update.XXXXXX" 2>/dev/null || {
+    local_dir="${TMPDIR:-/tmp}/mihui-update.$$"
+    rm -rf "$local_dir"
+    mkdir -p "$local_dir"
+    printf '%s\n' "$local_dir"
+  }
+}
+
+download_file() {
+  url="$1"
+  target="$2"
+
+  if command_exists curl; then
+    curl -fL --connect-timeout 20 -o "$target" "$url" >/dev/null 2>&1
+    return
+  fi
+
+  if command_exists wget; then
+    wget -O "$target" "$url" >/dev/null 2>&1
+    return
+  fi
+
+  return 1
+}
+
+extract_zip() {
+  archive="$1"
+  target="$2"
+  mkdir -p "$target"
+
+  if command_exists unzip; then
+    unzip -q "$archive" -d "$target" >/dev/null 2>&1
+    return
+  fi
+
+  if command_exists busybox; then
+    busybox unzip -q "$archive" -d "$target" >/dev/null 2>&1
+    return
+  fi
+
+  return 1
+}
+
+if [ "${REQUEST_METHOD:-POST}" != "POST" ]; then
+  respond_json "405 Method Not Allowed" '{"ok":false,"message":"POST required"}'
+fi
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  respond_json "409 Conflict" '{"ok":false,"message":"update already running"}'
+fi
+
+TMP_DIR=$(make_tmp_dir)
+download_file "$RELEASE_URL" "$TMP_DIR/mihui-router.zip" || fail "download failed"
+extract_zip "$TMP_DIR/mihui-router.zip" "$TMP_DIR/package" || fail "extract failed"
+
+[ -f "$TMP_DIR/package/www/index.html" ] || fail "package does not contain www/index.html"
+[ -f "$TMP_DIR/package/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
+
+NEW_WWW="$APP_DIR/www.new.$$"
+OLD_WWW="$APP_DIR/www.old.$$"
+
+rm -rf "$NEW_WWW" "$OLD_WWW"
+mkdir -p "$NEW_WWW/cgi-bin"
+cp -R "$TMP_DIR/package/www/." "$NEW_WWW/" || fail "copy www failed"
+cp -R "$TMP_DIR/package/cgi-bin/." "$NEW_WWW/cgi-bin/" || fail "copy cgi failed"
+chmod +x "$NEW_WWW/cgi-bin/mihui-update"
+
+if [ -f "$TMP_DIR/package/uninstall.sh" ]; then
+  cp "$TMP_DIR/package/uninstall.sh" "$APP_DIR/uninstall.sh" || fail "copy uninstall failed"
+  chmod +x "$APP_DIR/uninstall.sh"
+fi
+
+[ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
+mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"
+rm -rf "$OLD_WWW"
+
+respond_json "200 OK" '{"ok":true,"message":"MihUI updated"}'
