@@ -4,6 +4,7 @@ set -eu
 APP_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
 WWW_DIR="$APP_DIR/www"
 ENV_FILE="$APP_DIR/mihui.env"
+INIT_SCRIPT="${MIHUI_INIT_SCRIPT:-/opt/etc/init.d/S99mihui}"
 RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz}"
 TMP_DIR=""
 LOCK_DIR="${TMPDIR:-/tmp}/mihui-update.lock"
@@ -136,5 +137,9 @@ cp "$TMP_DIR/package/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy s
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
 mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"
 rm -rf "$OLD_WWW"
+
+if [ -x "$INIT_SCRIPT" ]; then
+  ( sleep 2; "$INIT_SCRIPT" restart >/dev/null 2>&1 ) &
+fi
 
 respond_json "200 OK" '{"ok":true,"message":"MihUI updated"}'
