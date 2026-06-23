@@ -13,7 +13,7 @@ PID_FILE="$RUN_DIR/mihui.pid"
 DEFAULT_PORT="${MIHUI_PORT:-9878}"
 PORT_RANGE_START=9879
 PORT_RANGE_END=9899
-RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.zip}"
+RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz}"
 PACKAGE_DIR=""
 TMP_DIR=""
 
@@ -84,22 +84,36 @@ download_file() {
   fail "curl or wget is required to download MihUI"
 }
 
-extract_zip() {
+extract_archive() {
   archive="$1"
   target="$2"
   mkdir -p "$target"
 
-  if command_exists unzip; then
-    unzip -q "$archive" -d "$target"
-    return
-  fi
+  case "$archive" in
+    *.tar.gz|*.tgz)
+      tar -xzf "$archive" -C "$target"
+      return
+      ;;
+    *.tar)
+      tar -xf "$archive" -C "$target"
+      return
+      ;;
+    *.zip)
+      if command_exists unzip; then
+        unzip -q "$archive" -d "$target"
+        return
+      fi
 
-  if command_exists busybox; then
-    busybox unzip -q "$archive" -d "$target"
-    return
-  fi
+      if command_exists busybox; then
+        busybox unzip -q "$archive" -d "$target"
+        return
+      fi
 
-  fail "unzip or busybox unzip is required"
+      fail "unzip or busybox unzip is required for zip archives"
+      ;;
+  esac
+
+  fail "unsupported archive format: $archive"
 }
 
 is_our_init_script() {
@@ -176,8 +190,10 @@ prepare_package() {
   fi
 
   TMP_DIR=$(make_tmp_dir)
-  download_file "$RELEASE_URL" "$TMP_DIR/mihui-router.zip"
-  extract_zip "$TMP_DIR/mihui-router.zip" "$TMP_DIR/package"
+  archive_name="${RELEASE_URL##*/}"
+  [ -n "$archive_name" ] || archive_name="mihui-router.tar.gz"
+  download_file "$RELEASE_URL" "$TMP_DIR/$archive_name"
+  extract_archive "$TMP_DIR/$archive_name" "$TMP_DIR/package"
   PACKAGE_DIR="$TMP_DIR/package"
 }
 

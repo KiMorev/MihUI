@@ -6,13 +6,14 @@
 
 MihUI ставится как отдельный локальный UI рядом с Mihomo и не занимает порт `9090`.
 По умолчанию используется порт `9878`; если он занят, установщик выберет свободный порт из диапазона `9879-9899`.
-На роутере нужны `busybox httpd` или совместимая команда `httpd`, `wget` или `curl`, а также `unzip`.
+На роутере нужны `busybox httpd` или совместимая команда `httpd`, `wget` или `curl`, а также `tar`.
 
 ```sh
 cd /tmp
-wget -O mihui-router.zip https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.zip
+wget -O mihui-router.tar.gz https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz
 rm -rf mihui-router
-unzip -q mihui-router.zip -d mihui-router
+mkdir -p mihui-router
+tar -xzf mihui-router.tar.gz -C mihui-router
 sh /tmp/mihui-router/install.sh
 ```
 
@@ -32,7 +33,7 @@ http://<router-ip>:9878/
 POST /cgi-bin/mihui-update
 ```
 
-Скрипт скачивает свежий `mihui-router.zip` из GitHub Releases и заменяет файлы UI в `/opt/etc/mihui`.
+Скрипт скачивает свежий `mihui-router.tar.gz` из GitHub Releases и заменяет файлы UI в `/opt/etc/mihui`.
 
 ## Удаление
 

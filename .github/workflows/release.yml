@@ -28,9 +28,11 @@ jobs:
           chmod +x dist/router/install.sh dist/router/uninstall.sh dist/router/cgi-bin/mihui-update
           cd dist/router
           zip -r ../../mihui-router.zip .
+          tar -czf ../../mihui-router.tar.gz .
           cd ../..
           sha256sum webmihomo-ui.zip > webmihomo-ui.zip.sha256
           sha256sum mihui-router.zip > mihui-router.zip.sha256
+          sha256sum mihui-router.tar.gz > mihui-router.tar.gz.sha256
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -40,3 +42,5 @@ jobs:
             webmihomo-ui.zip.sha256
             mihui-router.zip
             mihui-router.zip.sha256
+            mihui-router.tar.gz
+            mihui-router.tar.gz.sha256

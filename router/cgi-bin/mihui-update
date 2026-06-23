@@ -4,7 +4,7 @@ set -eu
 APP_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
 WWW_DIR="$APP_DIR/www"
 ENV_FILE="$APP_DIR/mihui.env"
-RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.zip}"
+RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz}"
 TMP_DIR=""
 LOCK_DIR="${TMPDIR:-/tmp}/mihui-update.lock"
 
@@ -68,20 +68,32 @@ download_file() {
   return 1
 }
 
-extract_zip() {
+extract_archive() {
   archive="$1"
   target="$2"
   mkdir -p "$target"
 
-  if command_exists unzip; then
-    unzip -q "$archive" -d "$target" >/dev/null 2>&1
-    return
-  fi
+  case "$archive" in
+    *.tar.gz|*.tgz)
+      tar -xzf "$archive" -C "$target" >/dev/null 2>&1
+      return
+      ;;
+    *.tar)
+      tar -xf "$archive" -C "$target" >/dev/null 2>&1
+      return
+      ;;
+    *.zip)
+      if command_exists unzip; then
+        unzip -q "$archive" -d "$target" >/dev/null 2>&1
+        return
+      fi
 
-  if command_exists busybox; then
-    busybox unzip -q "$archive" -d "$target" >/dev/null 2>&1
-    return
-  fi
+      if command_exists busybox; then
+        busybox unzip -q "$archive" -d "$target" >/dev/null 2>&1
+        return
+      fi
+      ;;
+  esac
 
   return 1
 }
@@ -95,8 +107,10 @@ if ! mkdir "$LOCK_DIR" 2>/dev/null; then
 fi
 
 TMP_DIR=$(make_tmp_dir)
-download_file "$RELEASE_URL" "$TMP_DIR/mihui-router.zip" || fail "download failed"
-extract_zip "$TMP_DIR/mihui-router.zip" "$TMP_DIR/package" || fail "extract failed"
+archive_name="${RELEASE_URL##*/}"
+[ -n "$archive_name" ] || archive_name="mihui-router.tar.gz"
+download_file "$RELEASE_URL" "$TMP_DIR/$archive_name" || fail "download failed"
+extract_archive "$TMP_DIR/$archive_name" "$TMP_DIR/package" || fail "extract failed"
 
 [ -f "$TMP_DIR/package/www/index.html" ] || fail "package does not contain www/index.html"
 [ -f "$TMP_DIR/package/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
