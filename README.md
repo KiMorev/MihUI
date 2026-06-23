@@ -27,13 +27,32 @@ http://<router-ip>:9878/
 
 ## Обновление
 
-Кнопка `Обновить UI` вызывает локальный endpoint MihUI:
+Кнопка `Обновить UI` проверяет свежий релиз и запускает обновление через локальный API MihUI.
 
 ```text
-POST /cgi-bin/mihui-update
+POST /api/update/start
 ```
 
 Скрипт скачивает свежий `mihui-router.tar.gz` из GitHub Releases и заменяет файлы UI в `/opt/etc/mihui`.
+
+## Конфиг Mihomo
+
+По умолчанию MihUI читает и сохраняет:
+
+```text
+/opt/etc/mihomo/config.yaml
+```
+
+После сохранения MihUI пробует перезагрузить Mihomo через `http://127.0.0.1:9090`.
+Переопределения можно задать в `/opt/etc/mihui/mihui.env`:
+
+```sh
+MIHUI_CONFIG_PATH="/opt/etc/mihomo/config.yaml"
+MIHUI_MIHOMO_API="http://127.0.0.1:9090"
+MIHUI_MIHOMO_SECRET=""
+```
+
+Перед каждым сохранением создается бэкап, хранятся последние 5.
 
 ## Удаление
 

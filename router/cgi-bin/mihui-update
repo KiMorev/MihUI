@@ -131,6 +131,7 @@ if [ -f "$TMP_DIR/package/uninstall.sh" ]; then
 fi
 
 cp "$TMP_DIR/package/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy server failed"
+[ -f "$TMP_DIR/package/VERSION" ] && cp "$TMP_DIR/package/VERSION" "$APP_DIR/VERSION"
 
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
 mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"

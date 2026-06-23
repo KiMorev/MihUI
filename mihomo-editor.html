@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="utf-8" />
@@ -92,6 +92,42 @@ h2 {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.file-tools {
+  position: relative;
+}
+
+.file-tools summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+
+.file-tools summary::-webkit-details-marker {
+  display: none;
+}
+
+.file-tools-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  min-width: 150px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
 }
 
 .button,
@@ -251,6 +287,51 @@ input[type='file'] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 12px 0;
+}
+
+.router-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.router-panel.hidden {
+  display: none;
+}
+
+.router-panel-row,
+.ui-links,
+.backup-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.router-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ui-links a {
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.backup-select {
+  min-height: 34px;
+  max-width: 230px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
 }
 
 .metric {
@@ -1741,7 +1822,6 @@ input.is-invalid {
     grid-template-columns: 1fr;
   }
 }
-
     </style>
   </head>
   <body>
@@ -1752,13 +1832,24 @@ input.is-invalid {
           <p id="fileMeta">Конфигурация не загружена</p>
         </div>
         <div class="actions">
-          <label class="button primary">
-            <span>Загрузить</span>
-            <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
-          </label>
-          <button id="downloadButton" class="button" type="button" disabled>
-            <span>Скачать</span>
+          <button id="routerLoadButton" class="button" type="button">
+            <span>Открыть конфиг</span>
           </button>
+          <button id="routerSaveButton" class="button primary" type="button" disabled>
+            <span>Сохранить в ядро</span>
+          </button>
+          <details class="file-tools">
+            <summary>Файл</summary>
+            <div class="file-tools-menu">
+              <label class="button compact">
+                <span>Загрузить</span>
+                <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
+              </label>
+              <button id="downloadButton" class="button compact" type="button" disabled>
+                <span>Скачать</span>
+              </button>
+            </div>
+          </details>
           <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить MihUI через локальный сервис">
             <span class="button-label">Обновить UI</span>
           </button>
@@ -1786,6 +1877,20 @@ input.is-invalid {
       </section>
 
       <section id="messageBox" class="message hidden"></section>
+
+      <section id="routerPanel" class="router-panel hidden" aria-live="polite">
+        <div class="router-panel-row">
+          <span id="routerStatus" class="router-status"></span>
+          <span id="updateHint" class="router-status"></span>
+        </div>
+        <div id="uiLinks" class="ui-links"></div>
+        <div class="backup-tools">
+          <select id="backupSelect" class="backup-select" disabled></select>
+          <button id="restoreBackupButton" class="button compact" type="button" disabled>
+            <span>Восстановить</span>
+          </button>
+        </div>
+      </section>
 
       <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
 
@@ -2131,9 +2236,20 @@ const state = {
   isEditingConfiguration: false,
   selectedProviderName: '',
   selectedRouteScenarioId: '',
+  routerMode: false,
+  routerConfigPath: '',
+  updatePollTimer: 0,
 };
 
 const els = {
+  routerLoadButton: document.querySelector('#routerLoadButton'),
+  routerSaveButton: document.querySelector('#routerSaveButton'),
+  routerPanel: document.querySelector('#routerPanel'),
+  routerStatus: document.querySelector('#routerStatus'),
+  updateHint: document.querySelector('#updateHint'),
+  uiLinks: document.querySelector('#uiLinks'),
+  backupSelect: document.querySelector('#backupSelect'),
+  restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
@@ -2170,6 +2286,9 @@ const els = {
   providerTemplate: document.querySelector('#providerTemplate'),
 };
 
+els.routerLoadButton.addEventListener('click', loadRouterConfig);
+els.routerSaveButton.addEventListener('click', saveRouterConfig);
+els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
@@ -2187,6 +2306,7 @@ els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
+initRouterMode();
 
 function handleFileSelect(event) {
   const [file] = event.target.files;
@@ -2194,12 +2314,199 @@ function handleFileSelect(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
+    state.routerMode = false;
+    state.routerConfigPath = '';
     state.fileName = file.name;
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
     parseAndRender();
   };
   reader.readAsText(file);
+}
+
+function initRouterMode() {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    return;
+  }
+
+  loadRouterMetadata();
+  loadRouterConfig({ silent: true });
+  checkMihuiUpdate();
+}
+
+async function loadRouterConfig(options = {}) {
+  if (typeof fetch !== 'function') return;
+  setRouterBusy(true, 'Открытие...');
+
+  try {
+    const data = await apiJson('/api/config');
+    state.routerMode = true;
+    state.routerConfigPath = data.path || '';
+    state.fileName = state.routerConfigPath || 'router config';
+    state.originalText = String(data.text || '');
+    state.isEditingConfiguration = false;
+    parseAndRender();
+    await loadBackups();
+    if (!options.silent) showMessage(`Открыт конфиг: ${state.routerConfigPath}`);
+  } catch (error) {
+    if (!options.silent) showMessage(`Не удалось открыть конфиг роутера: ${error?.message || error}`);
+    renderRouterControls();
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function saveRouterConfig() {
+  if (!state.outputText) return;
+  setRouterBusy(true, 'Сохранение...');
+
+  try {
+    const data = await apiJson('/api/config/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: state.outputText }),
+    });
+    state.routerMode = true;
+    state.routerConfigPath = data.path || state.routerConfigPath;
+    state.fileName = state.routerConfigPath;
+    state.originalText = state.outputText;
+    parseAndRender();
+    await loadBackups();
+
+    if (data.reload?.ok) {
+      showMessage('Конфиг сохранен, Mihomo перезагружен.');
+    } else {
+      showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
+    }
+  } catch (error) {
+    showMessage(`Не удалось сохранить конфиг: ${error?.message || error}`);
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function restoreSelectedBackup() {
+  const name = els.backupSelect.value;
+  if (!name) return;
+  setRouterBusy(true, 'Восстановление...');
+
+  try {
+    const data = await apiJson('/api/backups/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    await loadRouterConfig({ silent: true });
+    showMessage(data.reload?.ok ? 'Бэкап восстановлен, Mihomo перезагружен.' : 'Бэкап восстановлен, reload Mihomo не прошел.');
+  } catch (error) {
+    showMessage(`Не удалось восстановить бэкап: ${error?.message || error}`);
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function loadBackups() {
+  try {
+    const data = await apiJson('/api/backups');
+    renderBackups(data.backups || []);
+  } catch (error) {
+    renderBackups([]);
+  }
+}
+
+async function loadRouterMetadata() {
+  try {
+    const data = await apiJson('/api/router/uis');
+    renderUiLinks(data.items || []);
+  } catch (error) {
+    renderUiLinks([]);
+  }
+}
+
+async function checkMihuiUpdate() {
+  try {
+    const data = await apiJson('/api/update/check');
+    if (data.updateAvailable) {
+      els.updateHint.textContent = `Доступно ${data.latest}`;
+      setMihomoUiUpdateButton(false, `Обновить до ${data.latest}`);
+    } else if (data.version) {
+      els.updateHint.textContent = `MihUI ${data.version}`;
+    }
+  } catch (error) {
+    els.updateHint.textContent = '';
+  }
+}
+
+function renderRouterControls() {
+  els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
+  els.routerSaveButton.disabled = !state.outputText || !state.routerMode;
+  els.routerStatus.textContent = state.routerMode && state.routerConfigPath ? state.routerConfigPath : 'Роутерный режим';
+}
+
+function renderBackups(backups) {
+  els.backupSelect.textContent = '';
+  if (!backups.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Бэкапов нет';
+    els.backupSelect.append(option);
+    els.backupSelect.disabled = true;
+    els.restoreBackupButton.disabled = true;
+    return;
+  }
+
+  backups.forEach((backup) => {
+    const option = document.createElement('option');
+    option.value = backup.name;
+    option.textContent = backup.name;
+    els.backupSelect.append(option);
+  });
+  els.backupSelect.disabled = false;
+  els.restoreBackupButton.disabled = false;
+}
+
+function renderUiLinks(items) {
+  els.uiLinks.textContent = '';
+  items.forEach((item) => {
+    if (item.localUrl) {
+      const localLink = document.createElement('a');
+      localLink.href = item.localUrl;
+      localLink.textContent = item.name;
+      els.uiLinks.append(localLink);
+    }
+    if (item.githubUrl) {
+      const githubLink = document.createElement('a');
+      githubLink.href = item.githubUrl;
+      githubLink.target = '_blank';
+      githubLink.rel = 'noreferrer';
+      githubLink.textContent = 'GitHub';
+      els.uiLinks.append(githubLink);
+    }
+  });
+}
+
+function setRouterBusy(isBusy, text) {
+  els.routerLoadButton.disabled = isBusy;
+  const loadLabel = els.routerLoadButton.querySelector('span');
+  if (loadLabel) loadLabel.textContent = text;
+  els.routerSaveButton.disabled = isBusy || !state.outputText || !state.routerMode;
+}
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, { cache: 'no-store', ...options });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(text);
+    }
+  }
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.message || `HTTP ${response.status}`);
+  }
+  return data;
 }
 
 function parseAndRender() {
@@ -2248,6 +2555,7 @@ function render() {
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
   els.downloadButton.disabled = !state.outputText;
+  renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
   els.addProviderButton.title = state.originalText ? 'Добавить подписку' : 'Сначала загрузите конфигурацию';
   els.intervalToolsButton.disabled = !state.originalText;
@@ -5541,50 +5849,57 @@ async function copyYaml() {
 }
 
 async function updateMihui() {
-  setMihomoUiUpdateButton(true, 'Обновление...');
+  setMihomoUiUpdateButton(true, 'Запуск...');
 
   try {
     if (window.location?.protocol === 'file:') {
       throw new Error('откройте страницу через MihUI на роутере');
     }
 
-    const response = await requestMihuiUpdate();
-    if (!response.ok) {
-      throw new Error(await readMihuiUpdateError(response));
-    }
-
-    showMessage('Обновление MihUI запущено. Страница обновится через несколько секунд.');
-    window.setTimeout(() => {
-      try {
-        window.location.reload();
-      } catch (error) {
-        // Page reload is only a convenience after MihUI finishes updating assets.
-      }
-    }, 4000);
+    await apiJson('/api/update/start', { method: 'POST' });
+    pollMihuiUpdateStatus();
   } catch (error) {
     showMessage(`Не удалось обновить UI: ${error?.message || error}`);
-  } finally {
     setMihomoUiUpdateButton(false, 'Обновить UI');
   }
 }
 
-async function requestMihuiUpdate() {
-  return fetch('/cgi-bin/mihui-update', {
-    method: 'POST',
-    cache: 'no-store',
-  });
-}
-
-async function readMihuiUpdateError(response) {
-  const fallback = `HTTP ${response.status}`;
-  const text = await response.text().catch(() => '');
-  if (!text) return fallback;
+async function pollMihuiUpdateStatus() {
+  if (state.updatePollTimer) {
+    window.clearTimeout(state.updatePollTimer);
+    state.updatePollTimer = 0;
+  }
 
   try {
-    const data = JSON.parse(text);
-    return data.message || data.error || fallback;
+    const status = await apiJson('/api/update/status');
+    const elapsed = status.startedAt ? Math.max(1, Math.round(Date.now() / 1000 - status.startedAt)) : 1;
+
+    if (status.running) {
+      setMihomoUiUpdateButton(true, `Обновление ${elapsed}с`);
+      showMessage('MihUI обновляется: скачивание, распаковка, замена файлов.');
+      state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
+      return;
+    }
+
+    if (status.ok) {
+      setMihomoUiUpdateButton(true, 'Готово');
+      showMessage('MihUI обновлен. Страница обновится через несколько секунд.');
+      window.setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch (error) {
+          // Page reload is only a convenience after MihUI finishes updating assets.
+        }
+      }, 2500);
+      return;
+    }
+
+    throw new Error(status.message || 'обновление не выполнено');
   } catch (error) {
-    return text;
+    state.updatePollTimer = 0;
+    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+  } finally {
+    if (!state.updatePollTimer) setMihomoUiUpdateButton(false, 'Обновить UI');
   }
 }
 
@@ -5596,4 +5911,3 @@ function setMihomoUiUpdateButton(disabled, text) {
     </script>
   </body>
 </html>
-

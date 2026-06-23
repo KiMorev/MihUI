@@ -87,6 +87,42 @@ h2 {
   justify-content: flex-end;
 }
 
+.file-tools {
+  position: relative;
+}
+
+.file-tools summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+
+.file-tools summary::-webkit-details-marker {
+  display: none;
+}
+
+.file-tools-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 8px;
+  min-width: 150px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
 .button,
 .icon-button {
   border: 1px solid var(--line-strong);
@@ -244,6 +280,51 @@ input[type='file'] {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 12px 0;
+}
+
+.router-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.router-panel.hidden {
+  display: none;
+}
+
+.router-panel-row,
+.ui-links,
+.backup-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.router-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ui-links a {
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.backup-select {
+  min-height: 34px;
+  max-width: 230px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
 }
 
 .metric {

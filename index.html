@@ -14,13 +14,24 @@
           <p id="fileMeta">Конфигурация не загружена</p>
         </div>
         <div class="actions">
-          <label class="button primary">
-            <span>Загрузить</span>
-            <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
-          </label>
-          <button id="downloadButton" class="button" type="button" disabled>
-            <span>Скачать</span>
+          <button id="routerLoadButton" class="button" type="button">
+            <span>Открыть конфиг</span>
           </button>
+          <button id="routerSaveButton" class="button primary" type="button" disabled>
+            <span>Сохранить в ядро</span>
+          </button>
+          <details class="file-tools">
+            <summary>Файл</summary>
+            <div class="file-tools-menu">
+              <label class="button compact">
+                <span>Загрузить</span>
+                <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
+              </label>
+              <button id="downloadButton" class="button compact" type="button" disabled>
+                <span>Скачать</span>
+              </button>
+            </div>
+          </details>
           <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить MihUI через локальный сервис">
             <span class="button-label">Обновить UI</span>
           </button>
@@ -48,6 +59,20 @@
       </section>
 
       <section id="messageBox" class="message hidden"></section>
+
+      <section id="routerPanel" class="router-panel hidden" aria-live="polite">
+        <div class="router-panel-row">
+          <span id="routerStatus" class="router-status"></span>
+          <span id="updateHint" class="router-status"></span>
+        </div>
+        <div id="uiLinks" class="ui-links"></div>
+        <div class="backup-tools">
+          <select id="backupSelect" class="backup-select" disabled></select>
+          <button id="restoreBackupButton" class="button compact" type="button" disabled>
+            <span>Восстановить</span>
+          </button>
+        </div>
+      </section>
 
       <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
 

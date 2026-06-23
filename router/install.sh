@@ -363,6 +363,7 @@ cp -R "$PACKAGE_DIR/www/." "$INSTALL_DIR/www/"
 cp -R "$PACKAGE_DIR/cgi-bin/." "$INSTALL_DIR/www/cgi-bin/"
 cp "$PACKAGE_DIR/mihui_server.py" "$INSTALL_DIR/mihui_server.py"
 cp "$PACKAGE_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+[ -f "$PACKAGE_DIR/VERSION" ] && cp "$PACKAGE_DIR/VERSION" "$INSTALL_DIR/VERSION"
 chmod +x "$INSTALL_DIR/www/cgi-bin/mihui-update"
 chmod +x "$INSTALL_DIR/uninstall.sh"
 

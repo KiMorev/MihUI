@@ -128,9 +128,20 @@ const state = {
   isEditingConfiguration: false,
   selectedProviderName: '',
   selectedRouteScenarioId: '',
+  routerMode: false,
+  routerConfigPath: '',
+  updatePollTimer: 0,
 };
 
 const els = {
+  routerLoadButton: document.querySelector('#routerLoadButton'),
+  routerSaveButton: document.querySelector('#routerSaveButton'),
+  routerPanel: document.querySelector('#routerPanel'),
+  routerStatus: document.querySelector('#routerStatus'),
+  updateHint: document.querySelector('#updateHint'),
+  uiLinks: document.querySelector('#uiLinks'),
+  backupSelect: document.querySelector('#backupSelect'),
+  restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
@@ -167,6 +178,9 @@ const els = {
   providerTemplate: document.querySelector('#providerTemplate'),
 };
 
+els.routerLoadButton.addEventListener('click', loadRouterConfig);
+els.routerSaveButton.addEventListener('click', saveRouterConfig);
+els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
@@ -184,6 +198,7 @@ els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
+initRouterMode();
 
 function handleFileSelect(event) {
   const [file] = event.target.files;
@@ -191,12 +206,199 @@ function handleFileSelect(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
+    state.routerMode = false;
+    state.routerConfigPath = '';
     state.fileName = file.name;
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
     parseAndRender();
   };
   reader.readAsText(file);
+}
+
+function initRouterMode() {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    return;
+  }
+
+  loadRouterMetadata();
+  loadRouterConfig({ silent: true });
+  checkMihuiUpdate();
+}
+
+async function loadRouterConfig(options = {}) {
+  if (typeof fetch !== 'function') return;
+  setRouterBusy(true, 'Открытие...');
+
+  try {
+    const data = await apiJson('/api/config');
+    state.routerMode = true;
+    state.routerConfigPath = data.path || '';
+    state.fileName = state.routerConfigPath || 'router config';
+    state.originalText = String(data.text || '');
+    state.isEditingConfiguration = false;
+    parseAndRender();
+    await loadBackups();
+    if (!options.silent) showMessage(`Открыт конфиг: ${state.routerConfigPath}`);
+  } catch (error) {
+    if (!options.silent) showMessage(`Не удалось открыть конфиг роутера: ${error?.message || error}`);
+    renderRouterControls();
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function saveRouterConfig() {
+  if (!state.outputText) return;
+  setRouterBusy(true, 'Сохранение...');
+
+  try {
+    const data = await apiJson('/api/config/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: state.outputText }),
+    });
+    state.routerMode = true;
+    state.routerConfigPath = data.path || state.routerConfigPath;
+    state.fileName = state.routerConfigPath;
+    state.originalText = state.outputText;
+    parseAndRender();
+    await loadBackups();
+
+    if (data.reload?.ok) {
+      showMessage('Конфиг сохранен, Mihomo перезагружен.');
+    } else {
+      showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
+    }
+  } catch (error) {
+    showMessage(`Не удалось сохранить конфиг: ${error?.message || error}`);
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function restoreSelectedBackup() {
+  const name = els.backupSelect.value;
+  if (!name) return;
+  setRouterBusy(true, 'Восстановление...');
+
+  try {
+    const data = await apiJson('/api/backups/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    await loadRouterConfig({ silent: true });
+    showMessage(data.reload?.ok ? 'Бэкап восстановлен, Mihomo перезагружен.' : 'Бэкап восстановлен, reload Mihomo не прошел.');
+  } catch (error) {
+    showMessage(`Не удалось восстановить бэкап: ${error?.message || error}`);
+  } finally {
+    setRouterBusy(false, 'Открыть конфиг');
+  }
+}
+
+async function loadBackups() {
+  try {
+    const data = await apiJson('/api/backups');
+    renderBackups(data.backups || []);
+  } catch (error) {
+    renderBackups([]);
+  }
+}
+
+async function loadRouterMetadata() {
+  try {
+    const data = await apiJson('/api/router/uis');
+    renderUiLinks(data.items || []);
+  } catch (error) {
+    renderUiLinks([]);
+  }
+}
+
+async function checkMihuiUpdate() {
+  try {
+    const data = await apiJson('/api/update/check');
+    if (data.updateAvailable) {
+      els.updateHint.textContent = `Доступно ${data.latest}`;
+      setMihomoUiUpdateButton(false, `Обновить до ${data.latest}`);
+    } else if (data.version) {
+      els.updateHint.textContent = `MihUI ${data.version}`;
+    }
+  } catch (error) {
+    els.updateHint.textContent = '';
+  }
+}
+
+function renderRouterControls() {
+  els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
+  els.routerSaveButton.disabled = !state.outputText || !state.routerMode;
+  els.routerStatus.textContent = state.routerMode && state.routerConfigPath ? state.routerConfigPath : 'Роутерный режим';
+}
+
+function renderBackups(backups) {
+  els.backupSelect.textContent = '';
+  if (!backups.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Бэкапов нет';
+    els.backupSelect.append(option);
+    els.backupSelect.disabled = true;
+    els.restoreBackupButton.disabled = true;
+    return;
+  }
+
+  backups.forEach((backup) => {
+    const option = document.createElement('option');
+    option.value = backup.name;
+    option.textContent = backup.name;
+    els.backupSelect.append(option);
+  });
+  els.backupSelect.disabled = false;
+  els.restoreBackupButton.disabled = false;
+}
+
+function renderUiLinks(items) {
+  els.uiLinks.textContent = '';
+  items.forEach((item) => {
+    if (item.localUrl) {
+      const localLink = document.createElement('a');
+      localLink.href = item.localUrl;
+      localLink.textContent = item.name;
+      els.uiLinks.append(localLink);
+    }
+    if (item.githubUrl) {
+      const githubLink = document.createElement('a');
+      githubLink.href = item.githubUrl;
+      githubLink.target = '_blank';
+      githubLink.rel = 'noreferrer';
+      githubLink.textContent = 'GitHub';
+      els.uiLinks.append(githubLink);
+    }
+  });
+}
+
+function setRouterBusy(isBusy, text) {
+  els.routerLoadButton.disabled = isBusy;
+  const loadLabel = els.routerLoadButton.querySelector('span');
+  if (loadLabel) loadLabel.textContent = text;
+  els.routerSaveButton.disabled = isBusy || !state.outputText || !state.routerMode;
+}
+
+async function apiJson(url, options = {}) {
+  const response = await fetch(url, { cache: 'no-store', ...options });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(text);
+    }
+  }
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.message || `HTTP ${response.status}`);
+  }
+  return data;
 }
 
 function parseAndRender() {
@@ -245,6 +447,7 @@ function render() {
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
   els.downloadButton.disabled = !state.outputText;
+  renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
   els.addProviderButton.title = state.originalText ? 'Добавить подписку' : 'Сначала загрузите конфигурацию';
   els.intervalToolsButton.disabled = !state.originalText;
@@ -3538,50 +3741,57 @@ async function copyYaml() {
 }
 
 async function updateMihui() {
-  setMihomoUiUpdateButton(true, 'Обновление...');
+  setMihomoUiUpdateButton(true, 'Запуск...');
 
   try {
     if (window.location?.protocol === 'file:') {
       throw new Error('откройте страницу через MihUI на роутере');
     }
 
-    const response = await requestMihuiUpdate();
-    if (!response.ok) {
-      throw new Error(await readMihuiUpdateError(response));
-    }
-
-    showMessage('Обновление MihUI запущено. Страница обновится через несколько секунд.');
-    window.setTimeout(() => {
-      try {
-        window.location.reload();
-      } catch (error) {
-        // Page reload is only a convenience after MihUI finishes updating assets.
-      }
-    }, 4000);
+    await apiJson('/api/update/start', { method: 'POST' });
+    pollMihuiUpdateStatus();
   } catch (error) {
     showMessage(`Не удалось обновить UI: ${error?.message || error}`);
-  } finally {
     setMihomoUiUpdateButton(false, 'Обновить UI');
   }
 }
 
-async function requestMihuiUpdate() {
-  return fetch('/cgi-bin/mihui-update', {
-    method: 'POST',
-    cache: 'no-store',
-  });
-}
-
-async function readMihuiUpdateError(response) {
-  const fallback = `HTTP ${response.status}`;
-  const text = await response.text().catch(() => '');
-  if (!text) return fallback;
+async function pollMihuiUpdateStatus() {
+  if (state.updatePollTimer) {
+    window.clearTimeout(state.updatePollTimer);
+    state.updatePollTimer = 0;
+  }
 
   try {
-    const data = JSON.parse(text);
-    return data.message || data.error || fallback;
+    const status = await apiJson('/api/update/status');
+    const elapsed = status.startedAt ? Math.max(1, Math.round(Date.now() / 1000 - status.startedAt)) : 1;
+
+    if (status.running) {
+      setMihomoUiUpdateButton(true, `Обновление ${elapsed}с`);
+      showMessage('MihUI обновляется: скачивание, распаковка, замена файлов.');
+      state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
+      return;
+    }
+
+    if (status.ok) {
+      setMihomoUiUpdateButton(true, 'Готово');
+      showMessage('MihUI обновлен. Страница обновится через несколько секунд.');
+      window.setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch (error) {
+          // Page reload is only a convenience after MihUI finishes updating assets.
+        }
+      }, 2500);
+      return;
+    }
+
+    throw new Error(status.message || 'обновление не выполнено');
   } catch (error) {
-    return text;
+    state.updatePollTimer = 0;
+    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+  } finally {
+    if (!state.updatePollTimer) setMihomoUiUpdateButton(false, 'Обновить UI');
   }
 }
 

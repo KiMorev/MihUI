@@ -25,6 +25,7 @@ jobs:
           cp index.html styles.css app.js mihomo-editor.html dist/router/www/
           cp router/cgi-bin/mihui-update dist/router/cgi-bin/
           cp router/install.sh router/uninstall.sh router/mihui_server.py dist/router/
+          printf '%s\n' "$GITHUB_REF_NAME" > dist/router/VERSION
           chmod +x dist/router/install.sh dist/router/uninstall.sh dist/router/cgi-bin/mihui-update
           cd dist/router
           zip -r ../../mihui-router.zip .
