@@ -480,6 +480,31 @@ def snapshot_update_state():
         return dict(update_state)
 
 
+def initialize_update_state(app_dir):
+    version_file = app_dir / "VERSION"
+    try:
+        modified_at = int(version_file.stat().st_mtime)
+    except OSError:
+        return
+
+    if int(time.time()) - modified_at > 180:
+        return
+
+    version = read_version(app_dir)
+    message = f"MihUI updated to {version}" if version else "MihUI updated"
+    with update_lock:
+        update_state.update(
+            {
+                "running": False,
+                "ok": True,
+                "message": message,
+                "startedAt": None,
+                "finishedAt": modified_at,
+                "output": message,
+            }
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
@@ -489,6 +514,7 @@ def main():
 
     app_dir = Path(args.app_dir).resolve()
     www_dir = app_dir / "www"
+    initialize_update_state(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,

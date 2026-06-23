@@ -131,6 +131,9 @@ const state = {
   routerMode: false,
   routerConfigPath: '',
   updatePollTimer: 0,
+  mihuiUpdateStartedAt: 0,
+  mihuiUpdateAccepted: false,
+  mihuiUpdateReconnects: 0,
 };
 
 const els = {
@@ -3754,6 +3757,9 @@ async function copyYaml() {
 
 async function updateMihui() {
   setMihomoUiUpdateButton(true, 'Запуск...');
+  state.mihuiUpdateStartedAt = Date.now();
+  state.mihuiUpdateAccepted = false;
+  state.mihuiUpdateReconnects = 0;
 
   try {
     if (window.location?.protocol === 'file:') {
@@ -3761,14 +3767,18 @@ async function updateMihui() {
     }
 
     await apiJson('/api/update/start', { method: 'POST' });
+    state.mihuiUpdateAccepted = true;
     pollMihuiUpdateStatus();
   } catch (error) {
     showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    state.mihuiUpdateStartedAt = 0;
+    state.mihuiUpdateAccepted = false;
     setMihomoUiUpdateButton(false, 'Обновить UI');
   }
 }
 
 async function pollMihuiUpdateStatus() {
+  let keepButtonBusy = false;
   if (state.updatePollTimer) {
     window.clearTimeout(state.updatePollTimer);
     state.updatePollTimer = 0;
@@ -3776,16 +3786,17 @@ async function pollMihuiUpdateStatus() {
 
   try {
     const status = await apiJson('/api/update/status');
-    const elapsed = status.startedAt ? Math.max(1, Math.round(Date.now() / 1000 - status.startedAt)) : 1;
+    state.mihuiUpdateReconnects = 0;
 
     if (status.running) {
-      setMihomoUiUpdateButton(true, `Обновление ${elapsed}с`);
+      setMihomoUiUpdateButton(true, 'Обновление...');
       showMessage('MihUI обновляется: скачивание, распаковка, замена файлов.');
       state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
       return;
     }
 
     if (status.ok) {
+      keepButtonBusy = true;
       setMihomoUiUpdateButton(true, 'Готово');
       showMessage('MihUI обновлен. Страница обновится через несколько секунд.');
       window.setTimeout(() => {
@@ -3798,13 +3809,41 @@ async function pollMihuiUpdateStatus() {
       return;
     }
 
+    if (state.mihuiUpdateAccepted && status.ok === null && status.message === 'idle') {
+      keepButtonBusy = true;
+      setMihomoUiUpdateButton(true, 'Готово');
+      showMessage('MihUI перезапущен. Страница обновится через несколько секунд.');
+      window.setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch (error) {
+          // Page reload is only a convenience after MihUI finishes updating assets.
+        }
+      }, 1500);
+      return;
+    }
+
     throw new Error(status.message || 'обновление не выполнено');
   } catch (error) {
+    if (state.mihuiUpdateAccepted && isFetchFailure(error) && state.mihuiUpdateReconnects < 30) {
+      state.mihuiUpdateReconnects += 1;
+      setMihomoUiUpdateButton(true, 'Перезапуск...');
+      showMessage('MihUI обновляется: локальный сервер перезапускается.');
+      state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1500);
+      return;
+    }
+
     state.updatePollTimer = 0;
     showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    state.mihuiUpdateStartedAt = 0;
+    state.mihuiUpdateAccepted = false;
   } finally {
-    if (!state.updatePollTimer) setMihomoUiUpdateButton(false, 'Обновить UI');
+    if (!state.updatePollTimer && !keepButtonBusy) setMihomoUiUpdateButton(false, 'Обновить UI');
   }
+}
+
+function isFetchFailure(error) {
+  return error instanceof TypeError || String(error?.message || error).toLowerCase().includes('failed to fetch');
 }
 
 function setMihomoUiUpdateButton(disabled, text) {
