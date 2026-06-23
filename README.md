@@ -9,7 +9,7 @@
 ```yaml
 external-controller: 0.0.0.0:9090
 external-ui: ./ui
-external-ui-url: "https://github.com/OWNER/REPO/releases/latest/download/webmihomo-ui.zip"
+external-ui-url: "https://github.com/KiMorev/MihUI/releases/latest/download/webmihomo-ui.zip"
 ```
 
 После этого кнопка `Обновить UI` вызывает штатный Mihomo API:
