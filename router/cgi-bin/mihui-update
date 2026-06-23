@@ -114,6 +114,7 @@ extract_archive "$TMP_DIR/$archive_name" "$TMP_DIR/package" || fail "extract fai
 
 [ -f "$TMP_DIR/package/www/index.html" ] || fail "package does not contain www/index.html"
 [ -f "$TMP_DIR/package/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
+[ -f "$TMP_DIR/package/mihui_server.py" ] || fail "package does not contain mihui_server.py"
 
 NEW_WWW="$APP_DIR/www.new.$$"
 OLD_WWW="$APP_DIR/www.old.$$"
@@ -128,6 +129,8 @@ if [ -f "$TMP_DIR/package/uninstall.sh" ]; then
   cp "$TMP_DIR/package/uninstall.sh" "$APP_DIR/uninstall.sh" || fail "copy uninstall failed"
   chmod +x "$APP_DIR/uninstall.sh"
 fi
+
+cp "$TMP_DIR/package/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy server failed"
 
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
 mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"

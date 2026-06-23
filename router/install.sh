@@ -10,6 +10,7 @@ LOG_DIR="${MIHUI_LOG_DIR:-/opt/var/log/mihui}"
 RUN_DIR="${MIHUI_RUN_DIR:-/opt/var/run}"
 ENV_FILE="$INSTALL_DIR/mihui.env"
 PID_FILE="$RUN_DIR/mihui.pid"
+PYTHON_BIN="${MIHUI_PYTHON_BIN:-/opt/bin/python3}"
 DEFAULT_PORT="${MIHUI_PORT:-9878}"
 PORT_RANGE_START=9879
 PORT_RANGE_END=9899
@@ -28,26 +29,6 @@ fail() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
-}
-
-busybox_has_httpd() {
-  command_exists busybox || return 1
-  busybox --list 2>/dev/null | grep -qx httpd && return 0
-  busybox httpd --help >/dev/null 2>&1
-}
-
-find_httpd() {
-  if busybox_has_httpd; then
-    printf 'busybox\n'
-    return
-  fi
-
-  if command_exists httpd; then
-    printf 'httpd\n'
-    return
-  fi
-
-  return 1
 }
 
 cleanup() {
@@ -82,6 +63,37 @@ download_file() {
   fi
 
   fail "curl or wget is required to download MihUI"
+}
+
+ensure_python() {
+  if [ -x "$PYTHON_BIN" ]; then
+    return
+  fi
+
+  if command_exists python3; then
+    PYTHON_BIN="$(command -v python3)"
+    return
+  fi
+
+  if command_exists opkg; then
+    OPKG_BIN="$(command -v opkg)"
+  elif [ -x "/opt/bin/opkg" ]; then
+    OPKG_BIN="/opt/bin/opkg"
+  else
+    fail "python3 is required; install Entware python3 or run: opkg update && opkg install python3"
+  fi
+
+  log "python3 not found, installing through Entware opkg..."
+  "$OPKG_BIN" update || fail "opkg update failed"
+  "$OPKG_BIN" install python3 || fail "opkg install python3 failed"
+
+  if [ ! -x "$PYTHON_BIN" ]; then
+    if command_exists python3; then
+      PYTHON_BIN="$(command -v python3)"
+    else
+      fail "python3 is still unavailable after installation"
+    fi
+  fi
 }
 
 extract_archive() {
@@ -184,6 +196,7 @@ prepare_package() {
     mkdir -p "$TMP_DIR/www" "$TMP_DIR/cgi-bin"
     cp "$script_dir/../index.html" "$script_dir/../styles.css" "$script_dir/../app.js" "$script_dir/../mihomo-editor.html" "$TMP_DIR/www/"
     cp "$script_dir/cgi-bin/mihui-update" "$TMP_DIR/cgi-bin/"
+    cp "$script_dir/mihui_server.py" "$TMP_DIR/"
     cp "$script_dir/uninstall.sh" "$TMP_DIR/"
     PACKAGE_DIR="$TMP_DIR"
     return
@@ -202,6 +215,7 @@ validate_package() {
   [ -f "$PACKAGE_DIR/www/styles.css" ] || fail "package does not contain www/styles.css"
   [ -f "$PACKAGE_DIR/www/app.js" ] || fail "package does not contain www/app.js"
   [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
+  [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "package does not contain mihui_server.py"
   [ -f "$PACKAGE_DIR/uninstall.sh" ] || fail "package does not contain uninstall.sh"
 }
 
@@ -209,6 +223,7 @@ write_env_file() {
   cat > "$ENV_FILE" <<EOF
 MIHUI_PORT=$SELECTED_PORT
 MIHUI_RELEASE_URL="$RELEASE_URL"
+MIHUI_PYTHON_BIN="$PYTHON_BIN"
 EOF
 }
 
@@ -219,36 +234,19 @@ MIHUI_INIT_OWNER="$APP_OWNER"
 ENABLED=yes
 APP_DIR="$INSTALL_DIR"
 WWW_DIR="\$APP_DIR/www"
+SERVER_PY="\$APP_DIR/mihui_server.py"
 ENV_FILE="\$APP_DIR/mihui.env"
 LOG_DIR="$LOG_DIR"
 RUN_DIR="$RUN_DIR"
 PID_FILE="$PID_FILE"
+PYTHON_BIN="$PYTHON_BIN"
 PORT="$SELECTED_PORT"
-LOG_FILE="\$LOG_DIR/httpd.log"
+LOG_FILE="\$LOG_DIR/server.log"
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "\$ENV_FILE" ] && . "\$ENV_FILE"
 [ -n "\${MIHUI_PORT:-}" ] && PORT="\$MIHUI_PORT"
-
-busybox_has_httpd() {
-  command -v busybox >/dev/null 2>&1 || return 1
-  busybox --list 2>/dev/null | grep -qx httpd && return 0
-  busybox httpd --help >/dev/null 2>&1
-}
-
-find_httpd() {
-  if busybox_has_httpd; then
-    printf 'busybox\n'
-    return
-  fi
-
-  if command -v httpd >/dev/null 2>&1; then
-    printf 'httpd\n'
-    return
-  fi
-
-  return 1
-}
+[ -n "\${MIHUI_PYTHON_BIN:-}" ] && PYTHON_BIN="\$MIHUI_PYTHON_BIN"
 
 is_running() {
   [ -f "\$PID_FILE" ] || return 1
@@ -261,7 +259,7 @@ start() {
   mkdir -p "\$LOG_DIR" "\$RUN_DIR"
 
   wait_left=30
-  while [ ! -f "\$WWW_DIR/index.html" ] && [ "\$wait_left" -gt 0 ]; do
+  while { [ ! -f "\$WWW_DIR/index.html" ] || [ ! -f "\$SERVER_PY" ]; } && [ "\$wait_left" -gt 0 ]; do
     sleep 1
     wait_left=\$((wait_left - 1))
   done
@@ -270,28 +268,32 @@ start() {
     printf 'MihUI www directory is not ready\n' >> "\$LOG_FILE"
     exit 1
   }
+  [ -f "\$SERVER_PY" ] || {
+    printf 'MihUI server is not ready\n' >> "\$LOG_FILE"
+    exit 1
+  }
+  [ -x "\$PYTHON_BIN" ] || {
+    printf 'python3 is not executable: %s\n' "\$PYTHON_BIN" >> "\$LOG_FILE"
+    exit 1
+  }
 
   if is_running; then
     exit 0
   fi
   rm -f "\$PID_FILE"
 
-  httpd_kind=\$(find_httpd) || {
-    printf 'busybox httpd applet or compatible httpd command is required\n' >> "\$LOG_FILE"
-    exit 1
-  }
-
-  if [ "\$httpd_kind" = "busybox" ]; then
-    nohup busybox httpd -f -p "0.0.0.0:\$PORT" -h "\$WWW_DIR" >> "\$LOG_FILE" 2>&1 &
+  if command -v nohup >/dev/null 2>&1; then
+    nohup "\$PYTHON_BIN" "\$SERVER_PY" --host 0.0.0.0 --port "\$PORT" --app-dir "\$APP_DIR" >> "\$LOG_FILE" 2>&1 &
   else
-    nohup httpd -f -p "0.0.0.0:\$PORT" -h "\$WWW_DIR" >> "\$LOG_FILE" 2>&1 &
+    printf 'nohup is missing, starting without nohup\n' >> "\$LOG_FILE"
+    "\$PYTHON_BIN" "\$SERVER_PY" --host 0.0.0.0 --port "\$PORT" --app-dir "\$APP_DIR" >> "\$LOG_FILE" 2>&1 &
   fi
 
   echo \$! > "\$PID_FILE"
   sleep 1
   is_running || {
     rm -f "\$PID_FILE"
-    printf 'MihUI httpd failed to start\n' >> "\$LOG_FILE"
+    printf 'MihUI server failed to start\n' >> "\$LOG_FILE"
     exit 1
   }
 }
@@ -325,23 +327,22 @@ EOF
 }
 
 show_service_log() {
-  log "MihUI service log: $LOG_DIR/httpd.log"
-  if [ -f "$LOG_DIR/httpd.log" ]; then
-    log "--- httpd.log ---"
+  log "MihUI service log: $LOG_DIR/server.log"
+  if [ -f "$LOG_DIR/server.log" ]; then
+    log "--- server.log ---"
     if command_exists tail; then
-      tail -n 40 "$LOG_DIR/httpd.log"
+      tail -n 40 "$LOG_DIR/server.log"
     else
-      cat "$LOG_DIR/httpd.log"
+      cat "$LOG_DIR/server.log"
     fi
-    log "--- end httpd.log ---"
+    log "--- end server.log ---"
   fi
 }
-
-find_httpd >/dev/null || fail "busybox httpd applet or compatible httpd command is required"
 
 assert_safe_init_target
 prepare_package
 validate_package
+ensure_python
 
 EXISTING_PORT=$(read_existing_port || true)
 if [ -n "$EXISTING_PORT" ]; then
@@ -360,6 +361,7 @@ rm -rf "$INSTALL_DIR/www"
 mkdir -p "$INSTALL_DIR/www/cgi-bin"
 cp -R "$PACKAGE_DIR/www/." "$INSTALL_DIR/www/"
 cp -R "$PACKAGE_DIR/cgi-bin/." "$INSTALL_DIR/www/cgi-bin/"
+cp "$PACKAGE_DIR/mihui_server.py" "$INSTALL_DIR/mihui_server.py"
 cp "$PACKAGE_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
 chmod +x "$INSTALL_DIR/www/cgi-bin/mihui-update"
 chmod +x "$INSTALL_DIR/uninstall.sh"
