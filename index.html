@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebMihomo — редактор конфигурации</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>WebMihomo — редактор конфигурации</h1>
+          <p id="fileMeta">Конфигурация не загружена</p>
+        </div>
+        <div class="actions">
+          <label class="button primary">
+            <span>Загрузить</span>
+            <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
+          </label>
+          <button id="downloadButton" class="button" type="button" disabled>
+            <span>Скачать</span>
+          </button>
+          <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить WebMihomo через Mihomo /upgrade/ui">
+            <span class="button-label">Обновить UI</span>
+          </button>
+          <button id="changesJumpButton" class="link-button" type="button" disabled hidden>
+            <span>Изменения</span>
+          </button>
+          <button id="downloadWarning" class="download-warning" type="button" hidden></button>
+        </div>
+      </header>
+
+      <section class="status-grid" aria-live="polite">
+        <div class="metric">
+          <span class="metric-label">Подписки (proxy-providers)</span>
+          <strong id="providerCount">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Группы (proxy-groups)</span>
+          <strong id="groupCount">0</strong>
+        </div>
+        <div id="rulesMetric" class="metric" role="button" tabindex="0" aria-disabled="true">
+          <span class="metric-label">Проверка</span>
+          <strong id="rulesStatus">нет конфигурации</strong>
+          <span id="rulesHint" class="metric-hint" hidden></span>
+        </div>
+      </section>
+
+      <section id="messageBox" class="message hidden"></section>
+
+      <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+
+      <section class="workspace">
+        <section class="panel providers-panel">
+          <div class="panel-head">
+            <h2>Подписки (proxy-providers)</h2>
+            <div class="panel-actions">
+              <button id="intervalToolsButton" class="button compact" type="button" disabled>
+                <span>Интервалы всем</span>
+              </button>
+              <button id="addProviderButton" class="icon-button" type="button" disabled title="Сначала загрузите конфигурацию">
+                +
+              </button>
+            </div>
+          </div>
+          <section id="intervalTools" class="interval-tools hidden" aria-label="Массовая настройка интервалов">
+            <div class="interval-tools-head">
+              <strong>Интервалы для всех подписок</strong>
+              <span>Массовое действие</span>
+            </div>
+            <div class="interval-field">
+              <span>Обновление подписок (interval)</span>
+              <div class="interval-control">
+                <input id="bulkIntervalInput" type="number" min="60" step="60" value="86400" />
+                <span id="bulkIntervalHint" class="interval-hint">86400 сек = 24 ч</span>
+              </div>
+              <div class="preset-row" aria-label="Пресеты обновления подписок">
+                <button class="button compact interval-preset" type="button" data-field="interval" data-value="21600">6 ч</button>
+                <button class="button compact interval-preset" type="button" data-field="interval" data-value="43200">12 ч</button>
+                <button class="button compact interval-preset" type="button" data-field="interval" data-value="86400">24 ч</button>
+                <button class="button compact interval-preset" type="button" data-field="interval" data-value="172800">48 ч</button>
+              </div>
+            </div>
+            <div class="interval-field">
+              <span>Проверка нод (health-check.interval)</span>
+              <div class="interval-control">
+                <input id="bulkHealthIntervalInput" type="number" min="30" step="30" value="300" />
+                <span id="bulkHealthIntervalHint" class="interval-hint">300 сек = 5 мин</span>
+              </div>
+              <div class="preset-row" aria-label="Пресеты проверки нод">
+                <button class="button compact interval-preset" type="button" data-field="health" data-value="60">1 мин</button>
+                <button class="button compact interval-preset" type="button" data-field="health" data-value="300">5 мин</button>
+                <button class="button compact interval-preset" type="button" data-field="health" data-value="600">10 мин</button>
+                <button class="button compact interval-preset" type="button" data-field="health" data-value="1800">30 мин</button>
+              </div>
+            </div>
+            <button id="applyIntervalsButton" class="button primary compact" type="button" disabled>
+              <span>Применить ко всем подпискам</span>
+            </button>
+            <div id="bulkIntervalPending" class="interval-pending" hidden></div>
+          </section>
+          <div id="providersList" class="providers-list empty-state">
+            <div class="empty-state-content">
+                <strong>Конфигурация не загружена</strong>
+                <span>Загрузите конфигурацию, чтобы увидеть и отредактировать подписки.</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="groups-column">
+          <section class="panel group-order-panel">
+            <div class="panel-head">
+              <h2>Схема маршрутизации</h2>
+            </div>
+            <div id="groupOrderList" class="group-order-list empty-state">
+              <div class="empty-state-content">
+                <strong>Схема появится после загрузки</strong>
+                <span>Она покажет, куда правила отправляют трафик.</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="diagnosticsPanel" class="panel diagnostics-panel hidden" aria-live="polite"></section>
+
+          <section class="panel groups-panel">
+            <div class="panel-head">
+              <h2>Матрица групп и подписок (use)</h2>
+            </div>
+            <div id="groupsMatrix" class="matrix-wrap empty-state">
+              <div class="empty-state-content">
+                <strong>Связи появятся после загрузки</strong>
+                <span>После загрузки управляйте подключением подписок к группам.</span>
+              </div>
+            </div>
+          </section>
+        </section>
+      </section>
+
+      <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
+
+      <section class="panel preview-panel">
+        <div class="panel-head">
+          <h2>Итоговая конфигурация</h2>
+          <div class="panel-actions">
+            <button id="editConfigButton" class="button compact" type="button">
+              <span>Редактировать конфигурацию</span>
+            </button>
+            <button id="applyConfigButton" class="button primary compact" type="button" hidden>
+              <span>Проверить и применить</span>
+            </button>
+            <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
+              <span>Отменить</span>
+            </button>
+            <button id="copyButton" class="button compact" type="button" disabled>
+              <span class="button-label">Копировать</span>
+            </button>
+          </div>
+        </div>
+        <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+      </section>
+    </main>
+
+    <template id="providerTemplate">
+      <article class="provider-row">
+        <div class="provider-toolbar">
+          <div class="provider-card-heading">
+            <span class="provider-card-number"></span>
+            <strong class="provider-card-title"></strong>
+            <span class="provider-card-new" hidden>Новая</span>
+          </div>
+          <button class="icon-button danger remove-provider" type="button" title="Удалить подписку">×</button>
+        </div>
+        <div class="provider-name-row">
+          <label>
+            <span>Название (provider key)</span>
+            <input class="provider-name" type="text" placeholder="withblancvpn" autocomplete="off" />
+          </label>
+          <button class="button compact manual-name-button" type="button" title="Редактировать название вручную">
+            <span>Ручное имя</span>
+          </button>
+        </div>
+        <label>
+          <span>Ссылка подписки (url)</span>
+          <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
+        </label>
+
+        <div class="provider-grid">
+          <label title="Показывает только ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: RU|NL|EE.">
+            <span>Фильтр серверов (filter)</span>
+            <input class="provider-filter" type="text" placeholder="RU|NL|EE|DE" autocomplete="off" />
+          </label>
+          <label title="Скрывает ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: test|slow|expired.">
+            <span>Исключить серверы (exclude-filter)</span>
+            <input class="provider-exclude-filter" type="text" placeholder="test|slow|expired" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="exclude-type-field" title="Скрывает ноды по типу протокола, а не по названию. Введите типы вручную или выберите из списка.">
+          <span>Исключить типы серверов (exclude-type)</span>
+          <div class="exclude-type-control">
+            <input class="provider-exclude-type" type="text" placeholder="ss|http|vless" autocomplete="off" />
+            <button class="button compact exclude-type-toggle" type="button">
+              <span>Выбрать из списка</span>
+            </button>
+          </div>
+          <div class="exclude-type-popover" hidden>
+            <div class="exclude-type-options" aria-label="Типы серверов для exclude-type"></div>
+          </div>
+          <p class="field-error provider-exclude-type-error" aria-live="polite" hidden></p>
+        </div>
+
+        <details class="provider-advanced">
+          <summary>Дополнительно (header / path / interval / health-check / override)</summary>
+          <div class="provider-header-row">
+            <label title="Оставьте пустым, если сервис подписки не требует отдельный User-Agent при скачивании.">
+              <span>User-Agent (header.User-Agent)</span>
+              <input class="provider-user-agent" type="text" placeholder="если требуется" autocomplete="off" />
+            </label>
+            <label title="Оставьте пустым, если сервис подписки не требует x-hwid или идентификатор устройства.">
+              <span>HWID (header.x-hwid)</span>
+              <input class="provider-x-hwid" type="text" placeholder="если требуется" autocomplete="off" />
+            </label>
+            <div class="provider-header-actions">
+              <button class="button compact generate-headers-button" type="button" title="Создать новый User-Agent и HWID">
+                <span>Перегенерировать UA/HWID</span>
+              </button>
+            </div>
+          </div>
+          <div class="switch-row">
+            <label title="Включает UDP для нод из подписки.">
+              <input class="provider-udp" type="checkbox" />
+              <span>UDP (override.udp)</span>
+            </label>
+            <label title="Включает TCP Fast Open для нод из подписки.">
+              <input class="provider-tfo" type="checkbox" />
+              <span>TFO (override.tfo)</span>
+            </label>
+          </div>
+
+          <div class="provider-grid">
+            <label>
+              <span>Файл кэша (path)</span>
+              <input class="provider-path" type="text" placeholder="./providers/name.yaml" autocomplete="off" />
+            </label>
+            <label>
+              <span>Интервал обновления (interval)</span>
+              <input class="provider-interval" type="number" min="60" step="60" />
+            </label>
+          </div>
+          <div class="provider-grid">
+            <label>
+              <span>Сайт для ping (health-check.url)</span>
+              <input class="provider-health-url" type="url" placeholder="https://www.gstatic.com/generate_204" autocomplete="off" />
+            </label>
+            <label>
+              <span>Интервал ping (health-check.interval)</span>
+              <input class="provider-health-interval" type="number" min="30" step="30" />
+            </label>
+          </div>
+        </details>
+      </article>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
