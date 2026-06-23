@@ -9,8 +9,12 @@
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>WebMihomo — редактор конфигурации</h1>
+        <div class="topbar-main">
+          <div class="title-row">
+            <h1>WebMihomo — редактор конфигурации</h1>
+            <span id="updateHint" class="version-pill"></span>
+            <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
+          </div>
           <p id="fileMeta">Конфигурация не загружена</p>
         </div>
         <div class="actions">
@@ -61,11 +65,6 @@
       <section id="messageBox" class="message hidden"></section>
 
       <section id="routerPanel" class="router-panel hidden" aria-live="polite">
-        <div class="router-panel-row">
-          <span id="routerStatus" class="router-status"></span>
-          <span id="updateHint" class="router-status"></span>
-        </div>
-        <div id="uiLinks" class="ui-links"></div>
         <div class="backup-tools">
           <select id="backupSelect" class="backup-select" disabled></select>
           <button id="restoreBackupButton" class="button compact" type="button" disabled>

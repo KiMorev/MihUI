@@ -137,7 +137,6 @@ const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
   routerPanel: document.querySelector('#routerPanel'),
-  routerStatus: document.querySelector('#routerStatus'),
   updateHint: document.querySelector('#updateHint'),
   uiLinks: document.querySelector('#uiLinks'),
   backupSelect: document.querySelector('#backupSelect'),
@@ -318,11 +317,12 @@ async function loadRouterMetadata() {
 async function checkMihuiUpdate() {
   try {
     const data = await apiJson('/api/update/check');
+    const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
-      els.updateHint.textContent = `Доступно ${data.latest}`;
-      setMihomoUiUpdateButton(false, `Обновить до ${data.latest}`);
+      els.updateHint.textContent = data.latest ? `${currentVersion} -> ${data.latest}` : currentVersion;
+      setMihomoUiUpdateButton(false, data.latest ? `Обновить до ${data.latest}` : 'Обновить UI');
     } else if (data.version) {
-      els.updateHint.textContent = `MihUI ${data.version}`;
+      els.updateHint.textContent = currentVersion;
     }
   } catch (error) {
     els.updateHint.textContent = '';
@@ -332,7 +332,6 @@ async function checkMihuiUpdate() {
 function renderRouterControls() {
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
   els.routerSaveButton.disabled = !state.outputText || !state.routerMode;
-  els.routerStatus.textContent = state.routerMode && state.routerConfigPath ? state.routerConfigPath : 'Роутерный режим';
 }
 
 function renderBackups(backups) {
@@ -360,20 +359,33 @@ function renderBackups(backups) {
 function renderUiLinks(items) {
   els.uiLinks.textContent = '';
   items.forEach((item) => {
+    const group = document.createElement('span');
+    group.className = 'ui-link-item';
+
     if (item.localUrl) {
       const localLink = document.createElement('a');
       localLink.href = item.localUrl;
+      localLink.className = 'ui-link-main';
       localLink.textContent = item.name;
-      els.uiLinks.append(localLink);
+      group.append(localLink);
+    } else {
+      const name = document.createElement('span');
+      name.className = 'ui-link-main';
+      name.textContent = item.name;
+      group.append(name);
     }
+
     if (item.githubUrl) {
       const githubLink = document.createElement('a');
       githubLink.href = item.githubUrl;
       githubLink.target = '_blank';
       githubLink.rel = 'noreferrer';
+      githubLink.className = 'ui-link-github';
       githubLink.textContent = 'GitHub';
-      els.uiLinks.append(githubLink);
+      group.append(githubLink);
     }
+
+    els.uiLinks.append(group);
   });
 }
 

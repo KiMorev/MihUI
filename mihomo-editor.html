@@ -55,6 +55,18 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
+.topbar-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
 h1,
 h2,
 p {
@@ -65,6 +77,68 @@ h1 {
   font-size: 19px;
   line-height: 1.2;
   letter-spacing: 0;
+}
+
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.version-pill:empty {
+  display: none;
+}
+
+.top-ui-links {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.top-ui-links:empty {
+  display: none;
+}
+
+.ui-link-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.ui-link-main,
+.ui-link-github {
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.ui-link-main {
+  color: var(--accent-dark);
+}
+
+.ui-link-github {
+  color: var(--muted);
+}
+
+.ui-link-main:hover,
+.ui-link-github:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 h2 {
@@ -290,39 +364,23 @@ input[type='file'] {
 }
 
 .router-panel {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  margin: 0 0 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  margin: -2px 0 10px;
 }
 
 .router-panel.hidden {
   display: none;
 }
 
-.router-panel-row,
-.ui-links,
 .backup-tools {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.router-status {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.ui-links a {
-  color: var(--accent-dark);
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .backup-select {
@@ -1733,10 +1791,32 @@ input.is-invalid {
     flex-direction: column;
   }
 
+  .topbar-main,
+  .title-row,
+  .top-ui-links {
+    width: 100%;
+  }
+
   .actions,
   .button,
   .link-button {
     width: 100%;
+  }
+
+  .router-panel,
+  .backup-tools,
+  .backup-select {
+    width: 100%;
+  }
+
+  .router-panel,
+  .backup-tools {
+    justify-content: flex-start;
+  }
+
+  .backup-select {
+    flex: 1 1 180px;
+    max-width: none;
   }
 
   .status-grid,
@@ -1827,8 +1907,12 @@ input.is-invalid {
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <div>
-          <h1>WebMihomo — редактор конфигурации</h1>
+        <div class="topbar-main">
+          <div class="title-row">
+            <h1>WebMihomo — редактор конфигурации</h1>
+            <span id="updateHint" class="version-pill"></span>
+            <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
+          </div>
           <p id="fileMeta">Конфигурация не загружена</p>
         </div>
         <div class="actions">
@@ -1879,11 +1963,6 @@ input.is-invalid {
       <section id="messageBox" class="message hidden"></section>
 
       <section id="routerPanel" class="router-panel hidden" aria-live="polite">
-        <div class="router-panel-row">
-          <span id="routerStatus" class="router-status"></span>
-          <span id="updateHint" class="router-status"></span>
-        </div>
-        <div id="uiLinks" class="ui-links"></div>
         <div class="backup-tools">
           <select id="backupSelect" class="backup-select" disabled></select>
           <button id="restoreBackupButton" class="button compact" type="button" disabled>
@@ -2245,7 +2324,6 @@ const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
   routerPanel: document.querySelector('#routerPanel'),
-  routerStatus: document.querySelector('#routerStatus'),
   updateHint: document.querySelector('#updateHint'),
   uiLinks: document.querySelector('#uiLinks'),
   backupSelect: document.querySelector('#backupSelect'),
@@ -2426,11 +2504,12 @@ async function loadRouterMetadata() {
 async function checkMihuiUpdate() {
   try {
     const data = await apiJson('/api/update/check');
+    const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
-      els.updateHint.textContent = `Доступно ${data.latest}`;
-      setMihomoUiUpdateButton(false, `Обновить до ${data.latest}`);
+      els.updateHint.textContent = data.latest ? `${currentVersion} -> ${data.latest}` : currentVersion;
+      setMihomoUiUpdateButton(false, data.latest ? `Обновить до ${data.latest}` : 'Обновить UI');
     } else if (data.version) {
-      els.updateHint.textContent = `MihUI ${data.version}`;
+      els.updateHint.textContent = currentVersion;
     }
   } catch (error) {
     els.updateHint.textContent = '';
@@ -2440,7 +2519,6 @@ async function checkMihuiUpdate() {
 function renderRouterControls() {
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
   els.routerSaveButton.disabled = !state.outputText || !state.routerMode;
-  els.routerStatus.textContent = state.routerMode && state.routerConfigPath ? state.routerConfigPath : 'Роутерный режим';
 }
 
 function renderBackups(backups) {
@@ -2468,20 +2546,33 @@ function renderBackups(backups) {
 function renderUiLinks(items) {
   els.uiLinks.textContent = '';
   items.forEach((item) => {
+    const group = document.createElement('span');
+    group.className = 'ui-link-item';
+
     if (item.localUrl) {
       const localLink = document.createElement('a');
       localLink.href = item.localUrl;
+      localLink.className = 'ui-link-main';
       localLink.textContent = item.name;
-      els.uiLinks.append(localLink);
+      group.append(localLink);
+    } else {
+      const name = document.createElement('span');
+      name.className = 'ui-link-main';
+      name.textContent = item.name;
+      group.append(name);
     }
+
     if (item.githubUrl) {
       const githubLink = document.createElement('a');
       githubLink.href = item.githubUrl;
       githubLink.target = '_blank';
       githubLink.rel = 'noreferrer';
+      githubLink.className = 'ui-link-github';
       githubLink.textContent = 'GitHub';
-      els.uiLinks.append(githubLink);
+      group.append(githubLink);
     }
+
+    els.uiLinks.append(group);
   });
 }
 

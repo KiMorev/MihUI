@@ -48,6 +48,18 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
+.topbar-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
 h1,
 h2,
 p {
@@ -58,6 +70,68 @@ h1 {
   font-size: 19px;
   line-height: 1.2;
   letter-spacing: 0;
+}
+
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.version-pill:empty {
+  display: none;
+}
+
+.top-ui-links {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.top-ui-links:empty {
+  display: none;
+}
+
+.ui-link-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.ui-link-main,
+.ui-link-github {
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.ui-link-main {
+  color: var(--accent-dark);
+}
+
+.ui-link-github {
+  color: var(--muted);
+}
+
+.ui-link-main:hover,
+.ui-link-github:hover {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 h2 {
@@ -283,39 +357,23 @@ input[type='file'] {
 }
 
 .router-panel {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
-  margin: 0 0 12px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
+  margin: -2px 0 10px;
 }
 
 .router-panel.hidden {
   display: none;
 }
 
-.router-panel-row,
-.ui-links,
 .backup-tools {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.router-status {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.ui-links a {
-  color: var(--accent-dark);
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .backup-select {
@@ -1726,10 +1784,32 @@ input.is-invalid {
     flex-direction: column;
   }
 
+  .topbar-main,
+  .title-row,
+  .top-ui-links {
+    width: 100%;
+  }
+
   .actions,
   .button,
   .link-button {
     width: 100%;
+  }
+
+  .router-panel,
+  .backup-tools,
+  .backup-select {
+    width: 100%;
+  }
+
+  .router-panel,
+  .backup-tools {
+    justify-content: flex-start;
+  }
+
+  .backup-select {
+    flex: 1 1 180px;
+    max-width: none;
   }
 
   .status-grid,
