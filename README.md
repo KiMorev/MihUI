@@ -1,4 +1,4 @@
-# WebMihomo
+# MihUI
 
 Локальный редактор `proxy-providers` и связей `proxy-groups/use` для Mihomo.
 
