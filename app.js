@@ -169,7 +169,6 @@ const els = {
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
   checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
-  mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
@@ -208,7 +207,7 @@ els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
-els.mihomoUiUpdateButton.addEventListener('click', updateMihui);
+els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
@@ -361,16 +360,14 @@ async function checkMihuiUpdate() {
     const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
       els.updateHint.textContent = data.latest ? `${currentVersion} -> ${data.latest}` : currentVersion;
-      setMihomoUiUpdateButton(false, data.latest ? `Обновить до ${data.latest}` : 'Обновить UI');
+      setMihuiUpdateHint(false);
     } else if (data.version) {
-      els.updateHint.textContent = currentVersion;
-      setMihomoUiUpdateButton(true, 'Обновить UI', true);
+      setMihuiUpdateHint(true, currentVersion);
     } else {
-      setMihomoUiUpdateButton(true, 'Обновить UI', true);
+      setMihuiUpdateHint(true, '');
     }
   } catch (error) {
-    els.updateHint.textContent = '';
-    setMihomoUiUpdateButton(true, 'Обновить UI', true);
+    setMihuiUpdateHint(true, '');
   }
 }
 
@@ -4023,7 +4020,7 @@ async function copyYaml() {
 }
 
 async function updateMihui() {
-  setMihomoUiUpdateButton(true, 'Запуск...');
+  setMihuiUpdateHint(true, 'Запуск...');
   state.mihuiUpdateStartedAt = Date.now();
   state.mihuiUpdateAccepted = false;
   state.mihuiUpdateReconnects = 0;
@@ -4040,7 +4037,7 @@ async function updateMihui() {
     showMessage(`Не удалось обновить UI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
-    setMihomoUiUpdateButton(false, 'Обновить UI');
+    setMihuiUpdateHint(false, 'Повторить обновление');
   }
 }
 
@@ -4056,7 +4053,7 @@ async function pollMihuiUpdateStatus() {
     state.mihuiUpdateReconnects = 0;
 
     if (status.running) {
-      setMihomoUiUpdateButton(true, 'Обновление...');
+      setMihuiUpdateHint(true, 'Обновление...');
       showMessage('MihUI обновляется: скачивание, распаковка, замена файлов.');
       state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
       return;
@@ -4064,7 +4061,7 @@ async function pollMihuiUpdateStatus() {
 
     if (status.ok) {
       keepButtonBusy = true;
-      setMihomoUiUpdateButton(true, 'Готово');
+      setMihuiUpdateHint(true, 'Готово');
       showMessage('MihUI обновлен. Страница обновится через несколько секунд.');
       window.setTimeout(() => {
         try {
@@ -4078,7 +4075,7 @@ async function pollMihuiUpdateStatus() {
 
     if (state.mihuiUpdateAccepted && status.ok === null && status.message === 'idle') {
       keepButtonBusy = true;
-      setMihomoUiUpdateButton(true, 'Готово');
+      setMihuiUpdateHint(true, 'Готово');
       showMessage('MihUI перезапущен. Страница обновится через несколько секунд.');
       window.setTimeout(() => {
         try {
@@ -4095,14 +4092,14 @@ async function pollMihuiUpdateStatus() {
     if (state.mihuiUpdateAccepted && isFetchFailure(error)) {
       if (state.mihuiUpdateReconnects < 120) {
         state.mihuiUpdateReconnects += 1;
-        setMihomoUiUpdateButton(true, 'Перезапуск...');
+        setMihuiUpdateHint(true, 'Перезапуск...');
         showMessage('MihUI обновляется: локальный сервер перезапускается.');
         state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1500);
         return;
       }
 
       keepButtonBusy = true;
-      setMihomoUiUpdateButton(true, 'Обновите страницу');
+      setMihuiUpdateHint(true, 'Обновите страницу');
       showMessage('MihUI перезапускается дольше обычного. Страница обновится через несколько секунд.');
       window.setTimeout(() => {
         try {
@@ -4119,7 +4116,7 @@ async function pollMihuiUpdateStatus() {
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
   } finally {
-    if (!state.updatePollTimer && !keepButtonBusy) setMihomoUiUpdateButton(false, 'Обновить UI');
+    if (!state.updatePollTimer && !keepButtonBusy) setMihuiUpdateHint(false, 'Повторить обновление');
   }
 }
 
@@ -4127,9 +4124,8 @@ function isFetchFailure(error) {
   return error instanceof TypeError || String(error?.message || error).toLowerCase().includes('failed to fetch');
 }
 
-function setMihomoUiUpdateButton(disabled, text, hidden = false) {
-  els.mihomoUiUpdateButton.disabled = disabled;
-  els.mihomoUiUpdateButton.hidden = hidden;
-  const label = els.mihomoUiUpdateButton.querySelector('.button-label');
-  if (label) label.textContent = text;
+function setMihuiUpdateHint(disabled, text) {
+  els.updateHint.disabled = disabled;
+  if (text !== undefined) els.updateHint.textContent = text;
+  els.updateHint.title = disabled || !els.updateHint.textContent ? '' : 'Обновить MihUI через локальный сервис';
 }

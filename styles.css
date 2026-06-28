@@ -73,6 +73,7 @@ h1 {
 }
 
 .version-pill {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -81,12 +82,23 @@ h1 {
   border-radius: 999px;
   background: var(--panel);
   color: var(--muted);
+  cursor: default;
+  font: inherit;
   font-size: 12px;
   font-weight: 750;
 }
 
 .version-pill:empty {
   display: none;
+}
+
+.version-pill:not(:disabled) {
+  color: var(--accent-dark);
+  cursor: pointer;
+}
+
+.version-pill:not(:disabled):hover {
+  border-color: var(--accent);
 }
 
 .top-ui-links {
