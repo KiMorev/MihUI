@@ -541,7 +541,7 @@ function setConfigCheckBusy(isBusy) {
 async function loadProviderStatuses(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
   state.providerStatusLoading = true;
-  renderRouterControls();
+  render();
 
   try {
     const data = await apiJson('/api/providers/status');
@@ -549,14 +549,12 @@ async function loadProviderStatuses(options = {}) {
     (data.providers || []).forEach((provider) => {
       if (provider?.name) state.providerStatuses[provider.name] = provider;
     });
-    render();
   } catch (error) {
     state.providerStatuses = {};
     if (!options.silent) showMessage(`Не удалось получить статусы подписок: ${error?.message || error}`);
-    render();
   } finally {
     state.providerStatusLoading = false;
-    renderRouterControls();
+    render();
   }
 }
 
