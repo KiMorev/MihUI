@@ -128,8 +128,15 @@ const state = {
   isEditingConfiguration: false,
   selectedProviderName: '',
   selectedRouteScenarioId: '',
+  providerStatuses: {},
+  providerStatusLoading: false,
+  providerUpdatingName: '',
+  saveReviewReady: false,
+  lastConfigCheckText: '',
+  lastConfigCheckOk: false,
   routerMode: false,
   routerConfigPath: '',
+  routerBusy: false,
   updatePollTimer: 0,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
@@ -147,6 +154,7 @@ const els = {
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
+  providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
   bulkIntervalInput: document.querySelector('#bulkIntervalInput'),
@@ -159,6 +167,7 @@ const els = {
   editConfigButton: document.querySelector('#editConfigButton'),
   applyConfigButton: document.querySelector('#applyConfigButton'),
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
+  checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
   mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
@@ -188,6 +197,7 @@ els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
+els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
 els.bulkHealthIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -196,6 +206,7 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
+els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.mihomoUiUpdateButton.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
@@ -213,6 +224,10 @@ function handleFileSelect(event) {
   reader.onload = () => {
     state.routerMode = false;
     state.routerConfigPath = '';
+    state.providerStatuses = {};
+    state.saveReviewReady = false;
+    state.lastConfigCheckText = '';
+    state.lastConfigCheckOk = false;
     state.fileName = file.name;
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
@@ -242,8 +257,12 @@ async function loadRouterConfig(options = {}) {
     state.fileName = state.routerConfigPath || 'router config';
     state.originalText = String(data.text || '');
     state.isEditingConfiguration = false;
+    state.saveReviewReady = false;
+    state.lastConfigCheckText = '';
+    state.lastConfigCheckOk = false;
     parseAndRender();
     await loadBackups();
+    await loadProviderStatuses({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${state.routerConfigPath}`);
   } catch (error) {
     if (!options.silent) showMessage(`Не удалось открыть конфиг роутера: ${error?.message || error}`);
@@ -255,9 +274,21 @@ async function loadRouterConfig(options = {}) {
 
 async function saveRouterConfig() {
   if (!state.outputText) return;
+  const changes = collectChanges(state.providers.filter((provider) => !provider.deleted));
+  if (state.outputText !== state.originalText && countChanges(changes) > 0 && !state.saveReviewReady) {
+    state.saveReviewReady = true;
+    renderRouterControls();
+    focusChangesPanel();
+    showMessage('Проверьте изменения ниже. Повторное нажатие сохранит конфиг в ядро.');
+    return;
+  }
+
   setRouterBusy(true, 'Сохранение...');
 
   try {
+    const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
+    if (check === false) return;
+
     const data = await apiJson('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -267,8 +298,12 @@ async function saveRouterConfig() {
     state.routerConfigPath = data.path || state.routerConfigPath;
     state.fileName = state.routerConfigPath;
     state.originalText = state.outputText;
+    state.saveReviewReady = false;
+    state.lastConfigCheckText = state.outputText;
+    state.lastConfigCheckOk = true;
     parseAndRender();
     await loadBackups();
+    await loadProviderStatuses({ silent: true });
 
     if (data.reload?.ok) {
       showMessage('Конфиг сохранен, Mihomo перезагружен.');
@@ -341,7 +376,12 @@ async function checkMihuiUpdate() {
 
 function renderRouterControls() {
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
-  els.routerSaveButton.disabled = !state.outputText || !state.routerMode;
+  els.routerSaveButton.disabled = state.routerBusy || !state.outputText || !state.routerMode;
+  const saveLabel = els.routerSaveButton.querySelector('span');
+  if (saveLabel) saveLabel.textContent = state.saveReviewReady ? 'Сохранить после просмотра' : 'Сохранить в ядро';
+  els.providerStatusRefreshButton.disabled = !state.routerMode || state.providerStatusLoading || state.providers.filter((provider) => !provider.deleted).length === 0;
+  const statusLabel = els.providerStatusRefreshButton.querySelector('span');
+  if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Загрузка...' : 'Статусы';
 }
 
 function renderBackups(backups) {
@@ -415,10 +455,12 @@ function renderUiLinks(items) {
 }
 
 function setRouterBusy(isBusy, text) {
+  state.routerBusy = isBusy;
   els.routerLoadButton.disabled = isBusy;
   const loadLabel = els.routerLoadButton.querySelector('span');
   if (loadLabel) loadLabel.textContent = text;
   els.routerSaveButton.disabled = isBusy || !state.outputText || !state.routerMode;
+  renderRouterControls();
 }
 
 async function apiJson(url, options = {}) {
@@ -436,6 +478,81 @@ async function apiJson(url, options = {}) {
     throw new Error(data.message || `HTTP ${response.status}`);
   }
   return data;
+}
+
+async function checkRouterConfig(options = {}) {
+  if (!state.outputText || !state.routerMode) return null;
+  setConfigCheckBusy(true);
+
+  try {
+    const data = await apiJson('/api/config/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: state.outputText }),
+    });
+    state.lastConfigCheckText = state.outputText;
+    state.lastConfigCheckOk = Boolean(data.available);
+    if (!options.silent) {
+      showMessage(data.available ? 'Проверка Mihomo пройдена.' : `Проверка недоступна: ${data.message || 'mihomo не найден'}`);
+    }
+    return true;
+  } catch (error) {
+    state.lastConfigCheckText = state.outputText;
+    state.lastConfigCheckOk = false;
+    showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`);
+    return false;
+  } finally {
+    setConfigCheckBusy(false);
+  }
+}
+
+function setConfigCheckBusy(isBusy) {
+  els.checkConfigButton.disabled = isBusy || state.routerBusy || state.isEditingConfiguration || !state.routerMode || !state.outputText;
+  const label = els.checkConfigButton.querySelector('.button-label');
+  if (label) label.textContent = isBusy ? 'Проверка...' : 'Проверить в ядре';
+}
+
+async function loadProviderStatuses(options = {}) {
+  if (!state.routerMode || typeof fetch !== 'function') return;
+  state.providerStatusLoading = true;
+  renderRouterControls();
+
+  try {
+    const data = await apiJson('/api/providers/status');
+    state.providerStatuses = {};
+    (data.providers || []).forEach((provider) => {
+      if (provider?.name) state.providerStatuses[provider.name] = provider;
+    });
+    render();
+  } catch (error) {
+    state.providerStatuses = {};
+    if (!options.silent) showMessage(`Не удалось получить статусы подписок: ${error?.message || error}`);
+    render();
+  } finally {
+    state.providerStatusLoading = false;
+    renderRouterControls();
+  }
+}
+
+async function updateProviderNow(provider) {
+  if (!provider?.name || !state.routerMode || typeof fetch !== 'function') return;
+  state.providerUpdatingName = provider.name;
+  render();
+
+  try {
+    await apiJson('/api/providers/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: provider.name }),
+    });
+    showMessage(`Подписка ${provider.name} отправлена на обновление.`);
+    await loadProviderStatuses({ silent: true });
+  } catch (error) {
+    showMessage(`Не удалось обновить подписку ${provider.name}: ${error?.message || error}`);
+  } finally {
+    state.providerUpdatingName = '';
+    render();
+  }
 }
 
 function parseAndRender() {
@@ -459,7 +576,7 @@ function parseAndRender() {
     state.hasGroupsSection = false;
     state.intervalToolsOpen = false;
     state.selectedRouteScenarioId = '';
-    state.outputText = state.originalText;
+    setOutputText(state.originalText);
     render();
     return;
   }
@@ -1542,9 +1659,10 @@ function createProviderListItem(provider, index, isSelected) {
   body.className = 'provider-list-body';
   title.textContent = provider.name || 'Без названия';
   meta.className = 'provider-list-meta';
-  meta.textContent = provider.url ? 'URL' : 'Нет ссылки';
+  meta.textContent = formatProviderListMeta(provider);
   status.className = 'provider-list-status';
-  status.textContent = provider.isNew ? 'Новая' : provider.type || 'http';
+  status.classList.toggle('is-live', Boolean(getProviderStatus(provider.name)));
+  status.textContent = formatProviderListBadge(provider);
 
   body.append(title, meta);
   button.append(number, body, status);
@@ -1564,6 +1682,7 @@ function createProviderEditor(provider, index) {
   row.querySelector('.provider-card-number').textContent = String(index + 1);
   row.querySelector('.provider-card-title').textContent = provider.name || 'Без названия';
   row.querySelector('.provider-card-new').hidden = !provider.isNew;
+  renderProviderRuntimeStatus(row, provider);
   bindInput(row, '.provider-url', provider.url, (value) => updateProvider(provider, 'url', value));
   bindProviderName(row, provider);
   bindInput(row, '.provider-filter', provider.filter, (value) => updateProvider(provider, 'filter', value));
@@ -1579,8 +1698,90 @@ function createProviderEditor(provider, index) {
   bindInput(row, '.provider-interval', provider.interval, (value) => updateProvider(provider, 'interval', value));
   bindInput(row, '.provider-health-url', provider.healthUrl, (value) => updateProvider(provider, 'healthUrl', value));
   bindInput(row, '.provider-health-interval', provider.healthInterval, (value) => updateProvider(provider, 'healthInterval', value));
+  bindProviderUpdateButton(row, provider);
   row.querySelector('.remove-provider').addEventListener('click', () => removeProvider(provider));
   return row;
+}
+
+function getProviderStatus(providerName) {
+  return state.providerStatuses?.[providerName] || null;
+}
+
+function formatProviderListMeta(provider) {
+  const status = getProviderStatus(provider.name);
+  if (state.providerStatusLoading) return 'Статусы загружаются';
+  if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${formatProxyCount(status.proxyCount)} · ${formatProviderUpdatedAt(status.updatedAt) || 'время неизвестно'}`;
+  if (state.routerMode) return 'Статус неизвестен';
+  return provider.url ? 'URL' : 'Нет ссылки';
+}
+
+function formatProviderListBadge(provider) {
+  const status = getProviderStatus(provider.name);
+  if (state.providerUpdatingName === provider.name) return 'Обновление';
+  if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${status.proxyCount} нод`;
+  return provider.isNew ? 'Новая' : provider.type || 'http';
+}
+
+function renderProviderRuntimeStatus(root, provider) {
+  const box = root.querySelector('.provider-runtime-status');
+  const status = getProviderStatus(provider.name);
+  const parts = [];
+
+  if (!state.routerMode) {
+    box.hidden = true;
+    return;
+  }
+
+  box.hidden = false;
+  box.className = 'provider-runtime-status';
+  if (state.providerStatusLoading) {
+    box.textContent = 'Статус подписки загружается.';
+    return;
+  }
+  if (!status) {
+    box.classList.add('is-muted');
+    box.textContent = 'Mihomo пока не вернул статус этой подписки.';
+    return;
+  }
+
+  if (status.proxyCount !== null && status.proxyCount !== undefined) parts.push(formatProxyCount(status.proxyCount));
+  if (status.vehicleType || status.type) parts.push(status.vehicleType || status.type);
+  const updatedAt = formatProviderUpdatedAt(status.updatedAt);
+  if (updatedAt) parts.push(`обновлено ${updatedAt}`);
+  box.textContent = parts.join(' · ') || 'Статус получен.';
+}
+
+function bindProviderUpdateButton(root, provider) {
+  const button = root.querySelector('.provider-update-button');
+  const label = button.querySelector('.button-label');
+  const isUpdating = state.providerUpdatingName === provider.name;
+
+  button.hidden = !state.routerMode;
+  button.disabled = !state.routerMode || !provider.name || provider.isNew || isUpdating;
+  if (label) label.textContent = isUpdating ? 'Обновление...' : 'Обновить';
+  button.addEventListener('click', () => updateProviderNow(provider));
+}
+
+function formatProxyCount(count) {
+  const value = Number(count);
+  if (!Number.isFinite(value)) return 'нод неизвестно';
+  const lastDigit = value % 10;
+  const lastTwoDigits = value % 100;
+  if (lastDigit === 1 && lastTwoDigits !== 11) return `${value} нода`;
+  if (lastDigit >= 2 && lastDigit <= 4 && (lastTwoDigits < 12 || lastTwoDigits > 14)) return `${value} ноды`;
+  return `${value} нод`;
+}
+
+function formatProviderUpdatedAt(value) {
+  if (value === null || value === undefined || value === '') return '';
+  const date = typeof value === 'number' ? new Date(value > 100000000000 ? value : value * 1000) : new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function setEmptyState(element, title, text) {
@@ -2754,7 +2955,7 @@ function generateOutput() {
   const errors = validateModel();
   if (errors.length > 0) {
     showMessage(errors[0]);
-    state.outputText = '';
+    setOutputText('');
     renderOutputOnly();
     return;
   }
@@ -2805,8 +3006,18 @@ function generateOutput() {
     nextLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  state.outputText = nextLines.join('\n');
+  setOutputText(nextLines.join('\n'));
   renderOutputOnly();
+}
+
+function setOutputText(text) {
+  const nextText = String(text || '');
+  if (state.outputText !== nextText) {
+    state.saveReviewReady = false;
+    state.lastConfigCheckText = '';
+    state.lastConfigCheckOk = false;
+  }
+  state.outputText = nextText;
 }
 
 function serializeConnectionSettingsToAdd() {
@@ -2850,6 +3061,7 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
+  els.checkConfigButton.disabled = isEditing || !state.routerMode || !state.outputText;
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
   els.changesJumpButton.disabled = !state.originalText;

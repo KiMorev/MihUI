@@ -81,6 +81,9 @@
           <div class="panel-head">
             <h2>Подписки (proxy-providers)</h2>
             <div class="panel-actions">
+              <button id="providerStatusRefreshButton" class="button compact" type="button" disabled>
+                <span>Статусы</span>
+              </button>
               <button id="intervalToolsButton" class="button compact" type="button" disabled>
                 <span>Интервалы всем</span>
               </button>
@@ -179,6 +182,9 @@
             <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
               <span>Отменить</span>
             </button>
+            <button id="checkConfigButton" class="button compact" type="button" disabled>
+              <span class="button-label">Проверить в ядре</span>
+            </button>
             <button id="copyButton" class="button compact" type="button" disabled>
               <span class="button-label">Копировать</span>
             </button>
@@ -196,8 +202,14 @@
             <strong class="provider-card-title"></strong>
             <span class="provider-card-new" hidden>Новая</span>
           </div>
-          <button class="icon-button danger remove-provider" type="button" title="Удалить подписку">×</button>
+          <div class="provider-card-actions">
+            <button class="button compact provider-update-button" type="button" hidden>
+              <span class="button-label">Обновить</span>
+            </button>
+            <button class="icon-button danger remove-provider" type="button" title="Удалить подписку">×</button>
+          </div>
         </div>
+        <div class="provider-runtime-status" hidden></div>
         <div class="provider-name-row">
           <label>
             <span>Название (provider key)</span>

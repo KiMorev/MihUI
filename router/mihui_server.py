@@ -4,9 +4,11 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from http import HTTPStatus
@@ -49,6 +51,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/update/status":
             self.send_json(HTTPStatus.OK, snapshot_update_state())
             return
+        if route == "/api/providers/status":
+            self.handle_providers_status()
+            return
 
         super().do_GET()
 
@@ -62,6 +67,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/update/start":
             self.handle_update_start()
+            return
+        if route == "/api/config/check":
+            self.handle_config_check()
+            return
+        if route == "/api/providers/update":
+            self.handle_provider_update()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -169,6 +180,30 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         thread.start()
         self.send_json(HTTPStatus.ACCEPTED, snapshot_update_state())
 
+    def handle_config_check(self):
+        payload = self.read_json_body()
+        text = payload.get("text")
+        if not isinstance(text, str):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
+            return
+
+        result = check_mihomo_config(self.app_dir, text)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.UNPROCESSABLE_ENTITY, result)
+
+    def handle_providers_status(self):
+        result = get_proxy_provider_statuses(self.app_dir)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+
+    def handle_provider_update(self):
+        payload = self.read_json_body()
+        name = str(payload.get("name") or "")
+        if not name:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "name is required"})
+            return
+
+        result = update_proxy_provider(self.app_dir, name)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
         if returncode != 0 and status == HTTPStatus.OK:
@@ -274,6 +309,149 @@ def write_text_atomic(path, text):
     tmp = path.with_name(f".{path.name}.mihui.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(str(tmp), str(path))
+
+
+def check_mihomo_config(app_dir, text):
+    binary = find_mihomo_binary(app_dir)
+    if not binary:
+        return {
+            "ok": True,
+            "available": False,
+            "message": "mihomo binary not found; config check skipped",
+        }
+
+    tmp_path = None
+    try:
+        tmp_path = write_temp_config_for_check(app_dir, text)
+        result = subprocess.run(
+            [binary, "-t", "-f", str(tmp_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=45,
+            check=False,
+        )
+        output = result.stdout.decode("utf-8", "replace").strip()
+        return {
+            "ok": result.returncode == 0,
+            "available": True,
+            "message": output or ("config is valid" if result.returncode == 0 else "config check failed"),
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "available": True, "message": "config check timed out"}
+    except Exception as error:
+        return {"ok": False, "available": True, "message": str(error)}
+    finally:
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def find_mihomo_binary(app_dir):
+    env = get_env(app_dir)
+    candidates = [
+        env.get("MIHUI_MIHOMO_BIN", ""),
+        "/opt/bin/mihomo",
+        "/usr/bin/mihomo",
+        shutil.which("mihomo") or "",
+        shutil.which("clash-meta") or "",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if Path(candidate).is_file():
+            return candidate
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return ""
+
+
+def write_temp_config_for_check(app_dir, text):
+    config_path = get_config_path(app_dir)
+    directories = [config_path.parent, Path(tempfile.gettempdir())]
+    last_error = None
+
+    for directory in directories:
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                prefix=".mihui-check-",
+                suffix=".yaml",
+                dir=str(directory),
+                delete=False,
+            ) as handle:
+                handle.write(text)
+                return Path(handle.name)
+        except Exception as error:
+            last_error = error
+
+    raise last_error or RuntimeError("cannot create temporary config")
+
+
+def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
+    env = get_env(app_dir)
+    api = env.get("MIHUI_MIHOMO_API", "http://127.0.0.1:9090").rstrip("/")
+    secret = env.get("MIHUI_MIHOMO_SECRET", "")
+    headers = {}
+    data = None
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(payload).encode("utf-8")
+    if secret:
+        headers["Authorization"] = f"Bearer {secret}"
+
+    request = urllib.request.Request(f"{api}{path}", data=data, headers=headers, method=method)
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8", "replace")
+    if not raw.strip():
+        return {}
+    return json.loads(raw)
+
+
+def get_proxy_provider_statuses(app_dir):
+    try:
+        data = mihomo_api_request(app_dir, "/providers/proxies")
+        providers = data.get("providers", data)
+        if not isinstance(providers, dict):
+            providers = {}
+        return {
+            "ok": True,
+            "providers": [normalize_provider_status(name, item) for name, item in providers.items()],
+        }
+    except Exception as error:
+        return {"ok": False, "message": str(error), "providers": []}
+
+
+def update_proxy_provider(app_dir, name):
+    try:
+        encoded_name = urllib.parse.quote(name, safe="")
+        mihomo_api_request(app_dir, f"/providers/proxies/{encoded_name}", method="PUT", timeout=30)
+        return {"ok": True, "message": "provider update started"}
+    except Exception as error:
+        return {"ok": False, "message": str(error)}
+
+
+def normalize_provider_status(name, item):
+    if not isinstance(item, dict):
+        item = {}
+    proxies = item.get("proxies")
+    subscription_info = item.get("subscriptionInfo")
+    if not isinstance(subscription_info, dict):
+        subscription_info = {}
+
+    return {
+        "name": item.get("name") or name,
+        "type": item.get("type") or item.get("vehicleType") or "",
+        "vehicleType": item.get("vehicleType") or "",
+        "updatedAt": item.get("updatedAt") or item.get("updateAt") or "",
+        "proxyCount": len(proxies) if isinstance(proxies, list) else None,
+        "subscriptionInfo": subscription_info,
+    }
 
 
 def reload_mihomo(app_dir, config_path):
