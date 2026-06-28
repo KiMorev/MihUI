@@ -92,6 +92,8 @@ const NODE_COUNTRY_CODES = new Map([
   ['croatia', 'HR'],
   ['de', 'DE'],
   ['deutschland', 'DE'],
+  ['ee', 'EE'],
+  ['estonia', 'EE'],
   ['fr', 'FR'],
   ['france', 'FR'],
   ['germany', 'DE'],
@@ -106,17 +108,24 @@ const NODE_COUNTRY_CODES = new Map([
   ['korea', 'KR'],
   ['kr', 'KR'],
   ['malaysia', 'MY'],
+  ['mexico', 'MX'],
+  ['moldova', 'MD'],
+  ['nigeria', 'NG'],
+  ['norway', 'NO'],
   ['nl', 'NL'],
   ['netherlands', 'NL'],
   ['peru', 'PE'],
   ['poland', 'PL'],
+  ['portugal', 'PT'],
   ['russia', 'RU'],
   ['ru', 'RU'],
   ['singapore', 'SG'],
+  ['slovakia', 'SK'],
   ['southafrica', 'ZA'],
   ['spain', 'ES'],
   ['sweden', 'SE'],
   ['turkey', 'TR'],
+  ['ukraine', 'UA'],
   ['uae', 'AE'],
   ['uk', 'GB'],
   ['unitedkingdom', 'GB'],
@@ -125,12 +134,23 @@ const NODE_COUNTRY_CODES = new Map([
   ['usa', 'US'],
   ['vietnam', 'VN'],
   ['аргентина', 'AR'],
+  ['австралия', 'AU'],
+  ['бразилия', 'BR'],
   ['венгрия', 'HU'],
+  ['эстония', 'EE'],
+  ['израиль', 'IL'],
   ['ирландия', 'IE'],
   ['казахстан', 'KZ'],
   ['литва', 'LT'],
   ['малайзия', 'MY'],
+  ['мексика', 'MX'],
+  ['молдова', 'MD'],
+  ['нигерия', 'NG'],
+  ['норвегия', 'NO'],
+  ['португалия', 'PT'],
   ['перу', 'PE'],
+  ['словакия', 'SK'],
+  ['украина', 'UA'],
   ['финляндия', 'FI'],
   ['хорватия', 'HR'],
   ['швейцария', 'CH'],
@@ -157,14 +177,15 @@ const NODE_COUNTRY_CODES = new Map([
   ['япония', 'JP'],
 ]);
 const FLAG_EMOJI_PATTERN = /[\u{1F1E6}-\u{1F1FF}]{2}/u;
+const NATIVE_FLAG_TEST_EMOJI = String.fromCodePoint(0x1F1F3, 0x1F1F4);
 const NODE_FLAG_PATTERNS = {
   AE: { type: 'ae' },
   AR: { type: 'h', colors: ['#74acdf', '#fff', '#74acdf'] },
   AT: { type: 'h', colors: ['#ed2939', '#fff', '#ed2939'] },
-  AU: { type: 'plain', color: '#012169' },
+  AU: { type: 'au' },
   BE: { type: 'v', colors: ['#000', '#fae042', '#ed2939'] },
   BG: { type: 'h', colors: ['#fff', '#00966e', '#d62612'] },
-  BR: { type: 'plain', color: '#009c3b' },
+  BR: { type: 'br' },
   CA: { type: 'v', colors: ['#d80621', '#fff', '#d80621'] },
   CH: { type: 'swiss' },
   CN: { type: 'cn' },
@@ -172,6 +193,7 @@ const NODE_FLAG_PATTERNS = {
   CZ: { type: 'h', colors: ['#fff', '#d7141a'] },
   DE: { type: 'h', colors: ['#000', '#dd0000', '#ffce00'] },
   DK: { type: 'nordic', background: '#c60c30', cross: '#fff' },
+  EE: { type: 'h', colors: ['#0072ce', '#000', '#fff'] },
   ES: { type: 'h', colors: ['#aa151b', '#f1bf00', '#f1bf00', '#aa151b'] },
   FI: { type: 'nordic', background: '#fff', cross: '#002f6c' },
   FR: { type: 'v', colors: ['#0055a4', '#fff', '#ef4135'] },
@@ -181,21 +203,29 @@ const NODE_FLAG_PATTERNS = {
   HR: { type: 'hr' },
   HU: { type: 'h', colors: ['#ce2939', '#fff', '#477050'] },
   IE: { type: 'v', colors: ['#169b62', '#fff', '#ff883e'] },
+  IL: { type: 'il' },
   IN: { type: 'h', colors: ['#ff9933', '#fff', '#138808'] },
   IT: { type: 'v', colors: ['#009246', '#fff', '#ce2b37'] },
   JP: { type: 'circle', background: '#fff', circle: '#bc002d' },
   KR: { type: 'kr' },
   KZ: { type: 'kz' },
   LT: { type: 'h', colors: ['#fdb913', '#006a44', '#c1272d'] },
+  MD: { type: 'md' },
+  MX: { type: 'mx' },
   MY: { type: 'my' },
+  NG: { type: 'v', colors: ['#008751', '#fff', '#008751'] },
   NL: { type: 'h', colors: ['#ae1c28', '#fff', '#21468b'] },
+  NO: { type: 'no' },
   PE: { type: 'v', colors: ['#d91023', '#fff', '#d91023'] },
   PL: { type: 'h', colors: ['#fff', '#dc143c'] },
+  PT: { type: 'pt' },
   RO: { type: 'v', colors: ['#002b7f', '#fcd116', '#ce1126'] },
   RU: { type: 'h', colors: ['#fff', '#0039a6', '#d52b1e'] },
   SE: { type: 'nordic', background: '#006aa7', cross: '#fecc00' },
   SG: { type: 'h', colors: ['#ef3340', '#fff'] },
+  SK: { type: 'sk' },
   TR: { type: 'tr' },
+  UA: { type: 'h', colors: ['#0057b7', '#ffd700'] },
   US: { type: 'us' },
   VN: { type: 'vn' },
   ZA: { type: 'za' },
@@ -204,6 +234,7 @@ const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay
 const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
 const RULE_OPTIONS = new Set(['no-resolve', 'src']);
+let flagEmojiSupportCache = null;
 const PROVIDER_DIFF_FIELDS = [
   { key: 'hasUrl', label: 'ссылка подписки' },
   { key: 'url', label: 'ссылка подписки' },
@@ -2089,6 +2120,8 @@ function enrichNodeInventoryItem(node) {
   const provider = String(node.provider || '');
   const protocol = formatNodeProtocol(node.type);
   const flagCode = getNodeFlagCode(name);
+  const flagEmoji = getNodeFlagEmoji(name);
+  const useNativeFlagEmoji = Boolean(flagEmoji && shouldUseNativeFlagEmoji());
   return {
     name,
     displayName: flagCode ? stripNodeFlagEmoji(name) : name,
@@ -2099,7 +2132,8 @@ function enrichNodeInventoryItem(node) {
     udp: node.udp,
     delay: normalizeNodeDelay(node.delay),
     flagCode,
-    flagImage: flagCode ? getNodeFlagDataUri(flagCode) : '',
+    flagEmoji: useNativeFlagEmoji ? flagEmoji : '',
+    flagImage: !useNativeFlagEmoji && flagCode ? getNodeFlagDataUri(flagCode) : '',
   };
 }
 
@@ -2163,9 +2197,10 @@ function createNodeInventoryCard(node) {
   const meta = document.createElement('div');
   const groups = document.createElement('div');
   const protocolBadge = createNodeProtocolBadge(node);
+  const hasFlag = Boolean(node.flagEmoji || node.flagImage);
 
   card.className = 'node-card';
-  card.classList.toggle('has-inline-flag', !node.flagImage);
+  card.classList.toggle('has-inline-flag', !hasFlag);
   body.className = 'node-card-body';
   titleRow.className = 'node-card-title';
   title.type = 'button';
@@ -2186,12 +2221,16 @@ function createNodeInventoryCard(node) {
 
   titleRow.append(title, badges);
   body.append(titleRow, meta, groups);
-  if (node.flagImage) {
-    flag.className = 'node-flag';
+  if (hasFlag) {
+    flag.className = node.flagEmoji ? 'node-flag is-emoji' : 'node-flag';
     flag.type = 'button';
-    flag.title = node.flagCode;
-    flag.setAttribute('aria-label', node.flagCode);
-    if (flag.style) flag.style.backgroundImage = `url("${node.flagImage}")`;
+    flag.title = node.flagCode || node.flagEmoji;
+    flag.setAttribute('aria-label', node.flagCode || node.flagEmoji);
+    if (node.flagEmoji) {
+      flag.textContent = node.flagEmoji;
+    } else if (flag.style) {
+      flag.style.backgroundImage = `url("${node.flagImage}")`;
+    }
     flag.addEventListener('click', () => showNodeNameAction(card, node));
     card.append(flag, body);
   } else {
@@ -2411,6 +2450,11 @@ function getNodeFlagCode(name) {
   return getFlagEmojiCountryCode(name) || getNodeCountryCode(name);
 }
 
+function getNodeFlagEmoji(value) {
+  const match = String(value || '').match(FLAG_EMOJI_PATTERN);
+  return match ? match[0] : '';
+}
+
 function getFlagEmojiCountryCode(value) {
   const match = String(value || '').match(FLAG_EMOJI_PATTERN);
   if (!match) return '';
@@ -2423,6 +2467,46 @@ function getFlagEmojiCountryCode(value) {
 
 function stripNodeFlagEmoji(value) {
   return String(value || '').replace(FLAG_EMOJI_PATTERN, '').replace(/\s+/g, ' ').trim();
+}
+
+function shouldUseNativeFlagEmoji() {
+  if (flagEmojiSupportCache !== null) return flagEmojiSupportCache;
+  flagEmojiSupportCache = detectNativeFlagEmojiSupport();
+  return flagEmojiSupportCache;
+}
+
+function detectNativeFlagEmojiSupport() {
+  if (typeof document === 'undefined') return false;
+
+  const canvas = document.createElement('canvas');
+  const context = canvas?.getContext?.('2d');
+  if (!context) return false;
+
+  canvas.width = 32;
+  canvas.height = 32;
+  context.clearRect(0, 0, 32, 32);
+  context.font = '24px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+  context.fillText(NATIVE_FLAG_TEST_EMOJI, 0, 24);
+
+  let data;
+  try {
+    data = context.getImageData(0, 0, 32, 32).data;
+  } catch (error) {
+    return false;
+  }
+
+  const colors = new Set();
+  for (let index = 0; index < data.length; index += 16) {
+    if (data[index + 3] < 16) continue;
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    if (Math.max(red, green, blue) - Math.min(red, green, blue) < 8) continue;
+    colors.add(`${red >> 4}-${green >> 4}-${blue >> 4}`);
+    if (colors.size >= 3) return true;
+  }
+
+  return false;
 }
 
 function getNodeCountryCode(value) {
@@ -2467,12 +2551,20 @@ function renderNodeFlagPattern(code, pattern) {
   }
   if (pattern.type === 'gb') return renderGbFlag();
   if (pattern.type === 'us') return renderUsFlag();
+  if (pattern.type === 'au') return renderAuFlag();
+  if (pattern.type === 'br') return renderBrFlag();
   if (pattern.type === 'cn') return renderCnFlag();
   if (pattern.type === 'hk') return renderHkFlag();
   if (pattern.type === 'hr') return renderHrFlag();
+  if (pattern.type === 'il') return renderIlFlag();
   if (pattern.type === 'kr') return renderKrFlag();
   if (pattern.type === 'kz') return renderKzFlag();
+  if (pattern.type === 'md') return renderMdFlag();
+  if (pattern.type === 'mx') return renderMxFlag();
   if (pattern.type === 'my') return renderMyFlag();
+  if (pattern.type === 'no') return renderNoFlag();
+  if (pattern.type === 'pt') return renderPtFlag();
+  if (pattern.type === 'sk') return renderSkFlag();
   if (pattern.type === 'tr') return renderTrFlag();
   if (pattern.type === 'vn') return renderVnFlag();
   if (pattern.type === 'za') return renderZaFlag();
@@ -2503,6 +2595,14 @@ function renderUsFlag() {
   return `${stripes}<rect width="16" height="14" fill="#3c3b6e"/>`;
 }
 
+function renderAuFlag() {
+  return `<rect width="36" height="26" fill="#012169"/><g transform="scale(.46 .5)">${renderGbFlag()}</g>${renderStar(27, 7, 3.2, 1.3, '#fff')}${renderStar(23, 16, 2.4, 1, '#fff')}${renderStar(30, 14, 2.1, .9, '#fff')}${renderStar(27, 21, 2.1, .9, '#fff')}`;
+}
+
+function renderBrFlag() {
+  return '<rect width="36" height="26" fill="#009c3b"/><path d="M18 3L33 13L18 23L3 13Z" fill="#ffdf00"/><circle cx="18" cy="13" r="5.7" fill="#002776"/><path d="M12.7 11.5c3.8-1.2 7.6-.8 11 1.3" fill="none" stroke="#fff" stroke-width="1.1"/>';
+}
+
 function renderCnFlag() {
   return `<rect width="36" height="26" fill="#de2910"/>${renderStar(8, 7, 4, 1.7, '#ffde00')}${renderStar(15, 4, 1.6, 0.7, '#ffde00')}${renderStar(18, 8, 1.6, 0.7, '#ffde00')}`;
 }
@@ -2521,6 +2621,10 @@ function renderHrFlag() {
   return '<rect width="36" height="8.667" fill="#f00"/><rect y="8.667" width="36" height="8.667" fill="#fff"/><rect y="17.333" width="36" height="8.667" fill="#171796"/><rect x="14" y="7" width="8" height="10" fill="#fff"/><rect x="14" y="7" width="2.67" height="2.5" fill="#f00"/><rect x="19.33" y="7" width="2.67" height="2.5" fill="#f00"/><rect x="16.67" y="9.5" width="2.67" height="2.5" fill="#f00"/><rect x="14" y="12" width="2.67" height="2.5" fill="#f00"/><rect x="19.33" y="12" width="2.67" height="2.5" fill="#f00"/><rect x="16.67" y="14.5" width="2.67" height="2.5" fill="#f00"/>';
 }
 
+function renderIlFlag() {
+  return '<rect width="36" height="26" fill="#fff"/><rect y="4" width="36" height="3" fill="#0038b8"/><rect y="19" width="36" height="3" fill="#0038b8"/><path d="M18 8L23 17H13Z" fill="none" stroke="#0038b8" stroke-width="1.4"/><path d="M18 18L13 9H23Z" fill="none" stroke="#0038b8" stroke-width="1.4"/>';
+}
+
 function renderKrFlag() {
   return '<rect width="36" height="26" fill="#fff"/><circle cx="18" cy="13" r="6" fill="#c60c30"/><path d="M12 13a6 6 0 0 0 12 0a3 3 0 0 0-6 0a3 3 0 0 1-6 0Z" fill="#003478"/><path d="M7 6l5 2M6 9l5 2M25 6l5-2M24 9l5-2M7 20l5-2M6 17l5-2M25 20l5 2M24 17l5 2" stroke="#111" stroke-width="1.5"/>';
 }
@@ -2529,9 +2633,29 @@ function renderKzFlag() {
   return `<rect width="36" height="26" fill="#00afca"/><rect x="3" y="3" width="2" height="20" fill="#f6c344"/><circle cx="20" cy="12" r="4" fill="#f6c344"/>${renderStar(20, 18, 4, 1.8, '#f6c344')}`;
 }
 
+function renderMdFlag() {
+  return '<rect width="12" height="26" fill="#0033a0"/><rect x="12" width="12" height="26" fill="#ffd200"/><rect x="24" width="12" height="26" fill="#cc092f"/><rect x="16" y="9" width="4" height="7" fill="#8b4513"/>';
+}
+
+function renderMxFlag() {
+  return '<rect width="12" height="26" fill="#006847"/><rect x="12" width="12" height="26" fill="#fff"/><rect x="24" width="12" height="26" fill="#ce1126"/><circle cx="18" cy="13" r="2.7" fill="#8c6b2f"/>';
+}
+
 function renderMyFlag() {
   const stripes = Array.from({ length: 7 }, (_, index) => `<rect y="${index * 4}" width="36" height="2" fill="#cc0001"/>`).join('');
   return `<rect width="36" height="26" fill="#fff"/>${stripes}<rect width="18" height="14" fill="#010066"/><circle cx="8" cy="7" r="5" fill="#ffcc00"/><circle cx="10" cy="7" r="4" fill="#010066"/>${renderStar(14, 7, 3, 1.2, '#ffcc00')}`;
+}
+
+function renderNoFlag() {
+  return '<rect width="36" height="26" fill="#ba0c2f"/><rect x="10" width="7" height="26" fill="#fff"/><rect y="9" width="36" height="8" fill="#fff"/><rect x="12" width="3" height="26" fill="#00205b"/><rect y="11" width="36" height="4" fill="#00205b"/>';
+}
+
+function renderPtFlag() {
+  return '<rect width="14" height="26" fill="#006600"/><rect x="14" width="22" height="26" fill="#ff0000"/><circle cx="14" cy="13" r="4" fill="#ffcc00"/><circle cx="14" cy="13" r="2.4" fill="#fff"/>';
+}
+
+function renderSkFlag() {
+  return '<rect width="36" height="8.667" fill="#fff"/><rect y="8.667" width="36" height="8.667" fill="#0b4ea2"/><rect y="17.333" width="36" height="8.667" fill="#ee1c25"/><path d="M10 8h8v7c0 4-4 6-4 6s-4-2-4-6Z" fill="#ee1c25" stroke="#fff" stroke-width="1"/><path d="M12 12h4M14 10v7" stroke="#fff" stroke-width="1.2"/>';
 }
 
 function renderTrFlag() {
