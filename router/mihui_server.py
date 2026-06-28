@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -449,11 +450,14 @@ def get_current_nodes(app_dir):
         providers = data.get("providers", data)
         if not isinstance(providers, dict):
             providers = {}
+        configured_names = get_config_proxy_provider_names(app_dir)
 
         nodes = []
         provider_items = []
         for provider_name, item in providers.items():
             if not isinstance(item, dict):
+                continue
+            if configured_names and not is_config_proxy_provider(configured_names, provider_name, item):
                 continue
             proxies = item.get("proxies")
             if not isinstance(proxies, list):
@@ -465,6 +469,67 @@ def get_current_nodes(app_dir):
         return {"ok": True, "nodes": nodes, "providers": provider_items}
     except Exception as error:
         return {"ok": False, "message": str(error), "nodes": [], "providers": []}
+
+
+def get_config_proxy_provider_names(app_dir):
+    config_path = get_config_path(app_dir)
+    if not config_path.is_file():
+        return set()
+    text = config_path.read_text(encoding="utf-8", errors="replace")
+    return {normalize_provider_name(name) for name in parse_proxy_provider_names(text)}
+
+
+def parse_proxy_provider_names(text):
+    lines = text.splitlines()
+    section_indent = None
+    child_indent = None
+    names = []
+
+    for index, line in enumerate(lines):
+        cleaned = strip_yaml_comment(line)
+        match = re.match(r"^(\s*)proxy-providers\s*:", cleaned)
+        if match:
+            section_indent = len(match.group(1))
+            start_index = index + 1
+            break
+    else:
+        return names
+
+    for line in lines[start_index:]:
+        cleaned = strip_yaml_comment(line)
+        if not cleaned.strip():
+            continue
+
+        indent = len(cleaned) - len(cleaned.lstrip(" "))
+        if indent <= section_indent:
+            break
+        if child_indent is None:
+            child_indent = indent
+        if indent != child_indent:
+            continue
+
+        match = re.match(r"^\s*([^:\s][^:]*):\s*$", cleaned)
+        if match:
+            names.append(clean_yaml_key(match.group(1)))
+
+    return [name for name in names if name]
+
+
+def strip_yaml_comment(line):
+    return line.split("#", 1)[0].rstrip()
+
+
+def clean_yaml_key(value):
+    return str(value or "").strip().strip('"').strip("'")
+
+
+def normalize_provider_name(value):
+    return str(value or "").strip().casefold()
+
+
+def is_config_proxy_provider(configured_names, provider_name, item):
+    candidates = [provider_name, item.get("name")]
+    return any(normalize_provider_name(candidate) in configured_names for candidate in candidates)
 
 
 def normalize_current_node(provider_name, proxy):
