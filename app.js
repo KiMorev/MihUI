@@ -327,9 +327,13 @@ async function checkMihuiUpdate() {
       setMihomoUiUpdateButton(false, data.latest ? `Обновить до ${data.latest}` : 'Обновить UI');
     } else if (data.version) {
       els.updateHint.textContent = currentVersion;
+      setMihomoUiUpdateButton(true, 'Обновить UI', true);
+    } else {
+      setMihomoUiUpdateButton(true, 'Обновить UI', true);
     }
   } catch (error) {
     els.updateHint.textContent = '';
+    setMihomoUiUpdateButton(true, 'Обновить UI', true);
   }
 }
 
@@ -3855,11 +3859,25 @@ async function pollMihuiUpdateStatus() {
 
     throw new Error(status.message || 'обновление не выполнено');
   } catch (error) {
-    if (state.mihuiUpdateAccepted && isFetchFailure(error) && state.mihuiUpdateReconnects < 30) {
-      state.mihuiUpdateReconnects += 1;
-      setMihomoUiUpdateButton(true, 'Перезапуск...');
-      showMessage('MihUI обновляется: локальный сервер перезапускается.');
-      state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1500);
+    if (state.mihuiUpdateAccepted && isFetchFailure(error)) {
+      if (state.mihuiUpdateReconnects < 120) {
+        state.mihuiUpdateReconnects += 1;
+        setMihomoUiUpdateButton(true, 'Перезапуск...');
+        showMessage('MihUI обновляется: локальный сервер перезапускается.');
+        state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1500);
+        return;
+      }
+
+      keepButtonBusy = true;
+      setMihomoUiUpdateButton(true, 'Обновите страницу');
+      showMessage('MihUI перезапускается дольше обычного. Страница обновится через несколько секунд.');
+      window.setTimeout(() => {
+        try {
+          window.location.reload();
+        } catch (error) {
+          // Page reload is only a convenience after MihUI finishes updating assets.
+        }
+      }, 2500);
       return;
     }
 
@@ -3876,8 +3894,9 @@ function isFetchFailure(error) {
   return error instanceof TypeError || String(error?.message || error).toLowerCase().includes('failed to fetch');
 }
 
-function setMihomoUiUpdateButton(disabled, text) {
+function setMihomoUiUpdateButton(disabled, text, hidden = false) {
   els.mihomoUiUpdateButton.disabled = disabled;
+  els.mihomoUiUpdateButton.hidden = hidden;
   const label = els.mihomoUiUpdateButton.querySelector('.button-label');
   if (label) label.textContent = text;
 }
