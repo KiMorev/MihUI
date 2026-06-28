@@ -54,6 +54,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/providers/status":
             self.handle_providers_status()
             return
+        if route == "/api/nodes":
+            self.handle_nodes_get()
+            return
 
         super().do_GET()
 
@@ -192,6 +195,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_providers_status(self):
         result = get_proxy_provider_statuses(self.app_dir)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+
+    def handle_nodes_get(self):
+        result = get_current_nodes(self.app_dir)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
 
     def handle_provider_update(self):
@@ -434,6 +441,60 @@ def update_proxy_provider(app_dir, name):
         return {"ok": True, "message": "provider update started"}
     except Exception as error:
         return {"ok": False, "message": str(error)}
+
+
+def get_current_nodes(app_dir):
+    try:
+        data = mihomo_api_request(app_dir, "/providers/proxies")
+        providers = data.get("providers", data)
+        if not isinstance(providers, dict):
+            providers = {}
+
+        nodes = []
+        provider_items = []
+        for provider_name, item in providers.items():
+            if not isinstance(item, dict):
+                continue
+            proxies = item.get("proxies")
+            if not isinstance(proxies, list):
+                proxies = []
+            provider_items.append({"name": item.get("name") or provider_name, "nodeCount": len(proxies)})
+            for proxy in proxies:
+                nodes.append(normalize_current_node(item.get("name") or provider_name, proxy))
+
+        return {"ok": True, "nodes": nodes, "providers": provider_items}
+    except Exception as error:
+        return {"ok": False, "message": str(error), "nodes": [], "providers": []}
+
+
+def normalize_current_node(provider_name, proxy):
+    if not isinstance(proxy, dict):
+        proxy = {"name": str(proxy)}
+
+    return {
+        "name": str(proxy.get("name") or ""),
+        "provider": str(provider_name or ""),
+        "type": str(proxy.get("type") or ""),
+        "alive": proxy.get("alive") if isinstance(proxy.get("alive"), bool) else None,
+        "udp": proxy.get("udp") if isinstance(proxy.get("udp"), bool) else None,
+        "delay": get_proxy_delay(proxy),
+    }
+
+
+def get_proxy_delay(proxy):
+    delay = proxy.get("delay")
+    if isinstance(delay, (int, float)) and delay >= 0:
+        return int(delay)
+
+    history = proxy.get("history")
+    if isinstance(history, list):
+        for item in reversed(history):
+            if not isinstance(item, dict):
+                continue
+            delay = item.get("delay")
+            if isinstance(delay, (int, float)) and delay >= 0:
+                return int(delay)
+    return None
 
 
 def normalize_provider_status(name, item):

@@ -82,6 +82,61 @@ const COMMON_DOMAIN_SUFFIXES = new Set([
   'co',
   'uk',
 ]);
+const NODE_COUNTRY_CODES = new Map([
+  ['ae', 'AE'],
+  ['argentina', 'AR'],
+  ['australia', 'AU'],
+  ['brazil', 'BR'],
+  ['canada', 'CA'],
+  ['china', 'CN'],
+  ['de', 'DE'],
+  ['deutschland', 'DE'],
+  ['fr', 'FR'],
+  ['france', 'FR'],
+  ['germany', 'DE'],
+  ['hk', 'HK'],
+  ['hongkong', 'HK'],
+  ['india', 'IN'],
+  ['italy', 'IT'],
+  ['japan', 'JP'],
+  ['jp', 'JP'],
+  ['korea', 'KR'],
+  ['kr', 'KR'],
+  ['nl', 'NL'],
+  ['netherlands', 'NL'],
+  ['poland', 'PL'],
+  ['russia', 'RU'],
+  ['ru', 'RU'],
+  ['singapore', 'SG'],
+  ['spain', 'ES'],
+  ['sweden', 'SE'],
+  ['turkey', 'TR'],
+  ['uae', 'AE'],
+  ['uk', 'GB'],
+  ['unitedkingdom', 'GB'],
+  ['unitedstates', 'US'],
+  ['us', 'US'],
+  ['usa', 'US'],
+  ['vietnam', 'VN'],
+  ['великобритания', 'GB'],
+  ['германия', 'DE'],
+  ['гонконг', 'HK'],
+  ['индия', 'IN'],
+  ['испания', 'ES'],
+  ['италия', 'IT'],
+  ['канада', 'CA'],
+  ['китай', 'CN'],
+  ['нидерланды', 'NL'],
+  ['оаэ', 'AE'],
+  ['польша', 'PL'],
+  ['россия', 'RU'],
+  ['сингапур', 'SG'],
+  ['сша', 'US'],
+  ['турция', 'TR'],
+  ['франция', 'FR'],
+  ['швеция', 'SE'],
+  ['япония', 'JP'],
+]);
 const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay']);
 const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
@@ -133,6 +188,16 @@ const state = {
   providerStatuses: {},
   providerStatusLoading: false,
   providerUpdatingName: '',
+  mihomoNodes: [],
+  nodeInventoryLoading: false,
+  nodeInventoryError: '',
+  nodeFilters: {
+    search: '',
+    provider: '',
+    group: '',
+    protocol: '',
+    status: '',
+  },
   saveReviewReady: false,
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
@@ -187,6 +252,15 @@ const els = {
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
+  nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
+  nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
+  nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
+  nodeInventoryList: document.querySelector('#nodeInventoryList'),
+  nodeSearchInput: document.querySelector('#nodeSearchInput'),
+  nodeProviderFilter: document.querySelector('#nodeProviderFilter'),
+  nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
+  nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
+  nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
   workspace: document.querySelector('.workspace'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
@@ -216,6 +290,12 @@ els.copyButton.addEventListener('click', copyYaml);
 els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
+els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
+els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
+els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
+els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
+els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
+els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -230,6 +310,8 @@ function handleFileSelect(event) {
     state.routerMode = false;
     state.routerConfigPath = '';
     state.providerStatuses = {};
+    state.mihomoNodes = [];
+    state.nodeInventoryError = '';
     state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
@@ -269,6 +351,7 @@ async function loadRouterConfig(options = {}) {
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
+    await loadNodeInventory({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${state.routerConfigPath}`);
   } catch (error) {
     if (!options.silent) showMessage(`Не удалось открыть конфиг роутера: ${error?.message || error}`);
@@ -310,6 +393,7 @@ async function saveRouterConfig() {
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
+    await loadNodeInventory({ silent: true });
 
     if (data.reload?.ok) {
       showMessage('Конфиг сохранен, Mihomo перезагружен.');
@@ -562,6 +646,34 @@ async function loadProviderStatuses(options = {}) {
   }
 }
 
+async function loadNodeInventory(options = {}) {
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  state.nodeInventoryLoading = true;
+  state.nodeInventoryError = '';
+  renderNodeInventory();
+
+  try {
+    const data = await apiJson('/api/nodes');
+    state.mihomoNodes = Array.isArray(data.nodes) ? data.nodes : [];
+  } catch (error) {
+    state.mihomoNodes = [];
+    state.nodeInventoryError = error?.message || String(error);
+    if (!options.silent) showMessage(`Не удалось получить ноды Mihomo: ${state.nodeInventoryError}`);
+  } finally {
+    state.nodeInventoryLoading = false;
+    render();
+  }
+}
+
+function handleNodeFilterChange() {
+  state.nodeFilters.search = els.nodeSearchInput.value || '';
+  state.nodeFilters.provider = els.nodeProviderFilter.value || '';
+  state.nodeFilters.group = els.nodeGroupFilter.value || '';
+  state.nodeFilters.protocol = els.nodeProtocolFilter.value || '';
+  state.nodeFilters.status = els.nodeStatusFilter.value || '';
+  renderNodeInventory();
+}
+
 async function updateProviderNow(provider) {
   if (!provider?.name || !state.routerApiAvailable || typeof fetch !== 'function') return;
   state.providerUpdatingName = provider.name;
@@ -575,6 +687,7 @@ async function updateProviderNow(provider) {
     });
     showMessage(`Подписка ${provider.name} отправлена на обновление.`);
     await loadProviderStatuses({ silent: true });
+    await loadNodeInventory({ silent: true });
   } catch (error) {
     showMessage(`Не удалось обновить подписку ${provider.name}: ${error?.message || error}`);
   } finally {
@@ -650,6 +763,7 @@ function render() {
   renderProviders(activeProviders);
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
+  renderNodeInventory();
 }
 
 function renderGroupMetric() {
@@ -1853,6 +1967,236 @@ function formatProviderUpdatedAt(value) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function renderNodeInventory() {
+  const isVisible = state.routerMode && state.routerApiAvailable;
+  els.nodeInventoryPanel.classList.toggle('hidden', !isVisible);
+  if (!isVisible) return;
+
+  const nodes = state.mihomoNodes.map(enrichNodeInventoryItem);
+  const filtered = nodes.filter(matchesNodeFilters);
+  const providerOptions = [...new Set(nodes.map((node) => node.provider).filter(Boolean))].sort(compareText);
+  const groupOptions = [...new Set(nodes.flatMap((node) => node.groups).filter(Boolean))].sort(compareText);
+  const protocolOptions = [...new Set(nodes.map((node) => node.protocol).filter(Boolean))].sort(compareText);
+
+  replaceFilterOptions(els.nodeProviderFilter, 'Все подписки', providerOptions, state.nodeFilters.provider);
+  replaceFilterOptions(els.nodeGroupFilter, 'Все группы', groupOptions, state.nodeFilters.group);
+  replaceFilterOptions(els.nodeProtocolFilter, 'Все протоколы', protocolOptions, state.nodeFilters.protocol);
+  els.nodeSearchInput.value = state.nodeFilters.search;
+  els.nodeStatusFilter.value = state.nodeFilters.status;
+  els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
+  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading ? 'Загрузка...' : 'Обновить';
+
+  renderNodeInventorySummary(nodes, filtered);
+  els.nodeInventoryList.innerHTML = '';
+
+  if (state.nodeInventoryLoading) {
+    els.nodeInventoryList.classList.add('empty-state');
+    setEmptyState(els.nodeInventoryList, 'Загрузка нод', 'Mihomo отдает текущий список подписок и нод.');
+    return;
+  }
+
+  if (state.nodeInventoryError) {
+    els.nodeInventoryList.classList.add('empty-state');
+    setEmptyState(els.nodeInventoryList, 'Ноды недоступны', state.nodeInventoryError);
+    return;
+  }
+
+  if (nodes.length === 0) {
+    els.nodeInventoryList.classList.add('empty-state');
+    setEmptyState(els.nodeInventoryList, 'Ноды не найдены', 'Mihomo не вернул текущий список нод.');
+    return;
+  }
+
+  if (filtered.length === 0) {
+    els.nodeInventoryList.classList.add('empty-state');
+    setEmptyState(els.nodeInventoryList, 'Ничего не найдено', 'Измените поиск или фильтры.');
+    return;
+  }
+
+  els.nodeInventoryList.classList.remove('empty-state');
+  filtered.forEach((node) => {
+    els.nodeInventoryList.append(createNodeInventoryCard(node));
+  });
+}
+
+function enrichNodeInventoryItem(node) {
+  const name = String(node.name || '');
+  const provider = String(node.provider || '');
+  const protocol = formatNodeProtocol(node.type);
+  return {
+    name,
+    displayName: name,
+    provider,
+    protocol,
+    groups: getProviderUseGroupNames(provider),
+    alive: node.alive,
+    udp: node.udp,
+    delay: normalizeNodeDelay(node.delay),
+    flag: getNodeFallbackFlag(name),
+  };
+}
+
+function matchesNodeFilters(node) {
+  const query = normalizeNodeSearch(state.nodeFilters.search);
+  if (state.nodeFilters.provider && node.provider !== state.nodeFilters.provider) return false;
+  if (state.nodeFilters.group && !node.groups.includes(state.nodeFilters.group)) return false;
+  if (state.nodeFilters.protocol && node.protocol !== state.nodeFilters.protocol) return false;
+  if (state.nodeFilters.status && getNodeStatusKey(node) !== state.nodeFilters.status) return false;
+  if (!query) return true;
+
+  return normalizeNodeSearch([node.name, node.provider, node.protocol, node.groups.join(' ')].join(' ')).includes(query);
+}
+
+function renderNodeInventorySummary(nodes, filtered) {
+  const providerCount = new Set(nodes.map((node) => node.provider).filter(Boolean)).size;
+  const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
+
+  if (state.nodeInventoryLoading) {
+    els.nodeInventorySummary.textContent = 'Обновление списка нод из Mihomo...';
+    return;
+  }
+
+  if (state.nodeInventoryError) {
+    els.nodeInventorySummary.textContent = 'Не удалось получить live-список нод.';
+    return;
+  }
+
+  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+}
+
+function replaceFilterOptions(select, allLabel, values, selected) {
+  select.textContent = '';
+  const allOption = document.createElement('option');
+  allOption.value = '';
+  allOption.textContent = allLabel;
+  select.append(allOption);
+
+  values.forEach((value) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  });
+
+  select.value = values.includes(selected) ? selected : '';
+  if (select.value !== selected) {
+    if (select === els.nodeProviderFilter) state.nodeFilters.provider = '';
+    if (select === els.nodeGroupFilter) state.nodeFilters.group = '';
+    if (select === els.nodeProtocolFilter) state.nodeFilters.protocol = '';
+  }
+}
+
+function createNodeInventoryCard(node) {
+  const card = document.createElement('article');
+  const flag = document.createElement('span');
+  const body = document.createElement('div');
+  const titleRow = document.createElement('div');
+  const title = document.createElement('strong');
+  const badges = document.createElement('div');
+  const meta = document.createElement('div');
+  const groups = document.createElement('div');
+
+  card.className = 'node-card';
+  card.classList.toggle('has-inline-flag', !node.flag);
+  body.className = 'node-card-body';
+  titleRow.className = 'node-card-title';
+  title.textContent = node.displayName || 'Без названия';
+  badges.className = 'node-badges';
+  badges.append(
+    createNodeBadge(node.protocol || 'UNKNOWN', 'is-protocol'),
+    createNodeBadge(formatNodeStatus(node), `is-${getNodeStatusKey(node)}`),
+  );
+  if (node.delay !== null) badges.append(createNodeBadge(`${node.delay} ms`, ''));
+  if (node.udp === true) badges.append(createNodeBadge('UDP', ''));
+  meta.className = 'node-card-meta';
+  meta.textContent = node.provider || 'Без подписки';
+  groups.className = 'node-card-groups';
+  groups.textContent = node.groups.length ? `Группы: ${node.groups.join(', ')}` : 'Не подключена к use-группе';
+
+  titleRow.append(title, badges);
+  body.append(titleRow, meta, groups);
+  if (node.flag) {
+    flag.className = 'node-flag';
+    flag.textContent = node.flag;
+    card.append(flag, body);
+  } else {
+    card.append(body);
+  }
+  return card;
+}
+
+function createNodeBadge(text, className) {
+  const badge = document.createElement('span');
+  badge.className = className ? `node-badge ${className}` : 'node-badge';
+  badge.textContent = text;
+  return badge;
+}
+
+function formatNodeProtocol(type) {
+  return String(type || 'unknown').trim().toUpperCase();
+}
+
+function getNodeStatusKey(node) {
+  if (node.alive === true) return 'alive';
+  if (node.alive === false) return 'dead';
+  return 'unknown';
+}
+
+function formatNodeStatus(node) {
+  const status = getNodeStatusKey(node);
+  if (status === 'alive') return 'доступна';
+  if (status === 'dead') return 'нет ответа';
+  return 'без статуса';
+}
+
+function normalizeNodeDelay(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeNodeSearch(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function compareText(left, right) {
+  return String(left).localeCompare(String(right), 'ru');
+}
+
+function getNodeFallbackFlag(name) {
+  const value = String(name || '');
+  if (/[\u{1F1E6}-\u{1F1FF}]{2}/u.test(value)) return '';
+
+  const code = getNodeCountryCode(value);
+  return code ? countryCodeToFlag(code) : '??';
+}
+
+function getNodeCountryCode(value) {
+  const normalized = String(value || '').toLowerCase().replace(/[^a-zа-я0-9]+/giu, ' ');
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+
+  for (const token of tokens) {
+    const code = NODE_COUNTRY_CODES.get(token);
+    if (code) return code;
+  }
+
+  const compact = tokens.join('');
+  for (const [key, code] of NODE_COUNTRY_CODES) {
+    if (key.length > 2 && compact.includes(key)) return code;
+  }
+
+  return '';
+}
+
+function countryCodeToFlag(code) {
+  return String(code || '')
+    .toUpperCase()
+    .slice(0, 2)
+    .split('')
+    .map((letter) => String.fromCodePoint(127397 + letter.charCodeAt(0)))
+    .join('');
 }
 
 function setEmptyState(element, title, text) {

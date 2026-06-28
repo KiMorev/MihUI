@@ -170,6 +170,51 @@
         </section>
       </section>
 
+      <section id="nodeInventoryPanel" class="panel node-inventory-panel hidden" aria-live="polite">
+        <div class="panel-head">
+          <h2>Текущие ноды Mihomo</h2>
+          <div class="panel-actions">
+            <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
+              <span>Обновить</span>
+            </button>
+          </div>
+        </div>
+        <div class="node-inventory-controls">
+          <label>
+            <span>Поиск</span>
+            <input id="nodeSearchInput" type="search" placeholder="Имя, подписка, группа" autocomplete="off" />
+          </label>
+          <label>
+            <span>Подписка</span>
+            <select id="nodeProviderFilter"></select>
+          </label>
+          <label>
+            <span>Группа</span>
+            <select id="nodeGroupFilter"></select>
+          </label>
+          <label>
+            <span>Протокол</span>
+            <select id="nodeProtocolFilter"></select>
+          </label>
+          <label>
+            <span>Статус</span>
+            <select id="nodeStatusFilter">
+              <option value="">Все</option>
+              <option value="alive">Доступные</option>
+              <option value="dead">Недоступные</option>
+              <option value="unknown">Без статуса</option>
+            </select>
+          </label>
+        </div>
+        <div id="nodeInventorySummary" class="node-inventory-summary"></div>
+        <div id="nodeInventoryList" class="node-inventory-list empty-state">
+          <div class="empty-state-content">
+            <strong>Ноды появятся после ответа Mihomo</strong>
+            <span>Список показывает текущие ноды, которые ядро вернуло после фильтров подписок.</span>
+          </div>
+        </div>
+      </section>
+
       <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
 
       <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
