@@ -173,6 +173,7 @@ const els = {
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
+  workspace: document.querySelector('.workspace'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
@@ -340,6 +341,7 @@ function renderRouterControls() {
 function renderBackups(backups) {
   els.backupSelect.textContent = '';
   if (!backups.length) {
+    els.routerPanel.classList.add('router-panel-empty');
     const option = document.createElement('option');
     option.value = '';
     option.textContent = 'Бэкапов нет';
@@ -349,6 +351,7 @@ function renderBackups(backups) {
     return;
   }
 
+  els.routerPanel.classList.remove('router-panel-empty');
   backups.forEach((backup) => {
     const option = document.createElement('option');
     option.value = backup.name;
@@ -361,6 +364,16 @@ function renderBackups(backups) {
 
 function renderUiLinks(items) {
   els.uiLinks.textContent = '';
+  if (!items.length) return;
+
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const menu = document.createElement('div');
+
+  details.className = 'ui-links-details';
+  summary.textContent = items.length > 1 ? `UI (${items.length})` : 'UI';
+  menu.className = 'ui-links-menu';
+
   items.forEach((item) => {
     const group = document.createElement('span');
     group.className = 'ui-link-item';
@@ -388,8 +401,11 @@ function renderUiLinks(items) {
       group.append(githubLink);
     }
 
-    els.uiLinks.append(group);
+    menu.append(group);
   });
+
+  details.append(summary, menu);
+  els.uiLinks.append(details);
 }
 
 function setRouterBusy(isBusy, text) {
@@ -461,6 +477,7 @@ function render() {
   els.fileMeta.textContent = state.fileName || 'Конфигурация не загружена';
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
+  els.workspace.classList.toggle('workspace-route-focus', Boolean(state.originalText) && activeProviders.length === 0);
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
@@ -987,6 +1004,7 @@ function renderConnectionSettings() {
   const actions = document.createElement('div');
   const summary = document.createElement('span');
   const button = document.createElement('button');
+  const toggleButton = document.createElement('button');
   const body = document.createElement('div');
   const grid = document.createElement('div');
 
@@ -999,7 +1017,12 @@ function renderConnectionSettings() {
   button.type = 'button';
   button.textContent = 'Включить недостающие';
   button.addEventListener('click', addRecommendedConnectionSettings);
+  toggleButton.className = 'button compact connection-settings-toggle';
+  toggleButton.type = 'button';
+  toggleButton.textContent = 'Подробнее';
+  toggleButton.setAttribute('aria-expanded', 'false');
   body.className = 'connection-settings-body';
+  body.hidden = true;
   grid.className = 'connection-settings-grid';
 
   missing.forEach((definition) => {
@@ -1031,7 +1054,14 @@ function renderConnectionSettings() {
     grid.append(card);
   });
 
-  actions.append(summary, button);
+  toggleButton.addEventListener('click', () => {
+    const expanded = body.hidden;
+    body.hidden = !expanded;
+    toggleButton.textContent = expanded ? 'Скрыть' : 'Подробнее';
+    toggleButton.setAttribute('aria-expanded', String(expanded));
+  });
+
+  actions.append(summary, toggleButton, button);
   head.append(title, actions);
   body.append(grid);
   els.connectionSettingsPanel.append(head, body);

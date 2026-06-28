@@ -100,6 +100,45 @@ h1 {
   display: none;
 }
 
+.ui-links-details {
+  position: relative;
+}
+
+.ui-links-details summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  list-style: none;
+}
+
+.ui-links-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.ui-links-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
 .ui-link-item {
   display: inline-flex;
   align-items: center;
@@ -111,6 +150,12 @@ h1 {
   background: var(--panel);
   font-size: 12px;
   line-height: 1.2;
+}
+
+.ui-links-menu .ui-link-item {
+  justify-content: space-between;
+  min-height: 30px;
+  border-radius: 6px;
 }
 
 .ui-link-main,
@@ -368,6 +413,10 @@ input[type='file'] {
   display: none;
 }
 
+.router-panel.router-panel-empty {
+  display: none;
+}
+
 .backup-tools {
   display: flex;
   align-items: center;
@@ -585,7 +634,7 @@ input[type='file'] {
 }
 
 .connection-settings-panel {
-  margin: 0 0 12px;
+  margin: 12px 0;
   border-color: #ead6a1;
   background: #fffdf7;
 }
@@ -602,6 +651,10 @@ input[type='file'] {
   display: grid;
   gap: 12px;
   padding: 10px 14px 12px;
+}
+
+.connection-settings-body[hidden] {
+  display: none;
 }
 
 .connection-settings-grid {
@@ -669,6 +722,14 @@ input[type='file'] {
   grid-template-columns: minmax(620px, 1.05fr) minmax(500px, 0.95fr);
   gap: 16px;
   align-items: start;
+}
+
+.workspace.workspace-route-focus {
+  grid-template-columns: minmax(280px, 0.55fr) minmax(620px, 1.45fr);
+}
+
+.workspace-route-focus .providers-list.empty-state {
+  min-height: 110px;
 }
 
 .groups-column {
@@ -1782,6 +1843,7 @@ input.is-invalid {
 
   .topbar {
     flex-direction: column;
+    gap: 10px;
   }
 
   .topbar-main,
@@ -1790,10 +1852,22 @@ input.is-invalid {
     width: 100%;
   }
 
-  .actions,
-  .button,
-  .link-button {
+  .actions {
     width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .actions > .button,
+  .actions > .link-button,
+  .actions > .file-tools,
+  .actions .file-tools summary {
+    width: 100%;
+  }
+
+  .actions > .download-warning {
+    grid-column: 1 / -1;
   }
 
   .router-panel,
@@ -1812,8 +1886,11 @@ input.is-invalid {
     max-width: none;
   }
 
-  .status-grid,
   .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace.workspace-route-focus {
     grid-template-columns: 1fr;
   }
 
@@ -1842,6 +1919,11 @@ input.is-invalid {
   }
 
   .providers-list.providers-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .actions,
+  .status-grid {
     grid-template-columns: 1fr;
   }
 
