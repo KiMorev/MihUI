@@ -135,6 +135,7 @@ const state = {
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
   routerMode: false,
+  routerApiAvailable: false,
   routerConfigPath: '',
   routerBusy: false,
   updatePollTimer: 0,
@@ -251,6 +252,7 @@ async function loadRouterConfig(options = {}) {
 
   try {
     const data = await apiJson('/api/config');
+    state.routerApiAvailable = true;
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
     state.fileName = state.routerConfigPath || 'router config';
@@ -348,6 +350,7 @@ async function loadBackups() {
 async function loadRouterMetadata() {
   try {
     const data = await apiJson('/api/router/uis');
+    state.routerApiAvailable = true;
     renderUiLinks(data.items || []);
   } catch (error) {
     renderUiLinks([]);
@@ -357,6 +360,7 @@ async function loadRouterMetadata() {
 async function checkMihuiUpdate() {
   try {
     const data = await apiJson('/api/update/check');
+    state.routerApiAvailable = true;
     const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
       els.updateHint.textContent = data.latest ? `${currentVersion} -> ${data.latest}` : currentVersion;
@@ -372,11 +376,15 @@ async function checkMihuiUpdate() {
 }
 
 function renderRouterControls() {
+  const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
   els.routerSaveButton.disabled = state.routerBusy || !state.outputText || !state.routerMode;
   const saveLabel = els.routerSaveButton.querySelector('span');
   if (saveLabel) saveLabel.textContent = state.saveReviewReady ? 'Сохранить после просмотра' : 'Сохранить в ядро';
-  els.providerStatusRefreshButton.disabled = !state.routerMode || state.providerStatusLoading || state.providers.filter((provider) => !provider.deleted).length === 0;
+  els.providerStatusRefreshButton.disabled = !state.routerApiAvailable || state.providerStatusLoading || !hasActiveProviders;
+  els.providerStatusRefreshButton.title = state.routerApiAvailable
+    ? 'Получить статусы подписок из Mihomo API'
+    : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const statusLabel = els.providerStatusRefreshButton.querySelector('span');
   if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Загрузка...' : 'Статусы';
 }
@@ -478,7 +486,7 @@ async function apiJson(url, options = {}) {
 }
 
 async function checkRouterConfig(options = {}) {
-  if (!state.outputText || !state.routerMode) return null;
+  if (!state.outputText || !state.routerApiAvailable) return null;
   setConfigCheckBusy(true);
 
   try {
@@ -504,13 +512,16 @@ async function checkRouterConfig(options = {}) {
 }
 
 function setConfigCheckBusy(isBusy) {
-  els.checkConfigButton.disabled = isBusy || state.routerBusy || state.isEditingConfiguration || !state.routerMode || !state.outputText;
+  els.checkConfigButton.disabled = isBusy || state.routerBusy || state.isEditingConfiguration || !state.routerApiAvailable || !state.outputText;
+  els.checkConfigButton.title = state.routerApiAvailable
+    ? 'Проверить текущий текст конфига через mihomo -t'
+    : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const label = els.checkConfigButton.querySelector('.button-label');
   if (label) label.textContent = isBusy ? 'Проверка...' : 'Проверить в ядре';
 }
 
 async function loadProviderStatuses(options = {}) {
-  if (!state.routerMode || typeof fetch !== 'function') return;
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
   state.providerStatusLoading = true;
   renderRouterControls();
 
@@ -532,7 +543,7 @@ async function loadProviderStatuses(options = {}) {
 }
 
 async function updateProviderNow(provider) {
-  if (!provider?.name || !state.routerMode || typeof fetch !== 'function') return;
+  if (!provider?.name || !state.routerApiAvailable || typeof fetch !== 'function') return;
   state.providerUpdatingName = provider.name;
   render();
 
@@ -1708,7 +1719,7 @@ function formatProviderListMeta(provider) {
   const status = getProviderStatus(provider.name);
   if (state.providerStatusLoading) return 'Статусы загружаются';
   if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${formatProxyCount(status.proxyCount)} · ${formatProviderUpdatedAt(status.updatedAt) || 'время неизвестно'}`;
-  if (state.routerMode) return 'Статус неизвестен';
+  if (state.routerApiAvailable) return 'Статус неизвестен';
   return provider.url ? 'URL' : 'Нет ссылки';
 }
 
@@ -1724,7 +1735,7 @@ function renderProviderRuntimeStatus(root, provider) {
   const status = getProviderStatus(provider.name);
   const parts = [];
 
-  if (!state.routerMode) {
+  if (!state.routerApiAvailable) {
     box.hidden = true;
     return;
   }
@@ -1753,8 +1764,11 @@ function bindProviderUpdateButton(root, provider) {
   const label = button.querySelector('.button-label');
   const isUpdating = state.providerUpdatingName === provider.name;
 
-  button.hidden = !state.routerMode;
-  button.disabled = !state.routerMode || !provider.name || provider.isNew || isUpdating;
+  button.hidden = !state.routerApiAvailable;
+  button.disabled = !state.routerApiAvailable || !provider.name || provider.isNew || isUpdating;
+  button.title = state.routerApiAvailable
+    ? 'Обновить эту подписку через Mihomo API'
+    : 'Доступно только в MihUI на роутере рядом с Mihomo';
   if (label) label.textContent = isUpdating ? 'Обновление...' : 'Обновить';
   button.addEventListener('click', () => updateProviderNow(provider));
 }
@@ -3058,7 +3072,10 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
-  els.checkConfigButton.disabled = isEditing || !state.routerMode || !state.outputText;
+  els.checkConfigButton.disabled = isEditing || !state.routerApiAvailable || !state.outputText;
+  els.checkConfigButton.title = state.routerApiAvailable
+    ? 'Проверить текущий текст конфига через mihomo -t'
+    : 'Доступно только в MihUI на роутере рядом с Mihomo';
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
   els.changesJumpButton.disabled = !state.originalText;
