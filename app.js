@@ -2236,17 +2236,17 @@ function showNodeNameAction(card, node) {
   const cancelButton = document.createElement('button');
 
   label.className = 'node-action-field';
-  labelText.textContent = 'Текст для filter / exclude-filter';
+  labelText.textContent = 'Текст для правила';
   input.type = 'text';
   input.value = suggestNodeNameFilter(node);
   input.autocomplete = 'off';
   actions.className = 'node-action-buttons';
   keepButton.type = 'button';
   keepButton.className = 'button compact';
-  keepButton.textContent = 'Добавить в filter';
+  keepButton.textContent = 'Фильтровать';
   excludeButton.type = 'button';
   excludeButton.className = 'button compact';
-  excludeButton.textContent = 'Добавить в exclude-filter';
+  excludeButton.textContent = 'Исключить';
   cancelButton.type = 'button';
   cancelButton.className = 'button compact ghost';
   cancelButton.textContent = 'Отмена';
@@ -2326,7 +2326,7 @@ function getNodeActionProvider(node) {
 function applyNodeNameFilter(provider, key, rawValue) {
   const value = String(rawValue || '').trim();
   if (!value) {
-    showMessage('Введите текст для filter или exclude-filter.');
+    showMessage('Введите текст для правила.');
     return;
   }
 
@@ -2334,7 +2334,7 @@ function applyNodeNameFilter(provider, key, rawValue) {
   state.selectedProviderName = provider.name;
   generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: обновлено поле ${key === 'filter' ? 'filter' : 'exclude-filter'}.`);
+  showMessage(`Подписка ${provider.name}: ${key === 'filter' ? 'фильтрация' : 'исключение'} по названию обновлено.`);
 }
 
 function applyNodeProtocolScreenFilter(protocol) {
@@ -2345,7 +2345,7 @@ function applyNodeProtocolScreenFilter(protocol) {
 
 function applyNodeProtocolExclude(provider, protocol) {
   if (!ALLOWED_EXCLUDE_TYPES.has(protocol)) {
-    showMessage(`Протокол ${protocol || 'unknown'} нельзя записать в exclude-type.`);
+    showMessage(`Протокол ${protocol || 'unknown'} нельзя добавить в исключения.`);
     return;
   }
 
@@ -2353,7 +2353,7 @@ function applyNodeProtocolExclude(provider, protocol) {
   state.selectedProviderName = provider.name;
   generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: обновлено поле exclude-type.`);
+  showMessage(`Подписка ${provider.name}: протокол добавлен в исключения.`);
 }
 
 function appendPipeValue(current, value) {

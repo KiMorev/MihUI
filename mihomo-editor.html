@@ -788,6 +788,7 @@ input[type='file'] {
 
 .node-inventory-list {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
   gap: 10px;
   max-height: 560px;
@@ -803,6 +804,8 @@ input[type='file'] {
 
 .node-card {
   min-width: 0;
+  align-self: start;
+  position: relative;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
@@ -928,13 +931,19 @@ input[type='file'] {
 
 .node-card-action {
   grid-column: 1 / -1;
+  position: absolute;
+  z-index: 20;
+  top: calc(100% - 4px);
+  right: 10px;
+  left: 10px;
   display: grid;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 0;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfe;
+  box-shadow: var(--shadow);
 }
 
 .node-action-head {
@@ -2501,6 +2510,12 @@ input.is-invalid {
 
   .node-badges {
     justify-content: flex-start;
+  }
+
+  .node-card-action {
+    position: static;
+    margin-top: 4px;
+    box-shadow: none;
   }
 
   .matrix-wrap {
@@ -5151,17 +5166,17 @@ function showNodeNameAction(card, node) {
   const cancelButton = document.createElement('button');
 
   label.className = 'node-action-field';
-  labelText.textContent = 'Текст для filter / exclude-filter';
+  labelText.textContent = 'Текст для правила';
   input.type = 'text';
   input.value = suggestNodeNameFilter(node);
   input.autocomplete = 'off';
   actions.className = 'node-action-buttons';
   keepButton.type = 'button';
   keepButton.className = 'button compact';
-  keepButton.textContent = 'Добавить в filter';
+  keepButton.textContent = 'Фильтровать';
   excludeButton.type = 'button';
   excludeButton.className = 'button compact';
-  excludeButton.textContent = 'Добавить в exclude-filter';
+  excludeButton.textContent = 'Исключить';
   cancelButton.type = 'button';
   cancelButton.className = 'button compact ghost';
   cancelButton.textContent = 'Отмена';
@@ -5241,7 +5256,7 @@ function getNodeActionProvider(node) {
 function applyNodeNameFilter(provider, key, rawValue) {
   const value = String(rawValue || '').trim();
   if (!value) {
-    showMessage('Введите текст для filter или exclude-filter.');
+    showMessage('Введите текст для правила.');
     return;
   }
 
@@ -5249,7 +5264,7 @@ function applyNodeNameFilter(provider, key, rawValue) {
   state.selectedProviderName = provider.name;
   generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: обновлено поле ${key === 'filter' ? 'filter' : 'exclude-filter'}.`);
+  showMessage(`Подписка ${provider.name}: ${key === 'filter' ? 'фильтрация' : 'исключение'} по названию обновлено.`);
 }
 
 function applyNodeProtocolScreenFilter(protocol) {
@@ -5260,7 +5275,7 @@ function applyNodeProtocolScreenFilter(protocol) {
 
 function applyNodeProtocolExclude(provider, protocol) {
   if (!ALLOWED_EXCLUDE_TYPES.has(protocol)) {
-    showMessage(`Протокол ${protocol || 'unknown'} нельзя записать в exclude-type.`);
+    showMessage(`Протокол ${protocol || 'unknown'} нельзя добавить в исключения.`);
     return;
   }
 
@@ -5268,7 +5283,7 @@ function applyNodeProtocolExclude(provider, protocol) {
   state.selectedProviderName = provider.name;
   generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: обновлено поле exclude-type.`);
+  showMessage(`Подписка ${provider.name}: протокол добавлен в исключения.`);
 }
 
 function appendPipeValue(current, value) {
