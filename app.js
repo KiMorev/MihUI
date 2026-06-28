@@ -170,6 +170,7 @@ const els = {
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
   checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
+  mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
@@ -359,7 +360,7 @@ async function loadRouterMetadata() {
 
 async function checkMihuiUpdate() {
   try {
-    const data = await apiJson('/api/update/check');
+    const data = await fetchMihuiUpdateCheck();
     state.routerApiAvailable = true;
     const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
@@ -371,8 +372,25 @@ async function checkMihuiUpdate() {
       setMihuiUpdateHint(true, '');
     }
   } catch (error) {
-    setMihuiUpdateHint(true, '');
+    setMihuiUpdateHint(true, els.updateHint.textContent || 'MihUI');
   }
+}
+
+async function fetchMihuiUpdateCheck() {
+  const response = await fetch('/api/update/check', { cache: 'no-store' });
+  const text = await response.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      throw new Error(text);
+    }
+  }
+  if (!response.ok) {
+    throw new Error(data.message || `HTTP ${response.status}`);
+  }
+  return data;
 }
 
 function renderRouterControls() {
@@ -4143,6 +4161,7 @@ function isFetchFailure(error) {
 
 function setMihuiUpdateHint(disabled, text) {
   els.updateHint.disabled = disabled;
+  if (els.mihomoUiUpdateButton) els.mihomoUiUpdateButton.hidden = true;
   if (text !== undefined) els.updateHint.textContent = text;
   els.updateHint.title = disabled || !els.updateHint.textContent ? '' : 'Обновить MihUI через локальный сервис';
 }
