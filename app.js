@@ -2822,11 +2822,65 @@ function createGroupEditorDetail(group, activeProviders) {
   wrap.append(
     head,
     fields,
+    createGroupProxyOrderSection(group),
     createGroupOptionSection('proxies: встроенные выходы', getBuiltInGroupOptions(), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
     createGroupOptionSection('proxies: другие группы', getOtherGroupOptions(group), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
     createGroupOptionSection('use: подписки', activeProviders.map((provider) => provider.name), group.use, (name, enabled) => toggleGroupUse(group, name, enabled)),
   );
   return wrap;
+}
+
+function createGroupProxyOrderSection(group) {
+  const section = document.createElement('section');
+  const title = document.createElement('div');
+  const list = document.createElement('div');
+
+  section.className = 'group-option-section group-proxy-order';
+  title.className = 'group-option-title';
+  title.textContent = 'Порядок proxies';
+  list.className = 'group-proxy-order-list';
+
+  if (group.proxies.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'group-option-empty';
+    empty.textContent = 'Нет вариантов';
+    list.append(empty);
+  }
+
+  group.proxies.forEach((name, index) => {
+    const row = document.createElement('div');
+    const number = document.createElement('span');
+    const label = document.createElement('span');
+    const actions = document.createElement('span');
+    const upButton = document.createElement('button');
+    const downButton = document.createElement('button');
+
+    row.className = 'group-proxy-order-item';
+    number.className = 'provider-list-number';
+    number.textContent = String(index + 1);
+    label.className = 'group-proxy-order-name';
+    label.textContent = name;
+    actions.className = 'group-proxy-order-actions';
+
+    upButton.type = 'button';
+    upButton.textContent = '↑';
+    upButton.title = 'Выше';
+    upButton.disabled = index === 0;
+    upButton.addEventListener('click', () => moveGroupProxy(group, index, index - 1));
+
+    downButton.type = 'button';
+    downButton.textContent = '↓';
+    downButton.title = 'Ниже';
+    downButton.disabled = index === group.proxies.length - 1;
+    downButton.addEventListener('click', () => moveGroupProxy(group, index, index + 1));
+
+    actions.append(upButton, downButton);
+    row.append(number, label, actions);
+    list.append(row);
+  });
+
+  section.append(title, list);
+  return section;
 }
 
 function createGroupOptionSection(titleText, options, selected, onToggle) {
@@ -3233,6 +3287,14 @@ function toggleGroupProxy(group, proxyName, enabled) {
     group.proxies = group.proxies.filter((name) => name !== proxyName);
   }
 
+  generateOutput();
+  render();
+}
+
+function moveGroupProxy(group, fromIndex, toIndex) {
+  if (toIndex < 0 || toIndex >= group.proxies.length) return;
+  const [proxyName] = group.proxies.splice(fromIndex, 1);
+  group.proxies.splice(toIndex, 0, proxyName);
   generateOutput();
   render();
 }

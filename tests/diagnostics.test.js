@@ -121,6 +121,7 @@ globalThis.__app = {
   snapshotGroup,
   snapshotProvider,
   splitLines,
+  moveGroupProxy,
   toggleGroupProxy,
   toggleGroupUse,
   updateGroup,
@@ -695,9 +696,10 @@ rules:
     app.updateGroup(proxy, 'type', 'fallback');
     app.toggleGroupProxy(proxy, 'REJECT', true);
     app.toggleGroupProxy(proxy, 'Other', true);
+    app.moveGroupProxy(proxy, 2, 1);
     app.toggleGroupUse(proxy, 'existing', false);
 
-    assert.match(app.state.outputText, /  - name: Proxy\n    type: fallback\n    proxies:\n      - DIRECT\n      - REJECT\n      - Other\n    use: \[\]/);
+    assert.match(app.state.outputText, /  - name: Proxy\n    type: fallback\n    proxies:\n      - DIRECT\n      - Other\n      - REJECT\n    use: \[\]/);
   });
 
   test(`${source.name}: adds new group with proxies and use`, () => {

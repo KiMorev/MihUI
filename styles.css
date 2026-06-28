@@ -1447,6 +1447,53 @@ input.is-invalid {
   color: var(--muted);
 }
 
+.group-proxy-order-list {
+  display: grid;
+  gap: 6px;
+}
+
+.group-proxy-order-item {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.group-proxy-order-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-proxy-order-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.group-proxy-order-actions button {
+  width: 30px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.group-proxy-order-actions button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
 .group-order-list {
   display: grid;
   gap: 10px;
