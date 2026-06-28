@@ -1541,6 +1541,10 @@ function collectGroupUseChanges() {
       return;
     }
 
+    if (group.name !== original.name) {
+      changes.push(`Группа ${original.name}: переименована в ${group.name}.`);
+    }
+
     if (group.type !== original.type) {
       changes.push(`Группа ${group.name}: тип изменится с ${original.type || 'не задан'} на ${group.type || 'не задан'}.`);
     }
@@ -2606,12 +2610,17 @@ function getRuleTargets() {
 }
 
 function getRuleTargetFromParts(parts) {
+  const index = getRuleTargetIndexFromParts(parts);
+  return index === -1 ? '' : parts[index];
+}
+
+function getRuleTargetIndexFromParts(parts) {
   for (let index = parts.length - 1; index > 0; index -= 1) {
-    const part = parts[index];
-    if (!RULE_OPTIONS.has(String(part).toLowerCase())) return part;
+    const part = cleanScalar(parts[index]);
+    if (!RULE_OPTIONS.has(String(part).toLowerCase())) return index;
   }
 
-  return '';
+  return -1;
 }
 
 function splitRuleParts(value) {
@@ -2802,9 +2811,9 @@ function createGroupEditorDetail(group, activeProviders) {
   fields.className = 'group-editor-fields';
   nameText.textContent = 'Название группы';
   nameInput.value = group.name || '';
-  nameInput.disabled = !group.isNew;
-  nameInput.title = group.isNew ? 'Имя новой группы' : 'Имя существующей группы не меняется, чтобы не ломать rules.';
+  nameInput.title = group.isNew ? 'Имя новой группы' : 'Переименование обновит ссылки в rules и proxies других групп.';
   nameInput.addEventListener('input', () => renameGroup(group, nameInput.value));
+  nameInput.addEventListener('change', render);
   nameLabel.append(nameText, nameInput);
 
   typeText.textContent = 'Тип группы';
@@ -2861,7 +2870,7 @@ function createGroupHelpPanel(group, activeProviders) {
   );
 
   if (!group.isNew) {
-    panel.append(createGroupHelpItem('Имя защищено', 'Существующее имя не редактируется здесь, чтобы случайно не сломать rules и ссылки из других групп.'));
+    panel.append(createGroupHelpItem('Переименование', 'Если изменить имя, редактор обновит ссылки на эту группу в rules и в proxies других групп.'));
   }
 
   return panel;
@@ -2914,11 +2923,11 @@ function describeGroupAutoFill(group) {
 }
 
 function getGroupUsage(group) {
-  const name = String(group?.name || '').toLowerCase();
-  const ruleTargets = getRuleTargets().filter((target) => String(target).toLowerCase() === name);
+  const names = new Set([group?.name, group?.originalName].filter(Boolean).map((name) => String(name).toLowerCase()));
+  const ruleTargets = getRuleTargets().filter((target) => names.has(String(target).toLowerCase()));
   const parentGroups = state.groups
     .filter((item) => item !== group)
-    .filter((item) => item.proxies.some((proxyName) => String(proxyName).toLowerCase() === name))
+    .filter((item) => item.proxies.some((proxyName) => names.has(String(proxyName).toLowerCase())))
     .map((item) => item.name);
 
   return {
@@ -3433,8 +3442,17 @@ function renameGroup(group, nextName) {
   group.name = nextName.trim();
   if (state.selectedGroupName === previousName) state.selectedGroupName = group.name;
   replaceGroupProxyReferences(previousName, group.name);
+  syncRenamedGroupLabels(group);
   generateOutput();
   renderOutputOnly();
+}
+
+function syncRenamedGroupLabels(group) {
+  const text = group.name || 'Без названия';
+  const sidebarTitle = els.groupsMatrix.querySelector('.group-list-item.is-selected strong');
+  const detailTitle = els.groupsMatrix.querySelector('.group-editor-detail .provider-card-title');
+  if (sidebarTitle) sidebarTitle.textContent = text;
+  if (detailTitle) detailTitle.textContent = text;
 }
 
 function replaceGroupProxyReferences(previousName, nextName) {
@@ -3457,6 +3475,8 @@ function generateOutput() {
   const lines = splitLines(state.originalText);
   const providersSection = findTopSection(lines, 'proxy-providers');
   const groupsSection = findTopSection(lines, 'proxy-groups');
+  const rulesSection = findTopSection(lines, 'rules');
+  const renamedGroups = getRenamedGroupMap();
   if (!groupsSection) return;
 
   const replacements = [
@@ -3467,6 +3487,14 @@ function generateOutput() {
     },
   ];
   const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
+
+  if (rulesSection && renamedGroups.size > 0) {
+    replacements.push({
+      start: rulesSection.start,
+      end: rulesSection.end,
+      lines: serializeRulesSection(lines, rulesSection, renamedGroups),
+    });
+  }
 
   if (providersSection) {
     replacements.push({
@@ -3722,6 +3750,17 @@ function slugifyName(value) {
     .slice(0, 48);
 }
 
+function getRenamedGroupMap() {
+  const renamed = new Map();
+  state.groups.forEach((group) => {
+    const originalName = group.originalName || group.name;
+    if (originalName && group.name && originalName !== group.name) {
+      renamed.set(originalName, group.name);
+    }
+  });
+  return renamed;
+}
+
 function serializeProvidersSection() {
   const result = ['proxy-providers:'];
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
@@ -3793,6 +3832,28 @@ function createProviderBlock(provider) {
   }
   appendOverride(lines, provider);
   return lines;
+}
+
+function serializeRulesSection(lines, rulesSection, renamedGroups) {
+  return lines
+    .slice(rulesSection.start, rulesSection.end)
+    .map((line, index) => (index === 0 ? line : serializeRuleLine(line, renamedGroups)));
+}
+
+function serializeRuleLine(line, renamedGroups) {
+  const match = line.match(/^(\s*-\s*)(.*?)(\s*(?:#.*)?)$/);
+  if (!match) return line;
+
+  const parts = splitRuleParts(match[2]);
+  const targetIndex = getRuleTargetIndexFromParts(parts);
+  if (targetIndex === -1) return line;
+
+  const currentTarget = cleanScalar(parts[targetIndex]);
+  const nextTarget = renamedGroups.get(currentTarget);
+  if (!nextTarget) return line;
+
+  parts[targetIndex] = formatScalar(nextTarget);
+  return `${match[1]}${parts.join(',')}${match[3] || ''}`;
 }
 
 function serializeGroupsSection(lines, groupsSection) {

@@ -119,6 +119,7 @@ globalThis.__app = {
   readConnectionSettings,
   renderChangesJumpButton,
   renderConnectionSettings,
+  renameGroup,
   snapshotGroup,
   snapshotProvider,
   splitLines,
@@ -767,6 +768,42 @@ rules:
     const custom = app.state.groups.find((group) => group.isNew);
 
     assert.equal(app.getGroupUsage(custom).used, false);
+  });
+
+  test(`${source.name}: renames existing group references`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+  - name: Service
+    type: select
+    proxies:
+      - Proxy
+rules:
+  - DOMAIN-SUFFIX,example.com,Proxy
+  - MATCH,Service
+`);
+
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+    const service = app.state.groups.find((group) => group.name === 'Service');
+
+    app.renameGroup(proxy, 'Primary');
+
+    assert.equal(proxy.name, 'Primary');
+    assert.deepEqual([...service.proxies], ['Primary']);
+    assert.match(app.state.outputText, /  - name: Primary\n    type: select\n    proxies:\n      - DIRECT/);
+    assert.match(app.state.outputText, /  - name: Service\n    type: select\n    proxies:\n      - Primary/);
+    assert.match(app.state.outputText, /  - DOMAIN-SUFFIX,example.com,Primary/);
+    assert.match(app.state.outputText, /  - MATCH,Service/);
+    assert(flattenChanges(app.collectChanges(app.state.providers)).includes('Группа Proxy: переименована в Primary.'));
+    assert.equal(app.getGroupUsage(proxy).used, true);
   });
 
   test(`${source.name}: adds missing recommended connection settings only`, () => {
