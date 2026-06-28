@@ -162,6 +162,7 @@ const els = {
   copyButton: document.querySelector('#copyButton'),
   mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
+  recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
   providerCount: document.querySelector('#providerCount'),
@@ -198,6 +199,7 @@ els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.copyButton.addEventListener('click', copyYaml);
 els.mihomoUiUpdateButton.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
+els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -690,12 +692,29 @@ function focusChangesPanel() {
   }, 0);
 }
 
+function focusConnectionSettingsPanel() {
+  if (els.connectionSettingsPanel.classList.contains('hidden')) return;
+
+  els.connectionSettingsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.connectionSettingsPanel.classList.remove('target-highlight');
+  window.setTimeout(() => {
+    els.connectionSettingsPanel.classList.add('target-highlight');
+    els.connectionSettingsPanel.querySelector('.connection-settings-toggle')?.focus({ preventScroll: true });
+  }, 200);
+}
+
 function renderChangesJumpButton(changes) {
   const count = countChanges(changes);
 
   els.changesJumpButton.hidden = count === 0;
   els.changesJumpButton.disabled = count === 0;
   els.changesJumpButton.textContent = count > 0 ? `Изменения (${count})` : 'Изменения';
+}
+
+function renderRecommendationsJumpButton(count) {
+  els.recommendationsJumpButton.hidden = count === 0;
+  els.recommendationsJumpButton.disabled = count === 0;
+  els.recommendationsJumpButton.textContent = count > 0 ? `Рекомендации (${count})` : 'Рекомендации';
 }
 
 function getDiagnosticGroups(diagnostics) {
@@ -993,11 +1012,13 @@ function renderConnectionSettings() {
   els.connectionSettingsPanel.textContent = '';
 
   if (!state.originalText) {
+    renderRecommendationsJumpButton(0);
     els.connectionSettingsPanel.classList.add('hidden');
     return;
   }
 
   const missing = getMissingConnectionSettings();
+  renderRecommendationsJumpButton(missing.length);
   if (missing.length === 0) {
     els.connectionSettingsPanel.classList.add('hidden');
     return;

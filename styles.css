@@ -337,6 +337,10 @@ h2 {
   text-decoration: none;
 }
 
+.recommendations-jump-button {
+  color: var(--warning);
+}
+
 .button span[aria-hidden='true'] {
   min-width: 20px;
   padding: 1px 4px;
