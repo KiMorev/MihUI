@@ -2821,29 +2821,149 @@ function createGroupEditorDetail(group, activeProviders) {
 
   wrap.append(
     head,
+    createGroupHelpPanel(group, activeProviders),
     fields,
     createGroupProxyOrderSection(group),
-    createGroupOptionSection('proxies: встроенные выходы', getBuiltInGroupOptions(), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
-    createGroupOptionSection('proxies: другие группы', getOtherGroupOptions(group), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
-    createGroupOptionSection('use: подписки', activeProviders.map((provider) => provider.name), group.use, (name, enabled) => toggleGroupUse(group, name, enabled)),
+    createGroupOptionSection(
+      'Встроенные выходы (proxies)',
+      'DIRECT, REJECT, PASS и похожие варианты — это готовые действия Mihomo без выбора нод из подписки.',
+      getBuiltInGroupOptions(),
+      group.proxies,
+      (name, enabled) => toggleGroupProxy(group, name, enabled),
+    ),
+    createGroupOptionSection(
+      'Другие группы (proxies)',
+      'Подключают эту группу к уже существующим группам. Для fallback и relay порядок вариантов важен.',
+      getOtherGroupOptions(group),
+      group.proxies,
+      (name, enabled) => toggleGroupProxy(group, name, enabled),
+    ),
+    createGroupOptionSection(
+      'Подписки-источники узлов (use)',
+      'Отмеченные proxy-providers дают этой группе свои ноды. Это не правила маршрутизации, а источник вариантов.',
+      activeProviders.map((provider) => provider.name),
+      group.use,
+      (name, enabled) => toggleGroupUse(group, name, enabled),
+    ),
   );
   return wrap;
+}
+
+function createGroupHelpPanel(group, activeProviders) {
+  const panel = document.createElement('section');
+  const usage = getGroupUsage(group);
+
+  panel.className = 'group-help-panel';
+  panel.append(
+    createGroupHelpItem('Как работает группа', describeGroupTypeForEditor(group)),
+    createGroupHelpItem('Откуда берутся варианты', describeGroupSourceForEditor(group, activeProviders), getGroupSource(group) === 'none' ? 'is-warning' : ''),
+    createGroupHelpItem('Где влияет на трафик', describeGroupUsage(usage), usage.used ? '' : 'is-warning'),
+  );
+
+  if (!group.isNew) {
+    panel.append(createGroupHelpItem('Имя защищено', 'Существующее имя не редактируется здесь, чтобы случайно не сломать rules и ссылки из других групп.'));
+  }
+
+  return panel;
+}
+
+function createGroupHelpItem(titleText, text, variant = '') {
+  const item = document.createElement('div');
+  const title = document.createElement('strong');
+  const body = document.createElement('span');
+
+  item.className = 'group-help-item';
+  if (variant) item.classList.add(variant);
+  title.className = 'group-help-title';
+  body.className = 'group-help-text';
+  title.textContent = titleText;
+  body.textContent = text;
+  item.append(title, body);
+  return item;
+}
+
+function describeGroupTypeForEditor(group) {
+  const type = String(group.type || '').toLowerCase();
+  if (type === 'select') return 'Ручной выбор: пользователь или клиент выбирает один вариант из списка группы.';
+  if (type === 'fallback') return 'Резервирование: Mihomo идет по списку сверху вниз и берет первый доступный вариант.';
+  if (type === 'url-test') return 'Автовыбор по скорости: Mihomo проверяет задержку и выбирает самый быстрый доступный вариант.';
+  if (type === 'load-balance') return 'Балансировка: трафик распределяется между доступными вариантами группы.';
+  if (type === 'relay') return 'Цепочка: трафик проходит через варианты по порядку, поэтому порядок особенно важен.';
+  return 'Обычная группа Mihomo: поведение зависит от указанного type.';
+}
+
+function describeGroupSourceForEditor(group, activeProviders) {
+  const source = getGroupSource(group);
+  const count = getRouteGroupOptions(group, activeProviders).length;
+  const autoText = describeGroupAutoFill(group);
+  const autoSuffix = autoText && (source === 'proxies' || source === 'use') ? ` Дополнительно включено автонаполнение: ${autoText}` : '';
+
+  if (source === 'proxies') return `Варианты заданы явно в proxies: ${formatRouteCount(count, 'вариант', 'варианта', 'вариантов')}. Это могут быть другие группы, встроенные выходы или отдельные ноды.${autoSuffix}`;
+  if (source === 'use') return `Варианты берутся из отмеченных proxy-providers: ${formatRouteCount(count, 'подписка', 'подписки', 'подписок')}. Ноды приходят из подписок, а не из списка proxies.${autoSuffix}`;
+  if (source === 'include-all') return 'Включено автонаполнение include-all: группа берет обычные proxies и все подписки автоматически.';
+  if (source === 'include-all-providers') return 'Включено автонаполнение include-all-providers: группа берет все proxy-providers автоматически.';
+  if (source === 'include-all-proxies') return 'Включено автонаполнение include-all-proxies: группа берет обычные proxies автоматически.';
+  return 'Явное наполнение не найдено: нет proxies, use или include-all. Такая группа не даст вариантов для выбора.';
+}
+
+function describeGroupAutoFill(group) {
+  if (group.includeAll) return 'include-all добавляет обычные proxies и все подписки.';
+  if (group.includeAllProviders) return 'include-all-providers добавляет все подписки.';
+  if (group.includeAllProxies) return 'include-all-proxies добавляет обычные proxies.';
+  return '';
+}
+
+function getGroupUsage(group) {
+  const name = String(group?.name || '').toLowerCase();
+  const ruleTargets = getRuleTargets().filter((target) => String(target).toLowerCase() === name);
+  const parentGroups = state.groups
+    .filter((item) => item !== group)
+    .filter((item) => item.proxies.some((proxyName) => String(proxyName).toLowerCase() === name))
+    .map((item) => item.name);
+
+  return {
+    used: ruleTargets.length > 0 || parentGroups.length > 0,
+    ruleCount: ruleTargets.length,
+    parentGroups,
+  };
+}
+
+function describeGroupUsage(usage) {
+  const parts = [];
+  if (usage.ruleCount > 0) parts.push(`Указана напрямую в ${formatRouteCount(usage.ruleCount, 'правиле', 'правилах', 'правилах')}`);
+  if (usage.parentGroups.length > 0) parts.push(`${parts.length > 0 ? 'используется' : 'Используется'} как вариант в группах ${formatNameList(usage.parentGroups)}`);
+  if (parts.length > 0) return parts.join('; ') + '.';
+  return 'Пока не используется: добавьте группу в proxies другой группы или назначьте ее целью в rules, иначе она не повлияет на трафик.';
+}
+
+function formatNameList(names, limit = 4) {
+  const visible = names.slice(0, limit);
+  const hiddenCount = names.length - visible.length;
+  return `${visible.join(', ')}${hiddenCount > 0 ? ` и еще ${hiddenCount}` : ''}`;
 }
 
 function createGroupProxyOrderSection(group) {
   const section = document.createElement('section');
   const title = document.createElement('div');
+  const description = document.createElement('p');
   const list = document.createElement('div');
+  const source = getGroupSource(group);
 
   section.className = 'group-option-section group-proxy-order';
   title.className = 'group-option-title';
-  title.textContent = 'Порядок proxies';
+  title.textContent = 'Порядок вариантов (proxies)';
+  description.className = 'group-option-description';
+  description.textContent = source === 'proxies'
+    ? 'Это реальный порядок в YAML. Для fallback первый доступный сверху победит; для relay цепочка строится сверху вниз.'
+    : 'В этой группе нет явного списка proxies: порядок ниже появится, если добавить встроенный выход или другую группу.';
   list.className = 'group-proxy-order-list';
 
   if (group.proxies.length === 0) {
     const empty = document.createElement('span');
     empty.className = 'group-option-empty';
-    empty.textContent = 'Нет вариантов';
+    empty.textContent = source === 'use'
+      ? 'Варианты приходят из выбранных подписок use.'
+      : 'Варианты наполняются автоматически или пока не заданы.';
     list.append(empty);
   }
 
@@ -2879,19 +2999,22 @@ function createGroupProxyOrderSection(group) {
     list.append(row);
   });
 
-  section.append(title, list);
+  section.append(title, description, list);
   return section;
 }
 
-function createGroupOptionSection(titleText, options, selected, onToggle) {
+function createGroupOptionSection(titleText, descriptionText, options, selected, onToggle) {
   const section = document.createElement('section');
   const title = document.createElement('div');
+  const description = document.createElement('p');
   const list = document.createElement('div');
   const selectedNames = new Set(selected);
 
   section.className = 'group-option-section';
   title.className = 'group-option-title';
   title.textContent = titleText;
+  description.className = 'group-option-description';
+  description.textContent = descriptionText;
   list.className = 'group-option-list';
 
   if (options.length === 0) {
@@ -2913,7 +3036,7 @@ function createGroupOptionSection(titleText, options, selected, onToggle) {
     list.append(label);
   });
 
-  section.append(title, list);
+  section.append(title, description, list);
   return section;
 }
 

@@ -112,6 +112,7 @@ globalThis.__app = {
   getDiagnosticSeverity,
   getDiagnosticAction,
   getRuleScenarios,
+  getGroupUsage,
   getProviderIntervalDefaults,
   parseGroups,
   parseProviders,
@@ -727,6 +728,45 @@ rules:
 
     assert.equal(group.name, 'Custom');
     assert.match(app.state.outputText, /  - name: Custom\n    type: fallback\n    proxies:\n      - DIRECT\n      - Proxy\n    use:\n      - existing/);
+  });
+
+  test(`${source.name}: reports group route usage`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - Nested
+  - name: Nested
+    type: fallback
+    use:
+      - existing
+rules:
+  - MATCH,Proxy
+`);
+
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+    const nested = app.state.groups.find((group) => group.name === 'Nested');
+
+    const proxyUsage = app.getGroupUsage(proxy);
+    const nestedUsage = app.getGroupUsage(nested);
+
+    assert.equal(proxyUsage.used, true);
+    assert.equal(proxyUsage.ruleCount, 1);
+    assert.deepEqual([...proxyUsage.parentGroups], []);
+    assert.equal(nestedUsage.used, true);
+    assert.equal(nestedUsage.ruleCount, 0);
+    assert.deepEqual([...nestedUsage.parentGroups], ['Proxy']);
+
+    app.addGroup();
+    const custom = app.state.groups.find((group) => group.isNew);
+
+    assert.equal(app.getGroupUsage(custom).used, false);
   });
 
   test(`${source.name}: adds missing recommended connection settings only`, () => {

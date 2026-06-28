@@ -1392,6 +1392,36 @@ input.is-invalid {
   gap: 12px;
 }
 
+.group-help-panel {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid rgba(8, 124, 128, 0.22);
+  border-radius: 8px;
+  background: #f2fbfc;
+}
+
+.group-help-item {
+  display: grid;
+  gap: 2px;
+}
+
+.group-help-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.group-help-text {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.group-help-item.is-warning .group-help-title,
+.group-help-item.is-warning .group-help-text {
+  color: var(--warning);
+}
+
 .group-editor-fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(150px, 220px);
@@ -1411,6 +1441,12 @@ input.is-invalid {
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.group-option-description {
+  margin: -2px 0 2px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .group-option-list {
