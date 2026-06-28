@@ -2248,6 +2248,64 @@ input.is-invalid {
     grid-template-columns: 1fr;
   }
 
+  .matrix-wrap {
+    overflow: visible;
+  }
+
+  .matrix {
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+  }
+
+  .matrix thead {
+    display: none;
+  }
+
+  .matrix tbody,
+  .matrix tr,
+  .matrix td {
+    display: block;
+  }
+
+  .matrix tr {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .matrix th:first-child,
+  .matrix td:first-child {
+    position: static;
+    min-width: 0;
+  }
+
+  .matrix td:first-child {
+    padding: 10px 12px;
+    background: #fbfcfe;
+  }
+
+  .matrix .check-cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 44px;
+    padding: 9px 12px;
+    text-align: left;
+  }
+
+  .matrix .check-cell::before {
+    content: attr(data-label);
+    min-width: 0;
+    padding-right: 12px;
+    overflow: hidden;
+    color: var(--muted);
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .switch-row {
     grid-template-columns: 1fr;
   }
@@ -5262,6 +5320,7 @@ function renderGroups(activeProviders, groupsWithUse) {
     orderedGroupsWithUse.forEach((group) => {
       const cell = document.createElement('td');
       cell.className = 'check-cell';
+      cell.setAttribute('data-label', group.name);
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.checked = group.use.includes(provider.name);

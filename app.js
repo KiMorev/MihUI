@@ -2704,6 +2704,7 @@ function renderGroups(activeProviders, groupsWithUse) {
     orderedGroupsWithUse.forEach((group) => {
       const cell = document.createElement('td');
       cell.className = 'check-cell';
+      cell.setAttribute('data-label', group.name);
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.checked = group.use.includes(provider.name);
