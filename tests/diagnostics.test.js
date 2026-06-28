@@ -97,6 +97,7 @@ globalThis.__app = {
   els,
   state,
   addConnectionSetting,
+  addGroup,
   addProvider,
   addRecommendedConnectionSettings,
   applyDiagnosticFix,
@@ -120,6 +121,9 @@ globalThis.__app = {
   snapshotGroup,
   snapshotProvider,
   splitLines,
+  toggleGroupProxy,
+  toggleGroupUse,
+  updateGroup,
 };`,
     context,
     { filename: source.name },
@@ -662,6 +666,65 @@ rules:
 
     assert(proxy.use.includes(added.name));
     assert.equal(app.collectDiagnostics(app.state.providers.filter((provider) => !provider.deleted)).some((item) => item.includes(added.name)), false);
+  });
+
+  test(`${source.name}: edits existing group proxies and use`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+    use:
+      - existing
+  - name: Other
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,Proxy
+`);
+
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+
+    app.updateGroup(proxy, 'type', 'fallback');
+    app.toggleGroupProxy(proxy, 'REJECT', true);
+    app.toggleGroupProxy(proxy, 'Other', true);
+    app.toggleGroupUse(proxy, 'existing', false);
+
+    assert.match(app.state.outputText, /  - name: Proxy\n    type: fallback\n    proxies:\n      - DIRECT\n      - REJECT\n      - Other\n    use: \[\]/);
+  });
+
+  test(`${source.name}: adds new group with proxies and use`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,Proxy
+`);
+
+    app.addGroup();
+    const group = app.state.groups.find((item) => item.isNew);
+
+    app.updateGroup(group, 'type', 'fallback');
+    app.toggleGroupProxy(group, 'Proxy', true);
+    app.toggleGroupUse(group, 'existing', true);
+
+    assert.equal(group.name, 'Custom');
+    assert.match(app.state.outputText, /  - name: Custom\n    type: fallback\n    proxies:\n      - DIRECT\n      - Proxy\n    use:\n      - existing/);
   });
 
   test(`${source.name}: adds missing recommended connection settings only`, () => {

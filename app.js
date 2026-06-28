@@ -83,6 +83,7 @@ const COMMON_DOMAIN_SUFFIXES = new Set([
   'uk',
 ]);
 const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay']);
+const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
 const RULE_OPTIONS = new Set(['no-resolve', 'src']);
 const PROVIDER_DIFF_FIELDS = [
@@ -127,6 +128,7 @@ const state = {
   intervalToolsOpen: false,
   isEditingConfiguration: false,
   selectedProviderName: '',
+  selectedGroupName: '',
   selectedRouteScenarioId: '',
   providerStatuses: {},
   providerStatusLoading: false,
@@ -155,6 +157,7 @@ const els = {
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
+  addGroupButton: document.querySelector('#addGroupButton'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -198,6 +201,7 @@ els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
+els.addGroupButton.addEventListener('click', addGroup);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -599,6 +603,7 @@ function parseAndRender() {
     state.hasProvidersSection = false;
     state.hasGroupsSection = false;
     state.intervalToolsOpen = false;
+    state.selectedGroupName = '';
     state.selectedRouteScenarioId = '';
     setOutputText(state.originalText);
     render();
@@ -629,6 +634,8 @@ function render() {
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
   els.addProviderButton.title = state.originalText ? 'Добавить подписку' : 'Сначала загрузите конфигурацию';
+  els.addGroupButton.disabled = !state.originalText || !state.hasGroupsSection;
+  els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.intervalToolsButton.disabled = !state.originalText;
   renderConfigurationEditorControls();
   if (!state.isEditingConfiguration) {
@@ -1025,6 +1032,12 @@ function collectDiagnostics(activeProviders) {
   });
 
   state.groups.forEach((group) => {
+    group.proxies.forEach((proxyName) => {
+      if (!isKnownOutboundName(proxyName, groupNames, directProxyNames)) {
+        addUniqueDiagnostic(diagnostics, `Группа ${group.name}: вариант ${proxyName} из proxies не найден.`);
+      }
+    });
+
     group.use.forEach((providerName) => {
       const normalizedProviderName = normalizeLookupName(providerName);
       if (providerNames.has(normalizedProviderName)) {
@@ -1522,8 +1535,23 @@ function collectGroupUseChanges() {
   const originalProviderNames = new Set(state.originalProviders.map((provider) => provider.name));
 
   state.groups.forEach((group) => {
-    const original = originalByName.get(group.name);
-    if (!original) return;
+    const original = originalByName.get(group.originalName || group.name);
+    if (!original) {
+      changes.push(`Добавлена группа ${group.name}.`);
+      return;
+    }
+
+    if (group.type !== original.type) {
+      changes.push(`Группа ${group.name}: тип изменится с ${original.type || 'не задан'} на ${group.type || 'не задан'}.`);
+    }
+
+    collectListDiff(original.proxies, group.proxies).added.forEach((name) => {
+      changes.push(`В группе ${group.name} добавлен вариант ${name} в proxies.`);
+    });
+
+    collectListDiff(original.proxies, group.proxies).removed.forEach((name) => {
+      changes.push(`В группе ${group.name} удален вариант ${name} из proxies.`);
+    });
 
     const originalUse = new Set(original.use);
     const currentUse = new Set(group.use);
@@ -1543,6 +1571,15 @@ function collectGroupUseChanges() {
   });
 
   return changes;
+}
+
+function collectListDiff(previous, current) {
+  const previousSet = new Set(previous || []);
+  const currentSet = new Set(current || []);
+  return {
+    added: [...currentSet].filter((name) => !previousSet.has(name)),
+    removed: [...previousSet].filter((name) => !currentSet.has(name)),
+  };
 }
 
 function getProviderUseGroupNames(providerName) {
@@ -1602,6 +1639,9 @@ function hasOutputValue(value) {
 function snapshotGroup(group) {
   return {
     name: group.name || '',
+    originalName: group.originalName || group.name || '',
+    type: group.type || '',
+    proxies: group.proxies.slice(),
     use: group.use.slice(),
   };
 }
@@ -2596,12 +2636,15 @@ function splitRuleParts(value) {
 
 function renderGroups(activeProviders, groupsWithUse) {
   els.groupsMatrix.innerHTML = '';
-  els.groupsMatrix.classList.toggle('empty-state', groupsWithUse.length === 0 || activeProviders.length === 0 || !state.originalText);
+  els.groupsMatrix.classList.toggle('empty-state', !state.originalText);
 
   if (!state.originalText) {
     setEmptyState(els.groupsMatrix, 'Связи появятся после загрузки', 'После загрузки управляйте подключением подписок к группам.');
     return;
   }
+
+  syncSelectedGroup();
+  renderGroupEditor(activeProviders);
 
   if (groupsWithUse.length === 0) {
     renderIncludeAllExplanation(activeProviders);
@@ -2609,7 +2652,10 @@ function renderGroups(activeProviders, groupsWithUse) {
   }
 
   if (activeProviders.length === 0) {
-    setEmptyState(els.groupsMatrix, 'Нет подписок', 'Добавьте подписку, чтобы подключать ее к группам use.');
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    setEmptyState(empty, 'Нет подписок', 'Добавьте подписку, чтобы подключать ее к группам use.');
+    els.groupsMatrix.append(empty);
     return;
   }
 
@@ -2663,6 +2709,177 @@ function renderGroups(activeProviders, groupsWithUse) {
 
   table.append(thead, tbody);
   els.groupsMatrix.append(table);
+}
+
+function syncSelectedGroup() {
+  const selectedExists = state.groups.some((group) => group.name === state.selectedGroupName);
+  state.selectedGroupName = selectedExists ? state.selectedGroupName : state.groups[0]?.name || '';
+}
+
+function getSelectedGroup() {
+  return state.groups.find((group) => group.name === state.selectedGroupName) || state.groups[0] || null;
+}
+
+function renderGroupEditor(activeProviders) {
+  const selectedGroup = getSelectedGroup();
+  const wrap = document.createElement('div');
+  const sidebar = document.createElement('div');
+  const detail = document.createElement('div');
+  const summary = document.createElement('div');
+
+  wrap.className = 'group-editor';
+  sidebar.className = 'group-editor-sidebar';
+  detail.className = 'group-editor-detail';
+  summary.className = 'group-editor-summary';
+  summary.textContent = `Групп: ${state.groups.length}`;
+  sidebar.append(summary);
+
+  state.groups.forEach((group, index) => {
+    sidebar.append(createGroupListItem(group, index, group === selectedGroup));
+  });
+
+  if (selectedGroup) {
+    detail.append(createGroupEditorDetail(selectedGroup, activeProviders));
+  } else {
+    setEmptyState(detail, 'Нет групп', 'Добавьте первую группу маршрутизации.');
+  }
+
+  wrap.append(sidebar, detail);
+  els.groupsMatrix.append(wrap);
+}
+
+function createGroupListItem(group, index, isSelected) {
+  const button = document.createElement('button');
+  const number = document.createElement('span');
+  const body = document.createElement('span');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const status = document.createElement('span');
+
+  button.className = 'group-list-item';
+  button.classList.toggle('is-selected', isSelected);
+  button.type = 'button';
+  button.setAttribute('aria-pressed', String(isSelected));
+  number.className = 'provider-list-number';
+  number.textContent = String(index + 1);
+  body.className = 'provider-list-body';
+  title.textContent = group.name || 'Без названия';
+  meta.className = 'provider-list-meta';
+  meta.textContent = formatGroupSources(group);
+  status.className = 'provider-list-status';
+  status.textContent = group.type || 'group';
+
+  body.append(title, meta);
+  button.append(number, body, status);
+  button.addEventListener('click', () => {
+    state.selectedGroupName = group.name;
+    render();
+  });
+  return button;
+}
+
+function createGroupEditorDetail(group, activeProviders) {
+  const wrap = document.createElement('div');
+  const head = document.createElement('div');
+  const number = document.createElement('span');
+  const title = document.createElement('strong');
+  const fields = document.createElement('div');
+  const nameLabel = document.createElement('label');
+  const nameText = document.createElement('span');
+  const nameInput = document.createElement('input');
+  const typeLabel = document.createElement('label');
+  const typeText = document.createElement('span');
+  const typeSelect = document.createElement('select');
+
+  wrap.className = 'group-editor-card';
+  head.className = 'provider-card-heading';
+  number.className = 'provider-card-number';
+  number.textContent = '#';
+  title.className = 'provider-card-title';
+  title.textContent = group.name || 'Без названия';
+  head.append(number, title);
+
+  fields.className = 'group-editor-fields';
+  nameText.textContent = 'Название группы';
+  nameInput.value = group.name || '';
+  nameInput.disabled = !group.isNew;
+  nameInput.title = group.isNew ? 'Имя новой группы' : 'Имя существующей группы не меняется, чтобы не ломать rules.';
+  nameInput.addEventListener('input', () => renameGroup(group, nameInput.value));
+  nameLabel.append(nameText, nameInput);
+
+  typeText.textContent = 'Тип группы';
+  GROUP_TYPE_OPTIONS.forEach((type) => {
+    const option = document.createElement('option');
+    option.value = type;
+    option.textContent = type;
+    typeSelect.append(option);
+  });
+  typeSelect.value = GROUP_TYPE_OPTIONS.includes(group.type) ? group.type : 'select';
+  typeSelect.addEventListener('change', () => updateGroup(group, 'type', typeSelect.value));
+  typeLabel.append(typeText, typeSelect);
+  fields.append(nameLabel, typeLabel);
+
+  wrap.append(
+    head,
+    fields,
+    createGroupOptionSection('proxies: встроенные выходы', getBuiltInGroupOptions(), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
+    createGroupOptionSection('proxies: другие группы', getOtherGroupOptions(group), group.proxies, (name, enabled) => toggleGroupProxy(group, name, enabled)),
+    createGroupOptionSection('use: подписки', activeProviders.map((provider) => provider.name), group.use, (name, enabled) => toggleGroupUse(group, name, enabled)),
+  );
+  return wrap;
+}
+
+function createGroupOptionSection(titleText, options, selected, onToggle) {
+  const section = document.createElement('section');
+  const title = document.createElement('div');
+  const list = document.createElement('div');
+  const selectedNames = new Set(selected);
+
+  section.className = 'group-option-section';
+  title.className = 'group-option-title';
+  title.textContent = titleText;
+  list.className = 'group-option-list';
+
+  if (options.length === 0) {
+    const empty = document.createElement('span');
+    empty.className = 'group-option-empty';
+    empty.textContent = 'Нет вариантов';
+    list.append(empty);
+  }
+
+  options.forEach((name) => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    const text = document.createElement('span');
+    checkbox.type = 'checkbox';
+    checkbox.checked = selectedNames.has(name);
+    checkbox.addEventListener('change', () => onToggle(name, checkbox.checked));
+    text.textContent = name;
+    label.append(checkbox, text);
+    list.append(label);
+  });
+
+  section.append(title, list);
+  return section;
+}
+
+function getBuiltInGroupOptions() {
+  return ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'GLOBAL', 'COMPATIBLE'];
+}
+
+function getOtherGroupOptions(group) {
+  return state.groups
+    .filter((item) => item !== group)
+    .map((item) => item.name)
+    .filter(Boolean);
+}
+
+function formatGroupSources(group) {
+  const parts = [];
+  if (group.proxies.length > 0) parts.push(`${group.proxies.length} proxies`);
+  if (group.use.length > 0) parts.push(`${group.use.length} use`);
+  if (group.includeAll || group.includeAllProviders || group.includeAllProxies) parts.push('auto');
+  return parts.join(' · ') || 'пустая';
 }
 
 function orderGroupsByProxySequence(groups) {
@@ -2955,9 +3172,38 @@ function addProvider() {
   }, 1800);
 }
 
+function addGroup() {
+  if (!state.originalText || !state.hasGroupsSection) return;
+
+  const name = uniqueGroupName('Custom');
+  const group = {
+    name,
+    originalName: name,
+    type: 'select',
+    proxies: ['DIRECT'],
+    use: [],
+    includeAll: false,
+    includeAllProxies: false,
+    includeAllProviders: false,
+    start: -1,
+    end: -1,
+    proxiesStart: -1,
+    proxiesEnd: -1,
+    useStart: -1,
+    useEnd: -1,
+    isNew: true,
+    deleted: false,
+  };
+
+  state.groups.push(group);
+  state.selectedGroupName = name;
+  generateOutput();
+  render();
+}
+
 function connectProviderToUseGroups(providerName) {
   state.groups
-    .filter((group) => group.useStart !== -1)
+    .filter((group) => group.useStart !== -1 || group.use.length > 0)
     .forEach((group) => {
       if (!group.use.includes(providerName)) {
         group.use.push(providerName);
@@ -2976,6 +3222,41 @@ function toggleGroupUse(group, providerName, enabled) {
 
   generateOutput();
   render();
+}
+
+function toggleGroupProxy(group, proxyName, enabled) {
+  if (enabled && !group.proxies.includes(proxyName)) {
+    group.proxies.push(proxyName);
+  }
+
+  if (!enabled) {
+    group.proxies = group.proxies.filter((name) => name !== proxyName);
+  }
+
+  generateOutput();
+  render();
+}
+
+function updateGroup(group, key, value) {
+  group[key] = value;
+  generateOutput();
+  render();
+}
+
+function renameGroup(group, nextName) {
+  const previousName = group.name;
+  group.name = nextName.trim();
+  if (state.selectedGroupName === previousName) state.selectedGroupName = group.name;
+  replaceGroupProxyReferences(previousName, group.name);
+  generateOutput();
+  renderOutputOnly();
+}
+
+function replaceGroupProxyReferences(previousName, nextName) {
+  if (!previousName || !nextName || previousName === nextName) return;
+  state.groups.forEach((group) => {
+    group.proxies = group.proxies.map((name) => (name === previousName ? nextName : name));
+  });
 }
 
 function generateOutput() {
@@ -3138,8 +3419,11 @@ function validateModel() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const names = activeProviders.map((provider) => provider.name);
   const duplicate = names.find((name, index) => names.indexOf(name) !== index);
+  const groupNames = state.groups.map((group) => group.name);
+  const duplicateGroup = groupNames.find((name, index) => groupNames.indexOf(name) !== index);
 
   if (duplicate) errors.push(`Дублируется имя подписки: ${duplicate}`);
+  if (duplicateGroup) errors.push(`Дублируется имя группы: ${duplicateGroup}`);
   activeProviders.forEach((provider) => {
     if (!provider.name || /[\r\n]/.test(provider.name)) {
       errors.push(`Некорректное имя подписки: ${provider.name || '(пусто)'}`);
@@ -3151,6 +3435,11 @@ function validateModel() {
         `${provider.name}: в exclude-type неизвестные типы: ${invalidTypes.join(', ')}. ` +
           'Используйте типы протоколов, например ss|http|vless, или оставьте поле пустым.',
       );
+    }
+  });
+  state.groups.forEach((group) => {
+    if (!group.name || /[\r\n]/.test(group.name)) {
+      errors.push(`Некорректное имя группы: ${group.name || '(пусто)'}`);
     }
   });
 
@@ -3211,6 +3500,23 @@ function uniqueProviderName(baseName, currentProvider) {
     state.providers
       .filter((provider) => provider !== currentProvider && !provider.deleted)
       .map((provider) => provider.name),
+  );
+  let candidate = baseName;
+  let index = 2;
+
+  while (used.has(candidate)) {
+    candidate = `${baseName}-${index}`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function uniqueGroupName(baseName, currentGroup) {
+  const used = new Set(
+    state.groups
+      .filter((group) => group !== currentGroup)
+      .map((group) => group.name),
   );
   let candidate = baseName;
   let index = 2;
@@ -3308,7 +3614,7 @@ function serializeGroupsSection(lines, groupsSection) {
   const sectionLines = lines.slice(groupsSection.start, groupsSection.end);
   const replacements = parseGroups(lines, groupsSection)
     .map((parsedGroup) => {
-      const currentGroup = state.groups.find((group) => group.name === parsedGroup.name);
+      const currentGroup = state.groups.find((group) => (group.originalName || group.name) === parsedGroup.name);
       if (!currentGroup) return null;
       return {
         start: parsedGroup.start - groupsSection.start,
@@ -3323,12 +3629,28 @@ function serializeGroupsSection(lines, groupsSection) {
     sectionLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
+  state.groups
+    .filter((group) => group.isNew)
+    .forEach((group) => {
+      if (sectionLines.length > 1 && sectionLines[sectionLines.length - 1].trim()) {
+        sectionLines.push('');
+      }
+      sectionLines.push(...createGroupBlock(group));
+    });
+
   return sectionLines;
 }
 
 function serializeGroupBlock(lines, parsedGroup, currentGroup) {
   const block = lines.slice(parsedGroup.start, parsedGroup.end);
   const replacements = [
+    parsedGroup.proxiesStart === -1
+      ? null
+      : {
+          start: parsedGroup.proxiesStart - parsedGroup.start,
+          end: parsedGroup.proxiesEnd - parsedGroup.start,
+          lines: serializeListBlock('proxies', currentGroup.proxies, lines[parsedGroup.proxiesStart]),
+        },
     parsedGroup.useStart === -1
       ? null
       : {
@@ -3345,17 +3667,72 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
       block.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
     });
 
+  setGroupName(block, currentGroup);
+  setGroupScalar(block, 'type', currentGroup.type || 'select');
+
+  if (parsedGroup.proxiesStart === -1 && currentGroup.proxies.length > 0) {
+    insertGroupListBlock(block, 'proxies', currentGroup.proxies);
+  }
+
+  if (parsedGroup.useStart === -1) {
+    const use = getActiveGroupUse(currentGroup);
+    if (use.length > 0) insertGroupListBlock(block, 'use', use);
+  }
+
   return block;
 }
 
+function createGroupBlock(group) {
+  const lines = [
+    `  - name: ${formatScalar(group.name)}`,
+    `    type: ${formatScalar(group.type || 'select')}`,
+  ];
+  if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
+  const use = getActiveGroupUse(group);
+  if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
+  return lines;
+}
+
+function setGroupName(block, group) {
+  const indent = block[0].match(/^\s*/)?.[0] || '  ';
+  block[0] = `${indent}- name: ${formatScalar(group.name)}`;
+}
+
+function setGroupScalar(block, key, value) {
+  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const re = new RegExp(`^${escapeRegExp(indent)}${escapeRegExp(key)}\\s*:`);
+  const foundIndex = block.findIndex((line) => re.test(line));
+
+  if (foundIndex !== -1) {
+    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    return;
+  }
+
+  block.splice(1, 0, `${indent}${key}: ${formatScalar(value)}`);
+}
+
+function insertGroupListBlock(block, key, items) {
+  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const typeRe = new RegExp(`^${escapeRegExp(indent)}type\\s*:`);
+  const typeIndex = block.findIndex((line) => typeRe.test(line));
+  block.splice(typeIndex === -1 ? 1 : typeIndex + 1, 0, ...serializeListBlockWithIndent(key, items, indent));
+}
+
 function serializeUseBlock(group, originalUseLine) {
+  return serializeListBlock('use', getActiveGroupUse(group), originalUseLine);
+}
+
+function getActiveGroupUse(group) {
   const activeNames = new Set(state.providers.filter((provider) => !provider.deleted).map((provider) => provider.name));
-  const use = group.use.filter((name) => activeNames.has(name));
-  return serializeListBlock('use', use, originalUseLine);
+  return group.use.filter((name) => activeNames.has(name));
 }
 
 function serializeListBlock(key, items, originalLine) {
   const indent = originalLine.match(/^\s*/)[0];
+  return serializeListBlockWithIndent(key, items, indent);
+}
+
+function serializeListBlockWithIndent(key, items, indent) {
   const itemIndent = `${indent}  `;
   if (items.length === 0) return [`${indent}${key}: []`];
   return [`${indent}${key}:`, ...items.map((name) => `${itemIndent}- ${formatScalar(name)}`)];
@@ -3601,8 +3978,10 @@ function parseGroups(lines, section) {
     const keyIndent = groupIndent + 2;
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
+    const name = cleanScalar(stripYamlComment(match[2]));
     groups.push({
-      name: cleanScalar(stripYamlComment(match[2])),
+      name,
+      originalName: name,
       type: readScalar(block, keyIndent, 'type') || '',
       proxies: proxiesMeta.items,
       use: useMeta.items,
@@ -3615,6 +3994,8 @@ function parseGroups(lines, section) {
       proxiesEnd: proxiesMeta.end,
       useStart: useMeta.start,
       useEnd: useMeta.end,
+      isNew: false,
+      deleted: false,
     });
   }
 
