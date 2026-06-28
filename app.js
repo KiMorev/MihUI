@@ -2131,22 +2131,26 @@ function replaceFilterOptions(select, allLabel, values, selected) {
 
 function createNodeInventoryCard(node) {
   const card = document.createElement('article');
-  const flag = document.createElement('span');
+  const flag = document.createElement('button');
   const body = document.createElement('div');
   const titleRow = document.createElement('div');
-  const title = document.createElement('strong');
+  const title = document.createElement('button');
   const badges = document.createElement('div');
   const meta = document.createElement('div');
   const groups = document.createElement('div');
+  const protocolBadge = createNodeProtocolBadge(node);
 
   card.className = 'node-card';
   card.classList.toggle('has-inline-flag', !node.flagImage);
   body.className = 'node-card-body';
   titleRow.className = 'node-card-title';
+  title.type = 'button';
+  title.className = 'node-name-button';
   title.textContent = node.displayName || 'Без названия';
+  title.addEventListener('click', () => showNodeNameAction(card, node));
   badges.className = 'node-badges';
   badges.append(
-    createNodeBadge(node.protocol || 'UNKNOWN', 'is-protocol'),
+    protocolBadge,
     createNodeBadge(formatNodeStatus(node), `is-${getNodeStatusKey(node)}`),
   );
   if (node.delay !== null) badges.append(createNodeBadge(`${node.delay} ms`, ''));
@@ -2160,9 +2164,11 @@ function createNodeInventoryCard(node) {
   body.append(titleRow, meta, groups);
   if (node.flagImage) {
     flag.className = 'node-flag';
+    flag.type = 'button';
     flag.title = node.flagCode;
     flag.setAttribute('aria-label', node.flagCode);
     if (flag.style) flag.style.backgroundImage = `url("${node.flagImage}")`;
+    flag.addEventListener('click', () => showNodeNameAction(card, node));
     card.append(flag, body);
   } else {
     card.append(body);
@@ -2170,11 +2176,180 @@ function createNodeInventoryCard(node) {
   return card;
 }
 
+function createNodeProtocolBadge(node) {
+  const badge = document.createElement('button');
+  badge.type = 'button';
+  badge.className = 'node-badge node-badge-button is-protocol';
+  badge.textContent = node.protocol || 'UNKNOWN';
+  badge.addEventListener('click', () => showNodeProtocolAction(badge.closest('.node-card'), node));
+  return badge;
+}
+
 function createNodeBadge(text, className) {
   const badge = document.createElement('span');
   badge.className = className ? `node-badge ${className}` : 'node-badge';
   badge.textContent = text;
   return badge;
+}
+
+function showNodeNameAction(card, node) {
+  if (!card) return;
+  closeNodeActionForms();
+
+  const provider = getNodeActionProvider(node);
+  if (!provider) {
+    showMessage(`Подписка ${node.provider || 'без имени'} не найдена в текущем конфиге.`);
+    return;
+  }
+
+  const panel = createNodeActionPanel('Настройка по названию', provider.name);
+  const label = document.createElement('label');
+  const labelText = document.createElement('span');
+  const input = document.createElement('input');
+  const actions = document.createElement('div');
+  const keepButton = document.createElement('button');
+  const excludeButton = document.createElement('button');
+  const cancelButton = document.createElement('button');
+
+  label.className = 'node-action-field';
+  labelText.textContent = 'Текст для filter / exclude-filter';
+  input.type = 'text';
+  input.value = suggestNodeNameFilter(node);
+  input.autocomplete = 'off';
+  actions.className = 'node-action-buttons';
+  keepButton.type = 'button';
+  keepButton.className = 'button compact';
+  keepButton.textContent = 'Добавить в filter';
+  excludeButton.type = 'button';
+  excludeButton.className = 'button compact';
+  excludeButton.textContent = 'Добавить в exclude-filter';
+  cancelButton.type = 'button';
+  cancelButton.className = 'button compact ghost';
+  cancelButton.textContent = 'Отмена';
+
+  keepButton.addEventListener('click', () => applyNodeNameFilter(provider, 'filter', input.value));
+  excludeButton.addEventListener('click', () => applyNodeNameFilter(provider, 'excludeFilter', input.value));
+  cancelButton.addEventListener('click', closeNodeActionForms);
+  label.append(labelText, input);
+  actions.append(keepButton, excludeButton, cancelButton);
+  panel.append(label, actions);
+  card.append(panel);
+  input.focus();
+  input.select();
+}
+
+function showNodeProtocolAction(card, node) {
+  if (!card) return;
+  closeNodeActionForms();
+
+  const provider = getNodeActionProvider(node);
+  if (!provider) {
+    showMessage(`Подписка ${node.provider || 'без имени'} не найдена в текущем конфиге.`);
+    return;
+  }
+
+  const protocol = String(node.protocol || '').trim();
+  const excludeType = protocol.toLowerCase();
+  const panel = createNodeActionPanel(`Протокол ${protocol || 'UNKNOWN'}`, provider.name);
+  const actions = document.createElement('div');
+  const filterButton = document.createElement('button');
+  const excludeButton = document.createElement('button');
+  const cancelButton = document.createElement('button');
+
+  actions.className = 'node-action-buttons';
+  filterButton.type = 'button';
+  filterButton.className = 'button compact';
+  filterButton.textContent = `Фильтровать список по ${protocol || 'UNKNOWN'}`;
+  excludeButton.type = 'button';
+  excludeButton.className = 'button compact';
+  excludeButton.textContent = `Исключить ${protocol || 'UNKNOWN'} из подписки`;
+  cancelButton.type = 'button';
+  cancelButton.className = 'button compact ghost';
+  cancelButton.textContent = 'Отмена';
+
+  filterButton.addEventListener('click', () => applyNodeProtocolScreenFilter(protocol));
+  excludeButton.addEventListener('click', () => applyNodeProtocolExclude(provider, excludeType));
+  cancelButton.addEventListener('click', closeNodeActionForms);
+  actions.append(filterButton, excludeButton, cancelButton);
+  panel.append(actions);
+  card.append(panel);
+}
+
+function createNodeActionPanel(title, providerName) {
+  const panel = document.createElement('form');
+  const head = document.createElement('div');
+  const titleEl = document.createElement('strong');
+  const providerEl = document.createElement('span');
+
+  panel.className = 'node-card-action';
+  panel.addEventListener('submit', (event) => event.preventDefault());
+  head.className = 'node-action-head';
+  titleEl.textContent = title;
+  providerEl.textContent = `Подписка: ${providerName}`;
+  head.append(titleEl, providerEl);
+  panel.append(head);
+  return panel;
+}
+
+function closeNodeActionForms() {
+  els.nodeInventoryList.querySelectorAll('.node-card-action').forEach((panel) => panel.remove());
+}
+
+function getNodeActionProvider(node) {
+  return state.providers.find((provider) => !provider.deleted && provider.name === node.provider) || null;
+}
+
+function applyNodeNameFilter(provider, key, rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) {
+    showMessage('Введите текст для filter или exclude-filter.');
+    return;
+  }
+
+  provider[key] = appendPipeValue(provider[key], value);
+  state.selectedProviderName = provider.name;
+  generateOutput();
+  render();
+  showMessage(`Подписка ${provider.name}: обновлено поле ${key === 'filter' ? 'filter' : 'exclude-filter'}.`);
+}
+
+function applyNodeProtocolScreenFilter(protocol) {
+  state.nodeFilters.protocol = protocol;
+  renderNodeInventory();
+  showMessage(`Список нод отфильтрован по протоколу ${protocol}. Конфиг не изменён.`);
+}
+
+function applyNodeProtocolExclude(provider, protocol) {
+  if (!ALLOWED_EXCLUDE_TYPES.has(protocol)) {
+    showMessage(`Протокол ${protocol || 'unknown'} нельзя записать в exclude-type.`);
+    return;
+  }
+
+  provider.excludeType = appendPipeValue(provider.excludeType, protocol);
+  state.selectedProviderName = provider.name;
+  generateOutput();
+  render();
+  showMessage(`Подписка ${provider.name}: обновлено поле exclude-type.`);
+}
+
+function appendPipeValue(current, value) {
+  const parts = String(current || '')
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const exists = parts.some((part) => part.toLowerCase() === value.toLowerCase());
+  return exists ? parts.join('|') : [...parts, value].join('|');
+}
+
+function suggestNodeNameFilter(node) {
+  const value = stripNodeVisualPrefix(node.displayName || node.name);
+  const firstPart = value.split(/[-–—|,;/()[\]{}]+/u)[0]?.trim() || value;
+  const word = firstPart.match(/[a-zа-яё]+/iu)?.[0] || firstPart;
+  return word.trim() || value.trim();
+}
+
+function stripNodeVisualPrefix(value) {
+  return stripNodeFlagEmoji(value).replace(/^[^a-zа-яё0-9]+/iu, '').trim();
 }
 
 function formatNodeProtocol(type) {

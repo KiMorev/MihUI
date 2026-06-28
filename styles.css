@@ -374,6 +374,13 @@ h2 {
   padding-inline: 10px;
 }
 
+.button.ghost {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
+
 .button:disabled,
 .icon-button:disabled {
   cursor: not-allowed;
@@ -815,7 +822,9 @@ input[type='file'] {
   background-position: center;
   background-repeat: no-repeat;
   background-size: cover;
+  cursor: pointer;
   overflow: hidden;
+  padding: 0;
 }
 
 .node-card-body {
@@ -830,14 +839,26 @@ input[type='file'] {
   gap: 6px;
 }
 
-.node-card-title strong {
+.node-name-button {
+  justify-self: start;
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text);
+  cursor: pointer;
   font-size: 14px;
   font-weight: 750;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.node-name-button:hover,
+.node-name-button:focus-visible {
+  color: var(--accent-dark);
 }
 
 .node-badges {
@@ -859,6 +880,16 @@ input[type='file'] {
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
+}
+
+.node-badge-button {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.node-badge-button:hover,
+.node-badge-button:focus-visible {
+  border-color: var(--accent);
 }
 
 .node-badge.is-protocol {
@@ -886,6 +917,54 @@ input[type='file'] {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.node-card-action {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.node-action-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.node-action-head span,
+.node-action-field span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.node-action-field {
+  display: grid;
+  gap: 5px;
+}
+
+.node-action-field input {
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.node-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .workspace {
