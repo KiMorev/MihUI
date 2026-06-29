@@ -404,6 +404,96 @@ h2 {
   display: none;
 }
 
+.overview-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.overview-card {
+  display: grid;
+  gap: 7px;
+  min-height: 116px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: var(--shadow);
+}
+
+.overview-card:hover,
+.overview-card:focus-visible {
+  border-color: var(--accent);
+  background: #f7fcfc;
+  outline: 0;
+}
+
+.overview-card-kicker {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.overview-card strong {
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.overview-card span:last-child {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.overview-attention-panel .panel-head {
+  min-height: 44px;
+}
+
+.overview-attention-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.overview-attention-item {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 10px 12px;
+  border: 1px solid #e4c36a;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.overview-attention-item:hover,
+.overview-attention-item:focus-visible {
+  border-color: var(--warning);
+  outline: 0;
+}
+
+.overview-attention-item strong {
+  color: var(--warning);
+}
+
+.overview-attention-item span,
+.overview-attention-empty {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.overview-attention-empty {
+  padding: 4px 2px;
+}
+
 .button span[aria-hidden='true'] {
   min-width: 20px;
   padding: 1px 4px;
@@ -2464,6 +2554,11 @@ input.is-invalid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .overview-workflow,
+  .overview-attention-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .node-inventory-controls label:first-child {
     grid-column: 1 / -1;
   }
@@ -2494,6 +2589,11 @@ input.is-invalid {
     justify-content: center;
     min-width: 0;
     padding-inline: 8px;
+  }
+
+  .overview-workflow,
+  .overview-attention-list {
+    grid-template-columns: 1fr;
   }
 
   .panel-actions {

@@ -346,7 +346,13 @@ const els = {
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
   sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
+  overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
+  overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
+  overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
+  overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
+  overviewAttentionList: document.querySelector('#overviewAttentionList'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -397,6 +403,7 @@ els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
+els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
 initRouterMode();
 
 function setActiveSection(section, options = {}) {
@@ -859,6 +866,7 @@ function render() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const groupsWithUse = state.groups.filter((group) => group.useStart !== -1);
   const changes = collectChanges(activeProviders);
+  const diagnostics = collectDiagnostics(activeProviders);
 
   syncSelectedProvider(activeProviders);
   els.fileMeta.textContent = state.fileName || 'Конфигурация не загружена';
@@ -878,7 +886,8 @@ function render() {
   }
 
   renderIntervalTools(activeProviders);
-  renderDiagnostics(collectDiagnostics(activeProviders));
+  renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
+  renderDiagnostics(diagnostics);
   renderConnectionSettings();
   renderChanges(changes);
   renderChangesJumpButton(changes);
@@ -886,6 +895,77 @@ function render() {
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
+}
+
+function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
+  const missingConnectionCount = state.originalText ? getMissingConnectionSettings().length : 0;
+  const changeCount = countChanges(changes);
+  const errors = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error');
+  const warnings = diagnostics.length - errors.length;
+  const nodeCount = state.mihomoNodes.length;
+  const attentionItems = [];
+
+  els.overviewProvidersSummary.textContent = state.originalText
+    ? `${formatRouteCount(activeProviders.length, 'подписка', 'подписки', 'подписок')} · ${formatProviderFilterSummary(activeProviders)}`
+    : 'Загрузите конфиг, чтобы редактировать подписки';
+  els.overviewRoutingSummary.textContent = state.originalText
+    ? `${formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')} · ${formatRouteCount(groupsWithUse.length, 'use-группа', 'use-группы', 'use-групп')}`
+    : 'Схема появится после загрузки';
+  els.overviewNodesSummary.textContent = state.routerApiAvailable
+    ? (nodeCount > 0 ? `${formatProxyCount(nodeCount)} · live-список Mihomo` : 'Mihomo пока не вернул ноды')
+    : 'Доступно при работе через локальный сервис';
+  els.overviewReviewSummary.textContent = `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
+
+  if (!state.originalText) {
+    attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });
+  }
+  if (errors.length > 0) {
+    attentionItems.push({ section: 'routing', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
+  } else if (warnings > 0) {
+    attentionItems.push({ section: 'routing', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
+  }
+  if (missingConnectionCount > 0) {
+    attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
+  }
+  if (changeCount > 0) {
+    attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.' });
+  }
+  if (state.routerApiAvailable && state.nodeInventoryError) {
+    attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError });
+  }
+
+  els.overviewAttentionList.textContent = '';
+  if (attentionItems.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'overview-attention-empty';
+    empty.textContent = 'Сейчас нет срочных действий.';
+    els.overviewAttentionList.append(empty);
+    return;
+  }
+
+  attentionItems.forEach((item) => {
+    const button = document.createElement('button');
+    const title = document.createElement('strong');
+    const text = document.createElement('span');
+    button.className = 'overview-attention-item';
+    button.type = 'button';
+    button.setAttribute('data-section-target', item.section);
+    button.addEventListener('click', () => setActiveSection(item.section));
+    title.textContent = item.title;
+    text.textContent = item.text;
+    button.append(title, text);
+    els.overviewAttentionList.append(button);
+  });
+}
+
+function formatProviderFilterSummary(providers) {
+  const withFilter = providers.filter((provider) => hasOutputValue(provider.filter)).length;
+  const withExclude = providers.filter((provider) => hasOutputValue(provider.excludeFilter) || hasOutputValue(provider.excludeType)).length;
+  if (withFilter === 0 && withExclude === 0) return 'без фильтров';
+  const parts = [];
+  if (withFilter > 0) parts.push(`фильтруются: ${withFilter}`);
+  if (withExclude > 0) parts.push(`исключения: ${withExclude}`);
+  return parts.join(' · ');
 }
 
 function renderGroupMetric() {

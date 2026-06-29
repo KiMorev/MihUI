@@ -84,6 +84,36 @@
             </button>
           </div>
         </section>
+
+        <section class="overview-workflow" aria-label="Рабочие разделы">
+          <button class="overview-card" type="button" data-section-target="providers">
+            <span class="overview-card-kicker">Редактор</span>
+            <strong>Подписки</strong>
+            <span id="overviewProvidersSummary">Загрузите конфиг</span>
+          </button>
+          <button class="overview-card" type="button" data-section-target="routing">
+            <span class="overview-card-kicker">Поток</span>
+            <strong>Маршрутизация</strong>
+            <span id="overviewRoutingSummary">Схема появится после загрузки</span>
+          </button>
+          <button class="overview-card" type="button" data-section-target="nodes">
+            <span class="overview-card-kicker">Live</span>
+            <strong>Ноды Mihomo</strong>
+            <span id="overviewNodesSummary">Список появится после ответа ядра</span>
+          </button>
+          <button class="overview-card" type="button" data-section-target="review">
+            <span class="overview-card-kicker">Финал</span>
+            <strong>Проверка и вывод</strong>
+            <span id="overviewReviewSummary">Изменений нет</span>
+          </button>
+        </section>
+
+        <section id="overviewAttentionPanel" class="panel overview-attention-panel" aria-live="polite">
+          <div class="panel-head">
+            <h2>Что требует внимания</h2>
+          </div>
+          <div id="overviewAttentionList" class="overview-attention-list"></div>
+        </section>
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
