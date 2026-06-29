@@ -50,6 +50,8 @@ POST /api/update/start
 MIHUI_CONFIG_PATH="/opt/etc/mihomo/config.yaml"
 MIHUI_MIHOMO_API="http://127.0.0.1:9090"
 MIHUI_MIHOMO_SECRET=""
+MIHUI_HAPP_DECODER_API_KEY=""
+MIHUI_HAPP_DECODER_API_URL="https://happy-decoder.cc/api/v1/decrypt"
 ```
 
 Перед каждым сохранением создается бэкап, хранятся последние 5.

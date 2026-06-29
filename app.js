@@ -299,6 +299,7 @@ const state = {
   providerStatuses: {},
   providerStatusLoading: false,
   providerUpdatingName: '',
+  happDecodeProviderName: '',
   mihomoNodes: [],
   nodeInventoryLoading: false,
   nodeInventoryError: '',
@@ -844,6 +845,42 @@ async function updateProviderNow(provider) {
     state.providerUpdatingName = '';
     render();
   }
+}
+
+async function decodeHappProvider(provider) {
+  if (!provider?.url || !state.routerApiAvailable || typeof fetch !== 'function') return;
+  state.happDecodeProviderName = provider.name;
+  render();
+
+  try {
+    const data = await apiJson('/api/happ/decode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
+    });
+    const previousName = provider.name;
+    provider.url = data.decryptedUrl || provider.url;
+    provider.hasUrl = true;
+    if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
+    generateOutput();
+    render();
+    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована и заменена на прямой URL.`);
+  } catch (error) {
+    showMessage(`Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}`);
+  } finally {
+    state.happDecodeProviderName = '';
+    render();
+  }
+}
+
+function getProviderRequestHeaders(provider) {
+  const headers = {};
+  if (String(provider.userAgent || '').trim()) headers['User-Agent'] = provider.userAgent.trim();
+  if (String(provider.xHwid || '').trim()) headers['x-hwid'] = provider.xHwid.trim();
+  parseCustomHeaderText(provider.customHeaders).forEach((entry) => {
+    if (entry.key) headers[entry.key] = entry.value;
+  });
+  return headers;
 }
 
 function parseAndRender() {
@@ -2226,6 +2263,7 @@ function createProviderEditor(provider, index) {
   row.querySelector('.provider-card-new').hidden = !provider.isNew;
   renderProviderRuntimeStatus(row, provider);
   bindInput(row, '.provider-url', provider.url, (value) => updateProvider(provider, 'url', value));
+  bindHappDecodeButton(row, provider);
   bindProviderName(row, provider);
   bindInput(row, '.provider-filter', provider.filter, (value) => updateProvider(provider, 'filter', value));
   bindInput(row, '.provider-exclude-filter', provider.excludeFilter, (value) => updateProvider(provider, 'excludeFilter', value));
@@ -2306,6 +2344,21 @@ function bindProviderUpdateButton(root, provider) {
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
   if (label) label.textContent = isUpdating ? 'Обновление...' : 'Обновить';
   button.addEventListener('click', () => updateProviderNow(provider));
+}
+
+function bindHappDecodeButton(root, provider) {
+  const button = root.querySelector('.happ-decode-button');
+  const label = button.querySelector('span');
+  const isVisible = isHappDeepLink(provider.url);
+  const isDecoding = state.happDecodeProviderName === provider.name;
+
+  button.hidden = !isVisible;
+  button.disabled = !isVisible || !state.routerApiAvailable || isDecoding;
+  button.title = state.routerApiAvailable
+    ? 'Расшифровать через Happy Decoder и заменить URL провайдера'
+    : 'Доступно только в MihUI на роутере с MIHUI_HAPP_DECODER_API_KEY';
+  if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
+  button.addEventListener('click', () => decodeHappProvider(provider));
 }
 
 function formatProxyCount(count) {

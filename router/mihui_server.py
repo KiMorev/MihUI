@@ -37,6 +37,10 @@ HAPP_DECRYPTOR_CANDIDATES = [
     "happ_decrypt_universal",
     "happwner",
 ]
+HAPP_DECODER_API_KEY_ENV_KEY = "MIHUI_HAPP_DECODER_API_KEY"
+HAPP_DECODER_API_URL_ENV_KEY = "MIHUI_HAPP_DECODER_API_URL"
+DEFAULT_HAPP_DECODER_API_URL = "https://happy-decoder.cc/api/v1/decrypt"
+DECODED_PROVIDER_VERIFY_BYTES = 512 * 1024
 
 
 update_lock = threading.Lock()
@@ -98,6 +102,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/providers/update":
             self.handle_provider_update()
+            return
+        if route == "/api/happ/decode":
+            self.handle_happ_decode()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -255,6 +262,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_provider_payload(body, content_type)
+
+    def handle_happ_decode(self):
+        payload = self.read_json_body()
+        source_url = str(payload.get("url") or "").strip()
+        headers = normalize_provider_headers(payload.get("headers"))
+        try:
+            result = decode_happ_with_happy_decoder(self.app_dir, source_url, headers)
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        except Exception as error:
+            self.send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "message": str(error)})
+            return
+
+        self.send_json(HTTPStatus.OK, result)
 
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
@@ -624,6 +646,105 @@ def parse_happ_decryptor_output(raw):
     if normalize_landing_url(text, ""):
         return "url", text
     return "body", (text + "\n").encode("utf-8")
+
+
+def decode_happ_with_happy_decoder(app_dir, source_url, provider_headers=None):
+    if not is_happ_crypt_url(source_url):
+        raise ValueError("happ://crypt URL is required")
+
+    env = get_env(Path(app_dir))
+    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
+    if not api_key:
+        raise ValueError(f"set {HAPP_DECODER_API_KEY_ENV_KEY} to use Happy Decoder")
+
+    api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
+        HAPP_DECODER_API_URL_ENV_KEY,
+        DEFAULT_HAPP_DECODER_API_URL,
+    )
+    decrypted_url = request_happy_decoder(api_url, api_key, source_url)
+    verify = verify_decoded_provider_url(decrypted_url, provider_headers or {})
+    if not verify["ok"]:
+        raise ValueError(f"decoded URL is not a direct provider: {verify['message']}")
+
+    return {
+        "ok": True,
+        "decryptedUrl": decrypted_url,
+        "verified": True,
+        "contentType": verify.get("contentType", ""),
+    }
+
+
+def request_happy_decoder(api_url, api_key, source_url):
+    body = json.dumps({"url": source_url}).encode("utf-8")
+    request = urllib.request.Request(
+        api_url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "MihUI",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as error:
+        raw = error.read().decode("utf-8", "replace")
+        raise ValueError(f"Happy Decoder returned HTTP {error.code}: {extract_error_message(raw)}")
+
+    data = json.loads(raw)
+    decrypted_url = str(data.get("decryptedUrl") or data.get("url") or "").strip()
+    if not normalize_landing_url(decrypted_url, "") or not is_http_url(decrypted_url):
+        raise ValueError("Happy Decoder response does not contain a direct http/https URL")
+    return decrypted_url
+
+
+def verify_decoded_provider_url(source_url, headers=None):
+    if not is_http_url(source_url):
+        return {"ok": False, "message": "decoded URL is not http/https"}
+
+    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = response.read(DECODED_PROVIDER_VERIFY_BYTES)
+            content_type = response.headers.get("Content-Type") or ""
+    except Exception as error:
+        return {"ok": False, "message": str(error)}
+
+    if not body.strip():
+        return {"ok": False, "message": "decoded provider returned empty payload"}
+    if looks_like_landing_page(body[:262144].decode("utf-8", "replace"), content_type):
+        return {"ok": False, "message": "decoded provider returned landing page"}
+    return {"ok": True, "contentType": content_type}
+
+
+def normalize_provider_headers(value):
+    if not isinstance(value, dict):
+        return {}
+    headers = {}
+    for name, header_value in value.items():
+        name = str(name or "").strip()
+        if not name:
+            continue
+        lower_name = name.lower()
+        if lower_name in PROVIDER_ADAPTER_BLOCKED_HEADERS or lower_name.startswith("proxy-"):
+            continue
+        headers[name] = str(header_value or "")
+    return headers
+
+
+def extract_error_message(text):
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return text.strip() or "empty response"
+    return str(data.get("message") or data.get("error") or text).strip()
+
+
+def is_http_url(value):
+    return urllib.parse.urlsplit(str(value or "").strip()).scheme in {"http", "https"}
 
 
 def append_hwid_query(source_url, headers):

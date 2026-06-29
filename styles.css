@@ -1540,6 +1540,7 @@ input[type='file'] {
 }
 
 .generate-headers-button,
+.happ-decode-button,
 .manual-name-button {
   min-width: 132px;
   border-color: rgba(0, 111, 120, 0.45);
@@ -1549,6 +1550,7 @@ input[type='file'] {
 }
 
 .generate-headers-button:hover,
+.happ-decode-button:hover,
 .manual-name-button:hover {
   background: #d6eef1;
 }
@@ -1580,6 +1582,13 @@ input[type='file'] {
 }
 
 .provider-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.provider-url-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
@@ -2929,7 +2938,8 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
-  .provider-name-row {
+  .provider-name-row,
+  .provider-url-row {
     grid-template-columns: 1fr;
   }
 
