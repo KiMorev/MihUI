@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
 import os
 import re
@@ -20,6 +21,7 @@ from pathlib import Path
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
+PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
 PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "host",
@@ -67,8 +69,8 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/nodes":
             self.handle_nodes_get()
             return
-        if route == PROVIDER_ADAPTER_PATH:
-            self.handle_provider_adapter_get()
+        if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
+            self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
             return
 
         super().do_GET()
@@ -224,7 +226,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         result = update_proxy_provider(self.app_dir, name)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
 
-    def handle_provider_adapter_get(self):
+    def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
             self.send_plain(HTTPStatus.FORBIDDEN, "provider adapter is loopback-only")
             return
@@ -232,7 +234,11 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         source_url = (query.get("url") or [""])[0]
         try:
-            body, content_type = fetch_provider_payload(source_url, build_provider_request_headers(self.headers))
+            body, content_type = fetch_provider_payload(
+                source_url,
+                build_provider_request_headers(self.headers),
+                append_hwid=append_hwid,
+            )
         except ValueError as error:
             self.send_plain(HTTPStatus.BAD_REQUEST, str(error))
             return
@@ -468,17 +474,36 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
     return json.loads(raw)
 
 
-def fetch_provider_payload(source_url, headers=None, timeout=20):
+def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0):
+    if depth > 3:
+        raise ValueError("provider landing redirect depth exceeded")
+
     source_url = str(source_url or "").strip()
     if not source_url:
         raise ValueError("url query parameter is required")
 
     parsed = urllib.parse.urlsplit(source_url)
+    if parsed.scheme == "incy":
+        import_url = extract_incy_import_url(source_url)
+        if not import_url:
+            raise ValueError("incy://import does not contain a supported URL")
+        return fetch_provider_payload(import_url, headers, timeout, append_hwid=append_hwid, depth=depth + 1)
+
+    if is_happ_crypt_url(source_url):
+        raise ValueError("happ://crypt requires an external decryptor")
+
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError("provider adapter supports only http/https URLs")
+        raise ValueError("provider adapter supports only http/https, incy://import, and configured happ://crypt URLs")
     if not parsed.netloc:
         raise ValueError("provider URL host is required")
 
+    if append_hwid:
+        source_url = append_hwid_query(source_url, headers or {})
+
+    return fetch_http_provider_payload(source_url, headers or {}, timeout, append_hwid=append_hwid, depth=depth)
+
+
+def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False, depth=0):
     request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
@@ -486,7 +511,96 @@ def fetch_provider_payload(source_url, headers=None, timeout=20):
 
     if len(body) > PROVIDER_ADAPTER_MAX_BYTES:
         raise ValueError("provider payload is too large")
+
+    landing_url = extract_landing_provider_url(body, content_type, source_url)
+    if landing_url:
+        return fetch_provider_payload(landing_url, headers, timeout, append_hwid=append_hwid, depth=depth + 1)
+
     return body, content_type
+
+
+def append_hwid_query(source_url, headers):
+    hwid = find_header_value(headers, "x-hwid")
+    if not hwid:
+        return source_url
+
+    parts = urllib.parse.urlsplit(source_url)
+    query = urllib.parse.parse_qs(parts.query, keep_blank_values=True)
+    if "hwid" in query:
+        return source_url
+
+    query["hwid"] = [hwid]
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query, doseq=True), parts.fragment)
+    )
+
+
+def find_header_value(headers, name):
+    expected = name.lower()
+    for header_name, value in headers.items():
+        if header_name.lower() == expected:
+            return value
+    return ""
+
+
+def extract_incy_import_url(source_url):
+    parsed = urllib.parse.urlsplit(source_url)
+    query = urllib.parse.parse_qs(parsed.query)
+    for key in ("url", "uri", "target", "link", "sub", "subscription"):
+        value = (query.get(key) or [""])[0]
+        candidate = normalize_landing_url(value, "")
+        if candidate:
+            return candidate
+
+    path_candidate = normalize_landing_url(urllib.parse.unquote(parsed.path.lstrip("/")), "")
+    if path_candidate:
+        return path_candidate
+    return ""
+
+
+def extract_landing_provider_url(body, content_type, base_url):
+    text = body[:262144].decode("utf-8", "replace")
+    if not looks_like_landing_page(text, content_type):
+        return ""
+
+    unescaped = html.unescape(text)
+    patterns = [
+        r"(?:href|data-url|data-href|url)\s*=\s*['\"]([^'\"]+)['\"]",
+        r"(happ://crypt[^\s'\"<>]+|incy://import[^\s'\"<>]+)",
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, unescaped, flags=re.IGNORECASE):
+            candidate = normalize_landing_url(match.group(1), base_url)
+            if candidate:
+                return candidate
+    return ""
+
+
+def looks_like_landing_page(text, content_type):
+    lower_type = str(content_type or "").lower()
+    sample = text.lstrip().lower()
+    return (
+        "html" in lower_type
+        or sample.startswith("<!doctype")
+        or sample.startswith("<html")
+        or "happ://crypt" in sample
+        or "incy://import" in sample
+    )
+
+
+def normalize_landing_url(value, base_url):
+    candidate = urllib.parse.unquote(html.unescape(str(value or "").strip()))
+    if not candidate:
+        return ""
+    if re.match(r"^(https?|incy)://", candidate, flags=re.IGNORECASE) or is_happ_crypt_url(candidate):
+        return candidate
+    if base_url and candidate.startswith(("/", "./", "../")):
+        return urllib.parse.urljoin(base_url, candidate)
+    return ""
+
+
+def is_happ_crypt_url(value):
+    return str(value or "").strip().lower().startswith("happ://crypt")
 
 
 def build_provider_request_headers(incoming_headers):

@@ -1,6 +1,7 @@
 import sys
 import threading
 import unittest
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -13,8 +14,20 @@ import mihui_server  # noqa: E402
 
 class ProviderPayloadHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        parsed = urllib.parse.urlsplit(self.path)
         self.server.received_user_agent = self.headers.get("User-Agent")
         self.server.received_hwid = self.headers.get("x-hwid")
+        self.server.received_hwid_query = urllib.parse.parse_qs(parsed.query).get("hwid", [""])[0]
+        if parsed.path == "/landing.html":
+            target_url = f"http://127.0.0.1:{self.server.server_address[1]}/target.yaml"
+            body = f'<html><body><a href="{target_url}">import</a></body></html>'.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         body = b"proxies:\n  - name: local\n    type: direct\n"
         self.send_response(200)
         self.send_header("Content-Type", "text/yaml")
@@ -27,10 +40,19 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
 
 
 class ProviderAdapterTests(unittest.TestCase):
-    def test_fetch_provider_payload_forwards_headers(self):
+    def start_provider_server(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderPayloadHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
+        return server, thread
+
+    def stop_provider_server(self, server, thread):
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+    def test_fetch_provider_payload_forwards_headers(self):
+        server, thread = self.start_provider_server()
         try:
             url = f"http://127.0.0.1:{server.server_address[1]}/sub.yaml"
             body, content_type = mihui_server.fetch_provider_payload(
@@ -38,17 +60,48 @@ class ProviderAdapterTests(unittest.TestCase):
                 {"User-Agent": "MihomoTest/1.0", "x-hwid": "ABC123"},
             )
         finally:
-            server.shutdown()
-            thread.join(timeout=2)
-            server.server_close()
+            self.stop_provider_server(server, thread)
 
         self.assertIn(b"name: local", body)
         self.assertEqual(content_type, "text/yaml")
         self.assertEqual(server.received_user_agent, "MihomoTest/1.0")
         self.assertEqual(server.received_hwid, "ABC123")
 
+    def test_fetch_provider_payload_follows_landing_link(self):
+        server, thread = self.start_provider_server()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/landing.html"
+            body, content_type = mihui_server.fetch_provider_payload(url, {})
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertIn(b"name: local", body)
+        self.assertEqual(content_type, "text/yaml")
+
+    def test_fetch_provider_payload_resolves_incy_import_url(self):
+        server, thread = self.start_provider_server()
+        try:
+            target_url = f"http://127.0.0.1:{server.server_address[1]}/target.yaml"
+            source_url = f"incy://import?url={urllib.parse.quote(target_url, safe='')}"
+            body, content_type = mihui_server.fetch_provider_payload(source_url, {})
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertIn(b"name: local", body)
+        self.assertEqual(content_type, "text/yaml")
+
+    def test_fetch_provider_payload_appends_hwid_when_requested(self):
+        server, thread = self.start_provider_server()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/target.yaml"
+            mihui_server.fetch_provider_payload(url, {"x-hwid": "ABC123"}, append_hwid=True)
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertEqual(server.received_hwid_query, "ABC123")
+
     def test_fetch_provider_payload_rejects_non_http_url(self):
-        with self.assertRaisesRegex(ValueError, "http/https"):
+        with self.assertRaisesRegex(ValueError, "external decryptor"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
