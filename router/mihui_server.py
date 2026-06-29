@@ -19,6 +19,15 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
+PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
+PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
+PROVIDER_ADAPTER_BLOCKED_HEADERS = {
+    "host",
+    "connection",
+    "content-length",
+    "transfer-encoding",
+    "accept-encoding",
+}
 
 
 update_lock = threading.Lock()
@@ -57,6 +66,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/nodes":
             self.handle_nodes_get()
+            return
+        if route == PROVIDER_ADAPTER_PATH:
+            self.handle_provider_adapter_get()
             return
 
         super().do_GET()
@@ -212,6 +224,24 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         result = update_proxy_provider(self.app_dir, name)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
 
+    def handle_provider_adapter_get(self):
+        if not is_loopback_address(self.client_address[0]):
+            self.send_plain(HTTPStatus.FORBIDDEN, "provider adapter is loopback-only")
+            return
+
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        source_url = (query.get("url") or [""])[0]
+        try:
+            body, content_type = fetch_provider_payload(source_url, build_provider_request_headers(self.headers))
+        except ValueError as error:
+            self.send_plain(HTTPStatus.BAD_REQUEST, str(error))
+            return
+        except Exception as error:
+            self.send_plain(HTTPStatus.BAD_GATEWAY, str(error))
+            return
+
+        self.send_provider_payload(body, content_type)
+
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
         if returncode != 0 and status == HTTPStatus.OK:
@@ -241,6 +271,23 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 self.send_header(name, value)
         if not any(name.lower() == "content-type" for name, _ in headers):
             self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_plain(self, status, text):
+        body = (text.rstrip() + "\n").encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_provider_payload(self, body, content_type):
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type or "text/yaml; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -419,6 +466,42 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
     if not raw.strip():
         return {}
     return json.loads(raw)
+
+
+def fetch_provider_payload(source_url, headers=None, timeout=20):
+    source_url = str(source_url or "").strip()
+    if not source_url:
+        raise ValueError("url query parameter is required")
+
+    parsed = urllib.parse.urlsplit(source_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("provider adapter supports only http/https URLs")
+    if not parsed.netloc:
+        raise ValueError("provider URL host is required")
+
+    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
+        content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
+
+    if len(body) > PROVIDER_ADAPTER_MAX_BYTES:
+        raise ValueError("provider payload is too large")
+    return body, content_type
+
+
+def build_provider_request_headers(incoming_headers):
+    headers = {}
+    for name, value in incoming_headers.items():
+        lower_name = name.lower()
+        if lower_name in PROVIDER_ADAPTER_BLOCKED_HEADERS or lower_name.startswith("proxy-"):
+            continue
+        headers[name] = value
+    return headers
+
+
+def is_loopback_address(value):
+    host = str(value or "").strip().lower()
+    return host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")
 
 
 def get_proxy_provider_statuses(app_dir):
