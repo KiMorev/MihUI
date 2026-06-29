@@ -4,6 +4,7 @@ import html
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -30,6 +31,12 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "transfer-encoding",
     "accept-encoding",
 }
+HAPP_DECRYPTOR_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_CMD"
+HAPP_DECRYPTOR_CANDIDATES = [
+    "happ-decrypt-universal",
+    "happ_decrypt_universal",
+    "happwner",
+]
 
 
 update_lock = threading.Lock()
@@ -238,6 +245,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 source_url,
                 build_provider_request_headers(self.headers),
                 append_hwid=append_hwid,
+                app_dir=self.app_dir,
             )
         except ValueError as error:
             self.send_plain(HTTPStatus.BAD_REQUEST, str(error))
@@ -474,7 +482,7 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
     return json.loads(raw)
 
 
-def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0):
+def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):
     if depth > 3:
         raise ValueError("provider landing redirect depth exceeded")
 
@@ -487,10 +495,27 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
         import_url = extract_incy_import_url(source_url)
         if not import_url:
             raise ValueError("incy://import does not contain a supported URL")
-        return fetch_provider_payload(import_url, headers, timeout, append_hwid=append_hwid, depth=depth + 1)
+        return fetch_provider_payload(
+            import_url,
+            headers,
+            timeout,
+            append_hwid=append_hwid,
+            depth=depth + 1,
+            app_dir=app_dir,
+        )
 
     if is_happ_crypt_url(source_url):
-        raise ValueError("happ://crypt requires an external decryptor")
+        kind, value = decrypt_happ_provider(source_url, app_dir, timeout)
+        if kind == "url":
+            return fetch_provider_payload(
+                value,
+                headers,
+                timeout,
+                append_hwid=append_hwid,
+                depth=depth + 1,
+                app_dir=app_dir,
+            )
+        return value, "text/yaml; charset=utf-8"
 
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("provider adapter supports only http/https, incy://import, and configured happ://crypt URLs")
@@ -500,10 +525,17 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
     if append_hwid:
         source_url = append_hwid_query(source_url, headers or {})
 
-    return fetch_http_provider_payload(source_url, headers or {}, timeout, append_hwid=append_hwid, depth=depth)
+    return fetch_http_provider_payload(
+        source_url,
+        headers or {},
+        timeout,
+        append_hwid=append_hwid,
+        depth=depth,
+        app_dir=app_dir,
+    )
 
 
-def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False, depth=0):
+def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False, depth=0, app_dir=None):
     request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
@@ -514,9 +546,84 @@ def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False,
 
     landing_url = extract_landing_provider_url(body, content_type, source_url)
     if landing_url:
-        return fetch_provider_payload(landing_url, headers, timeout, append_hwid=append_hwid, depth=depth + 1)
+        return fetch_provider_payload(
+            landing_url,
+            headers,
+            timeout,
+            append_hwid=append_hwid,
+            depth=depth + 1,
+            app_dir=app_dir,
+        )
 
     return body, content_type
+
+
+def decrypt_happ_provider(source_url, app_dir, timeout):
+    command = find_happ_decryptor_command(app_dir)
+    if not command:
+        raise ValueError(f"happ://crypt requires an external decryptor; set {HAPP_DECRYPTOR_ENV_KEY}")
+
+    args = build_happ_decryptor_args(command, source_url)
+    result = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+    if result.returncode != 0:
+        error = result.stderr.decode("utf-8", "replace").strip()
+        raise ValueError(f"happ decryptor failed: {error or result.returncode}")
+    return parse_happ_decryptor_output(result.stdout)
+
+
+def find_happ_decryptor_command(app_dir):
+    env = get_env(Path(app_dir)) if app_dir else {}
+    command = env.get(HAPP_DECRYPTOR_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_ENV_KEY, "")
+    if command:
+        return command
+
+    if not app_dir:
+        return ""
+
+    app_path = Path(app_dir)
+    for directory in (app_path / "bin", app_path):
+        for name in HAPP_DECRYPTOR_CANDIDATES:
+            candidate = directory / name
+            if candidate.is_file():
+                return str(candidate)
+    return ""
+
+
+def build_happ_decryptor_args(command, source_url):
+    if "{url}" in command:
+        return shlex.split(command.replace("{url}", source_url))
+    return [*shlex.split(command), source_url]
+
+
+def parse_happ_decryptor_output(raw):
+    text = raw.decode("utf-8", "replace").strip()
+    if not text:
+        raise ValueError("happ decryptor returned empty output")
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        data = None
+
+    if isinstance(data, dict):
+        for key in ("url", "subscription", "link"):
+            value = str(data.get(key) or "").strip()
+            if normalize_landing_url(value, ""):
+                return "url", value
+        for key in ("payload", "content", "yaml", "data"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return "body", value.encode("utf-8")
+
+    if normalize_landing_url(text, ""):
+        return "url", text
+    return "body", (text + "\n").encode("utf-8")
 
 
 def append_hwid_query(source_url, headers):

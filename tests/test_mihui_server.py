@@ -1,4 +1,6 @@
+import os
 import sys
+import tempfile
 import threading
 import unittest
 import urllib.parse
@@ -51,6 +53,12 @@ class ProviderAdapterTests(unittest.TestCase):
         thread.join(timeout=2)
         server.server_close()
 
+    def restore_decryptor_env(self, previous):
+        if previous is None:
+            os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        else:
+            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = previous
+
     def test_fetch_provider_payload_forwards_headers(self):
         server, thread = self.start_provider_server()
         try:
@@ -101,8 +109,38 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(server.received_hwid_query, "ABC123")
 
     def test_fetch_provider_payload_rejects_non_http_url(self):
+        previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        self.addCleanup(self.restore_decryptor_env, previous)
+
         with self.assertRaisesRegex(ValueError, "external decryptor"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
+
+    def test_fetch_provider_payload_uses_configured_happ_decryptor(self):
+        previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, previous)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script = Path(temp_dir) / "fake_happ_decryptor.py"
+            script.write_text(
+                "import sys\n"
+                "assert sys.argv[1].startswith('happ://crypt')\n"
+                "print('proxies:')\n"
+                "print('  - name: decrypted')\n"
+                "print('    type: direct')\n",
+                encoding="utf-8",
+            )
+            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = (
+                f'"{Path(sys.executable).as_posix()}" "{script.as_posix()}"'
+            )
+
+            body, content_type = mihui_server.fetch_provider_payload(
+                "happ://crypt/example",
+                {},
+                app_dir=Path(temp_dir),
+            )
+
+        self.assertEqual(content_type, "text/yaml; charset=utf-8")
+        self.assertIn(b"name: decrypted", body)
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
         headers = mihui_server.build_provider_request_headers(
