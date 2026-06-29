@@ -3766,32 +3766,66 @@ function createGroupEditorDetail(group, activeProviders) {
 
   wrap.append(
     head,
-    createGroupHelpPanel(group, activeProviders),
-    fields,
-    createGroupProxyOrderSection(group),
-    createGroupOptionSection(
-      'Встроенные выходы (proxies)',
-      'DIRECT, REJECT, PASS и похожие варианты — это готовые действия Mihomo без выбора нод из подписки.',
-      getBuiltInGroupOptions(),
-      group.proxies,
-      (name, enabled) => toggleGroupProxy(group, name, enabled),
+    createGroupEditorSection(
+      'Сводка',
+      'Роль группы',
+      createGroupHelpPanel(group, activeProviders),
     ),
-    createGroupOptionSection(
-      'Другие группы (proxies)',
-      'Подключают эту группу к уже существующим группам. Для fallback и relay порядок вариантов важен.',
-      getOtherGroupOptions(group),
-      group.proxies,
-      (name, enabled) => toggleGroupProxy(group, name, enabled),
+    createGroupEditorSection(
+      'Настройки группы',
+      'Имя и тип',
+      fields,
     ),
-    createGroupOptionSection(
-      'Подписки-источники узлов (use)',
-      'Отмеченные proxy-providers дают этой группе свои ноды. Это не правила маршрутизации, а источник вариантов.',
-      activeProviders.map((provider) => provider.name),
-      group.use,
-      (name, enabled) => toggleGroupUse(group, name, enabled),
+    createGroupEditorSection(
+      'Варианты маршрута',
+      'Список выбора',
+      createGroupProxyOrderSection(group),
+      createGroupOptionSection(
+        'Встроенные выходы',
+        'DIRECT, REJECT, PASS и похожие варианты — это готовые действия Mihomo без выбора нод из подписки.',
+        getBuiltInGroupOptions(),
+        group.proxies,
+        (name, enabled) => toggleGroupProxy(group, name, enabled),
+        'proxies',
+      ),
+      createGroupOptionSection(
+        'Другие группы',
+        'Подключают эту группу к уже существующим группам. Для fallback и relay порядок вариантов важен.',
+        getOtherGroupOptions(group),
+        group.proxies,
+        (name, enabled) => toggleGroupProxy(group, name, enabled),
+        'proxies',
+      ),
+    ),
+    createGroupEditorSection(
+      'Подписки-источники',
+      'use',
+      createGroupOptionSection(
+        'Подписки-источники нод',
+        'Отмеченные proxy-providers дают этой группе свои ноды. Это не правила маршрутизации, а источник вариантов.',
+        activeProviders.map((provider) => provider.name),
+        group.use,
+        (name, enabled) => toggleGroupUse(group, name, enabled),
+        'use',
+      ),
     ),
   );
   return wrap;
+}
+
+function createGroupEditorSection(titleText, metaText, ...children) {
+  const section = document.createElement('section');
+  const head = document.createElement('div');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+
+  section.className = 'group-editor-section';
+  head.className = 'group-editor-section-head';
+  title.textContent = titleText;
+  meta.textContent = metaText;
+  head.append(title, meta);
+  section.append(head, ...children);
+  return section;
 }
 
 function createGroupHelpPanel(group, activeProviders) {
@@ -3896,7 +3930,8 @@ function createGroupProxyOrderSection(group) {
 
   section.className = 'group-option-section group-proxy-order';
   title.className = 'group-option-title';
-  title.textContent = 'Порядок вариантов (proxies)';
+  title.textContent = 'Порядок вариантов';
+  title.title = 'proxies';
   description.className = 'group-option-description';
   description.textContent = source === 'proxies'
     ? 'Это реальный порядок в YAML. Для fallback первый доступный сверху победит; для relay цепочка строится сверху вниз.'
@@ -3948,7 +3983,7 @@ function createGroupProxyOrderSection(group) {
   return section;
 }
 
-function createGroupOptionSection(titleText, descriptionText, options, selected, onToggle) {
+function createGroupOptionSection(titleText, descriptionText, options, selected, onToggle, technicalTitle = '') {
   const section = document.createElement('section');
   const title = document.createElement('div');
   const description = document.createElement('p');
@@ -3958,6 +3993,7 @@ function createGroupOptionSection(titleText, descriptionText, options, selected,
   section.className = 'group-option-section';
   title.className = 'group-option-title';
   title.textContent = titleText;
+  if (technicalTitle) title.title = technicalTitle;
   description.className = 'group-option-description';
   description.textContent = descriptionText;
   list.className = 'group-option-list';
