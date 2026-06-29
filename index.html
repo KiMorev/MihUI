@@ -260,33 +260,45 @@
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
-        <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
-
-        <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
-
-        <section class="panel preview-panel">
+        <section class="panel review-summary-panel">
           <div class="panel-head">
-            <h2>Итоговая конфигурация</h2>
-            <div class="panel-actions">
-              <button id="editConfigButton" class="button compact" type="button">
-                <span>Редактировать конфигурацию</span>
-              </button>
-              <button id="applyConfigButton" class="button primary compact" type="button" hidden>
-                <span>Проверить и применить</span>
-              </button>
-              <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
-                <span>Отменить</span>
-              </button>
-              <button id="checkConfigButton" class="button compact" type="button" disabled>
-                <span class="button-label">Проверить в ядре</span>
-              </button>
-              <button id="copyButton" class="button compact" type="button" disabled>
-                <span class="button-label">Копировать</span>
-              </button>
-            </div>
+            <h2>Финальная проверка</h2>
+            <span id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</span>
           </div>
-          <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+          <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
         </section>
+
+        <div id="reviewWorkflow" class="review-workflow">
+          <div class="review-support-column">
+            <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+
+            <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
+          </div>
+
+          <section class="panel preview-panel">
+            <div class="panel-head">
+              <h2>Итоговая конфигурация</h2>
+              <div class="panel-actions">
+                <button id="editConfigButton" class="button compact" type="button">
+                  <span>Редактировать конфигурацию</span>
+                </button>
+                <button id="applyConfigButton" class="button primary compact" type="button" hidden>
+                  <span>Проверить и применить</span>
+                </button>
+                <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
+                  <span>Отменить</span>
+                </button>
+                <button id="checkConfigButton" class="button compact" type="button" disabled>
+                  <span class="button-label">Проверить в ядре</span>
+                </button>
+                <button id="copyButton" class="button compact" type="button" disabled>
+                  <span class="button-label">Копировать</span>
+                </button>
+              </div>
+            </div>
+            <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+          </section>
+        </div>
       </section>
     </main>
 

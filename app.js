@@ -353,6 +353,9 @@ const els = {
   overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
+  reviewWorkflow: document.querySelector('#reviewWorkflow'),
+  reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
+  reviewChecklist: document.querySelector('#reviewChecklist'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -888,6 +891,7 @@ function render() {
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
   renderDiagnostics(diagnostics);
+  renderReviewSummary(changes, diagnostics);
   renderConnectionSettings();
   renderChanges(changes);
   renderChangesJumpButton(changes);
@@ -956,6 +960,96 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     button.append(title, text);
     els.overviewAttentionList.append(button);
   });
+}
+
+function renderReviewSummary(changes, diagnostics) {
+  const changeCount = countChanges(changes);
+  const missingConnectionCount = state.originalText ? getMissingConnectionSettings().length : 0;
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const kernelCheck = getKernelCheckSummary();
+
+  els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
+  els.reviewChecklist.textContent = '';
+  els.reviewSummaryStatus.textContent = getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount);
+
+  [
+    {
+      title: 'Конфигурация',
+      value: state.originalText ? 'загружена' : 'не загружена',
+      note: state.fileName || 'Файл или вставленный текст',
+      variant: state.originalText ? 'is-ok' : 'is-muted',
+    },
+    {
+      title: 'Изменения',
+      value: formatChangeCount(changeCount),
+      note: changeCount > 0 ? 'Проверьте перед сохранением' : 'Diff пустой',
+      variant: changeCount > 0 ? 'is-warning' : 'is-ok',
+      action: state.originalText ? focusChangesPanel : null,
+    },
+    {
+      title: 'Рекомендации',
+      value: missingConnectionCount > 0 ? `не включено: ${missingConnectionCount}` : 'нет',
+      note: missingConnectionCount > 0 ? 'Настройки подключения' : 'Блок скрыт',
+      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
+      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+    },
+    {
+      title: 'Проверка в ядре',
+      value: kernelCheck.value,
+      note: kernelCheck.note,
+      variant: kernelCheck.variant,
+    },
+  ].forEach((item) => {
+    els.reviewChecklist.append(createReviewChecklistItem(item));
+  });
+}
+
+function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount) {
+  if (!state.originalText) return 'Конфигурация не загружена';
+  if (errorCount > 0) return formatErrorCount(errorCount);
+  if (warningCount > 0) return formatWarningCount(warningCount);
+  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть что проверить';
+  return 'Готово';
+}
+
+function getKernelCheckSummary() {
+  if (!state.outputText) {
+    return { value: 'нет данных', note: 'Итоговый YAML пустой', variant: 'is-muted' };
+  }
+  if (!state.routerApiAvailable) {
+    return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
+  }
+  if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
+    return { value: 'пройдена', note: 'Текущий YAML проверен', variant: 'is-ok' };
+  }
+  if (state.lastConfigCheckText === state.outputText) {
+    return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
+  }
+  return { value: 'не проверено', note: 'Кнопка в итоговом блоке', variant: 'is-warning' };
+}
+
+function createReviewChecklistItem(item) {
+  const card = document.createElement(item.action ? 'button' : 'div');
+  const title = document.createElement('span');
+  const value = document.createElement('strong');
+  const note = document.createElement('span');
+
+  card.className = `review-check-card ${item.variant || ''}`.trim();
+  title.className = 'review-check-title';
+  value.className = 'review-check-value';
+  note.className = 'review-check-note';
+  title.textContent = item.title;
+  value.textContent = item.value;
+  note.textContent = item.note;
+  card.append(title, value, note);
+
+  if (item.action) {
+    card.type = 'button';
+    card.addEventListener('click', item.action);
+  }
+
+  return card;
 }
 
 function formatProviderFilterSummary(providers) {
@@ -4534,7 +4628,9 @@ function renderOutputOnly() {
     els.outputPreview.value = state.outputText;
   }
   renderConfigurationEditorControls();
-  renderDiagnostics(collectDiagnostics(activeProviders));
+  const diagnostics = collectDiagnostics(activeProviders);
+  renderDiagnostics(diagnostics);
+  renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
   renderChangesJumpButton(changes);
 }
@@ -4542,6 +4638,7 @@ function renderOutputOnly() {
 function renderChangesOnly() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const changes = collectChanges(activeProviders);
+  renderReviewSummary(changes, collectDiagnostics(activeProviders));
   renderChanges(changes);
   renderChangesJumpButton(changes);
 }

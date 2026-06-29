@@ -2385,6 +2385,97 @@ input.is-invalid {
   font-size: 13px;
 }
 
+.review-summary-panel {
+  margin-bottom: 16px;
+}
+
+.review-summary-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.review-checklist {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.review-check-card {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+button.review-check-card {
+  cursor: pointer;
+  font: inherit;
+}
+
+button.review-check-card:hover {
+  border-color: var(--line-strong);
+}
+
+.review-check-card.is-ok {
+  border-color: rgba(19, 115, 51, 0.22);
+  background: #f7fcf8;
+}
+
+.review-check-card.is-warning {
+  border-color: #ead6a1;
+  background: #fffdf7;
+}
+
+.review-check-card.is-danger {
+  border-color: #d89a96;
+  background: #fff5f5;
+}
+
+.review-check-title,
+.review-check-note {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-check-value {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.review-workflow.has-review-side {
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  align-items: start;
+}
+
+.review-support-column {
+  display: grid;
+  gap: 16px;
+}
+
+.review-support-column .connection-settings-panel,
+.review-support-column .changes-panel {
+  margin: 0;
+}
+
 .changes-panel {
   margin-top: 16px;
 }
@@ -2631,6 +2722,14 @@ input.is-invalid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .review-workflow.has-review-side {
+    grid-template-columns: 1fr;
+  }
+
+  .review-checklist {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .node-inventory-controls label:first-child {
     grid-column: 1 / -1;
   }
@@ -2664,7 +2763,8 @@ input.is-invalid {
   }
 
   .overview-workflow,
-  .overview-attention-list {
+  .overview-attention-list,
+  .review-checklist {
     grid-template-columns: 1fr;
   }
 

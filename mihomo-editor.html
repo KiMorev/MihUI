@@ -2392,6 +2392,97 @@ input.is-invalid {
   font-size: 13px;
 }
 
+.review-summary-panel {
+  margin-bottom: 16px;
+}
+
+.review-summary-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.review-checklist {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  background: #fbfcfe;
+}
+
+.review-check-card {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+}
+
+button.review-check-card {
+  cursor: pointer;
+  font: inherit;
+}
+
+button.review-check-card:hover {
+  border-color: var(--line-strong);
+}
+
+.review-check-card.is-ok {
+  border-color: rgba(19, 115, 51, 0.22);
+  background: #f7fcf8;
+}
+
+.review-check-card.is-warning {
+  border-color: #ead6a1;
+  background: #fffdf7;
+}
+
+.review-check-card.is-danger {
+  border-color: #d89a96;
+  background: #fff5f5;
+}
+
+.review-check-title,
+.review-check-note {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-check-value {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.review-workflow.has-review-side {
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  align-items: start;
+}
+
+.review-support-column {
+  display: grid;
+  gap: 16px;
+}
+
+.review-support-column .connection-settings-panel,
+.review-support-column .changes-panel {
+  margin: 0;
+}
+
 .changes-panel {
   margin-top: 16px;
 }
@@ -2638,6 +2729,14 @@ input.is-invalid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .review-workflow.has-review-side {
+    grid-template-columns: 1fr;
+  }
+
+  .review-checklist {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .node-inventory-controls label:first-child {
     grid-column: 1 / -1;
   }
@@ -2671,7 +2770,8 @@ input.is-invalid {
   }
 
   .overview-workflow,
-  .overview-attention-list {
+  .overview-attention-list,
+  .review-checklist {
     grid-template-columns: 1fr;
   }
 
@@ -3091,33 +3191,45 @@ input.is-invalid {
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
-        <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
-
-        <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
-
-        <section class="panel preview-panel">
+        <section class="panel review-summary-panel">
           <div class="panel-head">
-            <h2>Итоговая конфигурация</h2>
-            <div class="panel-actions">
-              <button id="editConfigButton" class="button compact" type="button">
-                <span>Редактировать конфигурацию</span>
-              </button>
-              <button id="applyConfigButton" class="button primary compact" type="button" hidden>
-                <span>Проверить и применить</span>
-              </button>
-              <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
-                <span>Отменить</span>
-              </button>
-              <button id="checkConfigButton" class="button compact" type="button" disabled>
-                <span class="button-label">Проверить в ядре</span>
-              </button>
-              <button id="copyButton" class="button compact" type="button" disabled>
-                <span class="button-label">Копировать</span>
-              </button>
-            </div>
+            <h2>Финальная проверка</h2>
+            <span id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</span>
           </div>
-          <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+          <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
         </section>
+
+        <div id="reviewWorkflow" class="review-workflow">
+          <div class="review-support-column">
+            <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+
+            <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
+          </div>
+
+          <section class="panel preview-panel">
+            <div class="panel-head">
+              <h2>Итоговая конфигурация</h2>
+              <div class="panel-actions">
+                <button id="editConfigButton" class="button compact" type="button">
+                  <span>Редактировать конфигурацию</span>
+                </button>
+                <button id="applyConfigButton" class="button primary compact" type="button" hidden>
+                  <span>Проверить и применить</span>
+                </button>
+                <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
+                  <span>Отменить</span>
+                </button>
+                <button id="checkConfigButton" class="button compact" type="button" disabled>
+                  <span class="button-label">Проверить в ядре</span>
+                </button>
+                <button id="copyButton" class="button compact" type="button" disabled>
+                  <span class="button-label">Копировать</span>
+                </button>
+              </div>
+            </div>
+            <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+          </section>
+        </div>
       </section>
     </main>
 
@@ -3602,6 +3714,9 @@ const els = {
   overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
+  reviewWorkflow: document.querySelector('#reviewWorkflow'),
+  reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
+  reviewChecklist: document.querySelector('#reviewChecklist'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -4137,6 +4252,7 @@ function render() {
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
   renderDiagnostics(diagnostics);
+  renderReviewSummary(changes, diagnostics);
   renderConnectionSettings();
   renderChanges(changes);
   renderChangesJumpButton(changes);
@@ -4205,6 +4321,96 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     button.append(title, text);
     els.overviewAttentionList.append(button);
   });
+}
+
+function renderReviewSummary(changes, diagnostics) {
+  const changeCount = countChanges(changes);
+  const missingConnectionCount = state.originalText ? getMissingConnectionSettings().length : 0;
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const kernelCheck = getKernelCheckSummary();
+
+  els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
+  els.reviewChecklist.textContent = '';
+  els.reviewSummaryStatus.textContent = getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount);
+
+  [
+    {
+      title: 'Конфигурация',
+      value: state.originalText ? 'загружена' : 'не загружена',
+      note: state.fileName || 'Файл или вставленный текст',
+      variant: state.originalText ? 'is-ok' : 'is-muted',
+    },
+    {
+      title: 'Изменения',
+      value: formatChangeCount(changeCount),
+      note: changeCount > 0 ? 'Проверьте перед сохранением' : 'Diff пустой',
+      variant: changeCount > 0 ? 'is-warning' : 'is-ok',
+      action: state.originalText ? focusChangesPanel : null,
+    },
+    {
+      title: 'Рекомендации',
+      value: missingConnectionCount > 0 ? `не включено: ${missingConnectionCount}` : 'нет',
+      note: missingConnectionCount > 0 ? 'Настройки подключения' : 'Блок скрыт',
+      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
+      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+    },
+    {
+      title: 'Проверка в ядре',
+      value: kernelCheck.value,
+      note: kernelCheck.note,
+      variant: kernelCheck.variant,
+    },
+  ].forEach((item) => {
+    els.reviewChecklist.append(createReviewChecklistItem(item));
+  });
+}
+
+function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount) {
+  if (!state.originalText) return 'Конфигурация не загружена';
+  if (errorCount > 0) return formatErrorCount(errorCount);
+  if (warningCount > 0) return formatWarningCount(warningCount);
+  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть что проверить';
+  return 'Готово';
+}
+
+function getKernelCheckSummary() {
+  if (!state.outputText) {
+    return { value: 'нет данных', note: 'Итоговый YAML пустой', variant: 'is-muted' };
+  }
+  if (!state.routerApiAvailable) {
+    return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
+  }
+  if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
+    return { value: 'пройдена', note: 'Текущий YAML проверен', variant: 'is-ok' };
+  }
+  if (state.lastConfigCheckText === state.outputText) {
+    return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
+  }
+  return { value: 'не проверено', note: 'Кнопка в итоговом блоке', variant: 'is-warning' };
+}
+
+function createReviewChecklistItem(item) {
+  const card = document.createElement(item.action ? 'button' : 'div');
+  const title = document.createElement('span');
+  const value = document.createElement('strong');
+  const note = document.createElement('span');
+
+  card.className = `review-check-card ${item.variant || ''}`.trim();
+  title.className = 'review-check-title';
+  value.className = 'review-check-value';
+  note.className = 'review-check-note';
+  title.textContent = item.title;
+  value.textContent = item.value;
+  note.textContent = item.note;
+  card.append(title, value, note);
+
+  if (item.action) {
+    card.type = 'button';
+    card.addEventListener('click', item.action);
+  }
+
+  return card;
 }
 
 function formatProviderFilterSummary(providers) {
@@ -7783,7 +7989,9 @@ function renderOutputOnly() {
     els.outputPreview.value = state.outputText;
   }
   renderConfigurationEditorControls();
-  renderDiagnostics(collectDiagnostics(activeProviders));
+  const diagnostics = collectDiagnostics(activeProviders);
+  renderDiagnostics(diagnostics);
+  renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
   renderChangesJumpButton(changes);
 }
@@ -7791,6 +7999,7 @@ function renderOutputOnly() {
 function renderChangesOnly() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const changes = collectChanges(activeProviders);
+  renderReviewSummary(changes, collectDiagnostics(activeProviders));
   renderChanges(changes);
   renderChangesJumpButton(changes);
 }
