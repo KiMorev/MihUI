@@ -111,6 +111,7 @@ globalThis.__app = {
   findTopSection,
   getDiagnosticSeverity,
   getDiagnosticAction,
+  generateOutput,
   getRuleScenarios,
   getGroupUsage,
   getProviderIntervalDefaults,
@@ -464,6 +465,40 @@ rules:
     assert(changes.includes(
       'У подписки existing изменятся: ссылка подписки, фильтр серверов, исключения из фильтра, исключенные типы серверов, User-Agent, x-hwid, UDP, быстрое открытие TCP (TFO), путь сохранения, интервал обновления подписки, адрес проверки нод, период проверки нод.',
     ));
+  });
+
+  test(`${source.name}: serializes custom provider headers`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://old.example/sub
+    header:
+      User-Agent: [OldAgent]
+      x-hwid: [OLDHWID]
+      X-Device: [old]
+      X-Trace: trace-old
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    const existing = app.state.providers.find((provider) => provider.name === 'existing');
+    assert.equal(existing.customHeaders, 'X-Device: old\nX-Trace: trace-old');
+
+    existing.customHeaders = 'X-Device: new\nAccept-Language: ru-RU';
+    app.generateOutput();
+
+    assert.match(app.state.outputText, /      User-Agent: \["OldAgent"\]/);
+    assert.match(app.state.outputText, /      x-hwid: \["OLDHWID"\]/);
+    assert.match(app.state.outputText, /      X-Device: \["new"\]/);
+    assert.match(app.state.outputText, /      Accept-Language: \["ru-RU"\]/);
+    assert.doesNotMatch(app.state.outputText, /X-Trace/);
   });
 
   test(`${source.name}: does not report unchanged provider as added`, () => {

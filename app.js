@@ -62,6 +62,7 @@ const PROXY_SHARE_SCHEMES = new Set([
   'wireguard',
   'wg',
 ]);
+const FIXED_HEADER_KEYS = new Set(['User-Agent', 'x-hwid']);
 const GENERIC_HOST_LABELS = new Set([
   'www',
   'sub',
@@ -263,6 +264,7 @@ const PROVIDER_DIFF_FIELDS = [
   { key: 'userAgent', label: 'User-Agent' },
   { key: 'hasXHwid', label: 'x-hwid' },
   { key: 'xHwid', label: 'x-hwid' },
+  { key: 'customHeaders', label: 'headers' },
   { key: 'hasUdp', label: 'UDP' },
   { key: 'udp', label: 'UDP' },
   { key: 'hasTfo', label: 'быстрое открытие TCP (TFO)' },
@@ -2092,6 +2094,7 @@ function snapshotProvider(provider, options = {}) {
     userAgent: provider.userAgent || '',
     hasXHwid: Boolean(writesXHwid),
     xHwid: provider.xHwid || '',
+    customHeaders: normalizeCustomHeaderText(provider.customHeaders),
     hasUdp: Boolean(writesUdp),
     udp: Boolean(provider.udp),
     hasTfo: Boolean(writesTfo),
@@ -2230,6 +2233,7 @@ function createProviderEditor(provider, index) {
   markExcludeTypeValidity(row, provider);
   bindInput(row, '.provider-user-agent', provider.userAgent, (value) => updateProvider(provider, 'userAgent', value));
   bindInput(row, '.provider-x-hwid', provider.xHwid, (value) => updateProvider(provider, 'xHwid', value));
+  bindInput(row, '.provider-custom-headers', provider.customHeaders, (value) => updateProvider(provider, 'customHeaders', value));
   bindHeaderGenerator(row, provider);
   bindCheckbox(row, '.provider-udp', provider.udp, (checked) => updateProvider(provider, 'udp', checked));
   bindCheckbox(row, '.provider-tfo', provider.tfo, (checked) => updateProvider(provider, 'tfo', checked));
@@ -4452,6 +4456,8 @@ function addProvider() {
     excludeType: '',
     userAgent: generatedHeaders.userAgent,
     xHwid: generatedHeaders.xHwid,
+    customHeaders: '',
+    customHeaderKeys: [],
     udp: true,
     tfo: true,
     path: `./providers/${name}.yaml`,
@@ -5271,10 +5277,7 @@ function setOptionalNestedScalar(lines, baseIndentLevel, key, value) {
 }
 
 function setHeader(lines, provider) {
-  setKeyedBlock(lines, 'header', [
-    { key: 'User-Agent', value: provider.userAgent, format: formatHeaderValue },
-    { key: 'x-hwid', value: provider.xHwid, format: formatHeaderValue },
-  ]);
+  setKeyedBlock(lines, 'header', getHeaderEntries(provider), getManagedHeaderKeys(provider));
 }
 
 function setOverride(lines, provider) {
@@ -5284,10 +5287,10 @@ function setOverride(lines, provider) {
   ]);
 }
 
-function setKeyedBlock(lines, blockKey, entries) {
+function setKeyedBlock(lines, blockKey, entries, managedKeysOverride) {
   const block = findNestedBlock(lines, blockKey, 4);
   const activeEntries = entries.filter((entry) => entry.value !== false && String(entry.value || '').trim() !== '');
-  const managedKeys = new Set(entries.map((entry) => entry.key));
+  const managedKeys = new Set(managedKeysOverride || entries.map((entry) => entry.key));
 
   if (!block) {
     if (activeEntries.length > 0) {
@@ -5337,14 +5340,32 @@ function serializeKeyedBlock(blockKey, preservedLines, activeEntries) {
 }
 
 function appendHeader(lines, provider) {
-  const entries = [
-    { key: 'User-Agent', value: provider.userAgent, format: formatHeaderValue },
-    { key: 'x-hwid', value: provider.xHwid, format: formatHeaderValue },
-  ].filter((entry) => String(entry.value || '').trim() !== '');
+  const entries = getHeaderEntries(provider).filter((entry) => String(entry.value || '').trim() !== '');
 
   if (entries.length > 0) {
     lines.push(...serializeKeyedBlock('header', [], entries));
   }
+}
+
+function getHeaderEntries(provider) {
+  return [
+    { key: 'User-Agent', value: provider.userAgent, format: formatHeaderValue },
+    { key: 'x-hwid', value: provider.xHwid, format: formatHeaderValue },
+    ...parseCustomHeaderText(provider.customHeaders).map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+      format: formatHeaderValue,
+    })),
+  ];
+}
+
+function getManagedHeaderKeys(provider) {
+  return [
+    'User-Agent',
+    'x-hwid',
+    ...(provider.customHeaderKeys || []),
+    ...parseCustomHeaderText(provider.customHeaders).map((entry) => entry.key),
+  ];
 }
 
 function appendOverride(lines, provider) {
@@ -5414,6 +5435,7 @@ function parseProviders(lines, section) {
     }
 
     const rawLines = lines.slice(start, index);
+    const customHeaderEntries = readCustomHeaderEntries(rawLines);
     const type = readScalar(rawLines, 4, 'type') || 'http';
     providers.push({
       name: entry.key,
@@ -5425,6 +5447,8 @@ function parseProviders(lines, section) {
       excludeType: readScalar(rawLines, 4, 'exclude-type') || '',
       userAgent: readBlockScalar(rawLines, 'header', 'User-Agent', cleanListScalar) || '',
       xHwid: readBlockScalar(rawLines, 'header', 'x-hwid', cleanListScalar) || '',
+      customHeaders: formatCustomHeaderText(customHeaderEntries),
+      customHeaderKeys: customHeaderEntries.map((item) => item.key),
       udp: readBlockBool(rawLines, 'override', 'udp'),
       tfo: readBlockBool(rawLines, 'override', 'tfo'),
       path: readScalar(rawLines, 4, 'path') || '',
@@ -5615,6 +5639,45 @@ function readBlockScalar(lines, blockKey, key, cleaner = cleanScalar) {
   }
 
   return '';
+}
+
+function readCustomHeaderEntries(lines) {
+  const block = findNestedBlock(lines, 'header', 4);
+  if (!block) return [];
+
+  const entries = [];
+  for (let index = block.start + 1; index < block.end; index += 1) {
+    const entry = parseKeyValueLine(lines[index], 6);
+    if (!entry || FIXED_HEADER_KEYS.has(entry.key)) continue;
+
+    const value = readBlockScalar(lines, 'header', entry.key, cleanListScalar) || cleanListScalar(entry.value);
+    entries.push({ key: entry.key, value });
+  }
+  return entries;
+}
+
+function parseCustomHeaderText(text) {
+  return splitLines(text)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf(':');
+      if (separator === -1) return null;
+      const key = line.slice(0, separator).trim();
+      const value = line.slice(separator + 1).trim();
+      return key ? { key, value } : null;
+    })
+    .filter(Boolean);
+}
+
+function normalizeCustomHeaderText(text) {
+  return parseCustomHeaderText(text)
+    .map((entry) => `${entry.key}: ${entry.value}`)
+    .join('\n');
+}
+
+function formatCustomHeaderText(entries) {
+  return entries.map((entry) => `${entry.key}: ${entry.value}`).join('\n');
 }
 
 function hasNestedKey(lines, baseIndentLevel, key) {

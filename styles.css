@@ -1718,6 +1718,16 @@ select:disabled {
   justify-content: flex-end;
 }
 
+.provider-custom-headers-field {
+  grid-column: 1 / -1;
+}
+
+.provider-custom-headers {
+  min-height: 82px;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
 .provider-advanced .provider-grid {
   padding: 10px;
 }
