@@ -3032,7 +3032,11 @@ function bindProviderName(root, provider) {
       }
     });
   });
-  input.addEventListener('input', () => renameProvider(provider, input.value));
+  input.addEventListener('input', () => updateProviderNameDraft(provider, input.value, root));
+  input.addEventListener('blur', () => render());
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') input.blur();
+  });
 }
 
 function bindHeaderGenerator(root, provider) {
@@ -4468,6 +4472,20 @@ function renameProvider(provider, nextName) {
   replaceProviderUse(previousName, provider.name);
   generateOutput();
   render();
+}
+
+function updateProviderNameDraft(provider, nextName, root) {
+  const previousName = provider.name;
+  provider.name = nextName.trim();
+  provider.autoName = false;
+  provider.nameLocked = false;
+  if (state.selectedProviderName === previousName) state.selectedProviderName = provider.name;
+  replaceProviderUse(previousName, provider.name);
+
+  const title = root.querySelector('.provider-card-title');
+  if (title) title.textContent = provider.name || 'Без названия';
+  generateOutput();
+  renderOutputOnly();
 }
 
 function replaceProviderUse(previousName, nextName) {

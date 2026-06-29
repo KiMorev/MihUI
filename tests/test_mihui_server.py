@@ -216,6 +216,20 @@ class ProviderAdapterTests(unittest.TestCase):
                 {},
             )
 
+    def test_request_happy_decoder_wraps_url_errors(self):
+        with self.assertRaisesRegex(ValueError, "Happy Decoder API request failed"):
+            mihui_server.request_happy_decoder(
+                "http://127.0.0.1:1/decode",
+                "test-key",
+                "happ://crypt/example",
+                timeout=1,
+            )
+
+    def test_read_happ_decoder_timeout_clamps_values(self):
+        self.assertEqual(mihui_server.read_happ_decoder_timeout({}), 30)
+        self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "1"}), 5)
+        self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "999"}), 120)
+
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
         headers = mihui_server.build_provider_request_headers(
             {

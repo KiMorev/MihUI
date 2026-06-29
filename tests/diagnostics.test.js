@@ -128,6 +128,7 @@ globalThis.__app = {
   toggleGroupProxy,
   toggleGroupUse,
   updateGroup,
+  updateProviderNameDraft,
 };`,
     context,
     { filename: source.name },
@@ -740,6 +741,34 @@ rules:
 
     assert(proxy.use.includes(added.name));
     assert.equal(app.collectDiagnostics(app.state.providers.filter((provider) => !provider.deleted)).some((item) => item.includes(added.name)), false);
+  });
+
+  test(`${source.name}: drafts provider rename without losing group use`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  old-name:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - old-name
+rules:
+  - MATCH,Proxy
+`);
+
+    const provider = app.state.providers.find((item) => item.name === 'old-name');
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+    app.state.selectedProviderName = provider.name;
+    app.updateProviderNameDraft(provider, 'new-name', { querySelector: () => ({ textContent: '' }) });
+
+    assert.equal(provider.name, 'new-name');
+    assert.equal(app.state.selectedProviderName, 'new-name');
+    assert.deepEqual([...proxy.use], ['new-name']);
+    assert.match(app.state.outputText, /  new-name:/);
+    assert.match(app.state.outputText, /      - new-name/);
   });
 
   test(`${source.name}: edits existing group proxies and use`, () => {

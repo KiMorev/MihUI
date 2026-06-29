@@ -39,7 +39,9 @@ HAPP_DECRYPTOR_CANDIDATES = [
 ]
 HAPP_DECODER_API_KEY_ENV_KEY = "MIHUI_HAPP_DECODER_API_KEY"
 HAPP_DECODER_API_URL_ENV_KEY = "MIHUI_HAPP_DECODER_API_URL"
+HAPP_DECODER_TIMEOUT_ENV_KEY = "MIHUI_HAPP_DECODER_TIMEOUT"
 DEFAULT_HAPP_DECODER_API_URL = "https://happy-decoder.cc/api/v1/decrypt"
+DEFAULT_HAPP_DECODER_TIMEOUT = 30
 DECODED_PROVIDER_VERIFY_BYTES = 512 * 1024
 
 
@@ -661,8 +663,9 @@ def decode_happ_with_happy_decoder(app_dir, source_url, provider_headers=None):
         HAPP_DECODER_API_URL_ENV_KEY,
         DEFAULT_HAPP_DECODER_API_URL,
     )
-    decrypted_url = request_happy_decoder(api_url, api_key, source_url)
-    verify = verify_decoded_provider_url(decrypted_url, provider_headers or {})
+    timeout = read_happ_decoder_timeout(env)
+    decrypted_url = request_happy_decoder(api_url, api_key, source_url, timeout=timeout)
+    verify = verify_decoded_provider_url(decrypted_url, provider_headers or {}, timeout=timeout)
     if not verify["ok"]:
         raise ValueError(f"decoded URL is not a direct provider: {verify['message']}")
 
@@ -674,7 +677,7 @@ def decode_happ_with_happy_decoder(app_dir, source_url, provider_headers=None):
     }
 
 
-def request_happy_decoder(api_url, api_key, source_url):
+def request_happy_decoder(api_url, api_key, source_url, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
     body = json.dumps({"url": source_url}).encode("utf-8")
     request = urllib.request.Request(
         api_url,
@@ -688,11 +691,15 @@ def request_happy_decoder(api_url, api_key, source_url):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as error:
         raw = error.read().decode("utf-8", "replace")
         raise ValueError(f"Happy Decoder returned HTTP {error.code}: {extract_error_message(raw)}")
+    except urllib.error.URLError as error:
+        raise ValueError(f"Happy Decoder API request failed: {format_urlopen_error(error)}")
+    except TimeoutError as error:
+        raise ValueError(f"Happy Decoder API request timed out: {error}")
 
     data = json.loads(raw)
     decrypted_url = str(data.get("decryptedUrl") or data.get("url") or "").strip()
@@ -701,17 +708,17 @@ def request_happy_decoder(api_url, api_key, source_url):
     return decrypted_url
 
 
-def verify_decoded_provider_url(source_url, headers=None):
+def verify_decoded_provider_url(source_url, headers=None, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
     if not is_http_url(source_url):
         return {"ok": False, "message": "decoded URL is not http/https"}
 
     request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read(DECODED_PROVIDER_VERIFY_BYTES)
             content_type = response.headers.get("Content-Type") or ""
     except Exception as error:
-        return {"ok": False, "message": str(error)}
+        return {"ok": False, "message": f"decoded URL fetch failed: {format_urlopen_error(error)}"}
 
     if not body.strip():
         return {"ok": False, "message": "decoded provider returned empty payload"}
@@ -741,6 +748,24 @@ def extract_error_message(text):
     except json.JSONDecodeError:
         return text.strip() or "empty response"
     return str(data.get("message") or data.get("error") or text).strip()
+
+
+def read_happ_decoder_timeout(env):
+    value = env.get(HAPP_DECODER_TIMEOUT_ENV_KEY) or os.environ.get(HAPP_DECODER_TIMEOUT_ENV_KEY, "")
+    if not value:
+        return DEFAULT_HAPP_DECODER_TIMEOUT
+    try:
+        timeout = int(value)
+    except ValueError:
+        return DEFAULT_HAPP_DECODER_TIMEOUT
+    return min(max(timeout, 5), 120)
+
+
+def format_urlopen_error(error):
+    reason = getattr(error, "reason", None)
+    if reason:
+        return str(reason)
+    return str(error)
 
 
 def is_http_url(value):
