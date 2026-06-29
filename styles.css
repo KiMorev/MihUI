@@ -354,6 +354,56 @@ h2 {
   color: var(--warning);
 }
 
+.section-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+}
+
+.section-tab {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.section-tab:hover,
+.section-tab:focus-visible {
+  border-color: var(--line-strong);
+  color: var(--text);
+  outline: 0;
+}
+
+.section-tab.is-active {
+  border-color: rgba(8, 124, 128, 0.22);
+  background: #e9f7f8;
+  color: var(--accent-dark);
+}
+
+.app-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.app-section[hidden] {
+  display: none;
+}
+
 .button span[aria-hidden='true'] {
   min-width: 20px;
   padding: 1px 4px;
@@ -422,7 +472,7 @@ input[type='file'] {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  margin: 12px 0;
+  margin: 0;
 }
 
 .router-panel {
@@ -742,7 +792,7 @@ input[type='file'] {
 }
 
 .node-inventory-panel {
-  margin: 16px 0;
+  margin: 0;
 }
 
 .node-inventory-controls {
@@ -1028,6 +1078,7 @@ input[type='file'] {
 .panel-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2306,7 +2357,7 @@ input.is-invalid {
 }
 
 .preview-panel {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 #outputPreview {
@@ -2431,6 +2482,27 @@ input.is-invalid {
   .app-shell {
     width: min(100% - 20px, 1440px);
     padding: 14px 0;
+  }
+
+  .section-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .section-tab {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .panel-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .panel-actions .button {
+    flex: 1 1 150px;
   }
 
   .providers-list.providers-workbench {

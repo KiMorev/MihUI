@@ -361,6 +361,56 @@ h2 {
   color: var(--warning);
 }
 
+.section-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+}
+
+.section-tab {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.section-tab:hover,
+.section-tab:focus-visible {
+  border-color: var(--line-strong);
+  color: var(--text);
+  outline: 0;
+}
+
+.section-tab.is-active {
+  border-color: rgba(8, 124, 128, 0.22);
+  background: #e9f7f8;
+  color: var(--accent-dark);
+}
+
+.app-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.app-section[hidden] {
+  display: none;
+}
+
 .button span[aria-hidden='true'] {
   min-width: 20px;
   padding: 1px 4px;
@@ -429,7 +479,7 @@ input[type='file'] {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  margin: 12px 0;
+  margin: 0;
 }
 
 .router-panel {
@@ -749,7 +799,7 @@ input[type='file'] {
 }
 
 .node-inventory-panel {
-  margin: 16px 0;
+  margin: 0;
 }
 
 .node-inventory-controls {
@@ -1035,6 +1085,7 @@ input[type='file'] {
 .panel-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -2313,7 +2364,7 @@ input.is-invalid {
 }
 
 .preview-panel {
-  margin-top: 16px;
+  margin-top: 0;
 }
 
 #outputPreview {
@@ -2438,6 +2489,27 @@ input.is-invalid {
   .app-shell {
     width: min(100% - 20px, 1440px);
     padding: 14px 0;
+  }
+
+  .section-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .section-tab {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 8px;
+  }
+
+  .panel-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .panel-actions .button {
+    flex: 1 1 150px;
   }
 
   .providers-list.providers-workbench {
@@ -2592,6 +2664,7 @@ input.is-invalid {
     </style>
   </head>
   <body>
+
     <main class="app-shell">
       <header class="topbar">
         <div class="topbar-main">
@@ -2634,34 +2707,44 @@ input.is-invalid {
         </div>
       </header>
 
-      <section class="status-grid" aria-live="polite">
-        <div class="metric">
-          <span class="metric-label">Подписки (proxy-providers)</span>
-          <strong id="providerCount">0</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Группы (proxy-groups)</span>
-          <strong id="groupCount">0</strong>
-        </div>
-        <div id="rulesMetric" class="metric" role="button" tabindex="0" aria-disabled="true">
-          <span class="metric-label">Проверка</span>
-          <strong id="rulesStatus">нет конфигурации</strong>
-          <span id="rulesHint" class="metric-hint" hidden></span>
-        </div>
-      </section>
+      <nav class="section-tabs" aria-label="Разделы редактора">
+        <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true">Обзор</button>
+        <button class="section-tab" type="button" data-section="providers" aria-pressed="false">Подписки</button>
+        <button class="section-tab" type="button" data-section="routing" aria-pressed="false">Маршрутизация</button>
+        <button class="section-tab" type="button" data-section="nodes" aria-pressed="false">Ноды</button>
+        <button class="section-tab" type="button" data-section="review" aria-pressed="false">Проверка</button>
+      </nav>
 
       <section id="messageBox" class="message hidden"></section>
 
-      <section id="routerPanel" class="router-panel hidden" aria-live="polite">
-        <div class="backup-tools">
-          <select id="backupSelect" class="backup-select" disabled></select>
-          <button id="restoreBackupButton" class="button compact" type="button" disabled>
-            <span>Восстановить</span>
-          </button>
-        </div>
+      <section class="app-section is-active" data-section-panel="overview">
+        <section class="status-grid" aria-live="polite">
+          <div class="metric">
+            <span class="metric-label">Подписки (proxy-providers)</span>
+            <strong id="providerCount">0</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Группы (proxy-groups)</span>
+            <strong id="groupCount">0</strong>
+          </div>
+          <div id="rulesMetric" class="metric" role="button" tabindex="0" aria-disabled="true">
+            <span class="metric-label">Проверка</span>
+            <strong id="rulesStatus">нет конфигурации</strong>
+            <span id="rulesHint" class="metric-hint" hidden></span>
+          </div>
+        </section>
+
+        <section id="routerPanel" class="router-panel hidden" aria-live="polite">
+          <div class="backup-tools">
+            <select id="backupSelect" class="backup-select" disabled></select>
+            <button id="restoreBackupButton" class="button compact" type="button" disabled>
+              <span>Восстановить</span>
+            </button>
+          </div>
+        </section>
       </section>
 
-      <section class="workspace">
+      <section class="app-section" data-section-panel="providers" hidden>
         <section class="panel providers-panel">
           <div class="panel-head">
             <h2>Подписки (proxy-providers)</h2>
@@ -2720,7 +2803,9 @@ input.is-invalid {
             </div>
           </div>
         </section>
+      </section>
 
+      <section class="app-section routing-section" data-section-panel="routing" hidden>
         <section class="groups-column">
           <section class="panel group-order-panel">
             <div class="panel-head">
@@ -2755,77 +2840,81 @@ input.is-invalid {
         </section>
       </section>
 
-      <section id="nodeInventoryPanel" class="panel node-inventory-panel hidden" aria-live="polite">
-        <div class="panel-head">
-          <h2>Текущие ноды Mihomo</h2>
-          <div class="panel-actions">
-            <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
-              <span>Обновить</span>
-            </button>
+      <section class="app-section" data-section-panel="nodes" hidden>
+        <section id="nodeInventoryPanel" class="panel node-inventory-panel hidden" aria-live="polite">
+          <div class="panel-head">
+            <h2>Текущие ноды Mihomo</h2>
+            <div class="panel-actions">
+              <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
+                <span>Обновить</span>
+              </button>
+            </div>
           </div>
-        </div>
-        <div class="node-inventory-controls">
-          <label>
-            <span>Поиск</span>
-            <input id="nodeSearchInput" type="search" placeholder="Имя, подписка, группа" autocomplete="off" />
-          </label>
-          <label>
-            <span>Подписка</span>
-            <select id="nodeProviderFilter"></select>
-          </label>
-          <label>
-            <span>Группа</span>
-            <select id="nodeGroupFilter"></select>
-          </label>
-          <label>
-            <span>Протокол</span>
-            <select id="nodeProtocolFilter"></select>
-          </label>
-          <label>
-            <span>Статус</span>
-            <select id="nodeStatusFilter">
-              <option value="">Все</option>
-              <option value="alive">Доступные</option>
-              <option value="dead">Недоступные</option>
-              <option value="unknown">Без статуса</option>
-            </select>
-          </label>
-        </div>
-        <div id="nodeInventorySummary" class="node-inventory-summary"></div>
-        <div id="nodeInventoryList" class="node-inventory-list empty-state">
-          <div class="empty-state-content">
-            <strong>Ноды появятся после ответа Mihomo</strong>
-            <span>Список показывает текущие ноды, которые ядро вернуло после фильтров подписок.</span>
+          <div class="node-inventory-controls">
+            <label>
+              <span>Поиск</span>
+              <input id="nodeSearchInput" type="search" placeholder="Имя, подписка, группа" autocomplete="off" />
+            </label>
+            <label>
+              <span>Подписка</span>
+              <select id="nodeProviderFilter"></select>
+            </label>
+            <label>
+              <span>Группа</span>
+              <select id="nodeGroupFilter"></select>
+            </label>
+            <label>
+              <span>Протокол</span>
+              <select id="nodeProtocolFilter"></select>
+            </label>
+            <label>
+              <span>Статус</span>
+              <select id="nodeStatusFilter">
+                <option value="">Все</option>
+                <option value="alive">Доступные</option>
+                <option value="dead">Недоступные</option>
+                <option value="unknown">Без статуса</option>
+              </select>
+            </label>
           </div>
-        </div>
+          <div id="nodeInventorySummary" class="node-inventory-summary"></div>
+          <div id="nodeInventoryList" class="node-inventory-list empty-state">
+            <div class="empty-state-content">
+              <strong>Ноды появятся после ответа Mihomo</strong>
+              <span>Список показывает текущие ноды, которые ядро вернуло после фильтров подписок.</span>
+            </div>
+          </div>
+        </section>
       </section>
 
-      <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+      <section class="app-section review-section" data-section-panel="review" hidden>
+        <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
 
-      <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
+        <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
 
-      <section class="panel preview-panel">
-        <div class="panel-head">
-          <h2>Итоговая конфигурация</h2>
-          <div class="panel-actions">
-            <button id="editConfigButton" class="button compact" type="button">
-              <span>Редактировать конфигурацию</span>
-            </button>
-            <button id="applyConfigButton" class="button primary compact" type="button" hidden>
-              <span>Проверить и применить</span>
-            </button>
-            <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
-              <span>Отменить</span>
-            </button>
-            <button id="checkConfigButton" class="button compact" type="button" disabled>
-              <span class="button-label">Проверить в ядре</span>
-            </button>
-            <button id="copyButton" class="button compact" type="button" disabled>
-              <span class="button-label">Копировать</span>
-            </button>
+        <section class="panel preview-panel">
+          <div class="panel-head">
+            <h2>Итоговая конфигурация</h2>
+            <div class="panel-actions">
+              <button id="editConfigButton" class="button compact" type="button">
+                <span>Редактировать конфигурацию</span>
+              </button>
+              <button id="applyConfigButton" class="button primary compact" type="button" hidden>
+                <span>Проверить и применить</span>
+              </button>
+              <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
+                <span>Отменить</span>
+              </button>
+              <button id="checkConfigButton" class="button compact" type="button" disabled>
+                <span class="button-label">Проверить в ядре</span>
+              </button>
+              <button id="copyButton" class="button compact" type="button" disabled>
+                <span class="button-label">Копировать</span>
+              </button>
+            </div>
           </div>
-        </div>
-        <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+          <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+        </section>
       </section>
     </main>
 
@@ -2943,6 +3032,7 @@ const DEFAULT_BULK_INTERVAL = '86400';
 const DEFAULT_BULK_HEALTH_INTERVAL = '300';
 const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review']);
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -3242,6 +3332,7 @@ const state = {
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
+  activeSection: 'overview',
 };
 
 const els = {
@@ -3282,6 +3373,8 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
+  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionPanels: document.querySelectorAll('[data-section-panel]'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -3294,7 +3387,6 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
-  workspace: document.querySelector('.workspace'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
@@ -3332,7 +3424,32 @@ els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
+els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 initRouterMode();
+
+function setActiveSection(section, options = {}) {
+  if (!APP_SECTIONS.has(section)) return;
+
+  state.activeSection = section;
+  renderSectionTabs();
+  if (options.scroll === false) return;
+
+  document.querySelector('.section-tabs')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function renderSectionTabs() {
+  els.sectionTabs.forEach((button) => {
+    const isActive = button.dataset.section === state.activeSection;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+
+  els.sectionPanels.forEach((panel) => {
+    const isActive = panel.dataset.sectionPanel === state.activeSection;
+    panel.hidden = !isActive;
+    panel.classList.toggle('is-active', isActive);
+  });
+}
 
 function handleFileSelect(event) {
   const [file] = event.target.files;
@@ -3775,7 +3892,7 @@ function render() {
   els.fileMeta.textContent = state.fileName || 'Конфигурация не загружена';
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
-  els.workspace.classList.toggle('workspace-route-focus', Boolean(state.originalText) && activeProviders.length === 0);
+  renderSectionTabs();
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
@@ -3967,6 +4084,7 @@ function handleRulesMetricKeydown(event) {
 }
 
 function focusDiagnosticsPanel() {
+  setActiveSection('routing', { scroll: false });
   if (els.diagnosticsPanel.classList.contains('hidden')) return;
 
   els.diagnosticsPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3978,6 +4096,7 @@ function focusDiagnosticsPanel() {
 }
 
 function focusChangesPanel() {
+  setActiveSection('review', { scroll: false });
   if (els.changesPanel.classList.contains('hidden')) return;
 
   els.changesPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3988,6 +4107,7 @@ function focusChangesPanel() {
 }
 
 function focusConnectionSettingsPanel() {
+  setActiveSection('review', { scroll: false });
   if (els.connectionSettingsPanel.classList.contains('hidden')) return;
 
   els.connectionSettingsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });

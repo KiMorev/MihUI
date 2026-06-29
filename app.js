@@ -4,6 +4,7 @@ const DEFAULT_BULK_INTERVAL = '86400';
 const DEFAULT_BULK_HEALTH_INTERVAL = '300';
 const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review']);
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -303,6 +304,7 @@ const state = {
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
+  activeSection: 'overview',
 };
 
 const els = {
@@ -343,6 +345,8 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
+  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionPanels: document.querySelectorAll('[data-section-panel]'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -355,7 +359,6 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
-  workspace: document.querySelector('.workspace'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
@@ -393,7 +396,32 @@ els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
+els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 initRouterMode();
+
+function setActiveSection(section, options = {}) {
+  if (!APP_SECTIONS.has(section)) return;
+
+  state.activeSection = section;
+  renderSectionTabs();
+  if (options.scroll === false) return;
+
+  document.querySelector('.section-tabs')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
+function renderSectionTabs() {
+  els.sectionTabs.forEach((button) => {
+    const isActive = button.dataset.section === state.activeSection;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+
+  els.sectionPanels.forEach((panel) => {
+    const isActive = panel.dataset.sectionPanel === state.activeSection;
+    panel.hidden = !isActive;
+    panel.classList.toggle('is-active', isActive);
+  });
+}
 
 function handleFileSelect(event) {
   const [file] = event.target.files;
@@ -836,7 +864,7 @@ function render() {
   els.fileMeta.textContent = state.fileName || 'Конфигурация не загружена';
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
-  els.workspace.classList.toggle('workspace-route-focus', Boolean(state.originalText) && activeProviders.length === 0);
+  renderSectionTabs();
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText;
@@ -1028,6 +1056,7 @@ function handleRulesMetricKeydown(event) {
 }
 
 function focusDiagnosticsPanel() {
+  setActiveSection('routing', { scroll: false });
   if (els.diagnosticsPanel.classList.contains('hidden')) return;
 
   els.diagnosticsPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1039,6 +1068,7 @@ function focusDiagnosticsPanel() {
 }
 
 function focusChangesPanel() {
+  setActiveSection('review', { scroll: false });
   if (els.changesPanel.classList.contains('hidden')) return;
 
   els.changesPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1049,6 +1079,7 @@ function focusChangesPanel() {
 }
 
 function focusConnectionSettingsPanel() {
+  setActiveSection('review', { scroll: false });
   if (els.connectionSettingsPanel.classList.contains('hidden')) return;
 
   els.connectionSettingsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
