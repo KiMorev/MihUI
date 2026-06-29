@@ -48,6 +48,20 @@ const EXCLUDE_TYPE_OPTIONS = [
   'direct',
 ];
 const ALLOWED_EXCLUDE_TYPES = new Set(EXCLUDE_TYPE_OPTIONS);
+const PROXY_SHARE_SCHEMES = new Set([
+  'ss',
+  'shadowsocks',
+  'ssr',
+  'vmess',
+  'vless',
+  'trojan',
+  'hysteria',
+  'hysteria2',
+  'hy2',
+  'tuic',
+  'wireguard',
+  'wg',
+]);
 const GENERIC_HOST_LABELS = new Set([
   'www',
   'sub',
@@ -1478,8 +1492,52 @@ function collectDiagnostics(activeProviders) {
   collectDuplicateProviderUrls(activeProviders).forEach((text) => {
     addUniqueDiagnostic(diagnostics, text);
   });
+  collectProviderUrlDiagnostics(activeProviders).forEach((text) => {
+    addUniqueDiagnostic(diagnostics, text);
+  });
 
   return diagnostics;
+}
+
+function collectProviderUrlDiagnostics(activeProviders) {
+  const diagnostics = [];
+
+  activeProviders.forEach((provider) => {
+    const url = String(provider.url || '').trim();
+    if (!url) return;
+
+    const scheme = getUrlScheme(url);
+    if (isHappDeepLink(url)) {
+      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.`);
+      return;
+    }
+
+    if (scheme === 'incy') {
+      diagnostics.push(`Подписка ${provider.name}: incy://import не является прямой подпиской Mihomo; нужен helper или локальный adapter.`);
+      return;
+    }
+
+    if (PROXY_SHARE_SCHEMES.has(scheme)) {
+      diagnostics.push(`Подписка ${provider.name}: ${scheme}:// — это ссылка узла, а не URL proxy-provider; нужен локальный adapter или добавление в proxies.`);
+      return;
+    }
+
+    const type = String(provider.type || 'http').toLowerCase();
+    if (type === 'http' && scheme && scheme !== 'http' && scheme !== 'https') {
+      diagnostics.push(`Подписка ${provider.name}: type http требует http/https URL; Mihomo не скачает схему ${scheme}://.`);
+    }
+  });
+
+  return diagnostics;
+}
+
+function getUrlScheme(value) {
+  const match = String(value || '').trim().match(/^([A-Za-z][A-Za-z0-9+.-]*):\/\//);
+  return match ? match[1].toLowerCase() : '';
+}
+
+function isHappDeepLink(value) {
+  return String(value || '').trim().toLowerCase().startsWith('happ://crypt');
 }
 
 function collectDuplicateProviderUrls(activeProviders) {

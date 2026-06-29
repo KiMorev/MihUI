@@ -193,6 +193,42 @@ rules:
     assert.equal(app.getDiagnosticSeverity('Группа EmptyAuto: прокси-режим пустой.'), 'warning');
   });
 
+  test(`${source.name}: reports provider urls Mihomo cannot fetch directly`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  happ:
+    type: http
+    url: happ://crypt5/demo-token
+  incy:
+    type: http
+    url: incy://import/https%3A%2F%2Fexample.com%2Fsub
+  node:
+    type: http
+    url: vless://user@example.com:443?security=tls#demo
+  good:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - happ
+      - incy
+      - node
+      - good
+rules:
+  - MATCH,Proxy
+`);
+
+    const diagnostics = app.collectDiagnostics(activeProviders);
+
+    assert(diagnostics.includes('Подписка happ: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.'));
+    assert(diagnostics.includes('Подписка incy: incy://import не является прямой подпиской Mihomo; нужен helper или локальный adapter.'));
+    assert(diagnostics.includes('Подписка node: vless:// — это ссылка узла, а не URL proxy-provider; нужен локальный adapter или добавление в proxies.'));
+    assert.equal(diagnostics.some((item) => item.includes('Подписка good:')), false);
+  });
+
   test(`${source.name}: removes missing provider from group use`, () => {
     const app = loadApp(source);
     hydrate(app, `
