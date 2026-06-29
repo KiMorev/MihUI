@@ -306,47 +306,65 @@
           </div>
         </div>
         <div class="provider-runtime-status" hidden></div>
-        <div class="provider-name-row">
-          <label>
-            <span>Название (provider key)</span>
-            <input class="provider-name" type="text" placeholder="withblancvpn" autocomplete="off" />
-          </label>
-          <button class="button compact manual-name-button" type="button" title="Редактировать название вручную">
-            <span>Ручное имя</span>
-          </button>
-        </div>
-        <label>
-          <span>Ссылка подписки (url)</span>
-          <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
-        </label>
-
-        <div class="provider-grid">
-          <label title="Показывает только ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: RU|NL|EE.">
-            <span>Фильтр серверов (filter)</span>
-            <input class="provider-filter" type="text" placeholder="RU|NL|EE|DE" autocomplete="off" />
-          </label>
-          <label title="Скрывает ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: test|slow|expired.">
-            <span>Исключить серверы (exclude-filter)</span>
-            <input class="provider-exclude-filter" type="text" placeholder="test|slow|expired" autocomplete="off" />
-          </label>
-        </div>
-
-        <div class="exclude-type-field" title="Скрывает ноды по типу протокола, а не по названию. Введите типы вручную или выберите из списка.">
-          <span>Исключить типы серверов (exclude-type)</span>
-          <div class="exclude-type-control">
-            <input class="provider-exclude-type" type="text" placeholder="ss|http|vless" autocomplete="off" />
-            <button class="button compact exclude-type-toggle" type="button">
-              <span>Выбрать из списка</span>
+        <div class="provider-editor-section">
+          <div class="provider-editor-section-head">
+            <strong>Источник подписки</strong>
+            <span>Имя и ссылка</span>
+          </div>
+          <div class="provider-name-row">
+            <label>
+              <span title="provider key">Название подписки</span>
+              <input class="provider-name" type="text" placeholder="withblancvpn" autocomplete="off" />
+            </label>
+            <button class="button compact manual-name-button" type="button" title="Редактировать название вручную">
+              <span>Ручное имя</span>
             </button>
           </div>
-          <div class="exclude-type-popover" hidden>
-            <div class="exclude-type-options" aria-label="Типы серверов для exclude-type"></div>
+          <label>
+            <span title="url">Ссылка подписки</span>
+            <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
+          </label>
+        </div>
+
+        <div class="provider-editor-section">
+          <div class="provider-editor-section-head">
+            <strong>Фильтрация нод</strong>
+            <span>По названию</span>
           </div>
-          <p class="field-error provider-exclude-type-error" aria-live="polite" hidden></p>
+          <div class="provider-grid">
+            <label title="Показывает только ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: RU|NL|EE. Параметр YAML: filter.">
+              <span>Фильтровать</span>
+              <input class="provider-filter" type="text" placeholder="RU|NL|EE|DE" autocomplete="off" />
+            </label>
+            <label title="Скрывает ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: test|slow|expired. Параметр YAML: exclude-filter.">
+              <span>Исключить</span>
+              <input class="provider-exclude-filter" type="text" placeholder="test|slow|expired" autocomplete="off" />
+            </label>
+          </div>
+        </div>
+
+        <div class="provider-editor-section">
+          <div class="provider-editor-section-head">
+            <strong>Протоколы</strong>
+            <span>Исключения</span>
+          </div>
+          <div class="exclude-type-field" title="Скрывает ноды по типу протокола, а не по названию. Введите типы вручную или выберите из списка. Параметр YAML: exclude-type.">
+            <span>Исключить по протоколу</span>
+            <div class="exclude-type-control">
+              <input class="provider-exclude-type" type="text" placeholder="ss|http|vless" autocomplete="off" />
+              <button class="button compact exclude-type-toggle" type="button">
+                <span>Выбрать из списка</span>
+              </button>
+            </div>
+            <div class="exclude-type-popover" hidden>
+              <div class="exclude-type-options" aria-label="Типы серверов для исключения по протоколу"></div>
+            </div>
+            <p class="field-error provider-exclude-type-error" aria-live="polite" hidden></p>
+          </div>
         </div>
 
         <details class="provider-advanced">
-          <summary>Дополнительно (header / path / interval / health-check / override)</summary>
+          <summary title="header / path / interval / health-check / override">Дополнительно</summary>
           <div class="provider-header-row">
             <label title="Оставьте пустым, если сервис подписки не требует отдельный User-Agent при скачивании.">
               <span>User-Agent (header.User-Agent)</span>
