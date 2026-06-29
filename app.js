@@ -371,6 +371,8 @@ const els = {
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
+  outputViewer: document.querySelector('#outputViewer'),
+  outputCodeView: document.querySelector('#outputCodeView'),
   outputPreview: document.querySelector('#outputPreview'),
   providerTemplate: document.querySelector('#providerTemplate'),
 };
@@ -884,9 +886,7 @@ function render() {
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.intervalToolsButton.disabled = !state.originalText;
   renderConfigurationEditorControls();
-  if (!state.isEditingConfiguration) {
-    els.outputPreview.value = state.outputText;
-  }
+  renderOutputPreview();
 
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
@@ -4624,15 +4624,141 @@ function getConnectionSettingsInsertIndex(providersSection, groupsSection) {
 function renderOutputOnly() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const changes = collectChanges(activeProviders);
-  if (!state.isEditingConfiguration) {
-    els.outputPreview.value = state.outputText;
-  }
+  renderOutputPreview();
   renderConfigurationEditorControls();
   const diagnostics = collectDiagnostics(activeProviders);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
   renderChangesJumpButton(changes);
+}
+
+function renderOutputPreview() {
+  if (!state.isEditingConfiguration) {
+    els.outputPreview.value = state.outputText;
+    renderYamlPreview(state.outputText);
+  }
+}
+
+function renderYamlPreview(text) {
+  if (!els.outputCodeView) return;
+
+  const value = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  els.outputCodeView.innerHTML = '';
+  els.outputCodeView.classList.toggle('is-empty', !value.trim());
+
+  if (!value.trim()) return;
+
+  value.split('\n').forEach((line) => {
+    els.outputCodeView.append(createYamlCodeLine(line));
+  });
+}
+
+function createYamlCodeLine(line) {
+  const row = document.createElement('div');
+  const guides = document.createElement('span');
+  const code = document.createElement('code');
+  const depth = getYamlIndentDepth(line);
+
+  row.className = 'yaml-line';
+  guides.className = 'yaml-guides';
+  guides.setAttribute('aria-hidden', 'true');
+  code.className = 'yaml-line-code';
+
+  if (!line.trim()) row.classList.add('is-empty');
+
+  for (let index = 0; index < depth; index += 1) {
+    const guide = document.createElement('span');
+    guide.className = 'yaml-guide';
+    guides.append(guide);
+  }
+
+  appendYamlHighlightedText(code, line.trimStart());
+  row.append(guides, code);
+  return row;
+}
+
+function getYamlIndentDepth(line) {
+  const indent = (line.match(/^[ \t]*/) || [''])[0].replace(/\t/g, '  ').length;
+  return Math.min(12, Math.floor(indent / 2));
+}
+
+function appendYamlHighlightedText(target, text) {
+  const split = splitYamlHighlightComment(text);
+
+  if (split.body) appendYamlBody(target, split.body);
+  if (split.comment) appendYamlSpan(target, 'yaml-comment', split.comment);
+}
+
+function appendYamlBody(target, text) {
+  let rest = text;
+  const listMatch = rest.match(/^(-)(\s*)/);
+
+  if (listMatch) {
+    appendYamlSpan(target, 'yaml-list-marker', listMatch[1]);
+    if (listMatch[2]) appendYamlSpan(target, '', listMatch[2]);
+    rest = rest.slice(listMatch[0].length);
+  }
+
+  if (!rest) return;
+
+  const keyMatch = rest.match(/^([^:#{}\[\],][^:{}\[\],#]*?)(:)(\s*)(.*)$/);
+  if (keyMatch && !rest.startsWith('{') && !rest.startsWith('[')) {
+    appendYamlSpan(target, 'yaml-key', keyMatch[1]);
+    appendYamlSpan(target, 'yaml-punctuation', keyMatch[2]);
+    if (keyMatch[3]) appendYamlSpan(target, '', keyMatch[3]);
+    if (keyMatch[4]) appendYamlValue(target, keyMatch[4]);
+    return;
+  }
+
+  appendYamlValue(target, rest);
+}
+
+function appendYamlValue(target, text) {
+  const trimmed = text.trimStart();
+  let className = 'yaml-scalar';
+
+  if (/^['"]/.test(trimmed)) className = 'yaml-string';
+  else if (/^(true|false|null|~)\b/i.test(trimmed)) className = 'yaml-literal';
+  else if (/^[+-]?\d+(\.\d+)?\b/.test(trimmed)) className = 'yaml-number';
+  else if (/^[{[]/.test(trimmed)) className = 'yaml-collection';
+
+  appendYamlSpan(target, className, text);
+}
+
+function appendYamlSpan(target, className, text) {
+  const span = document.createElement('span');
+  if (className) span.className = className;
+  span.textContent = text;
+  target.append(span);
+}
+
+function splitYamlHighlightComment(text) {
+  let quote = '';
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const previous = text[index - 1];
+
+    if (quote) {
+      if (char === quote && !(quote === '"' && previous === '\\')) quote = '';
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '#' && (index === 0 || /\s/.test(previous))) {
+      return {
+        body: text.slice(0, index),
+        comment: text.slice(index),
+      };
+    }
+  }
+
+  return { body: text, comment: '' };
 }
 
 function renderChangesOnly() {
@@ -4647,6 +4773,7 @@ function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
+  if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
   els.editConfigButton.hidden = isEditing;
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
@@ -4686,6 +4813,7 @@ function applyConfigurationEdit() {
   state.isEditingConfiguration = false;
   parseAndRender();
   els.outputPreview.scrollTop = 0;
+  if (els.outputCodeView) els.outputCodeView.scrollTop = 0;
   return true;
 }
 

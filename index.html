@@ -296,7 +296,10 @@
                 </button>
               </div>
             </div>
-            <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+            <div id="outputViewer" class="output-viewer">
+              <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
+              <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+            </div>
           </section>
         </div>
       </section>

@@ -2620,22 +2620,122 @@ button.review-check-card:hover {
   margin-top: 0;
 }
 
+.output-viewer {
+  border-radius: 0 0 8px 8px;
+  background: #fbfcfe;
+}
+
+#outputCodeView,
 #outputPreview {
   display: block;
+  width: 100%;
+  margin: 0;
   min-height: 280px;
-  padding: 14px 16px;
   border: 0;
   border-radius: 0 0 8px 8px;
+  font: 13px/1.55 Consolas, Menlo, Monaco, monospace;
+  tab-size: 2;
+  white-space: pre;
+}
+
+#outputCodeView {
+  max-height: min(70vh, 720px);
+  overflow: auto;
+  padding: 10px 0;
+  color: #182234;
+  user-select: text;
+}
+
+#outputPreview {
+  padding: 14px 16px;
   resize: vertical;
   background: #fbfcfe;
-  font: 13px/1.55 Consolas, Menlo, Monaco, monospace;
-  white-space: pre;
+}
+
+.output-viewer:not(.is-editing) #outputPreview,
+.output-viewer.is-editing #outputCodeView {
+  display: none;
 }
 
 #outputPreview.is-editing {
   outline: 2px solid rgba(0, 111, 120, 0.35);
   outline-offset: -2px;
   background: #fffdf7;
+}
+
+.yaml-code-view.is-empty {
+  padding: 14px 16px;
+  color: var(--muted);
+}
+
+.yaml-code-view.is-empty::before {
+  content: attr(data-placeholder);
+}
+
+.yaml-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 20px;
+  padding-right: 16px;
+}
+
+.yaml-line:hover {
+  background: rgba(8, 124, 128, 0.06);
+}
+
+.yaml-guides {
+  display: inline-flex;
+  min-width: 16px;
+  padding-left: 14px;
+  align-self: stretch;
+}
+
+.yaml-guide {
+  flex: 0 0 18px;
+  border-left: 1px solid #dfe7f0;
+}
+
+.yaml-line-code {
+  display: block;
+  min-width: 0;
+  padding-left: 6px;
+  white-space: pre;
+}
+
+.yaml-line.is-empty .yaml-line-code::before {
+  content: " ";
+}
+
+.yaml-key {
+  color: #075985;
+  font-weight: 700;
+}
+
+.yaml-list-marker,
+.yaml-punctuation {
+  color: #8a5a00;
+}
+
+.yaml-string {
+  color: #087443;
+}
+
+.yaml-number {
+  color: #6d5bd0;
+}
+
+.yaml-literal,
+.yaml-collection {
+  color: #9a3412;
+}
+
+.yaml-scalar {
+  color: #374151;
+}
+
+.yaml-comment {
+  color: #7b8797;
+  font-style: italic;
 }
 
 @media (max-width: 1500px) {
@@ -2934,10 +3034,10 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 }
+
     </style>
   </head>
   <body>
-
     <main class="app-shell">
       <header class="topbar">
         <div class="topbar-main">
@@ -3227,7 +3327,10 @@ button.review-check-card:hover {
                 </button>
               </div>
             </div>
-            <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+            <div id="outputViewer" class="output-viewer">
+              <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
+              <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+            </div>
           </section>
         </div>
       </section>
@@ -3732,6 +3835,8 @@ const els = {
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
+  outputViewer: document.querySelector('#outputViewer'),
+  outputCodeView: document.querySelector('#outputCodeView'),
   outputPreview: document.querySelector('#outputPreview'),
   providerTemplate: document.querySelector('#providerTemplate'),
 };
@@ -4245,9 +4350,7 @@ function render() {
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.intervalToolsButton.disabled = !state.originalText;
   renderConfigurationEditorControls();
-  if (!state.isEditingConfiguration) {
-    els.outputPreview.value = state.outputText;
-  }
+  renderOutputPreview();
 
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
@@ -7985,15 +8088,141 @@ function getConnectionSettingsInsertIndex(providersSection, groupsSection) {
 function renderOutputOnly() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const changes = collectChanges(activeProviders);
-  if (!state.isEditingConfiguration) {
-    els.outputPreview.value = state.outputText;
-  }
+  renderOutputPreview();
   renderConfigurationEditorControls();
   const diagnostics = collectDiagnostics(activeProviders);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
   renderChangesJumpButton(changes);
+}
+
+function renderOutputPreview() {
+  if (!state.isEditingConfiguration) {
+    els.outputPreview.value = state.outputText;
+    renderYamlPreview(state.outputText);
+  }
+}
+
+function renderYamlPreview(text) {
+  if (!els.outputCodeView) return;
+
+  const value = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  els.outputCodeView.innerHTML = '';
+  els.outputCodeView.classList.toggle('is-empty', !value.trim());
+
+  if (!value.trim()) return;
+
+  value.split('\n').forEach((line) => {
+    els.outputCodeView.append(createYamlCodeLine(line));
+  });
+}
+
+function createYamlCodeLine(line) {
+  const row = document.createElement('div');
+  const guides = document.createElement('span');
+  const code = document.createElement('code');
+  const depth = getYamlIndentDepth(line);
+
+  row.className = 'yaml-line';
+  guides.className = 'yaml-guides';
+  guides.setAttribute('aria-hidden', 'true');
+  code.className = 'yaml-line-code';
+
+  if (!line.trim()) row.classList.add('is-empty');
+
+  for (let index = 0; index < depth; index += 1) {
+    const guide = document.createElement('span');
+    guide.className = 'yaml-guide';
+    guides.append(guide);
+  }
+
+  appendYamlHighlightedText(code, line.trimStart());
+  row.append(guides, code);
+  return row;
+}
+
+function getYamlIndentDepth(line) {
+  const indent = (line.match(/^[ \t]*/) || [''])[0].replace(/\t/g, '  ').length;
+  return Math.min(12, Math.floor(indent / 2));
+}
+
+function appendYamlHighlightedText(target, text) {
+  const split = splitYamlHighlightComment(text);
+
+  if (split.body) appendYamlBody(target, split.body);
+  if (split.comment) appendYamlSpan(target, 'yaml-comment', split.comment);
+}
+
+function appendYamlBody(target, text) {
+  let rest = text;
+  const listMatch = rest.match(/^(-)(\s*)/);
+
+  if (listMatch) {
+    appendYamlSpan(target, 'yaml-list-marker', listMatch[1]);
+    if (listMatch[2]) appendYamlSpan(target, '', listMatch[2]);
+    rest = rest.slice(listMatch[0].length);
+  }
+
+  if (!rest) return;
+
+  const keyMatch = rest.match(/^([^:#{}\[\],][^:{}\[\],#]*?)(:)(\s*)(.*)$/);
+  if (keyMatch && !rest.startsWith('{') && !rest.startsWith('[')) {
+    appendYamlSpan(target, 'yaml-key', keyMatch[1]);
+    appendYamlSpan(target, 'yaml-punctuation', keyMatch[2]);
+    if (keyMatch[3]) appendYamlSpan(target, '', keyMatch[3]);
+    if (keyMatch[4]) appendYamlValue(target, keyMatch[4]);
+    return;
+  }
+
+  appendYamlValue(target, rest);
+}
+
+function appendYamlValue(target, text) {
+  const trimmed = text.trimStart();
+  let className = 'yaml-scalar';
+
+  if (/^['"]/.test(trimmed)) className = 'yaml-string';
+  else if (/^(true|false|null|~)\b/i.test(trimmed)) className = 'yaml-literal';
+  else if (/^[+-]?\d+(\.\d+)?\b/.test(trimmed)) className = 'yaml-number';
+  else if (/^[{[]/.test(trimmed)) className = 'yaml-collection';
+
+  appendYamlSpan(target, className, text);
+}
+
+function appendYamlSpan(target, className, text) {
+  const span = document.createElement('span');
+  if (className) span.className = className;
+  span.textContent = text;
+  target.append(span);
+}
+
+function splitYamlHighlightComment(text) {
+  let quote = '';
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    const previous = text[index - 1];
+
+    if (quote) {
+      if (char === quote && !(quote === '"' && previous === '\\')) quote = '';
+      continue;
+    }
+
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+
+    if (char === '#' && (index === 0 || /\s/.test(previous))) {
+      return {
+        body: text.slice(0, index),
+        comment: text.slice(index),
+      };
+    }
+  }
+
+  return { body: text, comment: '' };
 }
 
 function renderChangesOnly() {
@@ -8008,6 +8237,7 @@ function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
+  if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
   els.editConfigButton.hidden = isEditing;
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
@@ -8047,6 +8277,7 @@ function applyConfigurationEdit() {
   state.isEditingConfiguration = false;
   parseAndRender();
   els.outputPreview.scrollTop = 0;
+  if (els.outputCodeView) els.outputCodeView.scrollTop = 0;
   return true;
 }
 
@@ -9220,6 +9451,7 @@ function setMihuiUpdateHint(disabled, text) {
   if (text !== undefined) els.updateHint.textContent = text;
   els.updateHint.title = disabled || !els.updateHint.textContent ? '' : 'Обновить MihUI через локальный сервис';
 }
+
     </script>
   </body>
 </html>
