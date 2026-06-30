@@ -6052,11 +6052,18 @@ function downloadYaml() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = state.fileName ? state.fileName.replace(/\.ya?ml$/i, '.subscriptions.yaml') : 'mihomo.subscriptions.yaml';
+  link.download = getExportFileName(state.fileName);
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function getExportFileName(fileName) {
+  const rawName = String(fileName || '').trim();
+  const baseName = rawName.split(/[\\/]/).filter(Boolean).pop() || 'mihomo-config';
+  const safeName = baseName.replace(/[<>:"|?*\x00-\x1F]/g, '-').trim() || 'mihomo-config';
+  return /\.ya?ml$/i.test(safeName) ? safeName : `${safeName}.yaml`;
 }
 
 async function copyYaml() {

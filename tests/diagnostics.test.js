@@ -112,6 +112,7 @@ globalThis.__app = {
   getDiagnosticSeverity,
   getDiagnosticAction,
   generateOutput,
+  getExportFileName,
   getRuleScenarios,
   getGroupUsage,
   getProviderIntervalDefaults,
@@ -1118,5 +1119,14 @@ proxy-providers:
     assert.equal(app.state.providers[0].name, 'original');
     assert.equal(app.state.isEditingConfiguration, true);
     assert.match(app.els.messageBox.textContent, /proxy-groups/);
+  });
+
+  test(`${source.name}: exports configuration with yaml filename`, () => {
+    const app = loadApp(source);
+
+    assert.equal(app.getExportFileName('/opt/etc/mihomo/config.yaml'), 'config.yaml');
+    assert.equal(app.getExportFileName('profile.yml'), 'profile.yml');
+    assert.equal(app.getExportFileName('router config'), 'router config.yaml');
+    assert.equal(app.getExportFileName(''), 'mihomo-config.yaml');
   });
 }
