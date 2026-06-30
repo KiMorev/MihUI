@@ -6,15 +6,21 @@
 
 MihUI ставится как отдельный локальный UI рядом с Mihomo и не занимает порт `9090`.
 По умолчанию используется порт `9878`; если он занят, установщик выберет свободный порт из диапазона `9879-9899`.
-На роутере нужны `python3`, `wget` или `curl`, а также `tar`. Если `python3` не найден, установщик попробует поставить его через Entware `opkg`.
+На роутере нужны `python3`, `curl` или `wget`, а также `tar`. Если `python3` не найден, установщик попробует поставить его через Entware `opkg`.
+Установщик сначала пробует пакет из GitHub Releases, а если он недоступен — архив исходников GitHub.
 
 ```sh
 cd /tmp
-wget -O mihui-router.tar.gz https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz
-rm -rf mihui-router
-mkdir -p mihui-router
-tar -xzf mihui-router.tar.gz -C mihui-router
-sh /tmp/mihui-router/install.sh
+curl -fL -o mihui-install.sh https://raw.githubusercontent.com/KiMorev/MihUI/main/router/install.sh
+sh mihui-install.sh
+```
+
+Если роутер не может скачать пакет с GitHub, скачайте `mihui-router.tar.gz` на компьютер, запустите рядом с ним HTTP-сервер и передайте локальный URL:
+
+```sh
+cd /tmp
+curl -fL -o mihui-install.sh https://raw.githubusercontent.com/KiMorev/MihUI/main/router/install.sh
+MIHUI_DOWNLOAD_URLS="http://<pc-ip>:8000/mihui-router.tar.gz" sh mihui-install.sh
 ```
 
 После установки откройте:

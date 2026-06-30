@@ -14,9 +14,13 @@ PYTHON_BIN="${MIHUI_PYTHON_BIN:-/opt/bin/python3}"
 DEFAULT_PORT="${MIHUI_PORT:-9878}"
 PORT_RANGE_START=9879
 PORT_RANGE_END=9899
-RELEASE_URL="${MIHUI_RELEASE_URL:-https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz}"
+DEFAULT_RELEASE_URL="https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz"
+SOURCE_ARCHIVE_URL="${MIHUI_SOURCE_ARCHIVE_URL:-https://github.com/KiMorev/MihUI/archive/refs/heads/main.tar.gz}"
+RELEASE_URL="${MIHUI_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
+DOWNLOAD_URLS="${MIHUI_DOWNLOAD_URLS:-}"
 PACKAGE_DIR=""
 TMP_DIR=""
+DOWNLOADED_ARCHIVE=""
 
 log() {
   printf '%s\n' "$*"
@@ -29,6 +33,17 @@ fail() {
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+setup_download_urls() {
+  if [ -n "$DOWNLOAD_URLS" ]; then
+    return
+  fi
+
+  DOWNLOAD_URLS="$RELEASE_URL"
+  if [ "$RELEASE_URL" = "$DEFAULT_RELEASE_URL" ]; then
+    DOWNLOAD_URLS="$DOWNLOAD_URLS $SOURCE_ARCHIVE_URL"
+  fi
 }
 
 cleanup() {
@@ -53,16 +68,36 @@ download_file() {
   target="$2"
 
   if command_exists curl; then
-    curl -fL --connect-timeout 20 -o "$target" "$url"
-    return
+    curl -fL --connect-timeout 20 -o "$target" "$url" && return 0
   fi
 
   if command_exists wget; then
-    wget -O "$target" "$url"
-    return
+    wget -O "$target" "$url" && return 0
   fi
 
-  fail "curl or wget is required to download MihUI"
+  return 1
+}
+
+download_package_archive() {
+  setup_download_urls
+
+  for url in $DOWNLOAD_URLS; do
+    archive_name="${url##*/}"
+    case "$archive_name" in
+      *.tar.gz|*.tgz|*.tar|*.zip) ;;
+      *) archive_name="mihui-router.tar.gz" ;;
+    esac
+
+    DOWNLOADED_ARCHIVE="$TMP_DIR/$archive_name"
+    rm -f "$DOWNLOADED_ARCHIVE"
+    log "Downloading MihUI package: $url"
+    if download_file "$url" "$DOWNLOADED_ARCHIVE"; then
+      return
+    fi
+    log "Download failed: $url"
+  done
+
+  fail "curl or wget is required to download MihUI, and all download URLs failed"
 }
 
 ensure_python() {
@@ -126,6 +161,58 @@ extract_archive() {
   esac
 
   fail "unsupported archive format: $archive"
+}
+
+package_from_source_tree() {
+  source_dir="$1"
+  target_dir="$2"
+
+  [ -f "$source_dir/index.html" ] || return 1
+  [ -f "$source_dir/styles.css" ] || return 1
+  [ -f "$source_dir/app.js" ] || return 1
+  [ -f "$source_dir/mihomo-editor.html" ] || return 1
+  [ -f "$source_dir/router/cgi-bin/mihui-update" ] || return 1
+  [ -f "$source_dir/router/mihui_server.py" ] || return 1
+  [ -f "$source_dir/router/uninstall.sh" ] || return 1
+
+  mkdir -p "$target_dir/www" "$target_dir/cgi-bin"
+  cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
+  cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
+  cp "$source_dir/router/mihui_server.py" "$target_dir/"
+  cp "$source_dir/router/uninstall.sh" "$target_dir/"
+  [ -f "$source_dir/router/install.sh" ] && cp "$source_dir/router/install.sh" "$target_dir/"
+  [ -f "$source_dir/VERSION" ] && cp "$source_dir/VERSION" "$target_dir/"
+  return 0
+}
+
+select_package_dir() {
+  root="$1"
+
+  if [ -f "$root/www/index.html" ] && [ -f "$root/cgi-bin/mihui-update" ]; then
+    printf '%s\n' "$root"
+    return 0
+  fi
+
+  if package_from_source_tree "$root" "$TMP_DIR/source-package"; then
+    printf '%s\n' "$TMP_DIR/source-package"
+    return 0
+  fi
+
+  for candidate in "$root"/*; do
+    [ -d "$candidate" ] || continue
+
+    if [ -f "$candidate/www/index.html" ] && [ -f "$candidate/cgi-bin/mihui-update" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+
+    if package_from_source_tree "$candidate" "$TMP_DIR/source-package"; then
+      printf '%s\n' "$TMP_DIR/source-package"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 is_our_init_script() {
@@ -193,21 +280,15 @@ prepare_package() {
 
   if [ -f "$script_dir/../index.html" ] && [ -f "$script_dir/cgi-bin/mihui-update" ]; then
     TMP_DIR=$(make_tmp_dir)
-    mkdir -p "$TMP_DIR/www" "$TMP_DIR/cgi-bin"
-    cp "$script_dir/../index.html" "$script_dir/../styles.css" "$script_dir/../app.js" "$script_dir/../mihomo-editor.html" "$TMP_DIR/www/"
-    cp "$script_dir/cgi-bin/mihui-update" "$TMP_DIR/cgi-bin/"
-    cp "$script_dir/mihui_server.py" "$TMP_DIR/"
-    cp "$script_dir/uninstall.sh" "$TMP_DIR/"
+    package_from_source_tree "$script_dir/.." "$TMP_DIR" || fail "failed to prepare local package"
     PACKAGE_DIR="$TMP_DIR"
     return
   fi
 
   TMP_DIR=$(make_tmp_dir)
-  archive_name="${RELEASE_URL##*/}"
-  [ -n "$archive_name" ] || archive_name="mihui-router.tar.gz"
-  download_file "$RELEASE_URL" "$TMP_DIR/$archive_name"
-  extract_archive "$TMP_DIR/$archive_name" "$TMP_DIR/package"
-  PACKAGE_DIR="$TMP_DIR/package"
+  download_package_archive
+  extract_archive "$DOWNLOADED_ARCHIVE" "$TMP_DIR/package"
+  PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "downloaded package has unsupported layout"
 }
 
 validate_package() {
@@ -223,6 +304,7 @@ write_env_file() {
   cat > "$ENV_FILE" <<EOF
 MIHUI_PORT=$SELECTED_PORT
 MIHUI_RELEASE_URL="$RELEASE_URL"
+MIHUI_DOWNLOAD_URLS="$DOWNLOAD_URLS"
 MIHUI_PYTHON_BIN="$PYTHON_BIN"
 EOF
 }
