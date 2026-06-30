@@ -2019,6 +2019,86 @@ input.is-invalid {
   padding: 10px;
 }
 
+.rules-editor-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.rules-editor-list.empty-state {
+  min-height: 150px;
+}
+
+.rule-row {
+  display: grid;
+  grid-template-columns: 34px minmax(130px, 0.8fr) minmax(180px, 1.3fr) minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.rule-row.is-new {
+  border-color: rgba(0, 111, 120, 0.35);
+  background: #f0fbfc;
+}
+
+.rule-row-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  min-width: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.rule-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.rule-field span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-field input,
+.rule-field select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.rule-row-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rule-row-actions .button {
+  width: 34px;
+  padding: 0;
+}
+
 .route-map {
   display: grid;
   grid-template-columns: 240px minmax(0, 1fr);
@@ -2853,6 +2933,20 @@ button.review-check-card:hover {
     grid-column: 1 / -1;
   }
 
+  .rule-row {
+    grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .rule-target-field {
+    grid-column: 2 / 4;
+  }
+
+  .rule-row-actions {
+    grid-column: 4;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+
   .route-map,
   .route-chain {
     grid-template-columns: 1fr;
@@ -2936,6 +3030,24 @@ button.review-check-card:hover {
 
   .exclude-type-control {
     grid-template-columns: 1fr;
+  }
+
+  .rule-row {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-target-field,
+  .rule-row-actions {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .rule-row-number {
+    justify-self: start;
+  }
+
+  .rule-row-actions {
+    justify-content: flex-start;
   }
 
   .provider-name-row,

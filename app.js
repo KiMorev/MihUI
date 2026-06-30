@@ -248,8 +248,10 @@ const NODE_FLAG_PATTERNS = {
 };
 const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay']);
 const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
+const RULE_TYPE_OPTIONS = ['DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'GEOSITE', 'GEOIP', 'IP-CIDR', 'MATCH'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
 const RULE_OPTIONS = new Set(['no-resolve', 'src']);
+let ruleIdCounter = 1;
 let flagEmojiSupportCache = null;
 const PROVIDER_DIFF_FIELDS = [
   { key: 'hasUrl', label: 'ссылка подписки' },
@@ -284,13 +286,16 @@ const state = {
   originalText: '',
   providers: [],
   groups: [],
+  rules: [],
   originalProviders: [],
   originalGroups: [],
+  originalRules: [],
   originalConnectionSettings: {},
   connectionSettings: {},
   outputText: '',
   hasProvidersSection: false,
   hasGroupsSection: false,
+  hasRulesSection: false,
   intervalToolsOpen: false,
   isEditingConfiguration: false,
   selectedProviderName: '',
@@ -336,6 +341,7 @@ const els = {
   downloadButton: document.querySelector('#downloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
   addGroupButton: document.querySelector('#addGroupButton'),
+  addRuleButton: document.querySelector('#addRuleButton'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -387,6 +393,7 @@ const els = {
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
+  rulesEditorList: document.querySelector('#rulesEditorList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
@@ -401,6 +408,7 @@ els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
+els.addRuleButton.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -887,8 +895,10 @@ function parseAndRender() {
   const lines = splitLines(state.originalText);
   const providersSection = findTopSection(lines, 'proxy-providers');
   const groupsSection = findTopSection(lines, 'proxy-groups');
+  const rulesSection = findTopSection(lines, 'rules');
   state.hasProvidersSection = Boolean(providersSection);
   state.hasGroupsSection = Boolean(groupsSection);
+  state.hasRulesSection = Boolean(rulesSection);
   state.originalConnectionSettings = readConnectionSettings(lines);
   state.connectionSettings = cloneConnectionSettings(state.originalConnectionSettings);
 
@@ -896,12 +906,15 @@ function parseAndRender() {
     showMessage('Добавьте раздел proxy-groups на верхнем уровне конфигурации.');
     state.providers = [];
     state.groups = [];
+    state.rules = [];
     state.originalProviders = [];
     state.originalGroups = [];
+    state.originalRules = [];
     state.originalConnectionSettings = {};
     state.connectionSettings = {};
     state.hasProvidersSection = false;
     state.hasGroupsSection = false;
+    state.hasRulesSection = false;
     state.intervalToolsOpen = false;
     state.selectedGroupName = '';
     state.selectedRouteScenarioId = '';
@@ -912,8 +925,10 @@ function parseAndRender() {
 
   state.providers = providersSection ? parseProviders(lines, providersSection) : [];
   state.groups = parseGroups(lines, groupsSection);
+  state.rules = rulesSection ? parseRules(lines, rulesSection) : [];
   state.originalProviders = state.providers.map(snapshotProvider);
   state.originalGroups = state.groups.map(snapshotGroup);
+  state.originalRules = state.rules.map(snapshotRule);
   syncBulkIntervalInputs();
   hideMessage();
   generateOutput();
@@ -937,6 +952,8 @@ function render() {
   els.addProviderButton.title = state.originalText ? 'Добавить подписку' : 'Сначала загрузите конфигурацию';
   els.addGroupButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
+  els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
+  els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.intervalToolsButton.disabled = !state.originalText;
   renderConfigurationEditorControls();
   renderOutputPreview();
@@ -949,6 +966,7 @@ function render() {
   renderChanges(changes);
   renderChangesJumpButton(changes);
   renderProviders(activeProviders);
+  renderRulesEditor();
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
@@ -1899,16 +1917,21 @@ function collectChanges(activeProviders) {
   const connectionSettingChanges = collectConnectionSettingChanges();
   const pendingBulkIntervalChanges = collectPendingBulkIntervalChanges(activeProviders);
   const providerChanges = collectProviderChanges(activeProviders);
+  const ruleChanges = collectRuleChanges();
   const groupUseChanges = collectGroupUseChanges();
 
   if (!state.hasProvidersSection && activeProviders.length > 0) {
     structuralChanges.push('Будет добавлен раздел подписок.');
+  }
+  if (!state.hasRulesSection && getActiveRules().length > 0) {
+    structuralChanges.push('Будет добавлен раздел rules.');
   }
 
   if (structuralChanges.length > 0) sections.push({ title: 'Структура конфигурации', items: structuralChanges });
   if (connectionSettingChanges.length > 0) sections.push({ title: 'Параметры подключения', items: connectionSettingChanges });
   if (pendingBulkIntervalChanges.length > 0) sections.push({ title: 'Ожидает применения', items: pendingBulkIntervalChanges });
   if (providerChanges.length > 0) sections.push({ title: 'Подписки', items: providerChanges });
+  if (ruleChanges.length > 0) sections.push({ title: 'Правила', items: ruleChanges });
   if (groupUseChanges.length > 0) sections.push({ title: 'Группы', items: groupUseChanges });
 
   return sections;
@@ -2087,6 +2110,66 @@ function collectGroupUseChanges() {
   return changes;
 }
 
+function collectRuleChanges() {
+  const changes = [];
+  const activeRules = getActiveRules();
+  const originalByIndex = new Map(state.originalRules.map((rule) => [rule.originalIndex, rule]));
+  const activeOriginalIndexes = new Set();
+
+  activeRules.forEach((rule) => {
+    if (rule.isNew || rule.originalIndex === -1) {
+      changes.push(`Добавлено правило ${formatRuleSummary(rule)}.`);
+      return;
+    }
+
+    const original = originalByIndex.get(rule.originalIndex);
+    if (!original) return;
+    activeOriginalIndexes.add(original.originalIndex);
+
+    const current = snapshotRule(rule);
+    if (!rulesAreEqual(current, original)) {
+      changes.push(`Правило ${original.originalIndex + 1}: ${formatRuleSummary(original)} → ${formatRuleSummary(current)}.`);
+    }
+  });
+
+  state.originalRules.forEach((rule) => {
+    if (!activeOriginalIndexes.has(rule.originalIndex)) {
+      changes.push(`Удалено правило ${rule.originalIndex + 1}: ${formatRuleSummary(rule)}.`);
+    }
+  });
+
+  if (haveRuleOrderChanged() && !changes.includes('Изменен порядок правил.')) {
+    changes.push('Изменен порядок правил.');
+  }
+
+  return changes;
+}
+
+function haveRulesChanged() {
+  return collectRuleChanges().length > 0;
+}
+
+function haveRuleOrderChanged() {
+  const originalOrder = state.originalRules.map((rule) => rule.originalIndex).filter((index) => index !== -1);
+  const currentOrder = getActiveRules().map((rule) => rule.originalIndex).filter((index) => index !== -1);
+  if (originalOrder.length !== currentOrder.length) return false;
+  return currentOrder.some((value, index) => value !== originalOrder[index]);
+}
+
+function rulesAreEqual(left, right) {
+  return left.type === right.type
+    && left.value === right.value
+    && left.target === right.target
+    && left.options.join('|') === right.options.join('|');
+}
+
+function formatRuleSummary(rule) {
+  const type = normalizeRuleType(rule.type);
+  const target = rule.target || 'без цели';
+  if (type === 'MATCH') return `MATCH → ${target}`;
+  return `${type || 'RULE'} ${rule.value || 'без условия'} → ${target}`;
+}
+
 function collectListDiff(previous, current) {
   const previousSet = new Set(previous || []);
   const currentSet = new Set(current || []);
@@ -2158,6 +2241,16 @@ function snapshotGroup(group) {
     type: group.type || '',
     proxies: group.proxies.slice(),
     use: group.use.slice(),
+  };
+}
+
+function snapshotRule(rule) {
+  return {
+    originalIndex: rule.originalIndex ?? -1,
+    type: normalizeRuleType(rule.type),
+    value: rule.value || '',
+    target: rule.target || '',
+    options: (rule.options || []).slice(),
   };
 }
 
@@ -3157,6 +3250,218 @@ function bindCheckbox(root, selector, value, onChange) {
   input.addEventListener('change', () => onChange(input.checked));
 }
 
+function renderRulesEditor() {
+  if (!els.rulesEditorList) return;
+
+  const activeRules = getActiveRules();
+  els.rulesEditorList.innerHTML = '';
+  els.rulesEditorList.classList.toggle('empty-state', !state.originalText || activeRules.length === 0);
+
+  if (!state.originalText) {
+    setEmptyState(els.rulesEditorList, 'Правила появятся после загрузки', 'Загрузите конфигурацию, чтобы редактировать rules.');
+    return;
+  }
+
+  if (activeRules.length === 0) {
+    setEmptyState(els.rulesEditorList, 'Нет правил маршрутизации', 'Добавьте правило, чтобы направить трафик в группу или встроенный выход.');
+    return;
+  }
+
+  activeRules.forEach((rule, index) => {
+    els.rulesEditorList.append(createRuleEditorRow(rule, index, activeRules.length));
+  });
+}
+
+function createRuleEditorRow(rule, index, count) {
+  const row = document.createElement('article');
+  const number = document.createElement('span');
+  const typeLabel = document.createElement('label');
+  const typeTitle = document.createElement('span');
+  const typeSelect = document.createElement('select');
+  const valueLabel = document.createElement('label');
+  const valueTitle = document.createElement('span');
+  const valueInput = document.createElement('input');
+  const targetLabel = document.createElement('label');
+  const targetTitle = document.createElement('span');
+  const targetInput = document.createElement('input');
+  const targetOptions = document.createElement('datalist');
+  const actions = document.createElement('div');
+  const upButton = document.createElement('button');
+  const downButton = document.createElement('button');
+  const removeButton = document.createElement('button');
+  const type = normalizeRuleType(rule.type);
+
+  row.className = 'rule-row';
+  row.setAttribute('data-rule-id', rule.id);
+  if (rule.isNew) row.classList.add('is-new');
+
+  number.className = 'rule-row-number';
+  number.textContent = String(index + 1);
+
+  typeLabel.className = 'rule-field rule-type-field';
+  typeTitle.textContent = 'Тип';
+  getRuleTypeOptions(type).forEach((optionValue) => {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = optionValue;
+    typeSelect.append(option);
+  });
+  typeSelect.value = type;
+  typeSelect.addEventListener('change', () => updateRule(rule, 'type', typeSelect.value));
+  typeLabel.append(typeTitle, typeSelect);
+
+  valueLabel.className = 'rule-field rule-value-field';
+  valueTitle.textContent = 'Условие';
+  valueInput.type = 'text';
+  valueInput.value = rule.value || '';
+  valueInput.placeholder = getRuleValuePlaceholder(type);
+  valueInput.addEventListener('input', () => updateRule(rule, 'value', valueInput.value, { partial: true }));
+  valueLabel.hidden = !ruleRequiresValue(type);
+  valueLabel.append(valueTitle, valueInput);
+
+  targetLabel.className = 'rule-field rule-target-field';
+  targetTitle.textContent = 'Цель';
+  targetInput.type = 'text';
+  targetInput.value = rule.target || '';
+  targetInput.placeholder = 'Proxy или DIRECT';
+  targetOptions.id = `rule-target-options-${rule.id}`;
+  getRuleTargetOptions().forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    targetOptions.append(option);
+  });
+  targetInput.setAttribute('list', targetOptions.id);
+  targetInput.addEventListener('input', () => updateRule(rule, 'target', targetInput.value, { partial: true }));
+  targetLabel.append(targetTitle, targetInput, targetOptions);
+
+  actions.className = 'rule-row-actions';
+  upButton.className = 'button compact';
+  upButton.type = 'button';
+  upButton.textContent = '↑';
+  upButton.title = 'Поднять правило';
+  upButton.disabled = index === 0;
+  upButton.addEventListener('click', () => moveRule(rule, -1));
+  downButton.className = 'button compact';
+  downButton.type = 'button';
+  downButton.textContent = '↓';
+  downButton.title = 'Опустить правило';
+  downButton.disabled = index === count - 1;
+  downButton.addEventListener('click', () => moveRule(rule, 1));
+  removeButton.className = 'icon-button danger';
+  removeButton.type = 'button';
+  removeButton.title = 'Удалить правило';
+  removeButton.textContent = '×';
+  removeButton.addEventListener('click', () => removeRule(rule));
+  actions.append(upButton, downButton, removeButton);
+
+  row.append(number, typeLabel, valueLabel, targetLabel, actions);
+  return row;
+}
+
+function getRuleTypeOptions(currentType) {
+  return RULE_TYPE_OPTIONS.includes(currentType)
+    ? RULE_TYPE_OPTIONS
+    : [currentType || 'RULE', ...RULE_TYPE_OPTIONS];
+}
+
+function getRuleValuePlaceholder(type) {
+  if (type === 'DOMAIN-SUFFIX') return 'example.com';
+  if (type === 'DOMAIN-KEYWORD') return 'youtube';
+  if (type === 'GEOSITE') return 'youtube';
+  if (type === 'GEOIP') return 'RU';
+  if (type === 'IP-CIDR') return '1.1.1.0/24';
+  return 'значение правила';
+}
+
+function getRuleTargetOptions() {
+  const names = [
+    ...state.groups.map((group) => group.name),
+    'DIRECT',
+    'REJECT',
+    'GLOBAL',
+    'PASS',
+    ...getDirectProxyNames(),
+  ];
+  return names.filter((name, index) => name && names.indexOf(name) === index);
+}
+
+function updateRule(rule, key, value, options = {}) {
+  if (key === 'type') {
+    rule.type = normalizeRuleType(value);
+    if (!ruleRequiresValue(rule.type)) rule.value = '';
+    generateOutput();
+    render();
+    return;
+  }
+
+  rule[key] = String(value || '').trim();
+  generateOutput();
+  if (options.partial) {
+    renderOutputOnly();
+    renderMainGroup(state.groups, state.providers.filter((provider) => !provider.deleted));
+    return;
+  }
+  render();
+}
+
+function addRule() {
+  if (!state.originalText || !state.hasGroupsSection) return;
+
+  const target = state.groups[0]?.name || 'DIRECT';
+  const rule = {
+    id: createRuleId(),
+    originalIndex: -1,
+    type: 'DOMAIN-SUFFIX',
+    value: '',
+    target,
+    options: [],
+    rawParts: [],
+    rawLine: '',
+    comment: '',
+    indent: '  ',
+    start: -1,
+    isNew: true,
+    deleted: false,
+  };
+
+  state.rules.push(rule);
+  generateOutput();
+  render();
+}
+
+function removeRule(rule) {
+  rule.deleted = true;
+  generateOutput();
+  render();
+}
+
+function moveRule(rule, direction) {
+  const activeRules = getActiveRules();
+  const activeIndex = activeRules.indexOf(rule);
+  const nextActiveIndex = activeIndex + direction;
+  if (activeIndex === -1 || nextActiveIndex < 0 || nextActiveIndex >= activeRules.length) return;
+
+  const currentIndex = state.rules.indexOf(rule);
+  const nextIndex = state.rules.indexOf(activeRules[nextActiveIndex]);
+  state.rules.splice(currentIndex, 1);
+  state.rules.splice(nextIndex, 0, rule);
+  generateOutput();
+  render();
+}
+
+function getActiveRules() {
+  return state.rules.filter((rule) => !rule.deleted);
+}
+
+function normalizeRuleType(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function ruleRequiresValue(type) {
+  const normalized = normalizeRuleType(type);
+  return normalized !== 'MATCH' && RULE_TYPE_OPTIONS.includes(normalized);
+}
+
 function renderMainGroup(groups, activeProviders) {
   els.groupOrderList.innerHTML = '';
   els.groupOrderList.classList.toggle('empty-state', !state.originalText);
@@ -3251,19 +3556,15 @@ function getSelectedRouteScenario(scenarios) {
 }
 
 function getRuleScenarios() {
-  const lines = splitLines(state.originalText);
-  const rulesSection = findTopSection(lines, 'rules');
+  const rules = getRulesForAnalysis();
   const scenarios = [];
   const scenarioByKey = new Map();
-  if (!rulesSection) return scenarios;
+  if (rules.length === 0) return scenarios;
 
-  for (let index = rulesSection.start + 1; index < rulesSection.end; index += 1) {
-    const match = lines[index].match(/^\s*-\s*(.+?)\s*(?:#.*)?$/);
-    if (!match) continue;
-
-    const parts = splitRuleParts(match[1]).map((part) => cleanScalar(part)).filter(Boolean);
+  rules.forEach((rule) => {
+    const parts = getRulePartsForAnalysis(rule);
     const target = getRuleTargetFromParts(parts);
-    if (!parts.length || !target) continue;
+    if (!parts.length || !target) return;
 
     const type = String(parts[0] || '').toUpperCase();
     const isDefault = type === 'MATCH';
@@ -3276,7 +3577,7 @@ function getRuleScenarios() {
       if (!existing.examples.includes(matcher) && existing.examples.length < 3) {
         existing.examples.push(matcher);
       }
-      continue;
+      return;
     }
 
     const scenario = {
@@ -3292,7 +3593,7 @@ function getRuleScenarios() {
 
     scenarios.push(scenario);
     scenarioByKey.set(key, scenario);
-  }
+  });
 
   return scenarios;
 }
@@ -3726,14 +4027,11 @@ function describeImplicitGroupSource(group) {
 }
 
 function getDefaultRuleTarget() {
-  const lines = splitLines(state.originalText);
-  const rulesSection = findTopSection(lines, 'rules');
-  if (!rulesSection) return '';
+  const rules = getRulesForAnalysis();
+  if (rules.length === 0) return '';
 
-  for (let index = rulesSection.end - 1; index > rulesSection.start; index -= 1) {
-    const match = lines[index].match(/^\s*-\s*(.+?)\s*(?:#.*)?$/);
-    if (!match) continue;
-    const parts = splitRuleParts(match[1]).map((part) => cleanScalar(part)).filter(Boolean);
+  for (let index = rules.length - 1; index >= 0; index -= 1) {
+    const parts = getRulePartsForAnalysis(rules[index]);
     if (parts[0]?.toUpperCase() === 'MATCH') return getRuleTargetFromParts(parts);
   }
 
@@ -3741,20 +4039,29 @@ function getDefaultRuleTarget() {
 }
 
 function getRuleTargets() {
-  const lines = splitLines(state.originalText);
-  const rulesSection = findTopSection(lines, 'rules');
   const targets = [];
-  if (!rulesSection) return targets;
+  const rules = getRulesForAnalysis();
+  if (rules.length === 0) return targets;
 
-  for (let index = rulesSection.start + 1; index < rulesSection.end; index += 1) {
-    const match = lines[index].match(/^\s*-\s*(.+?)\s*(?:#.*)?$/);
-    if (!match) continue;
-    const parts = splitRuleParts(match[1]).map((part) => cleanScalar(part)).filter(Boolean);
+  rules.forEach((rule) => {
+    const parts = getRulePartsForAnalysis(rule);
     const target = getRuleTargetFromParts(parts);
     if (target) targets.push(target);
-  }
+  });
 
   return targets.filter((target, index) => targets.indexOf(target) === index);
+}
+
+function getRulesForAnalysis() {
+  if (state.rules.length > 0 || state.hasRulesSection) return getActiveRules();
+
+  const lines = splitLines(state.originalText);
+  const rulesSection = findTopSection(lines, 'rules');
+  return rulesSection ? parseRules(lines, rulesSection).filter((rule) => !rule.deleted) : [];
+}
+
+function getRulePartsForAnalysis(rule) {
+  return buildRuleParts(rule).map((part) => cleanScalar(part)).filter(Boolean);
 }
 
 function getRuleTargetFromParts(parts) {
@@ -4661,6 +4968,9 @@ function replaceGroupProxyReferences(previousName, nextName) {
   state.groups.forEach((group) => {
     group.proxies = group.proxies.map((name) => (name === previousName ? nextName : name));
   });
+  state.rules.forEach((rule) => {
+    if (rule.target === previousName) rule.target = nextName;
+  });
 }
 
 function generateOutput() {
@@ -4688,12 +4998,19 @@ function generateOutput() {
     },
   ];
   const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
+  const hasActiveRules = getActiveRules().length > 0;
 
-  if (rulesSection && renamedGroups.size > 0) {
+  if (rulesSection && (renamedGroups.size > 0 || haveRulesChanged())) {
     replacements.push({
       start: rulesSection.start,
       end: rulesSection.end,
       lines: serializeRulesSection(lines, rulesSection, renamedGroups),
+    });
+  } else if (!rulesSection && hasActiveRules) {
+    replacements.push({
+      start: groupsSection.end,
+      end: groupsSection.end,
+      lines: ['', ...createRulesSectionLines(renamedGroups)],
     });
   }
 
@@ -4987,6 +5304,18 @@ function validateModel() {
       errors.push(`Некорректное имя группы: ${group.name || '(пусто)'}`);
     }
   });
+  getActiveRules().forEach((rule, index) => {
+    const title = `Правило ${index + 1}`;
+    if (!rule.type || /[\r\n]/.test(rule.type)) {
+      errors.push(`${title}: укажите тип правила.`);
+    }
+    if (ruleRequiresValue(rule.type) && (!rule.value || /[\r\n]/.test(rule.value))) {
+      errors.push(`${title}: укажите условие правила.`);
+    }
+    if (!rule.target || /[\r\n]/.test(rule.target)) {
+      errors.push(`${title}: укажите цель правила.`);
+    }
+  });
 
   return errors;
 }
@@ -5167,25 +5496,61 @@ function createProviderBlock(provider) {
 }
 
 function serializeRulesSection(lines, rulesSection, renamedGroups) {
-  return lines
-    .slice(rulesSection.start, rulesSection.end)
-    .map((line, index) => (index === 0 ? line : serializeRuleLine(line, renamedGroups)));
+  const activeRules = getActiveRules();
+  if (activeRules.length === 0) return ['rules: []'];
+  if (haveRuleOrderChanged()) return createRulesSectionLines(renamedGroups);
+
+  const sectionLines = lines.slice(rulesSection.start, rulesSection.end);
+  const existingRules = state.rules
+    .filter((rule) => !rule.isNew && rule.start >= rulesSection.start)
+    .map((rule) => {
+      const replacement = rule.deleted ? [] : [serializeRule(rule, renamedGroups)];
+      return {
+        start: rule.start - rulesSection.start,
+        end: rule.start - rulesSection.start + 1,
+        lines: replacement,
+      };
+    })
+    .sort((a, b) => b.start - a.start);
+
+  existingRules.forEach((replacement) => {
+    sectionLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
+  });
+
+  const newRules = state.rules.filter((rule) => rule.isNew && !rule.deleted);
+  if (newRules.length > 0) {
+    let insertAt = sectionLines.length;
+    while (insertAt > 1 && !sectionLines[insertAt - 1].trim()) insertAt -= 1;
+    sectionLines.splice(insertAt, 0, ...newRules.map((rule) => serializeRule(rule, renamedGroups)));
+  }
+
+  return sectionLines;
 }
 
-function serializeRuleLine(line, renamedGroups) {
-  const match = line.match(/^(\s*-\s*)(.*?)(\s*(?:#.*)?)$/);
-  if (!match) return line;
+function createRulesSectionLines(renamedGroups = new Map()) {
+  const activeRules = getActiveRules();
+  if (activeRules.length === 0) return ['rules: []'];
+  return ['rules:', ...activeRules.map((rule) => serializeRule(rule, renamedGroups))];
+}
 
-  const parts = splitRuleParts(match[2]);
-  const targetIndex = getRuleTargetIndexFromParts(parts);
-  if (targetIndex === -1) return line;
+function serializeRule(rule, renamedGroups = new Map()) {
+  const target = renamedGroups.get(rule.target) || rule.target;
+  const nextRule = { ...rule, target };
+  const body = buildRuleParts(nextRule).map((part) => formatScalar(part)).join(',');
+  const comment = rule.comment ? ` ${rule.comment}` : '';
+  return `${rule.indent || '  '}- ${body}${comment}`;
+}
 
-  const currentTarget = cleanScalar(parts[targetIndex]);
-  const nextTarget = renamedGroups.get(currentTarget);
-  if (!nextTarget) return line;
+function buildRuleParts(rule) {
+  const type = normalizeRuleType(rule.type);
+  const target = String(rule.target || '').trim();
+  const value = String(rule.value || '').trim();
+  const options = (rule.options || []).filter(Boolean);
 
-  parts[targetIndex] = formatScalar(nextTarget);
-  return `${match[1]}${parts.join(',')}${match[3] || ''}`;
+  if (type === 'MATCH') return [type, target, ...options];
+  if (ruleRequiresValue(type)) return [type, value, target, ...options];
+  if (value) return [type, value, target, ...options];
+  return [type, target, ...options];
 }
 
 function serializeGroupsSection(lines, groupsSection) {
@@ -5596,6 +5961,56 @@ function parseGroups(lines, section) {
   }
 
   return groups;
+}
+
+function parseRules(lines, section) {
+  const rules = [];
+
+  for (let index = section.start + 1; index < section.end; index += 1) {
+    const rule = parseRuleLine(lines[index], index, rules.length);
+    if (rule) rules.push(rule);
+  }
+
+  return rules;
+}
+
+function parseRuleLine(line, lineIndex, originalIndex) {
+  const match = String(line || '').match(/^(\s*)-\s*(.*)$/);
+  if (!match) return null;
+
+  const split = splitYamlHighlightComment(match[2]);
+  const rawRuleText = split.body.trim();
+  if (!rawRuleText) return null;
+
+  const rawParts = splitRuleParts(rawRuleText);
+  const parts = rawParts.map((part) => cleanScalar(part));
+  const type = normalizeRuleType(parts[0]);
+  const targetIndex = getRuleTargetIndexFromParts(parts);
+  const target = targetIndex === -1 ? '' : cleanScalar(parts[targetIndex]);
+  const value = type === 'MATCH' || targetIndex <= 1 ? '' : cleanScalar(parts[1]);
+  const options = targetIndex === -1 ? [] : parts.slice(targetIndex + 1).map((part) => cleanScalar(part)).filter(Boolean);
+
+  return {
+    id: createRuleId(),
+    originalIndex,
+    type,
+    value,
+    target,
+    options,
+    rawParts,
+    rawLine: line,
+    comment: split.comment.trim(),
+    indent: match[1] || '  ',
+    start: lineIndex,
+    isNew: false,
+    deleted: false,
+  };
+}
+
+function createRuleId() {
+  const id = `rule-${ruleIdCounter}`;
+  ruleIdCounter += 1;
+  return id;
 }
 
 function findUseBlock(lines, start, end, keyIndent) {

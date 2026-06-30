@@ -117,18 +117,24 @@ globalThis.__app = {
   getGroupUsage,
   getProviderIntervalDefaults,
   parseGroups,
+  parseRules,
   parseProviders,
   readConnectionSettings,
   renderChangesJumpButton,
   renderConnectionSettings,
   renameGroup,
+  addRule,
+  moveRule,
+  removeRule,
   snapshotGroup,
+  snapshotRule,
   snapshotProvider,
   splitLines,
   moveGroupProxy,
   toggleGroupProxy,
   toggleGroupUse,
   updateGroup,
+  updateRule,
   updateProviderNameDraft,
 };`,
     context,
@@ -142,18 +148,22 @@ function hydrate(app, yaml) {
   const lines = app.splitLines(yaml);
   const providersSection = app.findTopSection(lines, 'proxy-providers');
   const groupsSection = app.findTopSection(lines, 'proxy-groups');
+  const rulesSection = app.findTopSection(lines, 'rules');
 
   app.state.originalText = yaml;
   app.state.hasProvidersSection = Boolean(providersSection);
   app.state.hasGroupsSection = Boolean(groupsSection);
+  app.state.hasRulesSection = Boolean(rulesSection);
   app.state.providers = providersSection ? app.parseProviders(lines, providersSection) : [];
   app.state.groups = groupsSection ? app.parseGroups(lines, groupsSection) : [];
+  app.state.rules = rulesSection ? app.parseRules(lines, rulesSection) : [];
   app.state.originalConnectionSettings = app.readConnectionSettings(lines);
   app.state.connectionSettings = Object.fromEntries(
     Object.entries(app.state.originalConnectionSettings).map(([key, setting]) => [key, { ...setting }]),
   );
   app.state.originalProviders = app.state.providers.map(app.snapshotProvider);
   app.state.originalGroups = app.state.groups.map(app.snapshotGroup);
+  app.state.originalRules = app.state.rules.map(app.snapshotRule);
 
   return app.state.providers.filter((provider) => !provider.deleted);
 }
@@ -309,6 +319,77 @@ rules:
 `);
 
     assert.equal(app.collectDiagnostics(activeProviders).length, 0);
+  });
+
+  test(`${source.name}: edits rule target and updates diagnostics`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  good:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - good
+rules:
+  - DOMAIN-SUFFIX,example.com,Missing
+  - MATCH,DIRECT
+`);
+
+    assert(app.collectDiagnostics(app.state.providers).includes('Rules: цель Missing не найдена среди групп, обычных proxies или встроенных выходов.'));
+
+    app.updateRule(app.state.rules[0], 'target', 'Proxy');
+
+    assert.match(app.state.outputText, /DOMAIN-SUFFIX,example\.com,Proxy/);
+    assert.equal(app.collectDiagnostics(app.state.providers).some((item) => item.includes('Missing')), false);
+  });
+
+  test(`${source.name}: adds rules section when config has no rules`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  good:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - good
+`);
+
+    app.addRule();
+    app.updateRule(app.state.rules[0], 'value', 'example.com');
+
+    assert.match(app.state.outputText, /rules:\n\s+- DOMAIN-SUFFIX,example\.com,Proxy/);
+    assert(flattenChanges(app.collectChanges(app.state.providers)).includes('Будет добавлен раздел rules.'));
+  });
+
+  test(`${source.name}: moves and removes rules`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  good:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - good
+rules:
+  - DOMAIN-SUFFIX,first.example,Proxy
+  - DOMAIN-SUFFIX,second.example,Proxy
+  - MATCH,DIRECT
+`);
+
+    app.moveRule(app.state.rules[1], -1);
+    assert.match(app.state.outputText, /rules:\n\s+- DOMAIN-SUFFIX,second\.example,Proxy\n\s+- DOMAIN-SUFFIX,first\.example,Proxy/);
+
+    app.removeRule(app.state.rules.find((rule) => rule.value === 'first.example'));
+    assert.doesNotMatch(app.state.outputText, /first\.example/);
   });
 
   test(`${source.name}: reports duplicated provider urls`, () => {
