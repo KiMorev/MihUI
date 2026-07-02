@@ -969,7 +969,10 @@ async function decodeHappProvider(provider) {
     render();
     showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована и заменена на прямой URL.`);
   } catch (error) {
-    showMessage(`Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}`);
+    showMessage(
+      `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
+      { href: 'https://happy-decoder.cc', label: 'Happy Decoder' },
+    );
   } finally {
     state.happDecodeProviderName = '';
     render();
@@ -2542,6 +2545,8 @@ function bindHappDecodeButton(root, provider) {
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !state.routerApiAvailable || isDecoding;
+  button.classList.toggle('is-loading', isDecoding);
+  button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = state.routerApiAvailable
     ? 'Расшифровать через Happy Decoder и заменить URL провайдера'
     : 'Доступно только в MihUI на роутере с MIHUI_HAPP_DECODER_API_KEY';
@@ -6546,8 +6551,16 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function showMessage(text) {
+function showMessage(text, link) {
   els.messageBox.textContent = text;
+  if (link?.href && link?.label) {
+    const anchor = document.createElement('a');
+    anchor.href = link.href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.textContent = link.label;
+    els.messageBox.append(' ', anchor);
+  }
   els.messageBox.classList.remove('hidden');
 }
 

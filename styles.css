@@ -514,6 +514,26 @@ h2 {
   padding-inline: 10px;
 }
 
+.button.is-loading::before {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: button-spin 0.75s linear infinite;
+}
+
+.button.is-loading:disabled {
+  opacity: 0.85;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .button.ghost {
   border-color: var(--line);
   background: transparent;
@@ -677,6 +697,18 @@ input[type='file'] {
   border-radius: 8px;
   background: #fff8df;
   color: var(--warning);
+}
+
+.message a {
+  color: var(--accent-dark);
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message a:hover,
+.message a:focus-visible {
+  color: var(--accent);
 }
 
 .hidden {

@@ -521,6 +521,26 @@ h2 {
   padding-inline: 10px;
 }
 
+.button.is-loading::before {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: "";
+  animation: button-spin 0.75s linear infinite;
+}
+
+.button.is-loading:disabled {
+  opacity: 0.85;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .button.ghost {
   border-color: var(--line);
   background: transparent;
@@ -684,6 +704,18 @@ input[type='file'] {
   border-radius: 8px;
   background: #fff8df;
   color: var(--warning);
+}
+
+.message a {
+  color: var(--accent-dark);
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.message a:hover,
+.message a:focus-visible {
+  color: var(--accent);
 }
 
 .hidden {
@@ -4650,7 +4682,10 @@ async function decodeHappProvider(provider) {
     render();
     showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована и заменена на прямой URL.`);
   } catch (error) {
-    showMessage(`Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}`);
+    showMessage(
+      `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
+      { href: 'https://happy-decoder.cc', label: 'Happy Decoder' },
+    );
   } finally {
     state.happDecodeProviderName = '';
     render();
@@ -6223,6 +6258,8 @@ function bindHappDecodeButton(root, provider) {
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !state.routerApiAvailable || isDecoding;
+  button.classList.toggle('is-loading', isDecoding);
+  button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = state.routerApiAvailable
     ? 'Расшифровать через Happy Decoder и заменить URL провайдера'
     : 'Доступно только в MihUI на роутере с MIHUI_HAPP_DECODER_API_KEY';
@@ -10227,8 +10264,16 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function showMessage(text) {
+function showMessage(text, link) {
   els.messageBox.textContent = text;
+  if (link?.href && link?.label) {
+    const anchor = document.createElement('a');
+    anchor.href = link.href;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+    anchor.textContent = link.label;
+    els.messageBox.append(' ', anchor);
+  }
   els.messageBox.classList.remove('hidden');
 }
 
