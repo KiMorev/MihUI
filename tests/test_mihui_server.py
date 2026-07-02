@@ -383,6 +383,21 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertIn('MIHUI_HAPP_DECODER_API_KEY="secret-key"', text)
         self.assertIn('MIHUI_HAPP_DECODER_API_URL="https://new.example/decrypt"', text)
 
+    def test_get_happ_decoder_settings_returns_visible_key(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "mihui.env"
+            env_file.write_text(
+                'MIHUI_HAPP_DECODER_API_KEY="visible-key"\n'
+                'MIHUI_HAPP_DECODER_API_URL="https://decoder.example/decrypt"\n',
+                encoding="utf-8",
+            )
+
+            settings = mihui_server.get_happ_decoder_settings(Path(temp_dir))
+
+        self.assertEqual(settings["apiKey"], "visible-key")
+        self.assertTrue(settings["hasApiKey"])
+        self.assertEqual(settings["apiUrl"], "https://decoder.example/decrypt")
+
     def test_normalize_happ_decoder_api_url_rejects_non_http(self):
         with self.assertRaisesRegex(ValueError, "http/https"):
             mihui_server.normalize_happ_decoder_api_url("file:///tmp/decrypt")

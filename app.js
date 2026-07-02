@@ -323,6 +323,7 @@ const state = {
   routerConfigPath: '',
   routerBusy: false,
   happDecoderSettings: {
+    apiKey: '',
     apiUrl: '',
     hasApiKey: false,
     loading: false,
@@ -632,10 +633,11 @@ async function loadHappDecoderSettings(options = {}) {
   try {
     const data = await apiJson('/api/settings/happ-decoder');
     state.routerApiAvailable = true;
+    state.happDecoderSettings.apiKey = data.apiKey || '';
     state.happDecoderSettings.apiUrl = data.apiUrl || '';
     state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
     if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    if (els.happDecoderApiKey) els.happDecoderApiKey.value = '';
+    if (els.happDecoderApiKey) els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
     if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
   } catch (error) {
     if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
@@ -663,10 +665,11 @@ async function saveHappDecoderSettings(event) {
       body: JSON.stringify(payload),
     });
     state.routerApiAvailable = true;
+    state.happDecoderSettings.apiKey = data.apiKey || apiKey;
     state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
     state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
     els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    els.happDecoderApiKey.value = '';
+    els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
     showMessage('Настройки Happ Decoder сохранены.');
   } catch (error) {
     showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);

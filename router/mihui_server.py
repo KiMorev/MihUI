@@ -199,20 +199,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, {"ok": True, "items": detect_router_uis(self.app_dir, self.headers.get("Host", ""))})
 
     def handle_happ_decoder_settings_get(self):
-        env = get_env(self.app_dir)
-        api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
-        api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
-            HAPP_DECODER_API_URL_ENV_KEY,
-            DEFAULT_HAPP_DECODER_API_URL,
-        )
-        self.send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "apiUrl": api_url,
-                "hasApiKey": bool(api_key),
-            },
-        )
+        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
 
     def handle_happ_decoder_settings_save(self):
         payload = self.read_json_body()
@@ -231,15 +218,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "message": str(error)})
             return
 
-        env = get_env(self.app_dir)
-        self.send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "apiUrl": env.get(HAPP_DECODER_API_URL_ENV_KEY) or api_url,
-                "hasApiKey": bool(env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")),
-            },
-        )
+        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
 
     def handle_update_check(self):
         version = read_version(self.app_dir)
@@ -405,6 +384,21 @@ def get_env(app_dir):
         key, value = line.split("=", 1)
         env[key.strip()] = value.strip().strip('"').strip("'")
     return env
+
+
+def get_happ_decoder_settings(app_dir):
+    env = get_env(app_dir)
+    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
+    api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
+        HAPP_DECODER_API_URL_ENV_KEY,
+        DEFAULT_HAPP_DECODER_API_URL,
+    )
+    return {
+        "ok": True,
+        "apiKey": api_key,
+        "apiUrl": api_url,
+        "hasApiKey": bool(api_key),
+    }
 
 
 def get_env_path(app_dir):
