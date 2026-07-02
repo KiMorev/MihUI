@@ -1172,6 +1172,31 @@ input[type='file'] {
   gap: 8px;
 }
 
+.settings-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.settings-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .interval-tools {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2909,6 +2934,10 @@ button.review-check-card:hover {
   }
 
   .connection-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-grid {
     grid-template-columns: 1fr;
   }
 

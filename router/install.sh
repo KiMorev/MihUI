@@ -180,6 +180,10 @@ package_from_source_tree() {
   cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
   cp "$source_dir/router/uninstall.sh" "$target_dir/"
+  if [ -d "$source_dir/bin" ]; then
+    mkdir -p "$target_dir/bin"
+    cp -R "$source_dir/bin/." "$target_dir/bin/"
+  fi
   [ -f "$source_dir/router/install.sh" ] && cp "$source_dir/router/install.sh" "$target_dir/"
   [ -f "$source_dir/VERSION" ] && cp "$source_dir/VERSION" "$target_dir/"
   return 0
@@ -445,9 +449,17 @@ cp -R "$PACKAGE_DIR/www/." "$INSTALL_DIR/www/"
 cp -R "$PACKAGE_DIR/cgi-bin/." "$INSTALL_DIR/www/cgi-bin/"
 cp "$PACKAGE_DIR/mihui_server.py" "$INSTALL_DIR/mihui_server.py"
 cp "$PACKAGE_DIR/uninstall.sh" "$INSTALL_DIR/uninstall.sh"
+if [ -d "$PACKAGE_DIR/bin" ]; then
+  rm -rf "$INSTALL_DIR/bin"
+  mkdir -p "$INSTALL_DIR/bin"
+  cp -R "$PACKAGE_DIR/bin/." "$INSTALL_DIR/bin/"
+fi
 [ -f "$PACKAGE_DIR/VERSION" ] && cp "$PACKAGE_DIR/VERSION" "$INSTALL_DIR/VERSION"
 chmod +x "$INSTALL_DIR/www/cgi-bin/mihui-update"
 chmod +x "$INSTALL_DIR/uninstall.sh"
+if [ -d "$INSTALL_DIR/bin" ]; then
+  chmod +x "$INSTALL_DIR/bin"/* 2>/dev/null || true
+fi
 
 write_env_file
 write_init_script

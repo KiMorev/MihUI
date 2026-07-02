@@ -149,6 +149,10 @@ package_from_source_tree() {
   cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
   cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
+  if [ -d "$source_dir/bin" ]; then
+    mkdir -p "$target_dir/bin"
+    cp -R "$source_dir/bin/." "$target_dir/bin/"
+  fi
   [ -f "$source_dir/router/uninstall.sh" ] && cp "$source_dir/router/uninstall.sh" "$target_dir/"
   [ -f "$source_dir/VERSION" ] && cp "$source_dir/VERSION" "$target_dir/"
   return 0
@@ -217,6 +221,12 @@ fi
 
 cp "$PACKAGE_DIR/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy server failed"
 [ -f "$PACKAGE_DIR/VERSION" ] && cp "$PACKAGE_DIR/VERSION" "$APP_DIR/VERSION"
+if [ -d "$PACKAGE_DIR/bin" ]; then
+  rm -rf "$APP_DIR/bin"
+  mkdir -p "$APP_DIR/bin"
+  cp -R "$PACKAGE_DIR/bin/." "$APP_DIR/bin/" || fail "copy bin failed"
+  chmod +x "$APP_DIR/bin"/* 2>/dev/null || true
+fi
 
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
 mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"

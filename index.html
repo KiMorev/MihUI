@@ -55,6 +55,7 @@
         <button class="section-tab" type="button" data-section="routing" aria-pressed="false">Маршрутизация</button>
         <button class="section-tab" type="button" data-section="nodes" aria-pressed="false">Ноды</button>
         <button class="section-tab" type="button" data-section="review" aria-pressed="false">Проверка</button>
+        <button class="section-tab" type="button" data-section="settings" aria-pressed="false">Настройки</button>
       </nav>
 
       <section id="messageBox" class="message hidden"></section>
@@ -319,6 +320,35 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="app-section" data-section-panel="settings" hidden>
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <h2>Happ Decoder</h2>
+            <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
+          </div>
+          <form id="happDecoderSettingsForm" class="settings-form">
+            <div class="settings-grid">
+              <label>
+                <span>MIHUI_HAPP_DECODER_API_KEY</span>
+                <input id="happDecoderApiKey" type="password" autocomplete="off" placeholder="Новый ключ" />
+              </label>
+              <label>
+                <span>MIHUI_HAPP_DECODER_API_URL</span>
+                <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
+                <span>Обновить</span>
+              </button>
+              <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
+                <span>Сохранить</span>
+              </button>
+            </div>
+          </form>
+        </section>
       </section>
     </main>
 

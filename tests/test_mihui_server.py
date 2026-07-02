@@ -138,7 +138,10 @@ class ProviderAdapterTests(unittest.TestCase):
 
     def test_fetch_provider_payload_rejects_non_http_url(self):
         previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
+        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
         self.addCleanup(self.restore_decryptor_env, previous)
+        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
 
         with self.assertRaisesRegex(ValueError, "external decryptor"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
@@ -170,9 +173,43 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(content_type, "text/yaml; charset=utf-8")
         self.assertIn(b"name: decrypted", body)
 
+    def test_fetch_provider_payload_uses_dropin_happ_decryptor_py(self):
+        previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
+        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, previous)
+        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+
+        provider_server, provider_thread = self.start_provider_server()
+        try:
+            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                bin_dir = Path(temp_dir) / "bin"
+                bin_dir.mkdir()
+                script = bin_dir / "happ-decrypt-universal.py"
+                script.write_text(
+                    "import sys\n"
+                    "assert sys.argv[1].startswith('happ://crypt')\n"
+                    f"print({decrypted_url!r})\n",
+                    encoding="utf-8",
+                )
+
+                body, content_type = mihui_server.fetch_provider_payload(
+                    "happ://crypt/example",
+                    {},
+                    app_dir=Path(temp_dir),
+                )
+        finally:
+            self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertEqual(content_type, "text/yaml")
+        self.assertIn(b"name: local", body)
+
     def test_decode_happ_with_happy_decoder_returns_verified_url(self):
+        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
         key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
         url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
 
         provider_server, provider_thread = self.start_provider_server()
@@ -200,16 +237,90 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["decryptedUrl"], decrypted_url)
+        self.assertEqual(result["source"], "happy-decoder")
         self.assertEqual(decoder_server.received_authorization, "Bearer test-key")
         self.assertIn("happ://crypt/example", decoder_server.received_payload)
         self.assertEqual(provider_server.received_user_agent, "MihomoTest/1.0")
 
-    def test_decode_happ_with_happy_decoder_requires_key(self):
-        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
-        url_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
+    def test_decode_happ_prefers_local_decryptor_before_happy_decoder(self):
+        decryptor_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
+        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
+        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
 
-        with self.assertRaisesRegex(ValueError, "MIHUI_HAPP_DECODER_API_KEY"):
+        provider_server, provider_thread = self.start_provider_server()
+        try:
+            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                script = Path(temp_dir) / "fake_happ_decryptor.py"
+                script.write_text(
+                    "import sys\n"
+                    "assert sys.argv[1].startswith('happ://crypt')\n"
+                    f"print({decrypted_url!r})\n",
+                    encoding="utf-8",
+                )
+                os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = (
+                    f'"{Path(sys.executable).as_posix()}" "{script.as_posix()}"'
+                )
+                os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "unused"
+                os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = "http://127.0.0.1:1/decode"
+
+                result = mihui_server.decode_happ_with_happy_decoder(
+                    Path(temp_dir),
+                    "happ://crypt/example",
+                    {"User-Agent": "MihomoTest/1.0"},
+                )
+        finally:
+            self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["decryptedUrl"], decrypted_url)
+        self.assertEqual(result["source"], "local-decryptor")
+
+    def test_decode_happ_falls_back_to_happy_decoder_when_local_missing(self):
+        decryptor_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
+        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
+        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
+        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+
+        provider_server, provider_thread = self.start_provider_server()
+        decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
+        decoder_thread = threading.Thread(target=decoder_server.serve_forever, daemon=True)
+        decoder_thread.start()
+        try:
+            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
+            decoder_server.decrypted_url = decrypted_url
+            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = "missing-happ-decryptor-binary"
+            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "test-key"
+            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = (
+                f"http://127.0.0.1:{decoder_server.server_address[1]}/decode"
+            )
+
+            result = mihui_server.decode_happ_with_happy_decoder(
+                Path(tempfile.gettempdir()),
+                "happ://crypt/example",
+                {},
+            )
+        finally:
+            self.stop_provider_server(provider_server, provider_thread)
+            decoder_server.shutdown()
+            decoder_thread.join(timeout=2)
+            decoder_server.server_close()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["decryptedUrl"], decrypted_url)
+        self.assertEqual(result["source"], "happy-decoder")
+
+    def test_decode_happ_with_happy_decoder_requires_key(self):
+        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
+        url_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
+        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
+        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+
+        with self.assertRaisesRegex(ValueError, "MIHUI_HAPP_DECRYPTOR_CMD"):
             mihui_server.decode_happ_with_happy_decoder(
                 Path(tempfile.gettempdir()),
                 "happ://crypt/example",
@@ -229,6 +340,52 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(mihui_server.read_happ_decoder_timeout({}), 30)
         self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "1"}), 5)
         self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "999"}), 120)
+
+    def test_read_happ_decryptor_timeout_clamps_values(self):
+        self.assertEqual(mihui_server.read_happ_decryptor_timeout({}, 20), 45)
+        self.assertEqual(mihui_server.read_happ_decryptor_timeout({"MIHUI_HAPP_DECRYPTOR_TIMEOUT": "0"}), 1)
+        self.assertEqual(mihui_server.read_happ_decryptor_timeout({"MIHUI_HAPP_DECRYPTOR_TIMEOUT": "999"}), 120)
+
+    def test_parse_happ_decryptor_output_accepts_result_block(self):
+        kind, value = mihui_server.parse_happ_decryptor_output(
+            b"some heading\nResult:\n  https://example.test/sub.yaml\n"
+        )
+        self.assertEqual(kind, "url")
+        self.assertEqual(value, "https://example.test/sub.yaml")
+
+    def test_parse_happ_decryptor_output_accepts_json_string(self):
+        kind, value = mihui_server.parse_happ_decryptor_output(
+            b'"https://example.test/sub.yaml"\n'
+        )
+        self.assertEqual(kind, "url")
+        self.assertEqual(value, "https://example.test/sub.yaml")
+
+    def test_write_env_values_preserves_existing_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            env_file = Path(temp_dir) / "mihui.env"
+            env_file.write_text(
+                'MIHUI_PORT=9878\n'
+                'MIHUI_HAPP_DECODER_API_URL="https://old.example/decrypt"\n',
+                encoding="utf-8",
+            )
+
+            mihui_server.write_env_values(
+                Path(temp_dir),
+                {
+                    mihui_server.HAPP_DECODER_API_KEY_ENV_KEY: "secret-key",
+                    mihui_server.HAPP_DECODER_API_URL_ENV_KEY: "https://new.example/decrypt",
+                },
+            )
+
+            text = env_file.read_text(encoding="utf-8")
+
+        self.assertIn("MIHUI_PORT=9878", text)
+        self.assertIn('MIHUI_HAPP_DECODER_API_KEY="secret-key"', text)
+        self.assertIn('MIHUI_HAPP_DECODER_API_URL="https://new.example/decrypt"', text)
+
+    def test_normalize_happ_decoder_api_url_rejects_non_http(self):
+        with self.assertRaisesRegex(ValueError, "http/https"):
+            mihui_server.normalize_happ_decoder_api_url("file:///tmp/decrypt")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
         headers = mihui_server.build_provider_request_headers(

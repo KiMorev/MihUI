@@ -1179,6 +1179,31 @@ input[type='file'] {
   gap: 8px;
 }
 
+.settings-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.settings-form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .interval-tools {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2919,6 +2944,10 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
   .node-inventory-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3218,6 +3247,7 @@ button.review-check-card:hover {
         <button class="section-tab" type="button" data-section="routing" aria-pressed="false">Маршрутизация</button>
         <button class="section-tab" type="button" data-section="nodes" aria-pressed="false">Ноды</button>
         <button class="section-tab" type="button" data-section="review" aria-pressed="false">Проверка</button>
+        <button class="section-tab" type="button" data-section="settings" aria-pressed="false">Настройки</button>
       </nav>
 
       <section id="messageBox" class="message hidden"></section>
@@ -3483,6 +3513,35 @@ button.review-check-card:hover {
           </section>
         </div>
       </section>
+
+      <section class="app-section" data-section-panel="settings" hidden>
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <h2>Happ Decoder</h2>
+            <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
+          </div>
+          <form id="happDecoderSettingsForm" class="settings-form">
+            <div class="settings-grid">
+              <label>
+                <span>MIHUI_HAPP_DECODER_API_KEY</span>
+                <input id="happDecoderApiKey" type="password" autocomplete="off" placeholder="Новый ключ" />
+              </label>
+              <label>
+                <span>MIHUI_HAPP_DECODER_API_URL</span>
+                <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
+                <span>Обновить</span>
+              </button>
+              <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
+                <span>Сохранить</span>
+              </button>
+            </div>
+          </form>
+        </section>
+      </section>
     </main>
 
     <template id="providerTemplate">
@@ -3626,7 +3685,7 @@ const DEFAULT_BULK_INTERVAL = '86400';
 const DEFAULT_BULK_HEALTH_INTERVAL = '300';
 const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -3944,6 +4003,12 @@ const state = {
   routerApiAvailable: false,
   routerConfigPath: '',
   routerBusy: false,
+  happDecoderSettings: {
+    apiUrl: '',
+    hasApiKey: false,
+    loading: false,
+    saving: false,
+  },
   updatePollTimer: 0,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
@@ -4013,6 +4078,12 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
+  happDecoderSettingsForm: document.querySelector('#happDecoderSettingsForm'),
+  happDecoderApiKey: document.querySelector('#happDecoderApiKey'),
+  happDecoderApiUrl: document.querySelector('#happDecoderApiUrl'),
+  happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
+  saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
+  reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
   providersList: document.querySelector('#providersList'),
   groupOrderList: document.querySelector('#groupOrderList'),
   rulesEditorList: document.querySelector('#rulesEditorList'),
@@ -4051,11 +4122,14 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
+els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
+els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
 els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
 els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+renderHappDecoderSettings();
 initRouterMode();
 
 function setActiveSection(section, options = {}) {
@@ -4110,6 +4184,7 @@ function initRouterMode() {
   }
 
   loadRouterMetadata();
+  loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
   checkMihuiUpdate();
 }
@@ -4224,6 +4299,82 @@ async function loadRouterMetadata() {
     renderUiLinks(data.items || []);
   } catch (error) {
     renderUiLinks([]);
+  }
+}
+
+async function loadHappDecoderSettings(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderHappDecoderSettings();
+    return;
+  }
+
+  state.happDecoderSettings.loading = true;
+  renderHappDecoderSettings();
+  try {
+    const data = await apiJson('/api/settings/happ-decoder');
+    state.routerApiAvailable = true;
+    state.happDecoderSettings.apiUrl = data.apiUrl || '';
+    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
+    if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
+    if (els.happDecoderApiKey) els.happDecoderApiKey.value = '';
+    if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
+  } catch (error) {
+    if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
+  } finally {
+    state.happDecoderSettings.loading = false;
+    renderHappDecoderSettings();
+  }
+}
+
+async function saveHappDecoderSettings(event) {
+  event.preventDefault();
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') return;
+
+  const apiUrl = String(els.happDecoderApiUrl.value || '').trim();
+  const apiKey = String(els.happDecoderApiKey.value || '').trim();
+  const payload = { apiUrl };
+  if (apiKey) payload.apiKey = apiKey;
+
+  state.happDecoderSettings.saving = true;
+  renderHappDecoderSettings();
+  try {
+    const data = await apiJson('/api/settings/happ-decoder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    state.routerApiAvailable = true;
+    state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
+    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
+    els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
+    els.happDecoderApiKey.value = '';
+    showMessage('Настройки Happ Decoder сохранены.');
+  } catch (error) {
+    showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);
+  } finally {
+    state.happDecoderSettings.saving = false;
+    renderHappDecoderSettings();
+  }
+}
+
+function renderHappDecoderSettings() {
+  if (!els.happDecoderSettingsForm) return;
+  const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
+  const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
+  els.happDecoderApiKey.disabled = unavailable || busy;
+  els.happDecoderApiUrl.disabled = unavailable || busy;
+  els.saveHappDecoderSettingsButton.disabled = unavailable || busy;
+  els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
+
+  const label = els.saveHappDecoderSettingsButton.querySelector('span');
+  if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
+
+  if (unavailable) {
+    els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
+  } else if (state.happDecoderSettings.loading) {
+    els.happDecoderSettingsStatus.textContent = 'Загрузка...';
+  } else {
+    els.happDecoderSettingsStatus.textContent = state.happDecoderSettings.hasApiKey ? 'Ключ задан' : 'Ключ не задан';
   }
 }
 
