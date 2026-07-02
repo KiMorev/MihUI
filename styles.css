@@ -611,11 +611,21 @@ input[type='file'] {
 
 .backup-select {
   min-height: 34px;
-  max-width: 230px;
+  min-width: 300px;
+  max-width: 360px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fff;
   color: var(--text);
+}
+
+.backup-meta {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  text-align: right;
 }
 
 .metric {
@@ -2947,6 +2957,11 @@ button.review-check-card:hover {
   .backup-select {
     flex: 1 1 180px;
     max-width: none;
+    min-width: 0;
+  }
+
+  .backup-meta {
+    text-align: left;
   }
 
   .workspace {

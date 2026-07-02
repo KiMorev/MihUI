@@ -322,6 +322,7 @@ const state = {
   routerApiAvailable: false,
   routerConfigPath: '',
   routerBusy: false,
+  backups: [],
   happDecoderSettings: {
     apiKey: '',
     apiUrl: '',
@@ -343,6 +344,7 @@ const els = {
   updateHint: document.querySelector('#updateHint'),
   uiLinks: document.querySelector('#uiLinks'),
   backupSelect: document.querySelector('#backupSelect'),
+  backupMeta: document.querySelector('#backupMeta'),
   restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
@@ -417,6 +419,7 @@ const els = {
 els.routerLoadButton.addEventListener('click', loadRouterConfig);
 els.routerSaveButton.addEventListener('click', saveRouterConfig);
 els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
+els.backupSelect.addEventListener('change', renderBackupMeta);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
@@ -751,14 +754,16 @@ function renderRouterControls() {
 
 function renderBackups(backups) {
   els.backupSelect.textContent = '';
+  state.backups = backups;
   if (!backups.length) {
     els.routerPanel.classList.add('router-panel-empty');
     const option = document.createElement('option');
     option.value = '';
-    option.textContent = 'Бэкапов нет';
+    option.textContent = 'Резервных копий нет';
     els.backupSelect.append(option);
     els.backupSelect.disabled = true;
     els.restoreBackupButton.disabled = true;
+    renderBackupMeta();
     return;
   }
 
@@ -766,11 +771,68 @@ function renderBackups(backups) {
   backups.forEach((backup) => {
     const option = document.createElement('option');
     option.value = backup.name;
-    option.textContent = backup.name;
+    option.textContent = formatBackupOptionLabel(backup);
+    option.title = backup.name;
     els.backupSelect.append(option);
   });
   els.backupSelect.disabled = false;
   els.restoreBackupButton.disabled = false;
+  renderBackupMeta();
+}
+
+function renderBackupMeta() {
+  if (!els.backupMeta) return;
+  const selected = state.backups.find((backup) => backup.name === els.backupSelect.value);
+  if (!selected) {
+    els.backupMeta.textContent = '';
+    els.backupMeta.hidden = true;
+    return;
+  }
+
+  const size = formatBackupSize(selected.size);
+  els.backupMeta.textContent = size ? `${selected.name} · ${size}` : selected.name;
+  els.backupMeta.title = selected.name;
+  els.backupMeta.hidden = false;
+}
+
+function formatBackupOptionLabel(backup) {
+  const parsed = parseBackupName(backup.name);
+  if (parsed) {
+    const suffix = parsed.suffix ? ` · ${parsed.suffix}` : '';
+    return `${parsed.date} ${parsed.time} · ${parsed.prefix}${suffix}`;
+  }
+
+  const mtime = formatBackupMtime(backup.mtime);
+  return mtime ? `${mtime} · ${backup.name}` : backup.name;
+}
+
+function parseBackupName(name) {
+  const match = String(name || '').match(/^(.+)-(\d{8})-(\d{6})(?:-(\d+))?\.ya?ml$/i);
+  if (!match) return null;
+  const [, prefix, dateRaw, timeRaw, suffix = ''] = match;
+  return {
+    prefix,
+    date: `${dateRaw.slice(6, 8)}.${dateRaw.slice(4, 6)}.${dateRaw.slice(0, 4)}`,
+    time: `${timeRaw.slice(0, 2)}:${timeRaw.slice(2, 4)}:${timeRaw.slice(4, 6)}`,
+    suffix,
+  };
+}
+
+function formatBackupMtime(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  const date = new Date(seconds * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatBackupSize(value) {
+  const size = Number(value);
+  if (!Number.isFinite(size) || size <= 0) return '';
+  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} МБ`;
+  if (size >= 1024) return `${Math.ceil(size / 1024)} КБ`;
+  return `${size} Б`;
 }
 
 function renderUiLinks(items) {
