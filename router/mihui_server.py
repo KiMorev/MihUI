@@ -1140,6 +1140,14 @@ def get_current_nodes(app_dir):
         if not isinstance(providers, dict):
             providers = {}
         configured_names = get_config_proxy_provider_names(app_dir)
+        groups = []
+        groups_error = ""
+        try:
+            proxies_data = mihomo_api_request(app_dir, "/proxies")
+            proxies = proxies_data.get("proxies", proxies_data)
+            groups = normalize_current_group_selections(proxies)
+        except Exception as error:
+            groups_error = str(error)
 
         nodes = []
         provider_items = []
@@ -1155,9 +1163,49 @@ def get_current_nodes(app_dir):
             for proxy in proxies:
                 nodes.append(normalize_current_node(item.get("name") or provider_name, proxy))
 
-        return {"ok": True, "nodes": nodes, "providers": provider_items}
+        return {"ok": True, "nodes": nodes, "providers": provider_items, "groups": groups, "groupsError": groups_error}
     except Exception as error:
-        return {"ok": False, "message": str(error), "nodes": [], "providers": []}
+        return {"ok": False, "message": str(error), "nodes": [], "providers": [], "groups": [], "groupsError": ""}
+
+
+def normalize_current_group_selections(proxies):
+    if not isinstance(proxies, dict):
+        return []
+
+    groups = []
+    for proxy_name, item in proxies.items():
+        if not isinstance(item, dict):
+            continue
+        options = item.get("all")
+        if not isinstance(options, list) and "now" not in item:
+            continue
+
+        now = str(item.get("now") or "")
+        selected = proxies.get(now)
+        groups.append(
+            {
+                "name": str(item.get("name") or proxy_name or ""),
+                "type": str(item.get("type") or ""),
+                "now": now,
+                "all": [str(option) for option in options] if isinstance(options, list) else [],
+                "selected": normalize_selected_group_proxy(selected),
+            }
+        )
+
+    return groups
+
+
+def normalize_selected_group_proxy(proxy):
+    if not isinstance(proxy, dict):
+        return {}
+
+    return {
+        "name": str(proxy.get("name") or ""),
+        "type": str(proxy.get("type") or ""),
+        "alive": proxy.get("alive") if isinstance(proxy.get("alive"), bool) else None,
+        "udp": proxy.get("udp") if isinstance(proxy.get("udp"), bool) else None,
+        "delay": get_proxy_delay(proxy),
+    }
 
 
 def get_config_proxy_provider_names(app_dir):

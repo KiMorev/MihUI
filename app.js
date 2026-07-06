@@ -306,8 +306,10 @@ const state = {
   providerUpdatingName: '',
   happDecodeProviderName: '',
   mihomoNodes: [],
+  mihomoGroupSelections: [],
   nodeInventoryLoading: false,
   nodeInventoryError: '',
+  nodeGroupSelectionsError: '',
   nodeFilters: {
     search: '',
     provider: '',
@@ -393,6 +395,7 @@ const els = {
   changesPanel: document.querySelector('#changesPanel'),
   nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
+  nodeGroupSelections: document.querySelector('#nodeGroupSelections'),
   nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
   nodeInventoryList: document.querySelector('#nodeInventoryList'),
   nodeSearchInput: document.querySelector('#nodeSearchInput'),
@@ -489,7 +492,9 @@ function handleFileSelect(event) {
     state.routerConfigPath = '';
     state.providerStatuses = {};
     state.mihomoNodes = [];
+    state.mihomoGroupSelections = [];
     state.nodeInventoryError = '';
+    state.nodeGroupSelectionsError = '';
     state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
@@ -966,14 +971,19 @@ async function loadNodeInventory(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
   state.nodeInventoryLoading = true;
   state.nodeInventoryError = '';
+  state.nodeGroupSelectionsError = '';
   renderNodeInventory();
 
   try {
     const data = await apiJson('/api/nodes');
     state.mihomoNodes = Array.isArray(data.nodes) ? data.nodes : [];
+    state.mihomoGroupSelections = Array.isArray(data.groups) ? data.groups : [];
+    state.nodeGroupSelectionsError = data.groupsError || '';
   } catch (error) {
     state.mihomoNodes = [];
+    state.mihomoGroupSelections = [];
     state.nodeInventoryError = error?.message || String(error);
+    state.nodeGroupSelectionsError = state.nodeInventoryError;
     if (!options.silent) showMessage(`Не удалось получить ноды Mihomo: ${state.nodeInventoryError}`);
   } finally {
     state.nodeInventoryLoading = false;
@@ -2657,6 +2667,7 @@ function renderNodeInventory() {
   els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
   els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading ? 'Загрузка...' : 'Обновить';
 
+  renderNodeGroupSelections(nodes);
   renderNodeInventorySummary(nodes, filtered);
   els.nodeInventoryList.innerHTML = '';
 
@@ -2688,6 +2699,128 @@ function renderNodeInventory() {
   filtered.forEach((node) => {
     els.nodeInventoryList.append(createNodeInventoryCard(node));
   });
+}
+
+function renderNodeGroupSelections(nodes) {
+  const panel = els.nodeGroupSelections;
+  panel.textContent = '';
+
+  if (state.nodeInventoryLoading) {
+    panel.classList.add('empty-state');
+    setEmptyState(panel, 'Выбор в группах', 'Mihomo отдает текущий выбранный вариант для каждой группы.');
+    return;
+  }
+
+  if (state.nodeGroupSelectionsError) {
+    panel.classList.add('empty-state');
+    setEmptyState(panel, 'Выбор групп недоступен', state.nodeGroupSelectionsError);
+    return;
+  }
+
+  const items = getNodeGroupSelectionItems(nodes);
+  if (items.length === 0) {
+    panel.classList.add('empty-state');
+    setEmptyState(panel, 'Выбор в группах', 'Группы появятся после загрузки конфига и ответа Mihomo.');
+    return;
+  }
+
+  const head = document.createElement('div');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const list = document.createElement('div');
+  const knownCount = items.filter((item) => item.isKnown).length;
+
+  panel.classList.remove('empty-state');
+  head.className = 'node-group-selection-head';
+  title.textContent = 'Выбор в группах';
+  meta.textContent = `${knownCount} из ${items.length}`;
+  list.className = 'node-group-selection-list';
+  items.forEach((item) => list.append(createNodeGroupSelectionCard(item)));
+  head.append(title, meta);
+  panel.append(head, list);
+}
+
+function getNodeGroupSelectionItems(nodes) {
+  const selectionByName = new Map(
+    state.mihomoGroupSelections
+      .filter((item) => item?.name)
+      .map((item) => [normalizeLookupName(item.name), item]),
+  );
+  const nodeByName = new Map(nodes.map((node) => [normalizeLookupName(node.name), node]));
+  const configGroups = state.groups.filter((group) => group.name);
+  const groups = configGroups.length > 0
+    ? configGroups.map((group) => ({ name: group.name, type: group.type }))
+    : state.mihomoGroupSelections.map((group) => ({ name: group.name, type: group.type }));
+
+  return groups.map((group) => {
+    const selection = selectionByName.get(normalizeLookupName(group.name));
+    const selectedName = String(selection?.now || '');
+    const selectedNode = nodeByName.get(normalizeLookupName(selectedName));
+    const selected = selection?.selected || {};
+    const selectedType = selectedNode?.protocol || formatNodeProtocol(selected.type);
+    const selectedStatusSource = selectedNode || selected;
+    const selectedDelay = selectedNode?.delay ?? normalizeNodeDelay(selected.delay);
+
+    return {
+      groupName: group.name,
+      groupType: group.type || selection?.type || 'group',
+      selectedName,
+      selectedDisplayName: selectedNode?.displayName || stripNodeFlagEmoji(selectedName) || 'не выбрано',
+      selectedType,
+      statusKey: getNodeStatusKey(selectedStatusSource),
+      statusText: formatNodeStatus(selectedStatusSource),
+      delay: selectedDelay,
+      optionCount: Array.isArray(selection?.all) ? selection.all.length : null,
+      isKnown: Boolean(selection),
+    };
+  });
+}
+
+function createNodeGroupSelectionCard(item) {
+  const card = document.createElement('article');
+  const titleRow = document.createElement('div');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const current = document.createElement('div');
+  const label = document.createElement('span');
+  const name = document.createElement('span');
+  const badges = document.createElement('div');
+
+  card.className = 'node-group-selection-card';
+  card.classList.toggle('is-missing', !item.isKnown);
+  titleRow.className = 'node-group-selection-title';
+  title.textContent = item.groupName || 'Без названия';
+  meta.textContent = formatNodeGroupSelectionMeta(item);
+  current.className = 'node-group-selection-current';
+  label.className = 'node-group-selection-label';
+  label.textContent = 'Сейчас';
+  name.className = 'node-group-selection-name';
+  name.textContent = item.isKnown ? item.selectedDisplayName : 'нет данных Mihomo';
+  badges.className = 'node-badges';
+
+  if (item.isKnown && item.selectedName) {
+    badges.append(createNodeBadge(formatNodeGroupChoiceType(item), 'is-protocol'));
+    if (item.statusKey !== 'unknown') badges.append(createNodeBadge(item.statusText, `is-${item.statusKey}`));
+    if (item.delay !== null) badges.append(createNodeBadge(`${item.delay} ms`, ''));
+  } else {
+    badges.append(createNodeBadge(item.isKnown ? 'не выбрано' : 'нет в API', item.isKnown ? '' : 'is-dead'));
+  }
+
+  titleRow.append(title, meta);
+  current.append(label, name);
+  card.append(titleRow, current, badges);
+  return card;
+}
+
+function formatNodeGroupSelectionMeta(item) {
+  const parts = [item.groupType || 'group'];
+  if (item.optionCount !== null) parts.push(formatRouteCount(item.optionCount, 'вариант', 'варианта', 'вариантов'));
+  return parts.join(' · ');
+}
+
+function formatNodeGroupChoiceType(item) {
+  if (BUILT_IN_OUTBOUNDS.has(String(item.selectedName || '').toUpperCase())) return 'встроенный выход';
+  return item.selectedType && item.selectedType !== 'UNKNOWN' ? item.selectedType : 'вариант';
 }
 
 function enrichNodeInventoryItem(node) {

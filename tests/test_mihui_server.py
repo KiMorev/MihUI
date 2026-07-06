@@ -421,6 +421,28 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(mihui_server.is_loopback_address("::1"))
         self.assertFalse(mihui_server.is_loopback_address("192.168.1.2"))
 
+    def test_normalize_current_group_selections_keeps_selected_proxy_details(self):
+        groups = mihui_server.normalize_current_group_selections(
+            {
+                "Proxy": {"name": "Proxy", "type": "Selector", "now": "node-a", "all": ["node-a", "DIRECT"]},
+                "node-a": {
+                    "name": "node-a",
+                    "type": "Vmess",
+                    "alive": True,
+                    "udp": True,
+                    "history": [{"delay": 97}],
+                },
+            }
+        )
+
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["name"], "Proxy")
+        self.assertEqual(groups[0]["now"], "node-a")
+        self.assertEqual(groups[0]["all"], ["node-a", "DIRECT"])
+        self.assertEqual(groups[0]["selected"]["type"], "Vmess")
+        self.assertTrue(groups[0]["selected"]["alive"])
+        self.assertEqual(groups[0]["selected"]["delay"], 97)
+
 
 if __name__ == "__main__":
     unittest.main()
