@@ -42,6 +42,16 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
 
 
 class HappyDecoderHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        parsed = urllib.parse.urlsplit(self.path)
+        self.server.received_query_url = urllib.parse.parse_qs(parsed.query).get("url", [""])[0]
+        body = self.server.decrypted_url.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         length = int(self.headers.get("Content-Length", "0") or "0")
         payload = self.rfile.read(length).decode("utf-8")
@@ -86,6 +96,12 @@ class ProviderAdapterTests(unittest.TestCase):
             os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
         else:
             os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = url_previous
+
+    def restore_remote_env(self, previous):
+        if previous is None:
+            os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
+        else:
+            os.environ[mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY] = previous
 
     def test_fetch_provider_payload_forwards_headers(self):
         server, thread = self.start_provider_server()
@@ -140,8 +156,10 @@ class ProviderAdapterTests(unittest.TestCase):
         previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
         key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
         url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
         self.addCleanup(self.restore_decryptor_env, previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
 
         with self.assertRaisesRegex(ValueError, "external decryptor"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
@@ -177,8 +195,10 @@ class ProviderAdapterTests(unittest.TestCase):
         previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
         key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
         url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
         self.addCleanup(self.restore_decryptor_env, previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
 
         provider_server, provider_thread = self.start_provider_server()
         try:
@@ -205,12 +225,34 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(content_type, "text/yaml")
         self.assertIn(b"name: local", body)
 
+    def test_dropin_happ_decryptor_uses_node_shebang(self):
+        old_which = mihui_server.shutil.which
+
+        def fake_which(name):
+            if name == "node":
+                return "/opt/bin/node"
+            return old_which(name)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            script = Path(temp_dir) / "happ-decrypt-universal"
+            script.write_text("#!/usr/bin/env node\nconsole.log('ok')\n", encoding="utf-8")
+            mihui_server.shutil.which = fake_which
+            try:
+                command = mihui_server.command_from_decryptor_path(script)
+            finally:
+                mihui_server.shutil.which = old_which
+
+        self.assertIn("/opt/bin/node", command)
+        self.assertIn("happ-decrypt-universal", command)
+
     def test_decode_happ_with_happy_decoder_returns_verified_url(self):
         decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
         key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
         url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
         self.addCleanup(self.restore_decryptor_env, decryptor_previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
 
         provider_server, provider_thread = self.start_provider_server()
         decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
@@ -282,8 +324,10 @@ class ProviderAdapterTests(unittest.TestCase):
         decryptor_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
         key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
         url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
         self.addCleanup(self.restore_decryptor_env, decryptor_previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
 
         provider_server, provider_thread = self.start_provider_server()
         decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
@@ -313,12 +357,52 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(result["decryptedUrl"], decrypted_url)
         self.assertEqual(result["source"], "happy-decoder")
 
+    def test_decode_happ_uses_remote_template_before_happy_decoder_api(self):
+        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
+        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
+        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
+        remote_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY)
+        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
+        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
+
+        provider_server, provider_thread = self.start_provider_server()
+        decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
+        decoder_thread = threading.Thread(target=decoder_server.serve_forever, daemon=True)
+        decoder_thread.start()
+        try:
+            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
+            decoder_server.decrypted_url = decrypted_url
+            os.environ[mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY] = (
+                f"http://127.0.0.1:{decoder_server.server_address[1]}/decode?url=%LINK_ENCODED%"
+            )
+            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "unused"
+            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = "http://127.0.0.1:1/decode"
+
+            result = mihui_server.decode_happ_with_happy_decoder(
+                Path(tempfile.gettempdir()),
+                "happ://crypt/example",
+                {},
+            )
+        finally:
+            self.stop_provider_server(provider_server, provider_thread)
+            decoder_server.shutdown()
+            decoder_thread.join(timeout=2)
+            decoder_server.server_close()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["decryptedUrl"], decrypted_url)
+        self.assertEqual(result["source"], "remote-decryptor")
+        self.assertEqual(decoder_server.received_query_url, "happ://crypt/example")
+
     def test_decode_happ_with_happy_decoder_requires_key(self):
         decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
         key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
         url_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
+        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
         self.addCleanup(self.restore_decryptor_env, decryptor_previous)
         self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
+        self.addCleanup(self.restore_remote_env, remote_previous)
 
         with self.assertRaisesRegex(ValueError, "MIHUI_HAPP_DECRYPTOR_CMD"):
             mihui_server.decode_happ_with_happy_decoder(
@@ -374,6 +458,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 {
                     mihui_server.HAPP_DECODER_API_KEY_ENV_KEY: "secret-key",
                     mihui_server.HAPP_DECODER_API_URL_ENV_KEY: "https://new.example/decrypt",
+                    mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY: "https://new.example/p/%LINK_ENCODED%",
                 },
             )
 
@@ -382,6 +467,7 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertIn("MIHUI_PORT=9878", text)
         self.assertIn('MIHUI_HAPP_DECODER_API_KEY="secret-key"', text)
         self.assertIn('MIHUI_HAPP_DECODER_API_URL="https://new.example/decrypt"', text)
+        self.assertIn('MIHUI_HAPP_DECRYPTOR_REMOTE_URL="https://new.example/p/%LINK_ENCODED%"', text)
 
     def test_get_happ_decoder_settings_returns_visible_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -397,10 +483,16 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(settings["apiKey"], "visible-key")
         self.assertTrue(settings["hasApiKey"])
         self.assertEqual(settings["apiUrl"], "https://decoder.example/decrypt")
+        self.assertEqual(settings["decryptorTimeout"], "45")
+        self.assertEqual(settings["remoteUrl"], "")
 
     def test_normalize_happ_decoder_api_url_rejects_non_http(self):
         with self.assertRaisesRegex(ValueError, "http/https"):
             mihui_server.normalize_happ_decoder_api_url("file:///tmp/decrypt")
+
+    def test_normalize_happ_decryptor_remote_url_requires_placeholder(self):
+        with self.assertRaisesRegex(ValueError, "placeholder"):
+            mihui_server.normalize_happ_decryptor_remote_url("https://decoder.example/decrypt")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
         headers = mihui_server.build_provider_request_headers(

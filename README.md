@@ -58,12 +58,14 @@ MIHUI_MIHOMO_API="http://127.0.0.1:9090"
 MIHUI_MIHOMO_SECRET=""
 MIHUI_HAPP_DECRYPTOR_CMD=""
 MIHUI_HAPP_DECRYPTOR_TIMEOUT="45"
+MIHUI_HAPP_DECRYPTOR_REMOTE_URL=""
 MIHUI_HAPP_DECODER_API_KEY=""
 MIHUI_HAPP_DECODER_API_URL="https://happy-decoder.cc/api/v1/decrypt"
 MIHUI_HAPP_DECODER_TIMEOUT="30"
 ```
 
-Для `happ://crypt*` MihUI сначала пробует локальный decryptor из `MIHUI_HAPP_DECRYPTOR_CMD` или drop-in файл в `/opt/etc/mihui/bin/`, а затем использует Happy Decoder, если задан `MIHUI_HAPP_DECODER_API_KEY`.
+Для `happ://crypt*` MihUI сначала пробует локальный decryptor из `MIHUI_HAPP_DECRYPTOR_CMD` или drop-in файл в `/opt/etc/mihui/bin/`, затем remote template из `MIHUI_HAPP_DECRYPTOR_REMOTE_URL`, а затем Happy Decoder, если задан `MIHUI_HAPP_DECODER_API_KEY`.
+`MIHUI_HAPP_DECRYPTOR_REMOTE_URL` должен содержать placeholder вроде `%LINK_ENCODED%`, например `https://decoder.example/decrypt?url=%LINK_ENCODED%`.
 
 Перед каждым сохранением создается бэкап, хранятся последние 5.
 

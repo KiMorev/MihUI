@@ -328,7 +328,12 @@ const state = {
   happDecoderSettings: {
     apiKey: '',
     apiUrl: '',
+    decryptorCmd: '',
+    decryptorTimeout: '45',
+    remoteUrl: '',
     hasApiKey: false,
+    hasDecryptor: false,
+    hasRemoteUrl: false,
     loading: false,
     saving: false,
   },
@@ -406,6 +411,9 @@ const els = {
   happDecoderSettingsForm: document.querySelector('#happDecoderSettingsForm'),
   happDecoderApiKey: document.querySelector('#happDecoderApiKey'),
   happDecoderApiUrl: document.querySelector('#happDecoderApiUrl'),
+  happDecryptorCmd: document.querySelector('#happDecryptorCmd'),
+  happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
+  happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
   happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
@@ -643,9 +651,17 @@ async function loadHappDecoderSettings(options = {}) {
     state.routerApiAvailable = true;
     state.happDecoderSettings.apiKey = data.apiKey || '';
     state.happDecoderSettings.apiUrl = data.apiUrl || '';
+    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || '';
+    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || '45';
+    state.happDecoderSettings.remoteUrl = data.remoteUrl || '';
     state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
+    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
+    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
     if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
     if (els.happDecoderApiKey) els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
+    if (els.happDecryptorCmd) els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
+    if (els.happDecryptorTimeout) els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
+    if (els.happDecryptorRemoteUrl) els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
     if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
   } catch (error) {
     if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
@@ -661,7 +677,10 @@ async function saveHappDecoderSettings(event) {
 
   const apiUrl = String(els.happDecoderApiUrl.value || '').trim();
   const apiKey = String(els.happDecoderApiKey.value || '').trim();
-  const payload = { apiUrl };
+  const decryptorCmd = String(els.happDecryptorCmd.value || '').trim();
+  const decryptorTimeout = String(els.happDecryptorTimeout.value || '').trim();
+  const remoteUrl = String(els.happDecryptorRemoteUrl.value || '').trim();
+  const payload = { apiUrl, decryptorCmd, decryptorTimeout, remoteUrl };
   if (apiKey) payload.apiKey = apiKey;
 
   state.happDecoderSettings.saving = true;
@@ -675,9 +694,17 @@ async function saveHappDecoderSettings(event) {
     state.routerApiAvailable = true;
     state.happDecoderSettings.apiKey = data.apiKey || apiKey;
     state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
+    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || decryptorCmd;
+    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || decryptorTimeout || '45';
+    state.happDecoderSettings.remoteUrl = data.remoteUrl || remoteUrl;
     state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
+    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
+    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
     els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
     els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
+    els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
+    els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
+    els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
     showMessage('Настройки Happ Decoder сохранены.');
   } catch (error) {
     showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);
@@ -693,6 +720,9 @@ function renderHappDecoderSettings() {
   const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
   els.happDecoderApiKey.disabled = unavailable || busy;
   els.happDecoderApiUrl.disabled = unavailable || busy;
+  els.happDecryptorCmd.disabled = unavailable || busy;
+  els.happDecryptorTimeout.disabled = unavailable || busy;
+  els.happDecryptorRemoteUrl.disabled = unavailable || busy;
   els.saveHappDecoderSettingsButton.disabled = unavailable || busy;
   els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
 
@@ -704,7 +734,11 @@ function renderHappDecoderSettings() {
   } else if (state.happDecoderSettings.loading) {
     els.happDecoderSettingsStatus.textContent = 'Загрузка...';
   } else {
-    els.happDecoderSettingsStatus.textContent = state.happDecoderSettings.hasApiKey ? 'Ключ задан' : 'Ключ не задан';
+    const modes = [];
+    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('local');
+    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('remote');
+    if (state.happDecoderSettings.hasApiKey) modes.push('API key');
+    els.happDecoderSettingsStatus.textContent = modes.length ? modes.join(' / ') : 'Не настроен';
   }
 }
 
@@ -2621,7 +2655,7 @@ function bindHappDecodeButton(root, provider) {
   button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = state.routerApiAvailable
     ? 'Расшифровать через Happy Decoder и заменить URL провайдера'
-    : 'Доступно только в MihUI на роутере с MIHUI_HAPP_DECODER_API_KEY';
+    : 'Доступно только в MihUI на роутере с Happ decryptor или Happy Decoder API';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
   button.addEventListener('click', () => decodeHappProvider(provider));
 }
