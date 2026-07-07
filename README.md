@@ -66,6 +66,7 @@ MIHUI_HAPP_DECODER_TIMEOUT="30"
 
 Для `happ://crypt*` MihUI сначала пробует локальный decryptor из `MIHUI_HAPP_DECRYPTOR_CMD` или drop-in файл в `/opt/etc/mihui/bin/`, затем remote template из `MIHUI_HAPP_DECRYPTOR_REMOTE_URL`, а затем Happy Decoder, если задан `MIHUI_HAPP_DECODER_API_KEY`.
 `MIHUI_HAPP_DECRYPTOR_REMOTE_URL` должен содержать placeholder вроде `%LINK_ENCODED%`, например `https://decoder.example/decrypt?url=%LINK_ENCODED%`.
+Локальный provider adapter также умеет разобрать `incy://import` и повторить Happ landing-запрос с `User-Agent: Happ/1.0`, `x-hwid` и `hwid` query, если обычный ответ выглядит как Happ/INCY landing.
 
 Перед каждым сохранением создается бэкап, хранятся последние 5.
 

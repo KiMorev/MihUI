@@ -1,3 +1,4 @@
+import base64
 import os
 import sys
 import tempfile
@@ -16,6 +17,7 @@ import mihui_server  # noqa: E402
 
 class ProviderPayloadHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        self.server.request_count = getattr(self.server, "request_count", 0) + 1
         parsed = urllib.parse.urlsplit(self.path)
         self.server.received_user_agent = self.headers.get("User-Agent")
         self.server.received_hwid = self.headers.get("x-hwid")
@@ -23,6 +25,56 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
         if parsed.path == "/landing.html":
             target_url = f"http://127.0.0.1:{self.server.server_address[1]}/target.yaml"
             body = f'<html><body><a href="{target_url}">import</a></body></html>'.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/happ-required":
+            if (
+                str(self.headers.get("User-Agent") or "").startswith("Happ/")
+                and self.headers.get("x-hwid") == "ABC123"
+                and urllib.parse.parse_qs(parsed.query).get("hwid", [""])[0] == "ABC123"
+            ):
+                body = b"proxies:\n  - name: happ\n    type: direct\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/yaml")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            body = b"<html><body>Open this subscription in Happ.</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/happ-base64":
+            if str(self.headers.get("User-Agent") or "").startswith("Happ/"):
+                payload = b"proxies:\n  - name: encoded\n    type: direct\n"
+                body = base64.urlsafe_b64encode(payload).rstrip(b"=")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            body = b"<html><body>Open this subscription in Happ.</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/plain-html":
+            body = b"<html><body>No subscription here.</body></html>"
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -141,6 +193,60 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertIn(b"name: local", body)
         self.assertEqual(content_type, "text/yaml")
+
+    def test_fetch_provider_payload_decodes_incy_import_base64_payload(self):
+        payload = b"proxies:\n  - name: incy\n    type: direct\n"
+        encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+        source_url = f"incy://import/{encoded}"
+
+        body, content_type = mihui_server.fetch_provider_payload(source_url, {})
+
+        self.assertEqual(content_type, "text/yaml; charset=utf-8")
+        self.assertIn(b"name: incy", body)
+
+    def test_fetch_provider_payload_retries_happ_landing_with_happ_headers(self):
+        server, thread = self.start_provider_server()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/happ-required"
+            body, content_type = mihui_server.fetch_provider_payload(
+                url,
+                {"User-Agent": "MihomoTest/1.0", "x-hwid": "ABC123"},
+            )
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertEqual(content_type, "text/yaml")
+        self.assertIn(b"name: happ", body)
+        self.assertEqual(server.received_user_agent, "Happ/1.0")
+        self.assertEqual(server.received_hwid, "ABC123")
+        self.assertEqual(server.received_hwid_query, "ABC123")
+
+    def test_fetch_provider_payload_decodes_happ_landing_base64_payload(self):
+        server, thread = self.start_provider_server()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/happ-base64"
+            body, content_type = mihui_server.fetch_provider_payload(url, {})
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertEqual(content_type, "text/yaml; charset=utf-8")
+        self.assertIn(b"name: encoded", body)
+
+    def test_fetch_provider_payload_does_not_retry_plain_html_landing(self):
+        server, thread = self.start_provider_server()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/plain-html"
+            body, content_type = mihui_server.fetch_provider_payload(
+                url,
+                {"User-Agent": "MihomoTest/1.0"},
+            )
+        finally:
+            self.stop_provider_server(server, thread)
+
+        self.assertEqual(content_type, "text/html; charset=utf-8")
+        self.assertIn(b"No subscription here", body)
+        self.assertEqual(server.request_count, 1)
+        self.assertEqual(server.received_user_agent, "MihomoTest/1.0")
 
     def test_fetch_provider_payload_appends_hwid_when_requested(self):
         server, thread = self.start_provider_server()

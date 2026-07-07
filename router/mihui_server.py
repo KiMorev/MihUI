@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import base64
 import html
 import json
 import os
@@ -55,6 +56,7 @@ HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_REMOTE_URL"
 DEFAULT_HAPP_DECODER_API_URL = "https://happy-decoder.cc/api/v1/decrypt"
 DEFAULT_HAPP_DECODER_TIMEOUT = 30
 DEFAULT_HAPP_DECRYPTOR_TIMEOUT = 45
+DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
 DECODED_PROVIDER_VERIFY_BYTES = 512 * 1024
 HAPP_DECRYPTOR_NODE_SUFFIXES = {".js", ".mjs", ".cjs"}
 HAPP_DECRYPTOR_TEMPLATE_TOKENS = (
@@ -685,11 +687,14 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
 
     parsed = urllib.parse.urlsplit(source_url)
     if parsed.scheme == "incy":
-        import_url = extract_incy_import_url(source_url)
-        if not import_url:
+        import_payload = extract_incy_import_payload(source_url)
+        if not import_payload:
             raise ValueError("incy://import does not contain a supported URL")
+        kind, value = import_payload
+        if kind == "body":
+            return value, "text/yaml; charset=utf-8"
         return fetch_provider_payload(
-            import_url,
+            value,
             headers,
             timeout,
             append_hwid=append_hwid,
@@ -729,13 +734,7 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
 
 
 def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False, depth=0, app_dir=None):
-    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
-        content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
-
-    if len(body) > PROVIDER_ADAPTER_MAX_BYTES:
-        raise ValueError("provider payload is too large")
+    body, content_type = request_provider_payload_once(source_url, headers, timeout)
 
     landing_url = extract_landing_provider_url(body, content_type, source_url)
     if landing_url:
@@ -748,7 +747,78 @@ def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False,
             app_dir=app_dir,
         )
 
+    happ_payload = fetch_happ_landing_provider_payload(
+        source_url,
+        body,
+        content_type,
+        headers,
+        timeout,
+        append_hwid=append_hwid,
+        depth=depth,
+        app_dir=app_dir,
+    )
+    if happ_payload:
+        return happ_payload
+
     return body, content_type
+
+
+def request_provider_payload_once(source_url, headers, timeout):
+    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
+        content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
+
+    if len(body) > PROVIDER_ADAPTER_MAX_BYTES:
+        raise ValueError("provider payload is too large")
+    return body, content_type
+
+
+def fetch_happ_landing_provider_payload(source_url, body, content_type, headers, timeout, append_hwid=False, depth=0, app_dir=None):
+    text = body[:262144].decode("utf-8", "replace")
+    if not looks_like_happ_landing_page(text, content_type):
+        return None
+
+    happ_headers = build_happ_fallback_headers(headers or {})
+    happ_url = append_hwid_query(source_url, happ_headers)
+    if happ_url == source_url and same_header_values(happ_headers, headers or {}):
+        return None
+
+    fallback_body, fallback_content_type = request_provider_payload_once(happ_url, happ_headers, timeout)
+    landing_url = extract_landing_provider_url(fallback_body, fallback_content_type, happ_url)
+    if landing_url:
+        return fetch_provider_payload(
+            landing_url,
+            happ_headers,
+            timeout,
+            append_hwid=append_hwid,
+            depth=depth + 1,
+            app_dir=app_dir,
+        )
+
+    fallback_text = fallback_body[:262144].decode("utf-8", "replace")
+    if not looks_like_landing_page(fallback_text, fallback_content_type) and (
+        looks_like_provider_payload(fallback_text) or looks_like_provider_content_type(fallback_content_type)
+    ):
+        return fallback_body, fallback_content_type
+
+    decoded = normalize_happ_transport_payload(fallback_body, fallback_content_type, happ_url)
+    if decoded:
+        kind, value = decoded
+        if kind == "url":
+            return fetch_provider_payload(
+                value,
+                happ_headers,
+                timeout,
+                append_hwid=append_hwid,
+                depth=depth + 1,
+                app_dir=app_dir,
+            )
+        return value, "text/yaml; charset=utf-8"
+
+    if not looks_like_landing_page(fallback_text, fallback_content_type):
+        return fallback_body, fallback_content_type
+    return None
 
 
 def decrypt_happ_provider(source_url, app_dir, timeout):
@@ -1167,27 +1237,130 @@ def append_hwid_query(source_url, headers):
     )
 
 
+def build_happ_fallback_headers(headers):
+    result = dict(headers or {})
+    user_agent = find_header_value(result, "User-Agent")
+    if not user_agent.lower().startswith("happ/"):
+        set_header_value(result, "User-Agent", DEFAULT_HAPP_FALLBACK_USER_AGENT)
+    return result
+
+
 def find_header_value(headers, name):
     expected = name.lower()
     for header_name, value in headers.items():
         if header_name.lower() == expected:
-            return value
+            return str(value or "")
     return ""
 
 
-def extract_incy_import_url(source_url):
+def set_header_value(headers, name, value):
+    expected = name.lower()
+    for header_name in list(headers.keys()):
+        if header_name.lower() == expected:
+            headers[header_name] = value
+            return
+    headers[name] = value
+
+
+def same_header_values(left, right):
+    return normalize_header_map(left) == normalize_header_map(right)
+
+
+def normalize_header_map(headers):
+    return {str(name).lower(): str(value or "") for name, value in (headers or {}).items()}
+
+
+def extract_incy_import_payload(source_url):
     parsed = urllib.parse.urlsplit(source_url)
     query = urllib.parse.parse_qs(parsed.query)
     for key in ("url", "uri", "target", "link", "sub", "subscription"):
         value = (query.get(key) or [""])[0]
-        candidate = normalize_landing_url(value, "")
-        if candidate:
-            return candidate
+        result = normalize_happ_transport_text(value, "")
+        if result:
+            return result
 
-    path_candidate = normalize_landing_url(urllib.parse.unquote(parsed.path.lstrip("/")), "")
-    if path_candidate:
-        return path_candidate
+    return normalize_happ_transport_text(urllib.parse.unquote(parsed.path.lstrip("/")), "")
+
+
+def extract_incy_import_url(source_url):
+    payload = extract_incy_import_payload(source_url)
+    if payload and payload[0] == "url":
+        return payload[1]
     return ""
+
+
+def normalize_happ_transport_payload(body, content_type, base_url):
+    text = body.decode("utf-8", "replace").strip()
+    if not text:
+        return None
+    return normalize_happ_transport_text(text, base_url)
+
+
+def normalize_happ_transport_text(text, base_url):
+    for candidate in build_happ_transport_candidates(text):
+        parsed = normalize_happ_decryptor_output(candidate)
+        if parsed:
+            return parsed
+
+        url = normalize_landing_url(candidate, base_url)
+        if url:
+            return "url", url
+
+        if looks_like_provider_payload(candidate):
+            return "body", (candidate.rstrip() + "\n").encode("utf-8")
+    return None
+
+
+def build_happ_transport_candidates(text):
+    candidates = []
+    seen = set()
+
+    def add(value):
+        candidate = str(value or "").strip()
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            candidates.append(candidate)
+
+    add(text)
+    unquoted = urllib.parse.unquote_plus(str(text or "").strip())
+    add(unquoted)
+    for candidate in list(candidates):
+        decoded = decode_base64_text(candidate)
+        if decoded:
+            add(decoded)
+            add(urllib.parse.unquote_plus(decoded))
+    return candidates
+
+
+def decode_base64_text(text):
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if len(compact) < 8 or not re.fullmatch(r"[A-Za-z0-9_\-+/=]+", compact):
+        return ""
+    padded = compact + ("=" * (-len(compact) % 4))
+    try:
+        data = base64.urlsafe_b64decode(padded.encode("ascii"))
+    except Exception:
+        return ""
+    if not data:
+        return ""
+    decoded = data.decode("utf-8", "replace").strip()
+    if "\ufffd" in decoded:
+        return ""
+    return decoded
+
+
+def looks_like_provider_payload(text):
+    sample = str(text or "").lstrip()
+    return bool(
+        re.match(r"(?is)^(proxies|proxy-providers|payload|mixed-port|port|rules)\s*:", sample)
+        or sample.startswith("{")
+        or sample.startswith("[")
+    )
+
+
+def looks_like_provider_content_type(content_type):
+    lower_type = str(content_type or "").lower()
+    return "yaml" in lower_type or "json" in lower_type
 
 
 def extract_landing_provider_url(body, content_type, base_url):
@@ -1217,6 +1390,17 @@ def looks_like_landing_page(text, content_type):
         or sample.startswith("<html")
         or "happ://crypt" in sample
         or "incy://import" in sample
+    )
+
+
+def looks_like_happ_landing_page(text, content_type):
+    if not looks_like_landing_page(text, content_type):
+        return False
+    sample = str(text or "").lower()
+    return (
+        "happ" in sample
+        or "incy://import" in sample
+        or "happ://crypt" in sample
     )
 
 
