@@ -221,6 +221,7 @@ fi
 
 cp "$PACKAGE_DIR/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy server failed"
 [ -f "$PACKAGE_DIR/VERSION" ] && cp "$PACKAGE_DIR/VERSION" "$APP_DIR/VERSION"
+mkdir -p "$APP_DIR/bin"
 if [ -d "$PACKAGE_DIR/bin" ]; then
   rm -rf "$APP_DIR/bin"
   mkdir -p "$APP_DIR/bin"

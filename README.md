@@ -68,6 +68,15 @@ MIHUI_HAPP_DECODER_TIMEOUT="30"
 `MIHUI_HAPP_DECRYPTOR_REMOTE_URL` должен содержать placeholder вроде `%LINK_ENCODED%`, например `https://decoder.example/decrypt?url=%LINK_ENCODED%`.
 Локальный provider adapter также умеет разобрать `incy://import` и повторить Happ landing-запрос с `User-Agent: Happ/1.0`, `x-hwid` и `hwid` query, если обычный ответ выглядит как Happ/INCY landing.
 
+Рекомендуемый вариант для `happ://crypt*` — локальный decryptor. Скопируйте совместимый бинарник в `/opt/etc/mihui/bin/happ-decrypt-universal`, сделайте его исполняемым и перезапустите MihUI:
+
+```sh
+chmod +x /opt/etc/mihui/bin/happ-decrypt-universal
+/opt/etc/init.d/S99mihui restart
+```
+
+Если нужен явный запуск через команду, задайте `MIHUI_HAPP_DECRYPTOR_CMD`, например `/opt/etc/mihui/bin/happ-decrypt-universal %LINK%`. Happy Decoder API лучше оставить fallback для ручной расшифровки, а `https://happy-decoder.cc/p/?u=%LINK_ENCODED%` использовать только как аварийный remote-template, потому что при нём обновление подписки зависит от внешнего сервиса.
+
 Перед каждым сохранением создается бэкап, хранятся последние 5.
 
 ## Удаление

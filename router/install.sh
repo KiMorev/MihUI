@@ -437,7 +437,7 @@ else
   SELECTED_PORT=$(pick_free_port)
 fi
 
-mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/www" "$INIT_DIR" "$LOG_DIR" "$RUN_DIR"
+mkdir -p "$INSTALL_DIR" "$INSTALL_DIR/www" "$INSTALL_DIR/bin" "$INIT_DIR" "$LOG_DIR" "$RUN_DIR"
 
 if is_our_init_script "$INIT_SCRIPT"; then
   sh "$INIT_SCRIPT" stop || true
