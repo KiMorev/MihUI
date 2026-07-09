@@ -176,20 +176,14 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
             return
 
-        config_path = get_config_path(self.app_dir)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        backup = create_backup(self.app_dir, config_path)
-        write_text_atomic(config_path, text)
-        prune_backups(self.app_dir)
-        reload_result = reload_mihomo(self.app_dir, config_path)
+        result = save_checked_config(self.app_dir, text)
+        if not result["ok"]:
+            self.send_json(HTTPStatus.UNPROCESSABLE_ENTITY, result)
+            return
+
         self.send_json(
             HTTPStatus.OK,
-            {
-                "ok": True,
-                "path": str(config_path),
-                "backup": backup.name if backup else None,
-                "reload": reload_result,
-            },
+            result,
         )
 
     def handle_backups_get(self):
@@ -205,6 +199,13 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         config_path = get_config_path(self.app_dir)
         config_path.parent.mkdir(parents=True, exist_ok=True)
+        check = check_mihomo_config(self.app_dir, backup.read_text(encoding="utf-8", errors="replace"))
+        if not check["ok"]:
+            self.send_json(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                {"ok": False, "message": check.get("message", "backup config check failed"), "check": check},
+            )
+            return
         current_backup = create_backup(self.app_dir, config_path)
         shutil.copyfile(str(backup), str(config_path))
         prune_backups(self.app_dir)
@@ -580,6 +581,29 @@ def write_text_atomic(path, text):
     tmp = path.with_name(f".{path.name}.mihui.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(str(tmp), str(path))
+
+
+def save_checked_config(app_dir, text):
+    check = check_mihomo_config(app_dir, text)
+    if not check["ok"]:
+        return {
+            "ok": False,
+            "message": check.get("message", "config check failed"),
+            "check": check,
+        }
+
+    config_path = get_config_path(app_dir)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    backup = create_backup(app_dir, config_path)
+    write_text_atomic(config_path, text)
+    prune_backups(app_dir)
+    return {
+        "ok": True,
+        "path": str(config_path),
+        "backup": backup.name if backup else None,
+        "check": check,
+        "reload": reload_mihomo(app_dir, config_path),
+    }
 
 
 def check_mihomo_config(app_dir, text):

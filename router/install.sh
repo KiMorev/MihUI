@@ -21,6 +21,7 @@ DOWNLOAD_URLS="${MIHUI_DOWNLOAD_URLS:-}"
 PACKAGE_DIR=""
 TMP_DIR=""
 DOWNLOADED_ARCHIVE=""
+DOWNLOADED_CHECKSUM=""
 
 log() {
   printf '%s\n' "$*"
@@ -78,6 +79,28 @@ download_file() {
   return 1
 }
 
+sha256_file() {
+  if command_exists sha256sum; then
+    sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+  if command_exists busybox; then
+    busybox sha256sum "$1" | awk '{print $1}'
+    return
+  fi
+  if command_exists openssl; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+    return
+  fi
+  return 1
+}
+
+verify_archive_checksum() {
+  expected=$(awk 'NF {print $1; exit}' "$2" | tr 'A-F' 'a-f')
+  actual=$(sha256_file "$1" | tr 'A-F' 'a-f') || return 1
+  [ -n "$expected" ] && [ "$actual" = "$expected" ]
+}
+
 download_package_archive() {
   setup_download_urls
 
@@ -89,15 +112,49 @@ download_package_archive() {
     esac
 
     DOWNLOADED_ARCHIVE="$TMP_DIR/$archive_name"
+    DOWNLOADED_CHECKSUM="$DOWNLOADED_ARCHIVE.sha256"
     rm -f "$DOWNLOADED_ARCHIVE"
+    rm -f "$DOWNLOADED_CHECKSUM"
     log "Downloading MihUI package: $url"
-    if download_file "$url" "$DOWNLOADED_ARCHIVE"; then
+    if download_file "$url" "$DOWNLOADED_ARCHIVE" &&
+       download_file "$url.sha256" "$DOWNLOADED_CHECKSUM" &&
+       verify_archive_checksum "$DOWNLOADED_ARCHIVE" "$DOWNLOADED_CHECKSUM"; then
       return
     fi
     log "Download failed: $url"
   done
 
   fail "curl or wget is required to download MihUI, and all download URLs failed"
+}
+
+validate_archive_paths() {
+  archive="$1"
+  case "$archive" in
+    *.tar.gz|*.tgz)
+      tar -tzf "$archive" 2>/dev/null | awk '
+        /^\// || /(^|\/)\.\.($|\/)/ { bad=1 }
+        END { exit bad }
+      ' || return 1
+      tar -tvzf "$archive" 2>/dev/null | awk 'substr($0, 1, 1) ~ /[lh]/ { bad=1 } END { exit bad }'
+      ;;
+    *.tar)
+      tar -tf "$archive" 2>/dev/null | awk '
+        /^\// || /(^|\/)\.\.($|\/)/ { bad=1 }
+        END { exit bad }
+      ' || return 1
+      tar -tvf "$archive" 2>/dev/null | awk 'substr($0, 1, 1) ~ /[lh]/ { bad=1 } END { exit bad }'
+      ;;
+    *.zip)
+      if command_exists unzip; then
+        unzip -Z1 "$archive" 2>/dev/null
+      elif command_exists busybox; then
+        busybox unzip -l "$archive" 2>/dev/null | awk 'NR > 3 {print $4}'
+      else
+        return 1
+      fi | awk '/^\// || /(^|\/)\.\.($|\/)/ { bad=1 } END { exit bad }'
+      ;;
+    *) return 1 ;;
+  esac
 }
 
 ensure_python() {
@@ -135,6 +192,7 @@ extract_archive() {
   archive="$1"
   target="$2"
   mkdir -p "$target"
+  validate_archive_paths "$archive" || fail "archive contains unsafe paths or links"
 
   case "$archive" in
     *.tar.gz|*.tgz)

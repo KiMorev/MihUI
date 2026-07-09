@@ -1,10 +1,14 @@
 import base64
+import json
 import os
 import sys
 import tempfile
 import threading
 import unittest
 import urllib.parse
+import urllib.error
+import urllib.request
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -131,6 +135,31 @@ class ProviderAdapterTests(unittest.TestCase):
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+    def start_mihui_server(self, app_dir):
+        www_dir = Path(app_dir) / "www"
+        www_dir.mkdir(parents=True, exist_ok=True)
+        handler = lambda *args, **kwargs: mihui_server.MihuiHandler(
+            *args, directory=str(www_dir), **kwargs
+        )
+        mihui_server.MihuiHandler.app_dir = Path(app_dir)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return server, thread
+
+    def post_json(self, server, path, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_address[1]}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=3) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read().decode("utf-8"))
 
     def restore_decryptor_env(self, previous):
         if previous is None:
@@ -612,6 +641,96 @@ class ProviderAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(headers, {"User-Agent": "MihomoTest/1.0", "x-hwid": "ABC123"})
+
+    def test_save_checked_config_rejects_invalid_config_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(
+                mihui_server,
+                "check_mihomo_config",
+                return_value={"ok": False, "available": True, "message": "invalid yaml"},
+            ):
+                result = mihui_server.save_checked_config(app_dir, "broken\n")
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+            self.assertFalse((app_dir / "backups").exists())
+
+    def test_save_checked_config_writes_when_check_is_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            check = {"ok": True, "available": False, "message": "check skipped"}
+            with mock.patch.object(mihui_server, "check_mihomo_config", return_value=check), mock.patch.object(
+                mihui_server, "reload_mihomo", return_value={"ok": True}
+            ):
+                result = mihui_server.save_checked_config(app_dir, "updated\n")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["check"], check)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "updated\n")
+            self.assertEqual(len(list((app_dir / "backups").glob("config-*.yaml"))), 1)
+
+    def test_config_save_endpoint_rejects_invalid_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "check_mihomo_config",
+                    return_value={"ok": False, "available": True, "message": "invalid yaml"},
+                ):
+                    status, result = self.post_json(server, "/api/config/save", {"text": "broken\n"})
+            finally:
+                self.stop_provider_server(server, thread)
+
+            self.assertEqual(status, 422)
+            self.assertFalse(result["ok"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+
+    def test_backup_restore_rejects_invalid_backup_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            backup_dir = app_dir / "backups"
+            backup_dir.mkdir()
+            (backup_dir / "config-test.yaml").write_text("broken\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\nMIHUI_BACKUP_DIR="{backup_dir}"\n',
+                encoding="utf-8",
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "check_mihomo_config",
+                    return_value={"ok": False, "available": True, "message": "invalid yaml"},
+                ):
+                    status, result = self.post_json(
+                        server, "/api/backups/restore", {"name": "config-test.yaml"}
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+            self.assertEqual(status, 422)
+            self.assertFalse(result["ok"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
 
     def test_is_loopback_address(self):
         self.assertTrue(mihui_server.is_loopback_address("127.0.0.1"))

@@ -79,7 +79,7 @@
 
         <section id="routerPanel" class="router-panel hidden" aria-live="polite">
           <div class="backup-tools">
-            <select id="backupSelect" class="backup-select" disabled></select>
+            <select id="backupSelect" class="backup-select" aria-label="Резервная копия конфигурации" disabled></select>
             <button id="restoreBackupButton" class="button compact" type="button" disabled>
               <span>Восстановить</span>
             </button>
@@ -142,7 +142,7 @@
             <div class="interval-field">
               <span>Обновление подписок (interval)</span>
               <div class="interval-control">
-                <input id="bulkIntervalInput" type="number" min="60" step="60" value="86400" />
+                <input id="bulkIntervalInput" type="number" min="60" step="60" value="86400" aria-label="Интервал обновления подписок в секундах" />
                 <span id="bulkIntervalHint" class="interval-hint">86400 сек = 24 ч</span>
               </div>
               <div class="preset-row" aria-label="Пресеты обновления подписок">
@@ -155,7 +155,7 @@
             <div class="interval-field">
               <span>Проверка нод (health-check.interval)</span>
               <div class="interval-control">
-                <input id="bulkHealthIntervalInput" type="number" min="30" step="30" value="300" />
+                <input id="bulkHealthIntervalInput" type="number" min="30" step="30" value="300" aria-label="Интервал проверки нод в секундах" />
                 <span id="bulkHealthIntervalHint" class="interval-hint">300 сек = 5 мин</span>
               </div>
               <div class="preset-row" aria-label="Пресеты проверки нод">
@@ -318,7 +318,7 @@
             </div>
             <div id="outputViewer" class="output-viewer">
               <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
-              <textarea id="outputPreview" spellcheck="false" readonly placeholder="Здесь появится обновленная конфигурация"></textarea>
+              <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" placeholder="Здесь появится обновленная конфигурация"></textarea>
             </div>
           </section>
         </div>

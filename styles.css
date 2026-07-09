@@ -3152,6 +3152,16 @@ button.review-check-card:hover {
     padding-inline: 8px;
   }
 
+  .backup-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-tools .button,
+  .backup-select {
+    width: 100%;
+  }
+
   .overview-workflow,
   .overview-attention-list,
   .review-checklist {
