@@ -131,6 +131,7 @@ globalThis.__app = {
   snapshotProvider,
   splitLines,
   moveGroupProxy,
+  orderNodeGroupSelectionGroups,
   toggleGroupProxy,
   toggleGroupUse,
   updateGroup,
@@ -950,6 +951,34 @@ rules:
     const custom = app.state.groups.find((group) => group.isNew);
 
     assert.equal(app.getGroupUsage(custom).used, false);
+  });
+
+  test(`${source.name}: orders live group selections by main proxy sequence`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: PROXY
+    type: fallback
+    proxies:
+      - FASTEST
+      - FALLBACK
+  - name: FALLBACK
+    type: fallback
+    proxies:
+      - node-a
+  - name: FASTEST
+    type: url-test
+    proxies:
+      - node-b
+`);
+
+    const groups = app.state.groups.map((group) => ({ name: group.name, type: group.type }));
+    const orderedNames = [...app.orderNodeGroupSelectionGroups(groups)].map((group) => group.name);
+    assert.deepEqual(orderedNames, [
+      'PROXY',
+      'FASTEST',
+      'FALLBACK',
+    ]);
   });
 
   test(`${source.name}: renames existing group references`, () => {

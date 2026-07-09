@@ -2685,7 +2685,10 @@ function formatProviderUpdatedAt(value) {
 function renderNodeInventory() {
   const isVisible = state.routerMode && state.routerApiAvailable;
   els.nodeInventoryPanel.classList.toggle('hidden', !isVisible);
-  if (!isVisible) return;
+  if (!isVisible) {
+    if (els.nodeGroupSelections) els.nodeGroupSelections.hidden = true;
+    return;
+  }
 
   const nodes = state.mihomoNodes.map(enrichNodeInventoryItem);
   const filtered = nodes.filter(matchesNodeFilters);
@@ -2737,6 +2740,9 @@ function renderNodeInventory() {
 
 function renderNodeGroupSelections(nodes) {
   const panel = els.nodeGroupSelections;
+  if (!panel) return;
+
+  panel.hidden = false;
   panel.textContent = '';
 
   if (state.nodeInventoryLoading) {
@@ -2786,7 +2792,7 @@ function getNodeGroupSelectionItems(nodes) {
     ? configGroups.map((group) => ({ name: group.name, type: group.type }))
     : state.mihomoGroupSelections.map((group) => ({ name: group.name, type: group.type }));
 
-  return groups.map((group) => {
+  return orderNodeGroupSelectionGroups(groups).map((group) => {
     const selection = selectionByName.get(normalizeLookupName(group.name));
     const selectedName = String(selection?.now || '');
     const selectedNode = nodeByName.get(normalizeLookupName(selectedName));
@@ -2808,6 +2814,29 @@ function getNodeGroupSelectionItems(nodes) {
       isKnown: Boolean(selection),
     };
   });
+}
+
+function orderNodeGroupSelectionGroups(groups) {
+  const mainGroup = findMainGroup(state.groups);
+  if (!mainGroup?.name) return groups;
+
+  const mainName = normalizeLookupName(mainGroup.name);
+  const childOrder = new Map(
+    getExplicitGroupOptions(mainGroup).map((name, index) => [normalizeLookupName(name), index + 1]),
+  );
+
+  return groups
+    .map((group, index) => ({ group, index }))
+    .sort((left, right) => {
+      const leftName = normalizeLookupName(left.group.name);
+      const rightName = normalizeLookupName(right.group.name);
+      const leftOrder = leftName === mainName ? 0 : childOrder.get(leftName) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = rightName === mainName ? 0 : childOrder.get(rightName) ?? Number.MAX_SAFE_INTEGER;
+
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.index - right.index;
+    })
+    .map((item) => item.group);
 }
 
 function createNodeGroupSelectionCard(item) {

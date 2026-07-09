@@ -84,10 +84,17 @@ update_state = {
     "finishedAt": None,
     "output": "",
 }
+UI_ASSET_NO_CACHE_PATHS = {"/", "/index.html", "/app.js", "/styles.css", "/mihomo-editor.html"}
 
 
 class MihuiHandler(SimpleHTTPRequestHandler):
     app_dir: Path
+
+    def end_headers(self):
+        route = self.path.split("?", 1)[0]
+        if route in UI_ASSET_NO_CACHE_PATHS:
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
 
     def do_GET(self):
         route = self.path.split("?", 1)[0]
