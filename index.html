@@ -31,7 +31,7 @@
                 <span>Загрузить</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
               </label>
-              <button id="downloadButton" class="button compact" type="button" disabled>
+              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
                 <span>Экспорт</span>
               </button>
             </div>
@@ -56,6 +56,18 @@
         <button class="section-tab" type="button" data-section="nodes" aria-pressed="false">Ноды</button>
         <button class="section-tab" type="button" data-section="review" aria-pressed="false">Проверка</button>
         <button class="section-tab" type="button" data-section="settings" aria-pressed="false">Настройки</button>
+      </nav>
+
+      <nav id="mobileFlowActions" class="mobile-flow-actions" aria-label="Быстрые действия" hidden>
+        <button id="mobileChangesButton" class="button compact mobile-flow-action" type="button" disabled>
+          <span>Изменений нет</span>
+        </button>
+        <button id="mobileReviewButton" class="button primary compact mobile-flow-action" type="button">
+          <span>Проверка</span>
+        </button>
+        <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+          <span>Скачать YAML</span>
+        </button>
       </nav>
 
       <section id="messageBox" class="message hidden" aria-live="polite"></section>
@@ -138,7 +150,7 @@
               <button id="intervalToolsButton" class="button compact" type="button" disabled>
                 <span>Интервалы всем</span>
               </button>
-              <button id="addProviderButton" class="icon-button" type="button" disabled title="Сначала загрузите конфигурацию">
+              <button id="addProviderButton" class="icon-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
                 +
               </button>
             </div>
@@ -191,7 +203,7 @@
           <div class="panel-head">
             <h2>Группы и подписки</h2>
             <div class="panel-actions">
-              <button id="addGroupButton" class="icon-button" type="button" disabled title="Сначала загрузите конфигурацию">
+              <button id="addGroupButton" class="icon-button" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
                 +
               </button>
             </div>
@@ -232,7 +244,7 @@
             <div class="panel-head">
               <h2>Правила (rules)</h2>
               <div class="panel-actions">
-                <button id="addRuleButton" class="icon-button" type="button" disabled title="Сначала загрузите конфигурацию">
+                <button id="addRuleButton" class="icon-button" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
                   +
                 </button>
               </div>
@@ -345,11 +357,17 @@
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
+                <button id="toggleOutputSecretsButton" class="button compact" type="button" aria-pressed="false" hidden>
+                  <span>Показать ссылки</span>
+                </button>
                 <button id="checkConfigButton" class="button compact" type="button" disabled>
                   <span class="button-label">Проверить в ядре</span>
                 </button>
-                <button id="copyButton" class="button compact" type="button" disabled>
+                <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML, включая скрытые ссылки" aria-label="Копировать полный YAML, включая скрытые ссылки" disabled>
                   <span class="button-label">Копировать</span>
+                </button>
+                <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+                  <span class="button-label">Скачать YAML</span>
                 </button>
               </div>
             </div>

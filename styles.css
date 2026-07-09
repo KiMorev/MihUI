@@ -370,6 +370,10 @@ h2 {
   overflow-x: auto;
 }
 
+.mobile-flow-actions {
+  display: none;
+}
+
 .section-tab {
   flex: 0 0 auto;
   min-height: 40px;
@@ -594,6 +598,19 @@ h2 {
   opacity: 0.5;
   box-shadow: none;
   transform: none;
+}
+
+.button.primary:disabled,
+.button.primary:disabled:hover {
+  border-color: var(--line);
+  background: var(--panel-soft);
+  color: var(--muted);
+  opacity: 1;
+  box-shadow: none;
+}
+
+.button.primary:disabled span {
+  color: inherit;
 }
 
 .icon-button {
@@ -3274,6 +3291,14 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
+  .review-support-column .changes-panel {
+    order: 1;
+  }
+
+  .review-support-column .connection-settings-panel {
+    order: 2;
+  }
+
   .review-checklist {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3283,7 +3308,7 @@ button.review-check-card:hover {
   }
 
   .rule-row {
-    grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) auto;
   }
 
   .rule-filters {
@@ -3312,6 +3337,61 @@ button.review-check-card:hover {
   .route-flow-arrow {
     min-height: 18px;
   }
+
+  .button,
+  .button.compact,
+  .link-button,
+  .download-warning,
+  .message-action,
+  .file-tools summary,
+  .version-pill:not(:disabled),
+  .ui-links-details summary,
+  .ui-link-item,
+  .section-tab,
+  .subsection-tab,
+  .node-name-button,
+  .node-badge-button,
+  .diagnostic-link,
+  .message-details summary,
+  .route-node-details summary,
+  input:not([type='checkbox']):not([type='radio']):not([type='file']),
+  select,
+  .provider-advanced summary,
+  .switch-row label,
+  .exclude-type-options label,
+  .group-option-list label {
+    min-height: 44px;
+  }
+
+  a.ui-link-main,
+  a.ui-link-github {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .check-cell input {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .icon-button,
+  .rule-row-actions .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .rule-row-actions .button,
+  .group-proxy-order-actions button {
+    width: 44px;
+    min-height: 44px;
+  }
+
+  .node-flag {
+    width: 44px;
+    height: 44px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -3330,6 +3410,29 @@ button.review-check-card:hover {
     justify-content: center;
     min-width: 0;
     padding-inline: 8px;
+  }
+
+  .mobile-flow-actions:not([hidden]) {
+    position: sticky;
+    top: 8px;
+    z-index: 10;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin: 8px 0 12px;
+    padding: 6px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: var(--shadow);
+  }
+
+  .mobile-flow-action {
+    min-width: 0;
+    padding-inline: 6px;
+    font-size: 12px;
+    line-height: 1.15;
+    white-space: normal;
   }
 
   .backup-tools {
@@ -3544,4 +3647,5 @@ button.review-check-card:hover {
   .switch-row {
     grid-template-columns: 1fr;
   }
+
 }

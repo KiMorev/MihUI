@@ -114,8 +114,11 @@ globalThis.__app = {
   generateOutput,
   getExportFileName,
   getDisplayFileName,
+  getMissingConnectionSettings,
+  getOutputPreviewText,
   getRouterSaveState,
   shouldShowRecommendations,
+  maskProviderUrlsInYaml,
   maskSensitiveUrl,
   formatNodeInventoryError,
   summarizeRoutePattern,
@@ -130,6 +133,7 @@ globalThis.__app = {
   parseProviders,
   readConnectionSettings,
   renderChangesJumpButton,
+  renderConfigurationEditorControls,
   renderConnectionSettings,
   renameGroup,
   addRule,
@@ -147,6 +151,7 @@ globalThis.__app = {
   toggleGroupUse,
   updateGroup,
   updateRule,
+  updateProvider,
   updateProviderNameDraft,
 };`,
     context,
@@ -508,6 +513,118 @@ rules:
     assert(changes.includes('В группе Proxy отключена подписка removed.'));
   });
 
+  test(`${source.name}: preserves optional http provider defaults until an explicit action`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,Proxy
+`);
+
+    assert.equal(app.countChanges(app.collectChanges(activeProviders)), 0);
+    app.generateOutput();
+    assert.doesNotMatch(app.state.outputText, /\n    interval:/);
+    assert.doesNotMatch(app.state.outputText, /\n    health-check:/);
+    assert.equal(app.countChanges(app.collectChanges(activeProviders)), 0);
+  });
+
+  test(`${source.name}: preserves explicit empty and false provider fields during other edits`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://example.com/sub
+    filter:
+    path:
+    interval:
+    header:
+      User-Agent:
+    health-check:
+      enable: true
+      url: https://old.example/check
+      interval:
+    override:
+      udp: false
+      tfo: false
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,Proxy
+`);
+    const existing = activeProviders[0];
+
+    app.generateOutput();
+    assert.match(app.state.outputText, /\n    filter:\s*\n/);
+    assert.match(app.state.outputText, /\n    path:\s*\n/);
+    assert.match(app.state.outputText, /\n    interval:\s*\n/);
+    assert.match(app.state.outputText, /\n      User-Agent:\s*\n/);
+    assert.match(app.state.outputText, /\n      udp: false\s*\n/);
+    assert.match(app.state.outputText, /\n      tfo: false\s*\n/);
+
+    existing.excludeFilter = 'slow';
+    existing.hasExcludeFilter = true;
+    app.generateOutput();
+    assert.match(app.state.outputText, /\n    exclude-filter: slow\s*\n/);
+    assert.match(app.state.outputText, /\n    filter:\s*\n/);
+    assert.match(app.state.outputText, /\n    path:\s*\n/);
+    assert.match(app.state.outputText, /\n    interval:\s*\n/);
+    assert.match(app.state.outputText, /\n      User-Agent:\s*\n/);
+    assert.match(app.state.outputText, /\n      udp: false\s*\n/);
+    assert.match(app.state.outputText, /\n      tfo: false\s*\n/);
+
+    existing.healthUrl = 'https://new.example/check';
+    app.generateOutput();
+    assert.match(app.state.outputText, /\n      url: https:\/\/new\.example\/check\s*\n/);
+    assert.match(app.state.outputText, /\n      interval:\s*\n/);
+
+    existing.udp = true;
+    app.generateOutput();
+    assert.match(app.state.outputText, /\n      udp: true\s*\n/);
+    assert.match(app.state.outputText, /\n      tfo: false\s*\n/);
+  });
+
+  test(`${source.name}: restores original field presence when an edit is reverted`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://example.com/sub
+    filter:
+    override:
+      udp: false
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,Proxy
+`);
+    const existing = activeProviders[0];
+
+    app.updateProvider(existing, 'filter', 'RU');
+    app.updateProvider(existing, 'filter', '');
+    app.updateProvider(existing, 'udp', true);
+    app.updateProvider(existing, 'udp', false);
+
+    assert.equal(app.countChanges(app.collectChanges(activeProviders)), 0);
+    assert.match(app.state.outputText, /\n    filter:\s*\n/);
+    assert.match(app.state.outputText, /\n      udp: false\s*\n/);
+  });
+
   test(`${source.name}: reports all editable provider field changes`, () => {
     const app = loadApp(source);
     hydrate(app, `
@@ -589,11 +706,42 @@ rules:
     existing.customHeaders = 'X-Device: new\nAccept-Language: ru-RU';
     app.generateOutput();
 
-    assert.match(app.state.outputText, /      User-Agent: \["OldAgent"\]/);
-    assert.match(app.state.outputText, /      x-hwid: \["OLDHWID"\]/);
+    assert.match(app.state.outputText, /      User-Agent: \[OldAgent\]/);
+    assert.match(app.state.outputText, /      x-hwid: \[OLDHWID\]/);
     assert.match(app.state.outputText, /      X-Device: \["new"\]/);
     assert.match(app.state.outputText, /      Accept-Language: \["ru-RU"\]/);
     assert.doesNotMatch(app.state.outputText, /X-Trace/);
+  });
+
+  test(`${source.name}: preserves siblings in inline provider blocks`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://old.example/sub
+    header: {User-Agent: OldAgent, x-hwid: KEEP, X-Custom: custom}
+    override: {udp: false, tfo: true}
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+    const existing = activeProviders[0];
+    assert.equal(existing.userAgent, 'OldAgent');
+    assert.equal(existing.xHwid, 'KEEP');
+    assert.equal(existing.customHeaders, 'X-Custom: custom');
+    assert.equal(existing.tfo, true);
+
+    existing.userAgent = 'NewAgent';
+    existing.udp = true;
+    app.generateOutput();
+
+    assert.match(app.state.outputText, /header: \{x-hwid: KEEP, X-Custom: custom, User-Agent: \["NewAgent"\]\}/);
+    assert.match(app.state.outputText, /override: \{tfo: true, udp: true\}/);
   });
 
   test(`${source.name}: does not report unchanged provider as added`, () => {
@@ -1242,6 +1390,28 @@ proxy-providers:
     assert.match(app.els.messageBox.textContent, /proxy-groups/);
   });
 
+  test(`${source.name}: prioritizes a recoverable structural error`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-providers:
+  broken:
+    type: http
+    url: https://broken.example/sub
+`);
+
+    const diagnostics = app.collectDiagnostics(activeProviders);
+    assert.deepEqual([...diagnostics], ['Файл: отсутствует обязательный раздел proxy-groups.']);
+    assert.equal(app.getDiagnosticSeverity(diagnostics[0]), 'error');
+    assert.deepEqual({ ...app.getDiagnosticAction(diagnostics[0]) }, {
+      type: 'open-config-file',
+      label: 'Открыть другой файл',
+    });
+    assert.equal(app.getMissingConnectionSettings().length, 0);
+    const providerCount = app.state.providers.length;
+    app.addProvider();
+    assert.equal(app.state.providers.length, providerCount);
+  });
+
   test(`${source.name}: exports configuration with yaml filename`, () => {
     const app = loadApp(source);
 
@@ -1259,23 +1429,92 @@ proxy-providers:
     assert.equal(app.shouldShowRecommendations(2, 'overview'), false);
     assert.equal(app.shouldShowRecommendations(2, 'providers'), true);
 
-    app.state.routerMode = true;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет конфигурации' });
     app.state.originalText = 'same';
     app.state.outputText = 'same';
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Исправьте структуру' });
+    app.state.hasGroupsSection = true;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Перейти к проверке' });
+    app.state.isEditingConfiguration = true;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Завершите редактирование' });
+    app.state.isEditingConfiguration = false;
+
+    app.state.routerMode = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
     app.state.outputText = 'changed';
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
     app.state.changeCount = 1;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить изменения' });
+    app.state.isEditingConfiguration = true;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Завершите редактирование' });
+    app.state.isEditingConfiguration = false;
     app.state.saveReviewReady = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить в ядро' });
+
+    app.state.routerApiAvailable = true;
+    app.state.hasGroupsSection = false;
+    app.renderConfigurationEditorControls();
+    assert.equal(app.els.checkConfigButton.disabled, true);
   });
 
   test(`${source.name}: masks secrets and summarizes route patterns`, () => {
     const app = loadApp(source);
 
     assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), 'https://example.test/sub?••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub#secret'), 'https://example.test/sub#••••');
     assert.equal(app.maskSensitiveUrl('https://example.test/sub'), 'https://example.test/sub');
+    const yaml = `external-url: https://outside.example/path?keep=true
+proxy-providers:
+  secure:
+    type: http
+    url: "https://example.test/sub?token=secret#fragment"
+    health-check:
+      url: https://health.example/check?keep=true
+  block:
+    type: http
+    url: >-
+      https://block.example/sub?token=block-secret
+  escaped:
+    type: http
+    url: "https://escaped.example/sub\\u003Ftoken=escaped-secret"
+  quoted:
+    type: http
+    "url": "https://quoted.example/sub?token=quoted-secret"
+  indented-block:
+    type: http
+    url: >2-
+      https://block-indent.example/sub?token=indent-secret
+  flow: {type: http, url: "https://flow.example/sub?token=flow-secret"}
+proxy-groups:
+  - name: Proxy
+    type: select
+`;
+    const maskedYaml = app.maskProviderUrlsInYaml(yaml);
+    assert.match(maskedYaml, /url: "https:\/\/example\.test\/sub\?••••"/);
+    assert.match(maskedYaml, /external-url: https:\/\/outside\.example\/path\?keep=true/);
+    assert.match(maskedYaml, /url: https:\/\/health\.example\/check\?keep=true/);
+    assert.doesNotMatch(maskedYaml, /block-secret|escaped-secret|quoted-secret|indent-secret|flow-secret/);
+    assert.match(maskedYaml, /  flow: \{type: http, url: "••••"\}/);
+    assert.match(maskedYaml, /    url: "••••"\n      ••••/);
+    assert.equal(app.getOutputPreviewText(yaml), maskedYaml);
+    app.state.outputSecretsRevealed = true;
+    assert.equal(app.getOutputPreviewText(yaml), yaml);
+    const topLevelFlow = 'proxy-providers: {secure: {type: http, url: "https://top.example/sub?token=top-secret"}}\nproxy-groups: []';
+    const maskedTopLevelFlow = app.maskProviderUrlsInYaml(topLevelFlow);
+    assert.doesNotMatch(maskedTopLevelFlow, /top-secret/);
+    assert.match(maskedTopLevelFlow, /secure: \{type: http, url: "••••"\}/);
+    const multilineFlow = `proxy-providers: {
+  inline: {type: http, url: "https://multi.example/sub?token=multi-secret"},
+  nested: {
+    type: http,
+    url: "https://nested.example/sub?token=nested-secret",
+  },
+}
+proxy-groups: []`;
+    const maskedMultilineFlow = app.maskProviderUrlsInYaml(multilineFlow);
+    assert.doesNotMatch(maskedMultilineFlow, /multi-secret|nested-secret/);
+    assert.match(maskedMultilineFlow, /inline: \{type: http, url: "••••"\},/);
+    assert.match(maskedMultilineFlow, /url: "https:\/\/nested\.example\/sub\?••••",/);
     assert.deepEqual([...app.splitRoutePattern('RU\\|EU|NL|DE|FR')], ['RU\\|EU', 'NL', 'DE', 'FR']);
     assert.equal(app.summarizeRoutePattern('RU\\|EU|NL|DE|FR'), 'RU\\|EU · NL · DE · еще 1');
     assert.equal(app.formatNodeInventoryError('HTTP 404'), 'Список нод недоступен в текущем сервисе MihUI.');

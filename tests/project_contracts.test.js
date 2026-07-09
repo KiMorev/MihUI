@@ -13,6 +13,13 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="bulkIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
+    assert.match(html, /id="toggleOutputSecretsButton"[^>]+aria-pressed=/);
+    assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML, включая скрытые ссылки"/);
+    assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML, включая скрытые ссылки"/);
+    assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
+    assert.match(html, /id="addProviderButton"[^>]+aria-label="Добавить подписку"/);
+    assert.match(html, /id="addGroupButton"[^>]+aria-label="Добавить группу"/);
+    assert.match(html, /id="addRuleButton"[^>]+aria-label="Добавить правило"/);
   }
 });
 
@@ -20,6 +27,18 @@ test('main and standalone styles stack backup controls on mobile', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.backup-tools\s*{\s*display: grid;/);
+  }
+});
+
+test('main and standalone styles expose mobile flow actions and touch targets', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
+    assert.match(source, /\.review-support-column \.changes-panel\s*{\s*order: 1;/);
+    assert.match(source, /\.review-support-column \.connection-settings-panel\s*{\s*order: 2;/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.section-tab,[\s\S]+?min-height: 44px;/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.download-warning,[\s\S]+?min-height: 44px;/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.check-cell input\s*{[\s\S]+?width: 44px;/);
   }
 });
 

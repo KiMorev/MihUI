@@ -7,6 +7,7 @@ const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
+const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -355,6 +356,7 @@ const state = {
   },
   recommendationCount: 0,
   changeCount: 0,
+  outputSecretsRevealed: false,
   lastUndo: null,
 };
 
@@ -371,6 +373,7 @@ const els = {
   restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
+  reviewDownloadButton: document.querySelector('#reviewDownloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
@@ -389,6 +392,7 @@ const els = {
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
   checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
+  toggleOutputSecretsButton: document.querySelector('#toggleOutputSecretsButton'),
   mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
@@ -408,6 +412,10 @@ const els = {
   overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
+  mobileFlowActions: document.querySelector('#mobileFlowActions'),
+  mobileChangesButton: document.querySelector('#mobileChangesButton'),
+  mobileReviewButton: document.querySelector('#mobileReviewButton'),
+  mobileDownloadButton: document.querySelector('#mobileDownloadButton'),
   reviewWorkflow: document.querySelector('#reviewWorkflow'),
   reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
   reviewChecklist: document.querySelector('#reviewChecklist'),
@@ -458,6 +466,7 @@ els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.backupSelect.addEventListener('change', renderBackupMeta);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
+els.reviewDownloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
 els.addRuleButton.addEventListener('click', addRule);
@@ -472,9 +481,13 @@ els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
+els.toggleOutputSecretsButton.addEventListener('click', toggleOutputSecrets);
 els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
+els.mobileChangesButton.addEventListener('click', focusChangesPanel);
+els.mobileReviewButton.addEventListener('click', () => setActiveSection('review'));
+els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
 els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
@@ -668,6 +681,14 @@ function resetWorkspaceViewState() {
 
 async function saveRouterConfig() {
   if (!state.outputText) return;
+  if (!state.routerMode) {
+    if (state.changeCount > 0) {
+      focusChangesPanel();
+    } else {
+      setActiveSection('review');
+    }
+    return;
+  }
   const changes = collectChanges(state.providers.filter((provider) => !provider.deleted));
   if (state.outputText !== state.originalText && countChanges(changes) > 0 && !state.saveReviewReady) {
     state.saveReviewReady = true;
@@ -906,12 +927,23 @@ function renderRouterControls() {
 }
 
 function getRouterSaveState() {
+  if (!state.routerMode) {
+    if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
+    if (!state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
+    return {
+      disabled: state.routerBusy || state.isEditingConfiguration,
+      label: state.isEditingConfiguration ? 'Завершите редактирование' : 'Перейти к проверке',
+    };
+  }
+
   const hasUnsavedChanges = Boolean(
     state.changeCount > 0 && state.outputText && state.originalText && state.outputText !== state.originalText,
   );
   return {
-    disabled: state.routerBusy || !state.outputText || !state.routerMode || !hasUnsavedChanges,
-    label: !hasUnsavedChanges
+    disabled: state.routerBusy || state.isEditingConfiguration || !state.outputText || !hasUnsavedChanges,
+    label: state.isEditingConfiguration
+      ? 'Завершите редактирование'
+      : !hasUnsavedChanges
       ? 'Нет изменений'
       : state.saveReviewReady
         ? 'Сохранить в ядро'
@@ -1297,6 +1329,7 @@ function getProviderRequestHeaders(provider) {
 }
 
 function parseAndRender() {
+  state.outputSecretsRevealed = false;
   const lines = splitLines(state.originalText);
   const providersSection = findTopSection(lines, 'proxy-providers');
   const groupsSection = findTopSection(lines, 'proxy-groups');
@@ -1308,7 +1341,10 @@ function parseAndRender() {
   state.connectionSettings = cloneConnectionSettings(state.originalConnectionSettings);
 
   if (!groupsSection) {
-    showMessage('Добавьте раздел proxy-groups на верхнем уровне конфигурации.');
+    showMessage('Добавьте раздел proxy-groups на верхнем уровне конфигурации.', {
+      severity: 'error',
+      actions: [{ label: 'Открыть другой файл', onClick: () => els.fileInput.click() }],
+    });
     state.providers = [];
     state.groups = [];
     state.rules = [];
@@ -1336,7 +1372,7 @@ function parseAndRender() {
   state.originalRules = state.rules.map(snapshotRule);
   syncBulkIntervalInputs();
   hideMessage();
-  generateOutput();
+  setOutputText(state.originalText);
   render();
 }
 
@@ -1356,13 +1392,16 @@ function render() {
   renderSectionTabs();
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
-  els.addProviderButton.disabled = !state.originalText;
-  els.addProviderButton.title = state.originalText ? 'Добавить подписку' : 'Сначала загрузите конфигурацию';
+  els.addProviderButton.disabled = !state.originalText || !state.hasGroupsSection;
+  els.addProviderButton.title = state.originalText && state.hasGroupsSection ? 'Добавить подписку' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.addGroupButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
-  els.intervalToolsButton.disabled = !state.originalText;
+  els.intervalToolsButton.disabled = !state.originalText || !state.hasGroupsSection;
+  els.intervalToolsButton.title = state.originalText && state.hasGroupsSection
+    ? 'Массово изменить интервалы подписок'
+    : 'Сначала загрузите конфигурацию с proxy-groups';
   renderConfigurationEditorControls();
   renderOutputPreview();
 
@@ -1386,6 +1425,7 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
   const errors = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error');
   const warnings = diagnostics.length - errors.length;
   const nodeCount = state.mihomoNodes.length;
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const attentionItems = [];
 
   els.overviewProvidersSummary.textContent = state.originalText
@@ -1403,24 +1443,33 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
           ? `${formatProxyCount(nodeCount)} · live-список Mihomo`
           : 'Mihomo не вернул ноды'
     : 'Доступно при работе через локальный сервис';
-  els.overviewReviewSummary.textContent = `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
+  els.overviewReviewSummary.textContent = hasStructuralError
+    ? 'Сначала исправьте структуру конфигурации'
+    : `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
 
   if (!state.originalText) {
     attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });
-  }
-  if (errors.length > 0) {
-    attentionItems.push({ section: 'routing', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
-  } else if (warnings > 0) {
-    attentionItems.push({ section: 'routing', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
-  }
-  if (missingConnectionCount > 0) {
-    attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
-  }
-  if (changeCount > 0) {
-    attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.' });
-  }
-  if (state.routerApiAvailable && state.nodeInventoryError) {
-    attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError });
+  } else if (hasStructuralError) {
+    attentionItems.push({
+      title: 'Ошибка структуры конфигурации',
+      text: 'Добавьте proxy-groups или откройте другой файл.',
+      onClick: () => els.fileInput.click(),
+    });
+  } else {
+    if (errors.length > 0) {
+      attentionItems.push({ section: 'routing', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
+    } else if (warnings > 0) {
+      attentionItems.push({ section: 'routing', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
+    }
+    if (missingConnectionCount > 0) {
+      attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
+    }
+    if (changeCount > 0) {
+      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.' });
+    }
+    if (state.routerApiAvailable && state.nodeInventoryError) {
+      attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError });
+    }
   }
 
   els.overviewAttentionList.textContent = '';
@@ -1438,8 +1487,8 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     const text = document.createElement('span');
     button.className = 'overview-attention-item';
     button.type = 'button';
-    button.setAttribute('data-section-target', item.section);
-    button.addEventListener('click', () => setActiveSection(item.section));
+    if (item.section) button.setAttribute('data-section-target', item.section);
+    button.addEventListener('click', item.onClick || (() => setActiveSection(item.section)));
     title.textContent = item.title;
     text.textContent = item.text;
     button.append(title, text);
@@ -1453,6 +1502,7 @@ function renderReviewSummary(changes, diagnostics) {
   const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
   const warningCount = diagnostics.length - errorCount;
   const kernelCheck = getKernelCheckSummary();
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
 
   els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
   els.reviewChecklist.textContent = '';
@@ -1461,16 +1511,16 @@ function renderReviewSummary(changes, diagnostics) {
   [
     {
       title: 'Конфигурация',
-      value: state.originalText ? 'загружена' : 'не загружена',
+      value: !state.originalText ? 'не загружена' : hasStructuralError ? 'ошибка структуры' : 'загружена',
       note: state.fileName || 'Файл или вставленный текст',
-      variant: state.originalText ? 'is-ok' : 'is-muted',
+      variant: !state.originalText ? 'is-muted' : hasStructuralError ? 'is-danger' : 'is-ok',
     },
     {
       title: 'Изменения',
       value: formatChangeCount(changeCount),
       note: changeCount > 0 ? 'Проверьте перед сохранением' : 'Diff пустой',
       variant: changeCount > 0 ? 'is-warning' : 'is-ok',
-      action: state.originalText ? focusChangesPanel : null,
+      action: state.originalText && state.hasGroupsSection ? focusChangesPanel : null,
     },
     {
       title: 'Рекомендации',
@@ -1501,6 +1551,9 @@ function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount,
 function getKernelCheckSummary() {
   if (!state.outputText) {
     return { value: 'нет данных', note: 'Итоговый YAML пустой', variant: 'is-muted' };
+  }
+  if (state.originalText && !state.hasGroupsSection) {
+    return { value: 'заблокирована', note: 'Исправьте proxy-groups', variant: 'is-danger' };
   }
   if (!state.routerApiAvailable) {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
@@ -1580,12 +1633,6 @@ function renderDiagnostics(diagnostics) {
     return;
   }
 
-  if (!state.hasGroupsSection) {
-    els.rulesStatus.textContent = 'нет proxy-groups';
-    els.diagnosticsPanel.classList.add('hidden');
-    return;
-  }
-
   if (diagnostics.length === 0) {
     els.rulesStatus.textContent = 'OK';
     els.rulesStatus.classList.add('metric-ok');
@@ -1603,7 +1650,7 @@ function renderDiagnostics(diagnostics) {
   els.rulesStatus.classList.add(errors.length > 0 ? 'metric-danger' : 'metric-warning');
   setRulesMetricActionable(true);
   setDownloadWarning(statusText, severity);
-  title.textContent = 'Проверка связей';
+  title.textContent = state.hasGroupsSection ? 'Проверка связей' : 'Проверка структуры';
   body.className = 'diagnostics-sections';
   getDiagnosticGroups(diagnostics).forEach((group) => {
     const section = document.createElement('section');
@@ -1752,10 +1799,23 @@ function focusConnectionSettingsPanel() {
 
 function renderChangesJumpButton(changes) {
   const count = countChanges(changes);
+  state.changeCount = count;
 
   els.changesJumpButton.hidden = count === 0;
   els.changesJumpButton.disabled = count === 0;
   els.changesJumpButton.textContent = count > 0 ? `Изменения (${count})` : 'Изменения';
+  renderMobileFlowActions();
+}
+
+function renderMobileFlowActions() {
+  const hasValidConfig = Boolean(state.originalText && state.hasGroupsSection);
+  const isEditing = state.isEditingConfiguration;
+  els.mobileFlowActions.hidden = !hasValidConfig;
+  els.mobileChangesButton.disabled = !hasValidConfig || isEditing || state.changeCount === 0;
+  els.mobileChangesButton.querySelector('span').textContent = formatChangeCount(state.changeCount);
+  els.mobileReviewButton.disabled = !hasValidConfig || isEditing;
+  els.mobileDownloadButton.disabled = !hasValidConfig || isEditing || !state.outputText;
+  els.mobileReviewButton.title = isEditing ? 'Завершите редактирование' : 'Перейти к финальной проверке';
 }
 
 function renderRecommendationsJumpButton(count) {
@@ -1797,6 +1857,7 @@ function getDiagnosticGroupTitle(text) {
 }
 
 function getDiagnosticSeverity(text) {
+  if (String(text) === MISSING_GROUPS_DIAGNOSTIC) return 'error';
   if (String(text).startsWith('Rules:')) return 'error';
   if (/^Группа .+?: provider .+ из use не найден\./.test(String(text))) return 'error';
   if (String(text).includes('имя дублируется')) return 'error';
@@ -1819,6 +1880,9 @@ function getDiagnosticTarget(text) {
 
 function getDiagnosticAction(text) {
   const value = String(text || '');
+  if (value === MISSING_GROUPS_DIAGNOSTIC) {
+    return { type: 'open-config-file', label: 'Открыть другой файл' };
+  }
   let match = value.match(/^Группа (.+?): provider (.+?) из use не найден\.$/);
   if (match) {
     return {
@@ -1843,6 +1907,11 @@ function getDiagnosticAction(text) {
 
 function applyDiagnosticFix(action) {
   if (!action) return false;
+
+  if (action.type === 'open-config-file') {
+    els.fileInput.click();
+    return true;
+  }
 
   if (action.type === 'remove-missing-provider-use') {
     const group = findGroupByName(state.groups, action.groupName);
@@ -1928,7 +1997,8 @@ function findDiagnosticTargetElement(target) {
 
 function collectDiagnostics(activeProviders) {
   const diagnostics = [];
-  if (!state.originalText || !state.hasGroupsSection) return diagnostics;
+  if (!state.originalText) return diagnostics;
+  if (!state.hasGroupsSection) return [MISSING_GROUPS_DIAGNOSTIC];
 
   const providerNames = new Set(activeProviders.map((provider) => normalizeLookupName(provider.name)));
   const groupNames = new Set();
@@ -2242,6 +2312,7 @@ function addRecommendedConnectionSettings() {
 }
 
 function getMissingConnectionSettings() {
+  if (!state.originalText || !state.hasGroupsSection) return [];
   return CONNECTION_SETTING_DEFS.filter((definition) => !state.connectionSettings[definition.key]?.exists);
 }
 
@@ -2629,20 +2700,29 @@ function getProviderUseGroupNames(providerName) {
 function snapshotProvider(provider, options = {}) {
   const output = Boolean(options.output);
   const type = String(provider.type || 'http').toLowerCase();
-  const writesUrl = output ? (type === 'http' || provider.hasUrl || hasOutputValue(provider.url)) && hasOutputValue(provider.url) : provider.hasUrl;
-  const writesFilter = output ? hasOutputValue(provider.filter) : provider.hasFilter;
-  const writesExcludeFilter = output ? hasOutputValue(provider.excludeFilter) : provider.hasExcludeFilter;
-  const writesExcludeType = output ? hasOutputValue(provider.excludeType) : provider.hasExcludeType;
-  const writesUserAgent = output ? hasOutputValue(provider.userAgent) : provider.hasUserAgent;
-  const writesXHwid = output ? hasOutputValue(provider.xHwid) : provider.hasXHwid;
-  const writesUdp = output ? provider.udp === true : provider.hasUdp;
-  const writesTfo = output ? provider.tfo === true : provider.hasTfo;
-  const writesPath = output ? (type === 'http' || provider.hasPath || hasOutputValue(provider.path)) && hasOutputValue(provider.path) : provider.hasPath;
-  const writesInterval = output ? type === 'http' || provider.hasInterval : provider.hasInterval;
-  const writesHealthCheck = output ? type === 'http' || provider.hasHealthCheck : provider.hasHealthCheck;
+  const writesUrl = output
+    ? provider.isNew
+      ? (type === 'http' || provider.hasUrl) && hasOutputValue(provider.url)
+      : provider.hasUrl
+    : provider.hasUrl;
+  const writesFilter = output && provider.isNew ? hasOutputValue(provider.filter) : provider.hasFilter;
+  const writesExcludeFilter = output && provider.isNew ? hasOutputValue(provider.excludeFilter) : provider.hasExcludeFilter;
+  const writesExcludeType = output && provider.isNew ? hasOutputValue(provider.excludeType) : provider.hasExcludeType;
+  const writesUserAgent = output && provider.isNew ? hasOutputValue(provider.userAgent) : provider.hasUserAgent;
+  const writesXHwid = output && provider.isNew ? hasOutputValue(provider.xHwid) : provider.hasXHwid;
+  const writesUdp = output && provider.isNew ? provider.udp === true : provider.hasUdp;
+  const writesTfo = output && provider.isNew ? provider.tfo === true : provider.hasTfo;
+  const writesPath = output
+    ? provider.isNew
+      ? (type === 'http' || provider.hasPath) && hasOutputValue(provider.path)
+      : provider.hasPath
+    : provider.hasPath;
+  const writesInterval = output ? provider.isNew || provider.hasInterval : provider.hasInterval;
 
   return {
     name: provider.name || '',
+    hasType: Boolean(provider.isNew || provider.hasType),
+    type: provider.type || '',
     hasUrl: Boolean(writesUrl),
     url: provider.url || '',
     hasFilter: Boolean(writesFilter),
@@ -2664,9 +2744,10 @@ function snapshotProvider(provider, options = {}) {
     path: provider.path || '',
     hasInterval: Boolean(writesInterval),
     interval: provider.interval || '',
-    hasHealthUrl: Boolean(output ? writesHealthCheck : provider.hasHealthUrl),
+    hasHealthCheck: Boolean(provider.isNew || provider.hasHealthCheck),
+    hasHealthUrl: Boolean(output ? provider.isNew || provider.hasHealthUrl : provider.hasHealthUrl),
     healthUrl: provider.healthUrl || '',
-    hasHealthInterval: Boolean(output ? writesHealthCheck : provider.hasHealthInterval),
+    hasHealthInterval: Boolean(output ? provider.isNew || provider.hasHealthInterval : provider.hasHealthInterval),
     healthInterval: provider.healthInterval || '',
   };
 }
@@ -2860,9 +2941,10 @@ function bindProviderUrl(root, provider) {
 
 function maskSensitiveUrl(value) {
   const text = String(value || '');
-  const queryIndex = text.indexOf('?');
-  if (queryIndex === -1) return text;
-  return `${text.slice(0, queryIndex)}?••••`;
+  const sensitiveIndexes = [text.indexOf('?'), text.indexOf('#')].filter((index) => index !== -1);
+  if (sensitiveIndexes.length === 0) return text;
+  const sensitiveIndex = Math.min(...sensitiveIndexes);
+  return `${text.slice(0, sensitiveIndex)}${text[sensitiveIndex]}••••`;
 }
 
 function formatProviderListBadge(provider) {
@@ -5241,12 +5323,14 @@ function createGroupProxyOrderSection(group) {
     upButton.type = 'button';
     upButton.textContent = '↑';
     upButton.title = 'Выше';
+    upButton.setAttribute('aria-label', `Переместить ${name} выше`);
     upButton.disabled = index === 0;
     upButton.addEventListener('click', () => moveGroupProxy(group, index, index - 1));
 
     downButton.type = 'button';
     downButton.textContent = '↓';
     downButton.title = 'Ниже';
+    downButton.setAttribute('aria-label', `Переместить ${name} ниже`);
     downButton.disabled = index === group.proxies.length - 1;
     downButton.addEventListener('click', () => moveGroupProxy(group, index, index + 1));
 
@@ -5397,7 +5481,7 @@ function toggleIntervalTools() {
 }
 
 function renderIntervalTools(activeProviders) {
-  const hasFile = Boolean(state.originalText);
+  const hasFile = Boolean(state.originalText && state.hasGroupsSection);
   const disabled = !hasFile || activeProviders.length === 0;
 
   els.intervalTools.classList.toggle('hidden', !hasFile || !state.intervalToolsOpen);
@@ -5448,6 +5532,8 @@ function applyBulkIntervals() {
       provider.healthInterval = healthInterval;
       provider.hasInterval = true;
       provider.hasHealthCheck = true;
+      provider.hasHealthUrl = true;
+      provider.hasHealthInterval = true;
     });
 
   generateOutput();
@@ -5499,7 +5585,52 @@ function renderBulkIntervalPending(activeProviders) {
 
 function updateProvider(provider, key, value) {
   const previousName = provider.name;
+  const original = state.originalProviders.find(
+    (item) => item.name === provider.originalName || item.name === provider.name,
+  );
   provider[key] = value;
+  const presenceKey = {
+    url: 'hasUrl',
+    filter: 'hasFilter',
+    excludeFilter: 'hasExcludeFilter',
+    excludeType: 'hasExcludeType',
+    userAgent: 'hasUserAgent',
+    xHwid: 'hasXHwid',
+    udp: 'hasUdp',
+    tfo: 'hasTfo',
+    path: 'hasPath',
+    interval: 'hasInterval',
+  }[key];
+  if (presenceKey) {
+    const matchesOriginalValue = original && (
+      key === 'udp' || key === 'tfo'
+        ? Boolean(value) === Boolean(original[key])
+        : String(value ?? '') === String(original[key] ?? '')
+    );
+    provider[presenceKey] = matchesOriginalValue
+      ? Boolean(original[presenceKey])
+      : key === 'udp' || key === 'tfo'
+        ? Boolean(value)
+        : key === 'interval'
+          ? true
+          : hasOutputValue(value);
+  }
+  if (key === 'healthUrl') {
+    const matchesOriginalValue = original && String(value ?? '') === String(original.healthUrl ?? '');
+    provider.hasHealthUrl = matchesOriginalValue ? Boolean(original.hasHealthUrl) : hasOutputValue(value);
+  }
+  if (key === 'healthInterval') {
+    const matchesOriginalValue = original && String(value ?? '') === String(original.healthInterval ?? '');
+    provider.hasHealthInterval = matchesOriginalValue ? Boolean(original.hasHealthInterval) : hasOutputValue(value);
+  }
+  if (key === 'healthUrl' || key === 'healthInterval') {
+    const matchesOriginalHealth = original
+      && Boolean(provider.hasHealthUrl) === Boolean(original.hasHealthUrl)
+      && String(provider.healthUrl ?? '') === String(original.healthUrl ?? '')
+      && Boolean(provider.hasHealthInterval) === Boolean(original.hasHealthInterval)
+      && String(provider.healthInterval ?? '') === String(original.healthInterval ?? '');
+    provider.hasHealthCheck = matchesOriginalHealth ? Boolean(original.hasHealthCheck) : true;
+  }
   if (key === 'url' && provider.autoName) {
     const changed = applyGeneratedProviderName(provider, value, previousName);
     if (changed) {
@@ -5613,6 +5744,8 @@ function undoLastRemoval() {
 }
 
 function addProvider() {
+  if (!state.originalText || !state.hasGroupsSection) return;
+
   let index = state.providers.length + 1;
   let name = `subscription-${index}`;
   while (state.providers.some((provider) => provider.name === name && !provider.deleted)) {
@@ -5647,6 +5780,8 @@ function addProvider() {
     hasPath: true,
     hasInterval: true,
     hasHealthCheck: true,
+    hasHealthUrl: true,
+    hasHealthInterval: true,
     rawLines: [],
     isNew: true,
     autoName: true,
@@ -5891,8 +6026,111 @@ function renderOutputOnly() {
 function renderOutputPreview() {
   if (!state.isEditingConfiguration) {
     els.outputPreview.value = state.outputText;
-    renderYamlPreview(state.outputText);
+    renderYamlPreview(getOutputPreviewText(state.outputText));
   }
+}
+
+function getOutputPreviewText(text) {
+  const value = String(text || '');
+  return state.outputSecretsRevealed ? value : maskProviderUrlsInYaml(value);
+}
+
+function maskProviderUrlsInYaml(text) {
+  let inProvidersSection = false;
+  let inProvidersFlowMap = false;
+  let providerUrlBlockIndent = -1;
+  return splitLines(text)
+    .map((line) => {
+      const topLevelEntry = parseTopLevelKeyValueLine(line);
+      if (topLevelEntry) {
+        inProvidersSection = topLevelEntry.key === 'proxy-providers';
+        const sectionValue = String(topLevelEntry.value || '').trim();
+        inProvidersFlowMap = inProvidersSection && sectionValue.startsWith('{') && !sectionValue.endsWith('}');
+        providerUrlBlockIndent = -1;
+        const inlineProviders = inProvidersSection ? parseInlineMap(topLevelEntry.value) : null;
+        const hasInlineProviderUrl = inlineProviders && [...inlineProviders.values()]
+          .some((value) => parseInlineMap(value)?.has('url'));
+        if (hasInlineProviderUrl) {
+          const providers = [...inlineProviders.entries()].map(([name, value]) => {
+            const provider = parseInlineMap(value);
+            return `${formatKey(name)}: ${provider?.has('url') ? formatMaskedInlineProvider(provider) : value}`;
+          });
+          return `proxy-providers: {${providers.join(', ')}}`;
+        }
+      }
+      if (!inProvidersSection) return line;
+      if (inProvidersFlowMap && indentOf(line) === 0 && /^}\s*,?\s*$/.test(line.trim())) {
+        inProvidersFlowMap = false;
+        return line;
+      }
+
+      if (providerUrlBlockIndent !== -1) {
+        if (!line.trim()) return line;
+        if (indentOf(line) > providerUrlBlockIndent) {
+          const indent = line.match(/^\s*/)?.[0] || '';
+          return `${indent}••••`;
+        }
+        providerUrlBlockIndent = -1;
+      }
+
+      const providerEntry = parseKeyValueLine(line, 2);
+      const providerValue = String(providerEntry?.value || '').trim();
+      const hasFlowComma = providerValue.endsWith(',');
+      const inlineProvider = parseInlineMap(hasFlowComma ? providerValue.slice(0, -1).trimEnd() : providerValue);
+      if (providerEntry && inlineProvider?.has('url')) {
+        return `  ${formatKey(providerEntry.key)}: ${formatMaskedInlineProvider(inlineProvider)}${hasFlowComma ? ',' : ''}`;
+      }
+
+      const urlEntry = parseKeyValueLine(line, 4);
+      if (urlEntry?.key !== 'url') return line;
+      if (/^[>|](?:(?:[+-][1-9]?)|(?:[1-9][+-]?))?\s*(?:#.*)?$/.test(urlEntry.value)) {
+        providerUrlBlockIndent = 4;
+        return '    url: "••••"';
+      }
+      return maskProviderUrlLine(line);
+    })
+    .join('\n');
+}
+
+function formatMaskedInlineProvider(provider) {
+  const entries = [...provider.entries()].map(([key, value]) => (
+    `${formatKey(key)}: ${key === 'url' ? '"••••"' : value}`
+  ));
+  return `{${entries.join(', ')}}`;
+}
+
+function maskProviderUrlLine(line) {
+  const match = String(line || '').match(/^( {4}(?:url|"url"|'url')\s*:\s*)(.*)$/);
+  if (!match) return line;
+
+  const split = splitYamlHighlightComment(match[2]);
+  const leading = (split.body.match(/^\s*/) || [''])[0];
+  const bodyWithoutLeading = split.body.slice(leading.length);
+  const hasFlowComma = /,\s*$/.test(bodyWithoutLeading);
+  const bodyWithoutComma = hasFlowComma ? bodyWithoutLeading.replace(/,\s*$/, '') : bodyWithoutLeading;
+  const trailing = (bodyWithoutComma.match(/\s*$/) || [''])[0];
+  const scalar = bodyWithoutComma.trim();
+  if (!scalar) return line;
+
+  const quote = scalar.length > 1 && scalar[0] === scalar[scalar.length - 1] && /['"]/.test(scalar[0]) ? scalar[0] : '';
+  const rawValue = quote ? scalar.slice(1, -1) : scalar;
+  const hasEscapedSensitiveDelimiter = /\\(?:u003f|u0023|x3f|x23)|%(?:3f|23)/i.test(rawValue);
+  const maskedValue = hasEscapedSensitiveDelimiter ? '••••' : maskSensitiveUrl(rawValue);
+  if (maskedValue === rawValue) return line;
+
+  const nextScalar = quote ? `${quote}${maskedValue}${quote}` : maskedValue;
+  return `${match[1]}${leading}${nextScalar}${trailing}${hasFlowComma ? ',' : ''}${split.comment}`;
+}
+
+function hasSensitiveProviderUrlsInYaml(text) {
+  const value = splitLines(text).join('\n');
+  return maskProviderUrlsInYaml(value) !== value;
+}
+
+function toggleOutputSecrets() {
+  state.outputSecretsRevealed = !state.outputSecretsRevealed;
+  renderOutputPreview();
+  renderConfigurationEditorControls();
 }
 
 function renderYamlPreview(text) {
@@ -6026,6 +6264,7 @@ function renderChangesOnly() {
 
 function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
+  const canRevealSecrets = !isEditing && hasSensitiveProviderUrlsInYaml(state.outputText);
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
   if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
@@ -6033,13 +6272,22 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
-  els.checkConfigButton.disabled = isEditing || !state.routerApiAvailable || !state.outputText;
-  els.checkConfigButton.title = state.routerApiAvailable
-    ? 'Проверить текущий текст конфига через mihomo -t'
-    : 'Доступно только в MihUI на роутере рядом с Mihomo';
+  els.checkConfigButton.disabled = isEditing || !state.hasGroupsSection || !state.routerApiAvailable || !state.outputText;
+  els.checkConfigButton.title = !state.hasGroupsSection
+    ? 'Сначала исправьте структуру конфигурации'
+    : state.routerApiAvailable
+      ? 'Проверить текущий текст конфига через mihomo -t'
+      : 'Доступно только в MihUI на роутере рядом с Mihomo';
   els.downloadButton.disabled = isEditing || !state.outputText;
+  els.reviewDownloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
+  els.toggleOutputSecretsButton.hidden = !canRevealSecrets;
+  els.toggleOutputSecretsButton.disabled = !canRevealSecrets;
+  els.toggleOutputSecretsButton.setAttribute('aria-pressed', String(canRevealSecrets && state.outputSecretsRevealed));
+  els.toggleOutputSecretsButton.querySelector('span').textContent = state.outputSecretsRevealed ? 'Скрыть ссылки' : 'Показать ссылки';
   els.changesJumpButton.disabled = !state.originalText;
+  renderMobileFlowActions();
+  renderRouterControls();
 }
 
 function beginConfigurationEdit() {
@@ -6239,26 +6487,67 @@ function serializeProvider(provider) {
   }
 
   const lines = provider.rawLines.slice();
+  const original = state.originalProviders.find(
+    (item) => item.name === provider.originalName || item.name === provider.name,
+  );
+  const current = snapshotProvider(provider, { output: true });
+  const changed = (...keys) => !original || keys.some((key) => current[key] !== original[key]);
   if (provider.name !== provider.originalName) {
     lines[0] = `  ${formatKey(provider.name)}:`;
   }
 
-  const type = String(provider.type || 'http').toLowerCase();
-  const writesUrl = type === 'http' || provider.hasUrl || String(provider.url || '').trim();
-  const writesPath = type === 'http' || provider.hasPath || String(provider.path || '').trim();
-  const writesInterval = type === 'http' || provider.hasInterval;
-  const writesHealthCheck = type === 'http' || provider.hasHealthCheck;
+  if (changed('hasType', 'type')) {
+    setOptionalNestedScalar(lines, 1, 'type', current.hasType ? provider.type || 'http' : '');
+  }
+  if (changed('hasUrl', 'url')) {
+    setOptionalNestedScalar(lines, 1, 'url', current.hasUrl ? provider.url : '');
+  }
+  if (changed('hasFilter', 'filter')) {
+    setOptionalNestedScalar(lines, 1, 'filter', current.hasFilter ? provider.filter : '');
+  }
+  if (changed('hasExcludeFilter', 'excludeFilter')) {
+    setOptionalNestedScalar(lines, 1, 'exclude-filter', current.hasExcludeFilter ? provider.excludeFilter : '');
+  }
+  if (changed('hasExcludeType', 'excludeType')) {
+    setOptionalNestedScalar(lines, 1, 'exclude-type', current.hasExcludeType ? provider.excludeType : '');
+  }
+  if (changed('hasPath', 'path')) {
+    setOptionalNestedScalar(lines, 1, 'path', current.hasPath ? provider.path : '');
+  }
+  if (changed('hasInterval', 'interval')) {
+    setOptionalNestedScalar(lines, 1, 'interval', current.hasInterval ? provider.interval || '86400' : '');
+  }
 
-  setNestedScalar(lines, 1, 'type', provider.type || 'http');
-  if (writesUrl) setOptionalNestedScalar(lines, 1, 'url', provider.url);
-  setOptionalNestedScalar(lines, 1, 'filter', provider.filter);
-  setOptionalNestedScalar(lines, 1, 'exclude-filter', provider.excludeFilter);
-  setOptionalNestedScalar(lines, 1, 'exclude-type', provider.excludeType);
-  if (writesPath) setOptionalNestedScalar(lines, 1, 'path', provider.path);
-  if (writesInterval) setNestedScalar(lines, 1, 'interval', provider.interval || '86400');
-  setHeader(lines, provider);
-  if (writesHealthCheck) setHealthCheck(lines, provider);
-  setOverride(lines, provider);
+  const headerKeys = [];
+  if (changed('hasUserAgent', 'userAgent')) headerKeys.push('User-Agent');
+  if (changed('hasXHwid', 'xHwid')) headerKeys.push('x-hwid');
+  if (changed('customHeaders')) {
+    headerKeys.push(
+      ...(provider.customHeaderKeys || []),
+      ...parseCustomHeaderText(provider.customHeaders).map((entry) => entry.key),
+    );
+  }
+  if (headerKeys.length > 0) setHeader(lines, provider, [...new Set(headerKeys)]);
+
+  const healthKeys = [];
+  if (changed('hasHealthUrl', 'healthUrl')) healthKeys.push('url');
+  if (changed('hasHealthInterval', 'healthInterval')) healthKeys.push('interval');
+  if (changed('hasHealthCheck')) {
+    if (!current.hasHealthCheck) {
+      const block = findNestedBlock(lines, 'health-check', 4);
+      if (block) lines.splice(block.start, block.end - block.start);
+    } else {
+      healthKeys.push('url', 'interval');
+    }
+  }
+  if (current.hasHealthCheck && healthKeys.length > 0) {
+    setHealthCheck(lines, provider, [...new Set(healthKeys)]);
+  }
+
+  const overrideKeys = [];
+  if (changed('hasUdp', 'udp')) overrideKeys.push('udp');
+  if (changed('hasTfo', 'tfo')) overrideKeys.push('tfo');
+  if (overrideKeys.length > 0) setOverride(lines, provider, overrideKeys);
   return lines;
 }
 
@@ -6515,15 +6804,27 @@ function setOptionalNestedScalar(lines, baseIndentLevel, key, value) {
   }
 }
 
-function setHeader(lines, provider) {
-  setKeyedBlock(lines, 'header', getHeaderEntries(provider), getManagedHeaderKeys(provider));
+function setHeader(lines, provider, managedKeys = getManagedHeaderKeys(provider)) {
+  const keys = new Set(managedKeys);
+  setKeyedBlock(
+    lines,
+    'header',
+    getHeaderEntries(provider).filter((entry) => keys.has(entry.key)),
+    managedKeys,
+  );
 }
 
-function setOverride(lines, provider) {
-  setKeyedBlock(lines, 'override', [
-    { key: 'udp', value: provider.udp, format: formatBooleanValue },
-    { key: 'tfo', value: provider.tfo, format: formatBooleanValue },
-  ]);
+function setOverride(lines, provider, managedKeys = ['udp', 'tfo']) {
+  const keys = new Set(managedKeys);
+  setKeyedBlock(
+    lines,
+    'override',
+    [
+      { key: 'udp', value: provider.udp, format: formatBooleanValue },
+      { key: 'tfo', value: provider.tfo, format: formatBooleanValue },
+    ].filter((entry) => keys.has(entry.key)),
+    managedKeys,
+  );
 }
 
 function setKeyedBlock(lines, blockKey, entries, managedKeysOverride) {
@@ -6534,6 +6835,23 @@ function setKeyedBlock(lines, blockKey, entries, managedKeysOverride) {
   if (!block) {
     if (activeEntries.length > 0) {
       lines.push(...serializeKeyedBlock(blockKey, [], activeEntries));
+    }
+    return;
+  }
+
+  const blockEntry = parseKeyValueLine(lines[block.start], 4);
+  const inlineMap = parseInlineMap(blockEntry?.value);
+  if (inlineMap) {
+    const nextEntries = [...inlineMap.entries()].filter(([key]) => !managedKeys.has(key));
+    activeEntries.forEach((entry) => nextEntries.push([entry.key, entry.format(entry.value)]));
+    if (nextEntries.length === 0) {
+      lines.splice(block.start, block.end - block.start);
+    } else {
+      lines.splice(
+        block.start,
+        block.end - block.start,
+        `    ${blockKey}: {${nextEntries.map(([key, value]) => `${formatKey(key)}: ${value}`).join(', ')}}`,
+      );
     }
     return;
   }
@@ -6618,14 +6936,19 @@ function appendOverride(lines, provider) {
   }
 }
 
-function setHealthCheck(lines, provider) {
+function setHealthCheck(lines, provider, managedKeys = ['url', 'interval']) {
+  const keys = new Set(managedKeys);
   const block = findNestedBlock(lines, 'health-check', 4);
   const defaultHealthCheckBlock = [
     '    health-check:',
     '      enable: true',
-    `      url: ${formatScalar(provider.healthUrl || DEFAULT_HEALTH_URL)}`,
-    `      interval: ${formatScalar(provider.healthInterval || '300')}`,
   ];
+  if (keys.has('url') && provider.hasHealthUrl) {
+    defaultHealthCheckBlock.push(`      url: ${formatScalar(provider.healthUrl || DEFAULT_HEALTH_URL)}`);
+  }
+  if (keys.has('interval') && provider.hasHealthInterval) {
+    defaultHealthCheckBlock.push(`      interval: ${formatScalar(provider.healthInterval || '300')}`);
+  }
 
   if (!block) {
     lines.push(...defaultHealthCheckBlock);
@@ -6637,21 +6960,27 @@ function setHealthCheck(lines, provider) {
   if (entry?.value && !inlineMap) return;
 
   if (inlineMap) {
-    const managedKeys = new Set(['enable', 'url', 'interval']);
-    const preservedEntries = [...inlineMap.entries()].filter(([key]) => !managedKeys.has(key));
+    const preservedEntries = [...inlineMap.entries()].filter(([key]) => !keys.has(key));
     lines.splice(block.start, block.end - block.start, ...[
       '    health-check:',
-      `      enable: ${formatScalar(cleanScalar(inlineMap.get('enable') || 'true'))}`,
-      `      url: ${formatScalar(provider.healthUrl || cleanScalar(inlineMap.get('url')) || DEFAULT_HEALTH_URL)}`,
-      `      interval: ${formatScalar(provider.healthInterval || cleanScalar(inlineMap.get('interval')) || '300')}`,
-      ...preservedEntries.map(([key, value]) => `      ${key}: ${formatScalar(cleanScalar(value))}`),
+      ...preservedEntries.map(([key, value]) => `      ${key}: ${value}`),
+      ...(keys.has('url') && provider.hasHealthUrl
+        ? [`      url: ${formatScalar(provider.healthUrl || DEFAULT_HEALTH_URL)}`]
+        : []),
+      ...(keys.has('interval') && provider.hasHealthInterval
+        ? [`      interval: ${formatScalar(provider.healthInterval || '300')}`]
+        : []),
     ]);
     return;
   }
 
   const healthLines = lines.slice(block.start, block.end);
-  setNestedScalar(healthLines, 2, 'url', provider.healthUrl || DEFAULT_HEALTH_URL);
-  setNestedScalar(healthLines, 2, 'interval', provider.healthInterval || '300');
+  if (keys.has('url')) {
+    setOptionalNestedScalar(healthLines, 2, 'url', provider.hasHealthUrl ? provider.healthUrl || DEFAULT_HEALTH_URL : '');
+  }
+  if (keys.has('interval')) {
+    setOptionalNestedScalar(healthLines, 2, 'interval', provider.hasHealthInterval ? provider.healthInterval || '300' : '');
+  }
   lines.splice(block.start, block.end - block.start, ...healthLines);
 }
 
@@ -6694,6 +7023,7 @@ function parseProviders(lines, section) {
       interval: readScalar(rawLines, 4, 'interval') || '86400',
       healthUrl: readHealthScalar(rawLines, 'url') || DEFAULT_HEALTH_URL,
       healthInterval: readHealthScalar(rawLines, 'interval') || '300',
+      hasType: hasNestedKey(rawLines, 1, 'type'),
       hasUrl: hasNestedKey(rawLines, 1, 'url'),
       hasFilter: hasNestedKey(rawLines, 1, 'filter'),
       hasExcludeFilter: hasNestedKey(rawLines, 1, 'exclude-filter'),
@@ -6911,6 +7241,10 @@ function readBlockScalar(lines, blockKey, key, cleaner = cleanScalar) {
   const block = findNestedBlock(lines, blockKey, 4);
   if (!block) return '';
 
+  const blockEntry = parseKeyValueLine(lines[block.start], 4);
+  const inlineMap = parseInlineMap(blockEntry?.value);
+  if (inlineMap?.has(key)) return cleaner(inlineMap.get(key));
+
   for (let index = block.start + 1; index < block.end; index += 1) {
     const entry = parseKeyValueLine(lines[index], 6);
     if (entry?.key === key) {
@@ -6933,6 +7267,14 @@ function readBlockScalar(lines, blockKey, key, cleaner = cleanScalar) {
 function readCustomHeaderEntries(lines) {
   const block = findNestedBlock(lines, 'header', 4);
   if (!block) return [];
+
+  const blockEntry = parseKeyValueLine(lines[block.start], 4);
+  const inlineMap = parseInlineMap(blockEntry?.value);
+  if (inlineMap) {
+    return [...inlineMap.entries()]
+      .filter(([key]) => !FIXED_HEADER_KEYS.has(key))
+      .map(([key, value]) => ({ key, value: cleanListScalar(value) }));
+  }
 
   const entries = [];
   for (let index = block.start + 1; index < block.end; index += 1) {
