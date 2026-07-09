@@ -22,7 +22,7 @@
             <span>Открыть конфиг</span>
           </button>
           <button id="routerSaveButton" class="button primary" type="button" disabled>
-            <span>Сохранить в ядро</span>
+            <span>Нет изменений</span>
           </button>
           <details class="file-tools">
             <summary>Файл</summary>
@@ -58,7 +58,7 @@
         <button class="section-tab" type="button" data-section="settings" aria-pressed="false">Настройки</button>
       </nav>
 
-      <section id="messageBox" class="message hidden"></section>
+      <section id="messageBox" class="message hidden" aria-live="polite"></section>
 
       <section class="app-section is-active" data-section-panel="overview">
         <section class="status-grid" aria-live="polite">
@@ -119,7 +119,16 @@
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
-        <section class="panel providers-panel">
+        <div class="subsection-tabs" role="tablist" aria-label="Режим подписок">
+          <button id="providersEditorTab" class="subsection-tab is-active" type="button" role="tab" data-provider-view="editor" aria-controls="providersEditorPanel" aria-selected="true">
+            Подписки
+          </button>
+          <button id="providerRelationsTab" class="subsection-tab" type="button" role="tab" data-provider-view="relations" aria-controls="providerRelationsPanel" aria-selected="false">
+            Связи с группами
+          </button>
+        </div>
+
+        <section id="providersEditorPanel" class="panel providers-panel" role="tabpanel" aria-labelledby="providersEditorTab" data-provider-view-panel="editor">
           <div class="panel-head">
             <h2>Подписки (proxy-providers)</h2>
             <div class="panel-actions">
@@ -178,7 +187,7 @@
           </div>
         </section>
 
-        <section class="panel groups-panel">
+        <section id="providerRelationsPanel" class="panel groups-panel" role="tabpanel" aria-labelledby="providerRelationsTab" data-provider-view-panel="relations" hidden>
           <div class="panel-head">
             <h2>Группы и подписки</h2>
             <div class="panel-actions">
@@ -198,7 +207,16 @@
 
       <section class="app-section routing-section" data-section-panel="routing" hidden>
         <section class="groups-column">
-          <section class="panel group-order-panel">
+          <div class="subsection-tabs" role="tablist" aria-label="Режим маршрутизации">
+            <button id="routingMapTab" class="subsection-tab is-active" type="button" role="tab" data-routing-view="map" aria-controls="routingMapPanel" aria-selected="true">
+              Схема
+            </button>
+            <button id="routingRulesTab" class="subsection-tab" type="button" role="tab" data-routing-view="rules" aria-controls="routingRulesPanel" aria-selected="false">
+              Правила <span id="rulesViewCount" aria-hidden="true">0</span>
+            </button>
+          </div>
+
+          <section id="routingMapPanel" class="panel group-order-panel" role="tabpanel" aria-labelledby="routingMapTab" data-routing-view-panel="map">
             <div class="panel-head">
               <h2>Схема маршрутизации</h2>
             </div>
@@ -210,7 +228,7 @@
             </div>
           </section>
 
-          <section class="panel rules-panel">
+          <section id="routingRulesPanel" class="panel rules-panel" role="tabpanel" aria-labelledby="routingRulesTab" data-routing-view-panel="rules" hidden>
             <div class="panel-head">
               <h2>Правила (rules)</h2>
               <div class="panel-actions">
@@ -218,6 +236,25 @@
                   +
                 </button>
               </div>
+            </div>
+            <div class="rule-filters" aria-label="Фильтры правил">
+              <label>
+                <span>Поиск</span>
+                <input id="ruleSearchInput" type="search" placeholder="Условие или цель" autocomplete="off" />
+              </label>
+              <label>
+                <span>Тип</span>
+                <select id="ruleTypeFilter">
+                  <option value="">Все типы</option>
+                </select>
+              </label>
+              <label>
+                <span>Цель</span>
+                <select id="ruleTargetFilter">
+                  <option value="">Все цели</option>
+                </select>
+              </label>
+              <span id="rulesFilterSummary" class="rule-filter-summary" aria-live="polite"></span>
             </div>
             <div id="rulesEditorList" class="rules-editor-list empty-state">
               <div class="empty-state-content">
@@ -227,7 +264,7 @@
             </div>
           </section>
 
-          <section id="diagnosticsPanel" class="panel diagnostics-panel hidden" aria-live="polite"></section>
+          <section id="diagnosticsPanel" class="panel diagnostics-panel hidden" data-routing-view-panel="rules" aria-live="polite"></section>
         </section>
       </section>
 
@@ -378,7 +415,7 @@
             <button class="button compact provider-update-button" type="button" hidden>
               <span class="button-label">Обновить</span>
             </button>
-            <button class="icon-button danger remove-provider" type="button" title="Удалить подписку">×</button>
+            <button class="button compact danger remove-provider" type="button" title="Удалить подписку">Удалить</button>
           </div>
         </div>
         <div class="provider-runtime-status" hidden></div>

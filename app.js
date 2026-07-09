@@ -312,6 +312,7 @@ const state = {
   mihomoGroupSelections: [],
   nodeInventoryLoading: false,
   nodeInventoryError: '',
+  nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
   nodeFilters: {
     search: '',
@@ -345,6 +346,16 @@ const state = {
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
   activeSection: 'overview',
+  providerView: 'editor',
+  routingView: 'map',
+  ruleFilters: {
+    search: '',
+    type: '',
+    target: '',
+  },
+  recommendationCount: 0,
+  changeCount: 0,
+  lastUndo: null,
 };
 
 let happBrowserDecryptorPromise = null;
@@ -423,6 +434,15 @@ const els = {
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
   providersList: document.querySelector('#providersList'),
+  providerViewTabs: document.querySelectorAll('[data-provider-view]'),
+  providerViewPanels: document.querySelectorAll('[data-provider-view-panel]'),
+  routingViewTabs: document.querySelectorAll('[data-routing-view]'),
+  routingViewPanels: document.querySelectorAll('[data-routing-view-panel]'),
+  rulesViewCount: document.querySelector('#rulesViewCount'),
+  ruleSearchInput: document.querySelector('#ruleSearchInput'),
+  ruleTypeFilter: document.querySelector('#ruleTypeFilter'),
+  ruleTargetFilter: document.querySelector('#ruleTargetFilter'),
+  rulesFilterSummary: document.querySelector('#rulesFilterSummary'),
   groupOrderList: document.querySelector('#groupOrderList'),
   rulesEditorList: document.querySelector('#rulesEditorList'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
@@ -468,6 +488,17 @@ els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+els.providerViewTabs.forEach((button) => {
+  button.addEventListener('click', () => setProviderView(button.dataset.providerView));
+  button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.providerViewTabs, 'providerView', setProviderView));
+});
+els.routingViewTabs.forEach((button) => {
+  button.addEventListener('click', () => setRoutingView(button.dataset.routingView));
+  button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.routingViewTabs, 'routingView', setRoutingView));
+});
+els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
+els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
+els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
 renderHappDecoderSettings();
 initRouterMode();
 
@@ -493,6 +524,62 @@ function renderSectionTabs() {
     panel.hidden = !isActive;
     panel.classList.toggle('is-active', isActive);
   });
+
+  renderProviderView();
+  renderRoutingView();
+  els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
+}
+
+function setProviderView(view) {
+  if (!['editor', 'relations'].includes(view)) return;
+  state.providerView = view;
+  renderProviderView();
+}
+
+function renderProviderView() {
+  els.providerViewTabs.forEach((button) => {
+    const isActive = button.dataset.providerView === state.providerView;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
+  });
+  els.providerViewPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.providerViewPanel !== state.providerView;
+  });
+}
+
+function setRoutingView(view) {
+  if (!['map', 'rules'].includes(view)) return;
+  state.routingView = view;
+  renderRoutingView();
+}
+
+function renderRoutingView() {
+  els.routingViewTabs.forEach((button) => {
+    const isActive = button.dataset.routingView === state.routingView;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+    button.tabIndex = isActive ? 0 : -1;
+  });
+  els.routingViewPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.routingViewPanel !== state.routingView;
+  });
+}
+
+function handleSubsectionTabKeydown(event, tabs, dataKey, setView) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  const items = [...tabs];
+  const currentIndex = items.indexOf(event.currentTarget);
+  if (currentIndex === -1) return;
+  event.preventDefault();
+  let nextIndex = currentIndex;
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + items.length) % items.length;
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % items.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = items.length - 1;
+  const next = items[nextIndex];
+  setView(next.dataset[dataKey]);
+  next.focus();
 }
 
 function handleFileSelect(event) {
@@ -507,10 +594,12 @@ function handleFileSelect(event) {
     state.mihomoNodes = [];
     state.mihomoGroupSelections = [];
     state.nodeInventoryError = '';
+    state.nodeInventoryErrorDetail = '';
     state.nodeGroupSelectionsError = '';
     state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    resetWorkspaceViewState();
     state.fileName = file.name;
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
@@ -545,17 +634,36 @@ async function loadRouterConfig(options = {}) {
     state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
-    if (!options.silent) showMessage(`Открыт конфиг: ${state.routerConfigPath}`);
+    if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
-    if (!options.silent) showMessage(`Не удалось открыть конфиг роутера: ${error?.message || error}`);
-    renderRouterControls();
+    if (!options.silent) {
+      const detail = error?.message || String(error);
+      showMessage('Не удалось получить конфигурацию с роутера.', {
+        severity: 'error',
+        details: detail,
+        actions: [
+          { label: 'Повторить', onClick: () => loadRouterConfig({ silent: false }) },
+          { label: 'Открыть файл', onClick: () => els.fileInput.click() },
+        ],
+      });
+    }
+    renderBackups([]);
+    render();
   } finally {
     setRouterBusy(false, 'Открыть конфиг');
   }
+}
+
+function resetWorkspaceViewState() {
+  state.providerView = 'editor';
+  state.routingView = 'map';
+  state.ruleFilters = { search: '', type: '', target: '' };
+  state.lastUndo = null;
 }
 
 async function saveRouterConfig() {
@@ -593,12 +701,12 @@ async function saveRouterConfig() {
     await loadNodeInventory({ silent: true });
 
     if (data.reload?.ok) {
-      showMessage('Конфиг сохранен, Mihomo перезагружен.');
+      showMessage('Конфиг сохранен, Mihomo перезагружен.', { severity: 'success' });
     } else {
       showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
     }
   } catch (error) {
-    showMessage(`Не удалось сохранить конфиг: ${error?.message || error}`);
+    showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
   } finally {
     setRouterBusy(false, 'Открыть конфиг');
   }
@@ -784,16 +892,31 @@ async function fetchMihuiUpdateCheck() {
 
 function renderRouterControls() {
   const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
+  const saveState = getRouterSaveState();
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
-  els.routerSaveButton.disabled = state.routerBusy || !state.outputText || !state.routerMode;
+  els.routerSaveButton.disabled = saveState.disabled;
   const saveLabel = els.routerSaveButton.querySelector('span');
-  if (saveLabel) saveLabel.textContent = state.saveReviewReady ? 'Сохранить после просмотра' : 'Сохранить в ядро';
+  if (saveLabel) saveLabel.textContent = saveState.label;
   els.providerStatusRefreshButton.disabled = !state.routerApiAvailable || state.providerStatusLoading || !hasActiveProviders;
   els.providerStatusRefreshButton.title = state.routerApiAvailable
     ? 'Получить статусы подписок из Mihomo API'
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const statusLabel = els.providerStatusRefreshButton.querySelector('span');
   if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Загрузка...' : 'Статусы';
+}
+
+function getRouterSaveState() {
+  const hasUnsavedChanges = Boolean(
+    state.changeCount > 0 && state.outputText && state.originalText && state.outputText !== state.originalText,
+  );
+  return {
+    disabled: state.routerBusy || !state.outputText || !state.routerMode || !hasUnsavedChanges,
+    label: !hasUnsavedChanges
+      ? 'Нет изменений'
+      : state.saveReviewReady
+        ? 'Сохранить в ядро'
+        : 'Проверить изменения',
+  };
 }
 
 function renderBackups(backups) {
@@ -1010,6 +1133,7 @@ async function loadNodeInventory(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
   state.nodeInventoryLoading = true;
   state.nodeInventoryError = '';
+  state.nodeInventoryErrorDetail = '';
   state.nodeGroupSelectionsError = '';
   renderNodeInventory();
 
@@ -1021,13 +1145,27 @@ async function loadNodeInventory(options = {}) {
   } catch (error) {
     state.mihomoNodes = [];
     state.mihomoGroupSelections = [];
-    state.nodeInventoryError = error?.message || String(error);
+    state.nodeInventoryErrorDetail = error?.message || String(error);
+    state.nodeInventoryError = formatNodeInventoryError(state.nodeInventoryErrorDetail);
     state.nodeGroupSelectionsError = state.nodeInventoryError;
-    if (!options.silent) showMessage(`Не удалось получить ноды Mihomo: ${state.nodeInventoryError}`);
+    if (!options.silent) {
+      showMessage(state.nodeInventoryError, {
+        severity: 'error',
+        details: state.nodeInventoryErrorDetail,
+        actions: [{ label: 'Повторить', onClick: () => loadNodeInventory({ silent: false }) }],
+      });
+    }
   } finally {
     state.nodeInventoryLoading = false;
     render();
   }
+}
+
+function formatNodeInventoryError(detail) {
+  const text = String(detail || '');
+  if (/HTTP\s+404/i.test(text)) return 'Список нод недоступен в текущем сервисе MihUI.';
+  if (/failed to fetch|network|connection|ECONN/i.test(text)) return 'Не удалось связаться с Mihomo.';
+  return 'Mihomo не ответил на запрос списка нод.';
 }
 
 function handleNodeFilterChange() {
@@ -1207,9 +1345,12 @@ function render() {
   const groupsWithUse = state.groups.filter((group) => group.useStart !== -1);
   const changes = collectChanges(activeProviders);
   const diagnostics = collectDiagnostics(activeProviders);
+  state.changeCount = countChanges(changes);
 
   syncSelectedProvider(activeProviders);
-  els.fileMeta.textContent = state.fileName || 'Конфигурация не загружена';
+  const fileLabel = getDisplayFileName(state.fileName);
+  els.fileMeta.textContent = fileLabel || 'Конфигурация не загружена';
+  els.fileMeta.title = state.fileName || '';
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
   renderSectionTabs();
@@ -1254,7 +1395,13 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     ? `${formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')} · ${formatRouteCount(groupsWithUse.length, 'use-группа', 'use-группы', 'use-групп')}`
     : 'Схема появится после загрузки';
   els.overviewNodesSummary.textContent = state.routerApiAvailable
-    ? (nodeCount > 0 ? `${formatProxyCount(nodeCount)} · live-список Mihomo` : 'Mihomo пока не вернул ноды')
+    ? state.nodeInventoryLoading
+      ? 'Mihomo загружает список нод'
+      : state.nodeInventoryError
+        ? state.nodeInventoryError
+        : nodeCount > 0
+          ? `${formatProxyCount(nodeCount)} · live-список Mihomo`
+          : 'Mihomo не вернул ноды'
     : 'Доступно при работе через локальный сервис';
   els.overviewReviewSummary.textContent = `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
 
@@ -1569,6 +1716,7 @@ function handleRulesMetricKeydown(event) {
 
 function focusDiagnosticsPanel() {
   setActiveSection('routing', { scroll: false });
+  setRoutingView('rules');
   if (els.diagnosticsPanel.classList.contains('hidden')) return;
 
   els.diagnosticsPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1611,9 +1759,18 @@ function renderChangesJumpButton(changes) {
 }
 
 function renderRecommendationsJumpButton(count) {
-  els.recommendationsJumpButton.hidden = count === 0;
+  state.recommendationCount = count;
+  els.recommendationsJumpButton.hidden = !shouldShowRecommendations(count, state.activeSection);
   els.recommendationsJumpButton.disabled = count === 0;
   els.recommendationsJumpButton.textContent = count > 0 ? `Рекомендации (${count})` : 'Рекомендации';
+}
+
+function shouldShowRecommendations(count, activeSection) {
+  return count > 0 && activeSection !== 'overview';
+}
+
+function getDisplayFileName(fileName) {
+  return String(fileName || '').split(/[\\/]/).filter(Boolean).pop() || '';
 }
 
 function getDiagnosticGroups(diagnostics) {
@@ -1716,11 +1873,28 @@ function applyDiagnosticFix(action) {
 
 function focusDiagnosticTarget(target) {
   if (target.type === 'provider') {
+    setActiveSection('providers', { scroll: false });
+    setProviderView('editor');
     const provider = state.providers.find((item) => !item.deleted && item.name === target.name);
     if (provider && state.selectedProviderName !== provider.name) {
       state.selectedProviderName = provider.name;
       render();
     }
+  }
+
+  if (target.type === 'groups') {
+    setActiveSection('providers', { scroll: false });
+    setProviderView('relations');
+  }
+
+  if (target.type === 'group') {
+    setActiveSection('routing', { scroll: false });
+    setRoutingView('map');
+  }
+
+  if (target.type === 'rules') {
+    setActiveSection('routing', { scroll: false });
+    setRoutingView('rules');
   }
 
   const element = findDiagnosticTargetElement(target);
@@ -2593,10 +2767,15 @@ function createProviderListItem(provider, index, isSelected) {
   button.classList.toggle('is-selected', isSelected);
   button.type = 'button';
   button.setAttribute('aria-pressed', String(isSelected));
+  button.setAttribute(
+    'aria-label',
+    `Подписка ${index + 1}: ${provider.name || 'Без названия'}. ${formatProviderListMeta(provider)}. ${formatProviderListBadge(provider)}.`,
+  );
   number.className = 'provider-list-number';
   number.textContent = String(index + 1);
   body.className = 'provider-list-body';
   title.textContent = provider.name || 'Без названия';
+  title.title = provider.name || 'Без названия';
   meta.className = 'provider-list-meta';
   meta.textContent = formatProviderListMeta(provider);
   status.className = 'provider-list-status';
@@ -2622,7 +2801,7 @@ function createProviderEditor(provider, index) {
   row.querySelector('.provider-card-title').textContent = provider.name || 'Без названия';
   row.querySelector('.provider-card-new').hidden = !provider.isNew;
   renderProviderRuntimeStatus(row, provider);
-  bindInput(row, '.provider-url', provider.url, (value) => updateProvider(provider, 'url', value));
+  bindProviderUrl(row, provider);
   bindHappDecodeButton(row, provider);
   bindProviderName(row, provider);
   bindInput(row, '.provider-filter', provider.filter, (value) => updateProvider(provider, 'filter', value));
@@ -2640,7 +2819,9 @@ function createProviderEditor(provider, index) {
   bindInput(row, '.provider-health-url', provider.healthUrl, (value) => updateProvider(provider, 'healthUrl', value));
   bindInput(row, '.provider-health-interval', provider.healthInterval, (value) => updateProvider(provider, 'healthInterval', value));
   bindProviderUpdateButton(row, provider);
-  row.querySelector('.remove-provider').addEventListener('click', () => removeProvider(provider));
+  const removeButton = row.querySelector('.remove-provider');
+  removeButton.setAttribute('aria-label', `Удалить подписку ${provider.name || 'без названия'}`);
+  removeButton.addEventListener('click', () => removeProvider(provider));
   return row;
 }
 
@@ -2652,8 +2833,36 @@ function formatProviderListMeta(provider) {
   const status = getProviderStatus(provider.name);
   if (state.providerStatusLoading) return 'Статусы загружаются';
   if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${formatProxyCount(status.proxyCount)} · ${formatProviderUpdatedAt(status.updatedAt) || 'время неизвестно'}`;
-  if (state.routerApiAvailable) return 'Статус неизвестен';
+  if (state.routerApiAvailable) return 'Статус не получен';
   return provider.url ? 'URL' : 'Нет ссылки';
+}
+
+function bindProviderUrl(root, provider) {
+  const input = root.querySelector('.provider-url');
+  const showFullValue = () => {
+    input.type = 'url';
+    input.value = provider.url || '';
+    input.classList.remove('is-masked');
+  };
+  const showMaskedValue = () => {
+    const masked = maskSensitiveUrl(provider.url);
+    input.type = 'text';
+    input.value = masked;
+    input.classList.toggle('is-masked', masked !== provider.url);
+  };
+
+  input.type = 'text';
+  showMaskedValue();
+  input.addEventListener('focus', showFullValue);
+  input.addEventListener('input', () => updateProvider(provider, 'url', input.value));
+  input.addEventListener('blur', showMaskedValue);
+}
+
+function maskSensitiveUrl(value) {
+  const text = String(value || '');
+  const queryIndex = text.indexOf('?');
+  if (queryIndex === -1) return text;
+  return `${text.slice(0, queryIndex)}?••••`;
 }
 
 function formatProviderListBadge(provider) {
@@ -2781,6 +2990,12 @@ function renderNodeInventory() {
   if (state.nodeInventoryError) {
     els.nodeInventoryList.classList.add('empty-state');
     setEmptyState(els.nodeInventoryList, 'Ноды недоступны', state.nodeInventoryError);
+    const retry = document.createElement('button');
+    retry.className = 'button compact';
+    retry.type = 'button';
+    retry.textContent = 'Повторить';
+    retry.addEventListener('click', () => loadNodeInventory({ silent: false }));
+    els.nodeInventoryList.querySelector('.empty-state-content')?.append(retry);
     return;
   }
 
@@ -3676,6 +3891,17 @@ function renderRulesEditor() {
   if (!els.rulesEditorList) return;
 
   const activeRules = getActiveRules();
+  const visibleRules = activeRules.filter(matchesRuleFilters);
+  const typeOptions = [...new Set(activeRules.map((rule) => normalizeRuleType(rule.type)).filter(Boolean))].sort(compareText);
+  const targetOptions = [...new Set(activeRules.map((rule) => String(rule.target || '').trim()).filter(Boolean))].sort(compareText);
+
+  replaceRuleFilterOptions(els.ruleTypeFilter, 'Все типы', typeOptions, state.ruleFilters.type);
+  replaceRuleFilterOptions(els.ruleTargetFilter, 'Все цели', targetOptions, state.ruleFilters.target);
+  els.ruleSearchInput.value = state.ruleFilters.search;
+  els.rulesViewCount.textContent = String(activeRules.length);
+  const rulesViewTab = [...els.routingViewTabs].find((button) => button.dataset.routingView === 'rules');
+  if (rulesViewTab) rulesViewTab.setAttribute('aria-label', `Правила, ${activeRules.length}`);
+  els.rulesFilterSummary.textContent = `Показано ${visibleRules.length} из ${activeRules.length}`;
   els.rulesEditorList.innerHTML = '';
   els.rulesEditorList.classList.toggle('empty-state', !state.originalText || activeRules.length === 0);
 
@@ -3689,9 +3915,54 @@ function renderRulesEditor() {
     return;
   }
 
-  activeRules.forEach((rule, index) => {
+  if (visibleRules.length === 0) {
+    els.rulesEditorList.classList.add('empty-state');
+    setEmptyState(els.rulesEditorList, 'Правила не найдены', 'Измените поиск или фильтры. Порядок YAML не изменен.');
+    return;
+  }
+
+  els.rulesEditorList.classList.remove('empty-state');
+  visibleRules.forEach((rule) => {
+    const index = activeRules.indexOf(rule);
     els.rulesEditorList.append(createRuleEditorRow(rule, index, activeRules.length));
   });
+}
+
+function handleRuleFilterChange() {
+  state.ruleFilters.search = els.ruleSearchInput.value || '';
+  state.ruleFilters.type = els.ruleTypeFilter.value || '';
+  state.ruleFilters.target = els.ruleTargetFilter.value || '';
+  renderRulesEditor();
+}
+
+function matchesRuleFilters(rule) {
+  const query = String(state.ruleFilters.search || '').trim().toLocaleLowerCase('ru-RU');
+  const type = normalizeRuleType(rule.type);
+  const target = String(rule.target || '').trim();
+
+  if (state.ruleFilters.type && type !== state.ruleFilters.type) return false;
+  if (state.ruleFilters.target && target !== state.ruleFilters.target) return false;
+  if (!query) return true;
+  return [type, rule.value, target].join(' ').toLocaleLowerCase('ru-RU').includes(query);
+}
+
+function replaceRuleFilterOptions(select, allLabel, values, selected) {
+  select.textContent = '';
+  const allOption = document.createElement('option');
+  allOption.value = '';
+  allOption.textContent = allLabel;
+  select.append(allOption);
+  values.forEach((value) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  });
+  select.value = values.includes(selected) ? selected : '';
+  if (select.value !== selected) {
+    if (select === els.ruleTypeFilter) state.ruleFilters.type = '';
+    if (select === els.ruleTargetFilter) state.ruleFilters.target = '';
+  }
 }
 
 function createRuleEditorRow(rule, index, count) {
@@ -3738,6 +4009,7 @@ function createRuleEditorRow(rule, index, count) {
   valueInput.value = rule.value || '';
   valueInput.placeholder = getRuleValuePlaceholder(type);
   valueInput.addEventListener('input', () => updateRule(rule, 'value', valueInput.value, { partial: true }));
+  valueInput.addEventListener('change', () => updateRule(rule, 'value', valueInput.value));
   valueLabel.hidden = !ruleRequiresValue(type);
   valueLabel.append(valueTitle, valueInput);
 
@@ -3754,6 +4026,7 @@ function createRuleEditorRow(rule, index, count) {
   });
   targetInput.setAttribute('list', targetOptions.id);
   targetInput.addEventListener('input', () => updateRule(rule, 'target', targetInput.value, { partial: true }));
+  targetInput.addEventListener('change', () => updateRule(rule, 'target', targetInput.value));
   targetLabel.append(targetTitle, targetInput, targetOptions);
 
   actions.className = 'rule-row-actions';
@@ -3761,17 +4034,20 @@ function createRuleEditorRow(rule, index, count) {
   upButton.type = 'button';
   upButton.textContent = '↑';
   upButton.title = 'Поднять правило';
+  upButton.setAttribute('aria-label', `Поднять правило ${index + 1}`);
   upButton.disabled = index === 0;
   upButton.addEventListener('click', () => moveRule(rule, -1));
   downButton.className = 'button compact';
   downButton.type = 'button';
   downButton.textContent = '↓';
   downButton.title = 'Опустить правило';
+  downButton.setAttribute('aria-label', `Опустить правило ${index + 1}`);
   downButton.disabled = index === count - 1;
   downButton.addEventListener('click', () => moveRule(rule, 1));
   removeButton.className = 'icon-button danger';
   removeButton.type = 'button';
   removeButton.title = 'Удалить правило';
+  removeButton.setAttribute('aria-label', `Удалить правило ${index + 1}`);
   removeButton.textContent = '×';
   removeButton.addEventListener('click', () => removeRule(rule));
   actions.append(upButton, downButton, removeButton);
@@ -3852,9 +4128,14 @@ function addRule() {
 }
 
 function removeRule(rule) {
+  state.lastUndo = {
+    type: 'rule',
+    rule,
+  };
   rule.deleted = true;
   generateOutput();
   render();
+  showUndoMessage(`Правило ${formatRuleSummary(rule)} будет удалено.`);
 }
 
 function moveRule(rule, direction) {
@@ -3881,7 +4162,7 @@ function normalizeRuleType(value) {
 
 function ruleRequiresValue(type) {
   const normalized = normalizeRuleType(type);
-  return normalized !== 'MATCH' && RULE_TYPE_OPTIONS.includes(normalized);
+  return normalized !== 'MATCH';
 }
 
 function renderMainGroup(groups, activeProviders) {
@@ -4120,14 +4401,20 @@ function buildRouteNodeModel(target, groups, activeProviders, visited = new Set(
 
   const provider = activeProviders.find((item) => item.name.toLowerCase() === name.toLowerCase());
   if (provider) {
-    return createRouteLeaf('provider', provider.name, provider.type || 'подписка', describeRouteProvider(provider));
+    return createRouteLeaf(
+      'provider',
+      provider.name,
+      provider.type || 'подписка',
+      describeRouteProvider(provider),
+      describeRouteProviderDetails(provider),
+    );
   }
 
   return createRouteLeaf('external', name, 'внешний узел', 'Имя есть в маршруте, но не найдено среди групп и подписок редактора.');
 }
 
-function createRouteLeaf(kind, title, badge, description) {
-  return { kind, title, badge, description, children: [], omittedCount: 0 };
+function createRouteLeaf(kind, title, badge, description, details = '') {
+  return { kind, title, badge, description, details, children: [], omittedCount: 0 };
 }
 
 function getBuiltInRouteKind(name) {
@@ -4198,9 +4485,45 @@ function describeRouteGroupSource(source, count) {
 
 function describeRouteProvider(provider) {
   const parts = [`Подписка поставляет узлы для группы.`];
-  if (provider.filter) parts.push(`Фильтр: ${provider.filter}.`);
-  if (provider.excludeFilter) parts.push(`Исключения: ${provider.excludeFilter}.`);
+  if (provider.filter) parts.push(`Фильтр: ${summarizeRoutePattern(provider.filter)}.`);
+  if (provider.excludeFilter) parts.push(`Исключения: ${summarizeRoutePattern(provider.excludeFilter)}.`);
   return parts.join(' ');
+}
+
+function describeRouteProviderDetails(provider) {
+  const hasTruncatedPattern = [provider.filter, provider.excludeFilter]
+    .some((value) => splitRoutePattern(value).length > 3);
+  if (!hasTruncatedPattern) return '';
+  const parts = [];
+  if (provider.filter) parts.push(`Полный фильтр: ${provider.filter}.`);
+  if (provider.excludeFilter) parts.push(`Полные исключения: ${provider.excludeFilter}.`);
+  return parts.join(' ');
+}
+
+function summarizeRoutePattern(value, limit = 3) {
+  const items = splitRoutePattern(value);
+  if (items.length <= limit) return items.join(' · ');
+  return `${items.slice(0, limit).join(' · ')} · еще ${items.length - limit}`;
+}
+
+function splitRoutePattern(value) {
+  const items = [];
+  let current = '';
+  let escaped = false;
+
+  for (const char of String(value || '')) {
+    if (char === '|' && !escaped) {
+      if (current.trim()) items.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+    escaped = char === '\\' && !escaped;
+    if (char !== '\\') escaped = false;
+  }
+
+  if (current.trim()) items.push(current.trim());
+  return items;
 }
 
 function createRouteFlowArrow() {
@@ -4238,10 +4561,21 @@ function createRouteNodeCard(node) {
   card.className = `route-node is-${node.kind}`;
   head.className = 'route-node-head';
   title.textContent = node.title;
+  title.title = node.title;
   badge.textContent = node.badge;
   text.textContent = node.description;
   head.append(title, badge);
   card.append(head, text);
+  if (node.details && node.details !== node.description) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const fullText = document.createElement('p');
+    details.className = 'route-node-details';
+    summary.textContent = 'Подробнее';
+    fullText.textContent = node.details;
+    details.append(summary, fullText);
+    card.append(details);
+  }
   return card;
 }
 
@@ -5224,6 +5558,14 @@ function replaceProviderUse(previousName, nextName) {
 }
 
 function removeProvider(provider) {
+  state.lastUndo = {
+    type: 'provider',
+    provider,
+    selectedProviderName: state.selectedProviderName,
+    groupUses: state.groups
+      .map((group) => ({ group, index: group.use.indexOf(provider.name) }))
+      .filter((entry) => entry.index !== -1),
+  };
   provider.deleted = true;
   if (state.selectedProviderName === provider.name) state.selectedProviderName = '';
   state.groups.forEach((group) => {
@@ -5231,6 +5573,43 @@ function removeProvider(provider) {
   });
   generateOutput();
   render();
+  showUndoMessage(`Подписка ${provider.name} будет удалена.`);
+}
+
+function showUndoMessage(text) {
+  showMessage(text, {
+    actions: [{ label: 'Отменить', onClick: undoLastRemoval }],
+  });
+}
+
+function undoLastRemoval() {
+  const undo = state.lastUndo;
+  if (!undo) return;
+
+  if (undo.type === 'provider') {
+    const hasNameCollision = state.providers.some(
+      (provider) => provider !== undo.provider && !provider.deleted && provider.name === undo.provider.name,
+    );
+    if (hasNameCollision) {
+      showMessage(`Нельзя восстановить подписку ${undo.provider.name}: имя уже занято.`, { severity: 'error' });
+      return;
+    }
+    undo.provider.deleted = false;
+    undo.groupUses.forEach(({ group, index }) => {
+      if (group.use.includes(undo.provider.name)) return;
+      group.use.splice(Math.min(index, group.use.length), 0, undo.provider.name);
+    });
+    state.selectedProviderName = undo.selectedProviderName || undo.provider.name;
+  }
+
+  if (undo.type === 'rule') {
+    undo.rule.deleted = false;
+  }
+
+  state.lastUndo = null;
+  generateOutput();
+  render();
+  showMessage('Удаление отменено.', { severity: 'success' });
 }
 
 function addProvider() {
@@ -5498,8 +5877,10 @@ function getConnectionSettingsInsertIndex(providersSection, groupsSection) {
 function renderOutputOnly() {
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const changes = collectChanges(activeProviders);
+  state.changeCount = countChanges(changes);
   renderOutputPreview();
   renderConfigurationEditorControls();
+  renderRouterControls();
   const diagnostics = collectDiagnostics(activeProviders);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
@@ -6873,8 +7254,15 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function showMessage(text, link) {
+function showMessage(text, options = {}) {
+  const normalized = options?.href ? { link: options } : options || {};
+  const severity = normalized.severity || 'warning';
+
   els.messageBox.textContent = text;
+  els.messageBox.className = `message is-${severity}`;
+  els.messageBox.setAttribute('role', severity === 'error' ? 'alert' : 'status');
+
+  const link = normalized.link;
   if (link?.href && link?.label) {
     const anchor = document.createElement('a');
     anchor.href = link.href;
@@ -6882,6 +7270,31 @@ function showMessage(text, link) {
     anchor.rel = 'noopener noreferrer';
     anchor.textContent = link.label;
     els.messageBox.append(' ', anchor);
+  }
+
+  if (Array.isArray(normalized.actions) && normalized.actions.length > 0) {
+    const actions = document.createElement('span');
+    actions.className = 'message-actions';
+    normalized.actions.forEach((action) => {
+      const button = document.createElement('button');
+      button.className = 'message-action';
+      button.type = 'button';
+      button.textContent = action.label;
+      button.addEventListener('click', action.onClick);
+      actions.append(button);
+    });
+    els.messageBox.append(actions);
+  }
+
+  if (normalized.details) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const body = document.createElement('div');
+    details.className = 'message-details';
+    summary.textContent = 'Технические подробности';
+    body.textContent = normalized.details;
+    details.append(summary, body);
+    els.messageBox.append(details);
   }
   els.messageBox.classList.remove('hidden');
 }

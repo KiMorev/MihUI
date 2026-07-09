@@ -201,6 +201,7 @@ h2 {
 #fileMeta {
   display: inline-flex;
   align-items: center;
+  max-width: min(100%, 560px);
   min-height: 24px;
   margin-top: 7px;
   padding: 2px 9px;
@@ -209,6 +210,9 @@ h2 {
   background: var(--panel);
   color: var(--muted);
   font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {
@@ -368,7 +372,7 @@ h2 {
 
 .section-tab {
   flex: 0 0 auto;
-  min-height: 34px;
+  min-height: 40px;
   padding: 0 12px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -394,6 +398,45 @@ h2 {
   color: var(--accent-dark);
 }
 
+.subsection-tabs {
+  display: inline-flex;
+  justify-self: start;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.subsection-tab {
+  min-height: 40px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.subsection-tab.is-active {
+  border-color: rgba(8, 124, 128, 0.22);
+  background: #e9f7f8;
+  color: var(--accent-dark);
+}
+
+.subsection-tab span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(22, 32, 51, 0.08);
+  font-size: 12px;
+}
+
 .app-section {
   display: grid;
   gap: 16px;
@@ -406,7 +449,7 @@ h2 {
 
 .overview-workflow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -514,6 +557,10 @@ h2 {
   padding-inline: 10px;
 }
 
+.button.compact.danger {
+  min-height: 40px;
+}
+
 .button.is-loading::before {
   width: 14px;
   height: 14px;
@@ -565,7 +612,18 @@ h2 {
   color: var(--danger);
 }
 
+.button.danger {
+  border-color: #d89a96;
+  background: #fff2f1;
+  color: var(--danger);
+}
+
 .icon-button.danger:hover {
+  border-color: var(--danger);
+  background: #ffe5e2;
+}
+
+.button.danger:hover {
   border-color: var(--danger);
   background: #ffe5e2;
 }
@@ -707,6 +765,47 @@ input[type='file'] {
   border-radius: 8px;
   background: #fff8df;
   color: var(--warning);
+}
+
+.message.is-error {
+  border-color: #ebb0a8;
+  background: #fff5f3;
+  color: var(--danger);
+}
+
+.message.is-success {
+  border-color: rgba(19, 115, 51, 0.28);
+  background: #f2fbf5;
+  color: var(--success);
+}
+
+.message-actions {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
+.message-action {
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.74);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.message-details {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-details summary {
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .message a {
@@ -1440,7 +1539,7 @@ input[type='file'] {
 }
 
 .providers-list.providers-workbench {
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 0;
   padding: 0;
 }
@@ -1518,9 +1617,16 @@ input[type='file'] {
   white-space: nowrap;
 }
 
+.provider-url.is-masked {
+  color: var(--muted);
+}
+
 .provider-list-meta {
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .provider-list-status {
@@ -1532,6 +1638,7 @@ input[type='file'] {
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 .provider-list-status.is-live {
@@ -1918,8 +2025,8 @@ select:focus,
 textarea:focus,
 button:focus-visible,
 .button:focus-visible {
-  outline: 3px solid rgba(11, 127, 135, 0.22);
-  outline-offset: 1px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 input.is-invalid {
@@ -2193,6 +2300,49 @@ input.is-invalid {
   padding: 10px;
 }
 
+.rule-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.rule-filters label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.rule-filters label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.rule-filters input,
+.rule-filters select {
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+
+.rule-filter-summary {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .rules-editor-list.empty-state {
   min-height: 150px;
 }
@@ -2263,8 +2413,14 @@ input.is-invalid {
 }
 
 .rule-row-actions .button {
-  width: 34px;
+  width: 40px;
+  min-height: 40px;
   padding: 0;
+}
+
+.rule-row-actions .icon-button {
+  width: 40px;
+  height: 40px;
 }
 
 .route-map {
@@ -2409,6 +2565,22 @@ input.is-invalid {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.35;
+}
+
+.route-node-details {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.route-node-details summary {
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.route-node-details p {
+  margin-top: 5px;
 }
 
 .route-node.is-rule {
@@ -3029,7 +3201,7 @@ button.review-check-card:hover {
   .actions {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
   }
 
@@ -3114,6 +3286,14 @@ button.review-check-card:hover {
     grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr) auto;
   }
 
+  .rule-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rule-filter-summary {
+    grid-column: 1 / -1;
+  }
+
   .rule-target-field {
     grid-column: 2 / 4;
   }
@@ -3166,6 +3346,17 @@ button.review-check-card:hover {
   .overview-attention-list,
   .review-checklist {
     grid-template-columns: 1fr;
+  }
+
+  .subsection-tabs {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .subsection-tab {
+    min-width: 0;
+    padding-inline: 8px;
   }
 
   .panel-actions {
@@ -3221,6 +3412,14 @@ button.review-check-card:hover {
 
   .rule-row {
     grid-template-columns: 1fr;
+  }
+
+  .rule-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-filter-summary {
+    grid-column: auto;
   }
 
   .rule-target-field,

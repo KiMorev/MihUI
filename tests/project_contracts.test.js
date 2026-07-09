@@ -23,6 +23,14 @@ test('main and standalone styles stack backup controls on mobile', () => {
   }
 });
 
+test('standalone editor exactly mirrors the main html, styles and script', () => {
+  const expected = read('index.html')
+    .replace('    <link rel="stylesheet" href="./styles.css" />', () => `    <style>\n${read('styles.css')}\n    </style>`)
+    .replace('    <script src="./app.js"></script>', () => `    <script>\n${read('app.js')}\n    </script>`);
+
+  assert.equal(read('mihomo-editor.html'), expected);
+});
+
 test('installer and updater require checksum and path validation before extraction', () => {
   for (const name of ['router/install.sh', 'router/cgi-bin/mihui-update']) {
     const script = read(name);

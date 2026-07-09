@@ -113,6 +113,15 @@ globalThis.__app = {
   getDiagnosticAction,
   generateOutput,
   getExportFileName,
+  getDisplayFileName,
+  getRouterSaveState,
+  shouldShowRecommendations,
+  maskSensitiveUrl,
+  formatNodeInventoryError,
+  summarizeRoutePattern,
+  splitRoutePattern,
+  matchesRuleFilters,
+  ruleRequiresValue,
   getRuleScenarios,
   getGroupUsage,
   getProviderIntervalDefaults,
@@ -126,6 +135,8 @@ globalThis.__app = {
   addRule,
   moveRule,
   removeRule,
+  removeProvider,
+  undoLastRemoval,
   snapshotGroup,
   snapshotRule,
   snapshotProvider,
@@ -1238,5 +1249,90 @@ proxy-providers:
     assert.equal(app.getExportFileName('profile.yml'), 'profile.yml');
     assert.equal(app.getExportFileName('router config'), 'router config.yaml');
     assert.equal(app.getExportFileName(''), 'mihomo-config.yaml');
+  });
+
+  test(`${source.name}: formats header and save states`, () => {
+    const app = loadApp(source);
+
+    assert.equal(app.getDisplayFileName('C:\\Users\\test\\config.yaml'), 'config.yaml');
+    assert.equal(app.getDisplayFileName('/opt/etc/mihomo/config.yaml'), 'config.yaml');
+    assert.equal(app.shouldShowRecommendations(2, 'overview'), false);
+    assert.equal(app.shouldShowRecommendations(2, 'providers'), true);
+
+    app.state.routerMode = true;
+    app.state.originalText = 'same';
+    app.state.outputText = 'same';
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
+    app.state.outputText = 'changed';
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
+    app.state.changeCount = 1;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить изменения' });
+    app.state.saveReviewReady = true;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить в ядро' });
+  });
+
+  test(`${source.name}: masks secrets and summarizes route patterns`, () => {
+    const app = loadApp(source);
+
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), 'https://example.test/sub?••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub'), 'https://example.test/sub');
+    assert.deepEqual([...app.splitRoutePattern('RU\\|EU|NL|DE|FR')], ['RU\\|EU', 'NL', 'DE', 'FR']);
+    assert.equal(app.summarizeRoutePattern('RU\\|EU|NL|DE|FR'), 'RU\\|EU · NL · DE · еще 1');
+    assert.equal(app.formatNodeInventoryError('HTTP 404'), 'Список нод недоступен в текущем сервисе MihUI.');
+    assert.equal(app.formatNodeInventoryError('Failed to fetch'), 'Не удалось связаться с Mihomo.');
+  });
+
+  test(`${source.name}: filters rules without changing yaml`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - DOMAIN-SUFFIX,example.com,Proxy
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - MATCH,Proxy
+`);
+    const outputBefore = app.state.outputText;
+    app.state.ruleFilters = { search: 'example', type: 'DOMAIN-SUFFIX', target: 'Proxy' };
+    const visible = app.state.rules.filter(app.matchesRuleFilters);
+
+    assert.equal(visible.length, 1);
+    assert.equal(visible[0].value, 'example.com');
+    assert.equal(app.state.outputText, outputBefore);
+    assert.equal(app.ruleRequiresValue('DOMAIN'), true);
+    assert.equal(app.ruleRequiresValue('RULE-SET'), true);
+    assert.equal(app.ruleRequiresValue('MATCH'), false);
+  });
+
+  test(`${source.name}: undo restores only the removed provider link`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  one:
+    type: http
+    url: https://one.example/sub
+  two:
+    type: http
+    url: https://two.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - one
+      - two
+rules:
+  - MATCH,Proxy
+`);
+    const provider = app.state.providers.find((item) => item.name === 'one');
+
+    app.removeProvider(provider);
+    app.state.groups[0].use.push('later-change');
+    app.undoLastRemoval();
+
+    assert.equal(provider.deleted, false);
+    assert.deepEqual([...app.state.groups[0].use], ['one', 'two', 'later-change']);
   });
 }
