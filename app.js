@@ -4,6 +4,8 @@ const DEFAULT_BULK_INTERVAL = '86400';
 const DEFAULT_BULK_HEALTH_INTERVAL = '300';
 const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
+const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
+const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
 const CONNECTION_SETTING_DEFS = [
   {
@@ -226,6 +228,7 @@ const NODE_FLAG_PATTERNS = {
   KR: { type: 'kr' },
   KZ: { type: 'kz' },
   LT: { type: 'h', colors: ['#fdb913', '#006a44', '#c1272d'] },
+  LV: { type: 'h', colors: ['#9e3039', '#fff', '#9e3039'] },
   MD: { type: 'md' },
   MX: { type: 'mx' },
   MY: { type: 'my' },
@@ -343,6 +346,8 @@ const state = {
   mihuiUpdateReconnects: 0,
   activeSection: 'overview',
 };
+
+let happBrowserDecryptorPromise = null;
 
 const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
@@ -1057,32 +1062,90 @@ async function updateProviderNow(provider) {
 }
 
 async function decodeHappProvider(provider) {
-  if (!provider?.url || !state.routerApiAvailable || typeof fetch !== 'function') return;
+  if (!provider?.url || typeof fetch !== 'function') return;
   state.happDecodeProviderName = provider.name;
   render();
 
   try {
-    const data = await apiJson('/api/happ/decode', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
-    });
+    const data = await decodeHappProviderUrl(provider);
     const previousName = provider.name;
     provider.url = data.decryptedUrl || provider.url;
     provider.hasUrl = true;
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
     generateOutput();
     render();
-    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована и заменена на прямой URL.`);
+    const sourceLabel = data.source === 'browser-decryptor' ? 'локально в браузере' : 'через серверный fallback';
+    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована ${sourceLabel} и заменена на прямой URL.`);
   } catch (error) {
     showMessage(
       `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
-      { href: 'https://happy-decoder.cc', label: 'Happy Decoder' },
+      { href: 'https://leeeet.dev/happ-decryptor/', label: 'Happ decryptor' },
     );
   } finally {
     state.happDecodeProviderName = '';
     render();
   }
+}
+
+async function decodeHappProviderUrl(provider) {
+  const errors = [];
+  if (canUseBrowserHappDecryptor()) {
+    try {
+      return await decodeHappProviderUrlInBrowser(provider.url);
+    } catch (error) {
+      errors.push(`browser decryptor: ${error?.message || error}`);
+    }
+  }
+
+  if (state.routerApiAvailable) {
+    try {
+      return await apiJson('/api/happ/decode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
+      });
+    } catch (error) {
+      errors.push(`server fallback: ${error?.message || error}`);
+    }
+  }
+
+  throw new Error(errors.join('; ') || 'no Happ decryptor is available');
+}
+
+async function decodeHappProviderUrlInBrowser(sourceUrl) {
+  const decryptor = await loadHappBrowserDecryptor();
+  if (typeof decryptor.decryptLink !== 'function') {
+    throw new Error('browser module does not export decryptLink');
+  }
+  const decryptedUrl = normalizeBrowserDecodedHappUrl(await decryptor.decryptLink(sourceUrl));
+  if (!/^https?:\/\//i.test(decryptedUrl)) {
+    throw new Error('browser decryptor did not return a direct http/https URL');
+  }
+  return {
+    ok: true,
+    decryptedUrl,
+    source: 'browser-decryptor',
+  };
+}
+
+function loadHappBrowserDecryptor() {
+  if (!happBrowserDecryptorPromise) {
+    happBrowserDecryptorPromise = import(`${HAPP_BROWSER_DECRYPTOR_MODULE}?v=${HAPP_BROWSER_DECRYPTOR_VERSION}`);
+  }
+  return happBrowserDecryptorPromise;
+}
+
+function canUseBrowserHappDecryptor() {
+  return typeof fetch === 'function' && window.location?.protocol !== 'file:';
+}
+
+function normalizeBrowserDecodedHappUrl(value) {
+  const text = String(value || '').trim();
+  const addPrefix = 'happ://add/';
+  if (text.toLowerCase().startsWith(addPrefix)) {
+    return decodeURIComponent(text.slice(addPrefix.length)).trim();
+  }
+  return text;
 }
 
 function getProviderRequestHeaders(provider) {
@@ -2648,14 +2711,15 @@ function bindHappDecodeButton(root, provider) {
   const label = button.querySelector('span');
   const isVisible = isHappDeepLink(provider.url);
   const isDecoding = state.happDecodeProviderName === provider.name;
+  const canDecode = canUseBrowserHappDecryptor() || state.routerApiAvailable;
 
   button.hidden = !isVisible;
-  button.disabled = !isVisible || !state.routerApiAvailable || isDecoding;
+  button.disabled = !isVisible || !canDecode || isDecoding;
   button.classList.toggle('is-loading', isDecoding);
   button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
-  button.title = state.routerApiAvailable
-    ? 'Расшифровать через Happy Decoder и заменить URL провайдера'
-    : 'Доступно только в MihUI на роутере с Happ decryptor или Happy Decoder API';
+  button.title = canUseBrowserHappDecryptor()
+    ? 'Расшифровать локально в браузере и заменить URL провайдера'
+    : 'Доступно через браузерный decryptor или MihUI на роутере с Happ decryptor/Happy Decoder API';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
   button.addEventListener('click', () => decodeHappProvider(provider));
 }

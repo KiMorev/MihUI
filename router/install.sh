@@ -177,6 +177,7 @@ package_from_source_tree() {
 
   mkdir -p "$target_dir/www" "$target_dir/cgi-bin"
   cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
+  [ -d "$source_dir/happ-decryptor" ] && cp -R "$source_dir/happ-decryptor" "$target_dir/www/"
   cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
   cp "$source_dir/router/uninstall.sh" "$target_dir/"
