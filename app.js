@@ -893,6 +893,8 @@ function renderHappDecoderSettings() {
 
   const label = els.saveHappDecoderSettingsButton.querySelector('span');
   if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
+  const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
+  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать настройки';
 
   if (unavailable) {
     els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
@@ -2550,7 +2552,6 @@ function collectChanges(activeProviders) {
   const sections = [];
   const structuralChanges = [];
   const connectionSettingChanges = collectConnectionSettingChanges();
-  const pendingBulkIntervalChanges = collectPendingBulkIntervalChanges(activeProviders);
   const providerChanges = collectProviderChanges(activeProviders);
   const ruleChanges = collectRuleChanges();
   const groupUseChanges = collectGroupUseChanges();
@@ -2564,7 +2565,6 @@ function collectChanges(activeProviders) {
 
   if (structuralChanges.length > 0) sections.push({ title: 'Структура конфигурации', items: structuralChanges });
   if (connectionSettingChanges.length > 0) sections.push({ title: 'Параметры подключения', items: connectionSettingChanges });
-  if (pendingBulkIntervalChanges.length > 0) sections.push({ title: 'Ожидает применения', items: pendingBulkIntervalChanges });
   if (providerChanges.length > 0) sections.push({ title: 'Подписки', items: providerChanges });
   if (ruleChanges.length > 0) sections.push({ title: 'Правила', items: ruleChanges });
   if (groupUseChanges.length > 0) sections.push({ title: 'Группы', items: groupUseChanges });
@@ -3119,7 +3119,7 @@ function bindProviderUpdateButton(root, provider) {
   button.title = state.routerApiAvailable
     ? 'Обновить эту подписку через Mihomo API'
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
-  if (label) label.textContent = isUpdating ? 'Обновление...' : 'Обновить';
+  if (label) label.textContent = isUpdating ? 'Обновление...' : 'Обновить подписку';
   button.addEventListener('click', () => updateProviderNow(provider));
 }
 

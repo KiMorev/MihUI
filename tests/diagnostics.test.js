@@ -835,7 +835,7 @@ rules:
     });
   });
 
-  test(`${source.name}: reports bulk interval drafts as pending before apply`, () => {
+  test(`${source.name}: keeps bulk interval drafts out of global changes before apply`, () => {
     const app = loadApp(source);
     hydrate(app, `
 proxy-providers:
@@ -862,8 +862,7 @@ rules:
 
     const changes = flattenChanges(app.collectChanges(app.state.providers));
 
-    assert(changes.includes('После «Применить ко всем подпискам»: обновление подписок 24 ч → 48 ч для 1 подписки.'));
-    assert(changes.includes('После «Применить ко всем подпискам»: проверка нод 5 мин → 1 мин для 1 подписки.'));
+    assert.equal(changes.length, 0);
     assert.equal(app.state.providers[0].interval, '86400');
     assert.equal(app.state.providers[0].healthInterval, '300');
   });

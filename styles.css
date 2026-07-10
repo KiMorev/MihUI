@@ -409,10 +409,10 @@ h2 {
 .file-tools summary {
   display: inline-flex;
   align-items: center;
+  gap: 7px;
   min-height: 40px;
   justify-content: center;
-  width: 40px;
-  padding: 0;
+  padding: 0 12px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fff;
@@ -2133,14 +2133,25 @@ input[type='file'] {
   display: none;
 }
 
-.provider-editor-collapsible > summary::after {
-  content: '+';
-  color: var(--muted);
-  font-size: 18px;
+.provider-editor-section-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.provider-editor-collapsible[open] > summary::after {
-  content: '−';
+.provider-disclosure-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 160ms ease;
+}
+
+.provider-editor-collapsible[open] .provider-disclosure-icon {
+  transform: rotate(180deg);
 }
 
 .provider-editor-collapsible > :not(summary) {

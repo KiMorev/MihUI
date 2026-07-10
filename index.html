@@ -36,6 +36,7 @@
       <symbol id="icon-direct" viewBox="0 0 24 24"><path d="M17 7l-10 10" /><path d="M8 7l9 0l0 9" /></symbol>
       <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
       <symbol id="icon-more" viewBox="0 0 24 24"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></symbol>
+      <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -62,7 +63,7 @@
               <span id="sidebarStatusMeta">Изменений нет</span>
             </div>
           </div>
-          <button class="button compact sidebar-check-button" type="button" data-section-target="review">Проверить конфиг</button>
+          <button class="button compact sidebar-check-button" type="button" data-section-target="review">К проверке</button>
           <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
         </div>
       </aside>
@@ -79,20 +80,20 @@
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
           </button>
           <button id="routerLoadButton" class="button primary" type="button">
-            <span>Открыть конфиг</span>
+            <span>Открыть с роутера</span>
           </button>
           <button id="routerSaveButton" class="button" type="button" disabled>
             <span>Нет изменений</span>
           </button>
           <details class="file-tools">
-            <summary aria-label="Файл" title="Файл"><svg class="action-icon" aria-hidden="true"><use href="#icon-more"></use></svg></summary>
+            <summary aria-label="Файл" title="Файл"><svg class="action-icon" aria-hidden="true"><use href="#icon-more"></use></svg><span>Файл</span></summary>
             <div class="file-tools-menu">
               <label class="button compact">
-                <span>Загрузить</span>
+                <span>Загрузить файл</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
               </label>
               <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
-                <span>Экспорт</span>
+                <span>Скачать YAML</span>
               </button>
             </div>
           </details>
@@ -111,7 +112,7 @@
           <span>Изменений нет</span>
         </button>
         <button id="mobileReviewButton" class="button primary compact mobile-flow-action" type="button">
-          <span>Проверка</span>
+          <span>К проверке</span>
         </button>
         <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
           <span>Скачать YAML</span>
@@ -469,7 +470,7 @@
             </div>
             <div class="settings-actions">
               <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
-                <span>Обновить</span>
+                <span>Перечитать настройки</span>
               </button>
               <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
                 <span>Сохранить</span>
@@ -491,7 +492,7 @@
           </div>
           <div class="provider-card-actions">
             <button class="button compact provider-update-button" type="button" hidden>
-              <span class="button-label">Обновить</span>
+              <span class="button-label">Обновить подписку</span>
             </button>
             <button class="button compact danger remove-provider" type="button" title="Удалить подписку">Удалить</button>
           </div>
@@ -508,7 +509,7 @@
               <input class="provider-name" type="text" placeholder="withblancvpn" autocomplete="off" />
             </label>
             <button class="button compact manual-name-button" type="button" title="Редактировать название вручную">
-              <span>Ручное имя</span>
+              <span>Изменить имя</span>
             </button>
           </div>
           <div class="provider-url-row">
@@ -525,7 +526,7 @@
         <details class="provider-editor-section provider-editor-collapsible">
           <summary class="provider-editor-section-head">
             <strong>Фильтрация нод</strong>
-            <span>По названию</span>
+            <span>По названию <svg class="provider-disclosure-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span>
           </summary>
           <div class="provider-grid">
             <label title="Показывает только ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: RU|NL|EE. Параметр YAML: filter.">
@@ -542,7 +543,7 @@
         <details class="provider-editor-section provider-editor-collapsible">
           <summary class="provider-editor-section-head">
             <strong>Протоколы</strong>
-            <span>Исключения</span>
+            <span>Исключения <svg class="provider-disclosure-icon" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></span>
           </summary>
           <div class="exclude-type-field" title="Скрывает ноды по типу протокола, а не по названию. Введите типы вручную или выберите из списка. Параметр YAML: exclude-type.">
             <span>Исключить по протоколу</span>
