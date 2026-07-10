@@ -1644,6 +1644,16 @@ input[type='file'] {
   gap: 8px;
 }
 
+.provider-list-action-home {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-list-action-home:empty {
+  display: none;
+}
+
 .settings-status {
   color: var(--muted);
   font-size: 12px;
@@ -1815,8 +1825,32 @@ input[type='file'] {
   background: #fbfcfe;
 }
 
+.providers-sidebar-head {
+  display: grid;
+  gap: 8px;
+  margin: 2px 2px 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.providers-sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.providers-sidebar-head .provider-status-button {
+  width: 100%;
+}
+
+.provider-add-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .providers-summary {
-  margin: 2px 2px 8px;
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;

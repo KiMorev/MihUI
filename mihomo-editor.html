@@ -1651,6 +1651,16 @@ input[type='file'] {
   gap: 8px;
 }
 
+.provider-list-action-home {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-list-action-home:empty {
+  display: none;
+}
+
 .settings-status {
   color: var(--muted);
   font-size: 12px;
@@ -1822,8 +1832,32 @@ input[type='file'] {
   background: #fbfcfe;
 }
 
+.providers-sidebar-head {
+  display: grid;
+  gap: 8px;
+  margin: 2px 2px 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.providers-sidebar-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.providers-sidebar-head .provider-status-button {
+  width: 100%;
+}
+
+.provider-add-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .providers-summary {
-  margin: 2px 2px 8px;
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
@@ -4552,24 +4586,26 @@ button.review-check-card:hover {
           <div class="panel-head">
             <h2>Подписки (proxy-providers)</h2>
             <div class="panel-actions">
-              <button id="providerStatusRefreshButton" class="button compact" type="button" disabled>
-                <span>Статусы</span>
-              </button>
               <button id="intervalToolsButton" class="button compact" type="button" disabled>
-                <span>Интервалы всем</span>
+                <span>Настроить обновления</span>
               </button>
-              <button id="addProviderButton" class="icon-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
-                +
-              </button>
+              <div id="providerListActionHome" class="provider-list-action-home">
+                <button id="providerStatusRefreshButton" class="button compact provider-status-button" type="button" disabled>
+                  <span>Обновить статусы</span>
+                </button>
+                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить</span>
+                </button>
+              </div>
             </div>
           </div>
-          <section id="intervalTools" class="interval-tools hidden" aria-label="Массовая настройка интервалов">
+          <section id="intervalTools" class="interval-tools hidden" aria-label="Настройка обновлений для всех подписок">
             <div class="interval-tools-head">
-              <strong>Интервалы для всех подписок</strong>
-              <span>Массовое действие</span>
+              <strong>Обновление всех подписок</strong>
+              <span>Как часто обновлять подписки и проверять узлы</span>
             </div>
             <div class="interval-field">
-              <span>Обновление подписок (interval)</span>
+              <span>Обновлять подписки (interval)</span>
               <div class="interval-control">
                 <input id="bulkIntervalInput" type="number" min="60" step="60" value="86400" aria-label="Интервал обновления подписок в секундах" />
                 <span id="bulkIntervalHint" class="interval-hint">86400 сек = 24 ч</span>
@@ -4582,7 +4618,7 @@ button.review-check-card:hover {
               </div>
             </div>
             <div class="interval-field">
-              <span>Проверка нод (health-check.interval)</span>
+              <span>Проверять узлы (health-check.interval)</span>
               <div class="interval-control">
                 <input id="bulkHealthIntervalInput" type="number" min="30" step="30" value="300" aria-label="Интервал проверки нод в секундах" />
                 <span id="bulkHealthIntervalHint" class="interval-hint">300 сек = 5 мин</span>
@@ -4595,7 +4631,7 @@ button.review-check-card:hover {
               </div>
             </div>
             <button id="applyIntervalsButton" class="button primary compact" type="button" disabled>
-              <span>Применить ко всем подпискам</span>
+              <span>Применить ко всем</span>
             </button>
             <div id="bulkIntervalPending" class="interval-pending" hidden></div>
           </section>
@@ -5356,6 +5392,7 @@ const els = {
   addProviderButton: document.querySelector('#addProviderButton'),
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
+  providerListActionHome: document.querySelector('#providerListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -5929,7 +5966,7 @@ function renderRouterControls() {
     ? 'Получить статусы подписок из Mihomo API'
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const statusLabel = els.providerStatusRefreshButton.querySelector('span');
-  if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Загрузка...' : 'Статусы';
+  if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Обновляем...' : 'Обновить статусы';
 }
 
 function getRouterSaveState() {
@@ -7888,6 +7925,7 @@ function formatChangeCount(count) {
 }
 
 function renderProviders(activeProviders) {
+  els.providerListActionHome.append(els.providerStatusRefreshButton, els.addProviderButton);
   els.providersList.innerHTML = '';
   els.providersList.classList.toggle('empty-state', activeProviders.length === 0);
   els.providersList.classList.toggle('providers-workbench', activeProviders.length > 0);
@@ -7908,13 +7946,19 @@ function renderProviders(activeProviders) {
 
   const selectedProvider = getSelectedProvider(activeProviders);
   const sidebar = document.createElement('div');
+  const sidebarHead = document.createElement('div');
+  const sidebarTitleRow = document.createElement('div');
   const summary = document.createElement('div');
   const detail = document.createElement('div');
 
   sidebar.className = 'providers-sidebar';
+  sidebarHead.className = 'providers-sidebar-head';
+  sidebarTitleRow.className = 'providers-sidebar-title-row';
   summary.className = 'providers-summary';
   summary.textContent = `Всего: ${activeProviders.length}`;
-  sidebar.append(summary);
+  sidebarTitleRow.append(summary, els.addProviderButton);
+  sidebarHead.append(sidebarTitleRow, els.providerStatusRefreshButton);
+  sidebar.append(sidebarHead);
 
   activeProviders.forEach((provider, index) => {
     sidebar.append(createProviderListItem(provider, index, provider === selectedProvider));
@@ -10799,7 +10843,7 @@ function renderIntervalTools(activeProviders) {
   const disabled = !hasFile || activeProviders.length === 0;
 
   els.intervalTools.classList.toggle('hidden', !hasFile || !state.intervalToolsOpen);
-  els.intervalToolsButton.textContent = state.intervalToolsOpen ? 'Скрыть' : 'Интервалы всем';
+  els.intervalToolsButton.textContent = state.intervalToolsOpen ? 'Скрыть настройки' : 'Настроить обновления';
   els.applyIntervalsButton.disabled = disabled;
   els.bulkIntervalInput.disabled = disabled;
   els.bulkHealthIntervalInput.disabled = disabled;

@@ -380,6 +380,7 @@ const els = {
   addProviderButton: document.querySelector('#addProviderButton'),
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
+  providerListActionHome: document.querySelector('#providerListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -953,7 +954,7 @@ function renderRouterControls() {
     ? 'Получить статусы подписок из Mihomo API'
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const statusLabel = els.providerStatusRefreshButton.querySelector('span');
-  if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Загрузка...' : 'Статусы';
+  if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Обновляем...' : 'Обновить статусы';
 }
 
 function getRouterSaveState() {
@@ -2912,6 +2913,7 @@ function formatChangeCount(count) {
 }
 
 function renderProviders(activeProviders) {
+  els.providerListActionHome.append(els.providerStatusRefreshButton, els.addProviderButton);
   els.providersList.innerHTML = '';
   els.providersList.classList.toggle('empty-state', activeProviders.length === 0);
   els.providersList.classList.toggle('providers-workbench', activeProviders.length > 0);
@@ -2932,13 +2934,19 @@ function renderProviders(activeProviders) {
 
   const selectedProvider = getSelectedProvider(activeProviders);
   const sidebar = document.createElement('div');
+  const sidebarHead = document.createElement('div');
+  const sidebarTitleRow = document.createElement('div');
   const summary = document.createElement('div');
   const detail = document.createElement('div');
 
   sidebar.className = 'providers-sidebar';
+  sidebarHead.className = 'providers-sidebar-head';
+  sidebarTitleRow.className = 'providers-sidebar-title-row';
   summary.className = 'providers-summary';
   summary.textContent = `Всего: ${activeProviders.length}`;
-  sidebar.append(summary);
+  sidebarTitleRow.append(summary, els.addProviderButton);
+  sidebarHead.append(sidebarTitleRow, els.providerStatusRefreshButton);
+  sidebar.append(sidebarHead);
 
   activeProviders.forEach((provider, index) => {
     sidebar.append(createProviderListItem(provider, index, provider === selectedProvider));
@@ -5823,7 +5831,7 @@ function renderIntervalTools(activeProviders) {
   const disabled = !hasFile || activeProviders.length === 0;
 
   els.intervalTools.classList.toggle('hidden', !hasFile || !state.intervalToolsOpen);
-  els.intervalToolsButton.textContent = state.intervalToolsOpen ? 'Скрыть' : 'Интервалы всем';
+  els.intervalToolsButton.textContent = state.intervalToolsOpen ? 'Скрыть настройки' : 'Настроить обновления';
   els.applyIntervalsButton.disabled = disabled;
   els.bulkIntervalInput.disabled = disabled;
   els.bulkHealthIntervalInput.disabled = disabled;

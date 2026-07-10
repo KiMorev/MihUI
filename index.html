@@ -192,24 +192,26 @@
           <div class="panel-head">
             <h2>Подписки (proxy-providers)</h2>
             <div class="panel-actions">
-              <button id="providerStatusRefreshButton" class="button compact" type="button" disabled>
-                <span>Статусы</span>
-              </button>
               <button id="intervalToolsButton" class="button compact" type="button" disabled>
-                <span>Интервалы всем</span>
+                <span>Настроить обновления</span>
               </button>
-              <button id="addProviderButton" class="icon-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
-                +
-              </button>
+              <div id="providerListActionHome" class="provider-list-action-home">
+                <button id="providerStatusRefreshButton" class="button compact provider-status-button" type="button" disabled>
+                  <span>Обновить статусы</span>
+                </button>
+                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить</span>
+                </button>
+              </div>
             </div>
           </div>
-          <section id="intervalTools" class="interval-tools hidden" aria-label="Массовая настройка интервалов">
+          <section id="intervalTools" class="interval-tools hidden" aria-label="Настройка обновлений для всех подписок">
             <div class="interval-tools-head">
-              <strong>Интервалы для всех подписок</strong>
-              <span>Массовое действие</span>
+              <strong>Обновление всех подписок</strong>
+              <span>Как часто обновлять подписки и проверять узлы</span>
             </div>
             <div class="interval-field">
-              <span>Обновление подписок (interval)</span>
+              <span>Обновлять подписки (interval)</span>
               <div class="interval-control">
                 <input id="bulkIntervalInput" type="number" min="60" step="60" value="86400" aria-label="Интервал обновления подписок в секундах" />
                 <span id="bulkIntervalHint" class="interval-hint">86400 сек = 24 ч</span>
@@ -222,7 +224,7 @@
               </div>
             </div>
             <div class="interval-field">
-              <span>Проверка нод (health-check.interval)</span>
+              <span>Проверять узлы (health-check.interval)</span>
               <div class="interval-control">
                 <input id="bulkHealthIntervalInput" type="number" min="30" step="30" value="300" aria-label="Интервал проверки нод в секундах" />
                 <span id="bulkHealthIntervalHint" class="interval-hint">300 сек = 5 мин</span>
@@ -235,7 +237,7 @@
               </div>
             </div>
             <button id="applyIntervalsButton" class="button primary compact" type="button" disabled>
-              <span>Применить ко всем подпискам</span>
+              <span>Применить ко всем</span>
             </button>
             <div id="bulkIntervalPending" class="interval-pending" hidden></div>
           </section>
