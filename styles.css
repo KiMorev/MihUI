@@ -2981,6 +2981,22 @@ input.is-invalid {
   gap: 10px;
 }
 
+.route-visual-node-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.route-visual-node.is-direct .route-visual-node-icon,
+.route-visual-node.is-built-in .route-visual-node-icon {
+  color: var(--warning);
+}
+
 .route-visual-node strong {
   overflow: hidden;
   font-size: 15px;

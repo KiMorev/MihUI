@@ -4522,6 +4522,20 @@ function createRouteVisualNode(kind, titleText, descriptionText, numberText = ''
   node.className = `route-visual-node is-${kind}`;
   head.className = 'route-visual-node-head';
   titleWrap.className = 'route-visual-node-title';
+  const iconId = kind === 'entry' ? 'icon-nodes' : ['direct', 'built-in'].includes(kind) ? 'icon-direct' : '';
+  if (iconId) {
+    const icon = typeof document.createElementNS === 'function'
+      ? document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      : document.createElement('svg');
+    const use = typeof document.createElementNS === 'function'
+      ? document.createElementNS('http://www.w3.org/2000/svg', 'use')
+      : document.createElement('use');
+    icon.classList.add('route-visual-node-icon');
+    icon.setAttribute('aria-hidden', 'true');
+    use.setAttribute('href', `#${iconId}`);
+    icon.append(use);
+    titleWrap.append(icon);
+  }
   if (numberText) {
     const number = document.createElement('span');
     number.className = 'route-visual-number';
