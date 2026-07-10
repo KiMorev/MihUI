@@ -304,6 +304,7 @@ const state = {
   isEditingConfiguration: false,
   selectedProviderName: '',
   selectedGroupName: '',
+  groupTypeFilter: 'all',
   selectedRouteScenarioId: '',
   providerStatuses: {},
   providerStatusLoading: false,
@@ -1605,6 +1606,9 @@ function renderGroupMetric() {
   const serviceGroups = state.groups.length - proxyGroups;
   const total = document.createElement('span');
   const detail = document.createElement('span');
+  const split = document.createElement('span');
+  const servicePart = document.createElement('span');
+  const proxyPart = document.createElement('span');
 
   els.groupCount.textContent = '';
   els.groupCount.classList.toggle('metric-count-split', Boolean(state.originalText));
@@ -1616,9 +1620,15 @@ function renderGroupMetric() {
 
   total.className = 'metric-main';
   detail.className = 'metric-detail';
+  split.className = 'metric-split-bar';
+  servicePart.className = 'is-service';
+  proxyPart.className = 'is-proxy';
+  servicePart.setAttribute('style', `flex-grow: ${serviceGroups || 0}`);
+  proxyPart.setAttribute('style', `flex-grow: ${proxyGroups || 0}`);
   total.textContent = `${state.groups.length} всего`;
   detail.textContent = `${serviceGroups} сервисных / ${proxyGroups} прокси`;
-  els.groupCount.append(total, detail);
+  split.append(servicePart, proxyPart);
+  els.groupCount.append(total, detail, split);
 }
 
 function renderDiagnostics(diagnostics) {
@@ -4271,6 +4281,9 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
   const map = document.createElement('div');
   const scenarioPanel = document.createElement('div');
   const scenarioTitle = document.createElement('div');
+  const scenarioControls = document.createElement('div');
+  const scenarioSearch = document.createElement('input');
+  const scenarioTarget = document.createElement('select');
   const scenarioList = document.createElement('div');
   const flow = document.createElement('div');
   const flowHead = document.createElement('div');
@@ -4283,10 +4296,42 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
   scenarioPanel.className = 'route-scenarios';
   scenarioTitle.className = 'route-map-title';
   scenarioTitle.textContent = 'Сценарии из rules';
+  scenarioControls.className = 'route-scenario-controls';
+  scenarioSearch.type = 'search';
+  scenarioSearch.placeholder = 'Поиск сценария';
+  scenarioSearch.setAttribute('aria-label', 'Поиск сценария маршрутизации');
+  scenarioTarget.setAttribute('aria-label', 'Фильтр по цели маршрутизации');
+  const allTargets = document.createElement('option');
+  allTargets.value = '';
+  allTargets.textContent = 'Все цели';
+  scenarioTarget.append(allTargets);
+  [...new Set(scenarios.map((scenario) => scenario.target))]
+    .sort((a, b) => a.localeCompare(b, 'ru'))
+    .forEach((target) => {
+      const option = document.createElement('option');
+      option.value = target;
+      option.textContent = target;
+      scenarioTarget.append(option);
+    });
+  scenarioControls.append(scenarioSearch, scenarioTarget);
   scenarioList.className = 'route-scenario-list';
   scenarios.forEach((scenario) => {
-    scenarioList.append(createRouteScenarioButton(scenario, selectedScenario.id));
+    const button = createRouteScenarioButton(scenario, selectedScenario.id);
+    button.setAttribute('data-search', `${scenario.label} ${scenario.matcher} ${scenario.target}`.toLowerCase());
+    button.setAttribute('data-target', scenario.target);
+    scenarioList.append(button);
   });
+  const filterScenarios = () => {
+    const query = scenarioSearch.value.trim().toLowerCase();
+    const target = scenarioTarget.value;
+    scenarioList.querySelectorAll('.route-scenario').forEach((button) => {
+      const searchText = button.getAttribute('data-search') || '';
+      const buttonTarget = button.getAttribute('data-target') || '';
+      button.hidden = Boolean((query && !searchText.includes(query)) || (target && buttonTarget !== target));
+    });
+  };
+  scenarioSearch.addEventListener('input', filterScenarios);
+  scenarioTarget.addEventListener('change', filterScenarios);
 
   flow.className = 'route-flow';
   flowHead.className = 'route-flow-head';
@@ -4305,7 +4350,7 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
     createRouteNodeTree(targetNode),
   );
 
-  scenarioPanel.append(scenarioTitle, scenarioList);
+  scenarioPanel.append(scenarioTitle, scenarioControls, scenarioList);
   flow.append(flowHead, chain);
   map.append(scenarioPanel, flow);
   return map;
@@ -5024,20 +5069,45 @@ function getSelectedGroup() {
 }
 
 function renderGroupEditor(activeProviders) {
-  const selectedGroup = getSelectedGroup();
+  const visibleGroups = state.groups.filter((group) => {
+    const isProxy = isProxyModeGroup(group);
+    if (state.groupTypeFilter === 'service') return !isProxy;
+    if (state.groupTypeFilter === 'proxy') return isProxy;
+    return true;
+  });
+  const selectedGroup = visibleGroups.find((group) => group.name === state.selectedGroupName) || visibleGroups[0] || null;
   const wrap = document.createElement('div');
   const sidebar = document.createElement('div');
   const detail = document.createElement('div');
   const summary = document.createElement('div');
+  const filters = document.createElement('div');
 
   wrap.className = 'group-editor';
   sidebar.className = 'group-editor-sidebar';
   detail.className = 'group-editor-detail';
   summary.className = 'group-editor-summary';
   summary.textContent = `Групп: ${state.groups.length}`;
-  sidebar.append(summary);
+  filters.className = 'group-type-filters';
+  [
+    ['all', 'Все'],
+    ['service', 'Сервисные'],
+    ['proxy', 'Прокси'],
+  ].forEach(([value, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.className = 'group-type-filter';
+    button.classList.toggle('is-active', state.groupTypeFilter === value);
+    button.addEventListener('click', () => {
+      state.groupTypeFilter = value;
+      render();
+    });
+    filters.append(button);
+  });
+  sidebar.append(summary, filters);
 
   state.groups.forEach((group, index) => {
+    if (!visibleGroups.includes(group)) return;
     sidebar.append(createGroupListItem(group, index, group === selectedGroup));
   });
 
@@ -5070,6 +5140,7 @@ function createGroupListItem(group, index, isSelected) {
   meta.className = 'provider-list-meta';
   meta.textContent = formatGroupSources(group);
   status.className = 'provider-list-status';
+  status.classList.add(isProxyModeGroup(group) ? 'is-proxy-group' : 'is-service-group');
   status.textContent = group.type || 'group';
 
   body.append(title, meta);

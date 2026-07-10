@@ -462,11 +462,11 @@
           </div>
         </div>
 
-        <div class="provider-editor-section">
-          <div class="provider-editor-section-head">
+        <details class="provider-editor-section provider-editor-collapsible">
+          <summary class="provider-editor-section-head">
             <strong>Фильтрация нод</strong>
             <span>По названию</span>
-          </div>
+          </summary>
           <div class="provider-grid">
             <label title="Показывает только ноды, в названии которых есть эти слова. Несколько вариантов разделяйте через |, например: RU|NL|EE. Параметр YAML: filter.">
               <span>Фильтровать</span>
@@ -477,13 +477,13 @@
               <input class="provider-exclude-filter" type="text" placeholder="test|slow|expired" autocomplete="off" />
             </label>
           </div>
-        </div>
+        </details>
 
-        <div class="provider-editor-section">
-          <div class="provider-editor-section-head">
+        <details class="provider-editor-section provider-editor-collapsible">
+          <summary class="provider-editor-section-head">
             <strong>Протоколы</strong>
             <span>Исключения</span>
-          </div>
+          </summary>
           <div class="exclude-type-field" title="Скрывает ноды по типу протокола, а не по названию. Введите типы вручную или выберите из списка. Параметр YAML: exclude-type.">
             <span>Исключить по протоколу</span>
             <div class="exclude-type-control">
@@ -497,7 +497,7 @@
             </div>
             <p class="field-error provider-exclude-type-error" aria-live="polite" hidden></p>
           </div>
-        </div>
+        </details>
 
         <details class="provider-advanced">
           <summary title="header / path / interval / health-check / override">Дополнительно</summary>

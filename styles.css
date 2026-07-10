@@ -370,6 +370,23 @@ h2 {
   overflow-x: auto;
 }
 
+@media (min-width: 981px) {
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding-top: 10px;
+    background: rgba(246, 248, 251, 0.96);
+    backdrop-filter: blur(10px);
+  }
+
+  .section-tabs {
+    position: sticky;
+    top: 68px;
+    z-index: 29;
+  }
+}
+
 .mobile-flow-actions {
   display: none;
 }
@@ -471,6 +488,14 @@ h2 {
   box-shadow: var(--shadow);
 }
 
+.overview-card::after {
+  content: '→';
+  justify-self: end;
+  color: var(--line-strong);
+  font-size: 18px;
+  line-height: 1;
+}
+
 .overview-card:hover,
 .overview-card:focus-visible {
   border-color: var(--accent);
@@ -518,6 +543,29 @@ h2 {
   color: var(--text);
   cursor: pointer;
   text-align: left;
+}
+
+.overview-attention-item:only-child {
+  grid-column: 1 / -1;
+  min-height: 62px;
+}
+
+.metric-split-bar {
+  display: flex;
+  width: min(180px, 100%);
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.metric-split-bar .is-service {
+  background: #8aa3bd;
+}
+
+.metric-split-bar .is-proxy {
+  background: var(--accent);
 }
 
 .overview-attention-item:hover,
@@ -1696,6 +1744,7 @@ input[type='file'] {
 
 .provider-row {
   display: grid;
+  align-content: start;
   gap: 11px;
   padding: 0;
   border: 0;
@@ -1731,6 +1780,24 @@ input[type='file'] {
   gap: 8px;
   justify-content: space-between;
   align-items: center;
+}
+
+@media (min-width: 981px) {
+  .provider-toolbar {
+    position: sticky;
+    top: 136px;
+    z-index: 8;
+    margin: -4px -4px 0;
+    padding: 8px 4px;
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(8px);
+  }
+
+  .provider-toolbar .danger {
+    border-color: var(--line);
+    background: #fff;
+    color: var(--danger);
+  }
 }
 
 .provider-card-heading {
@@ -1817,6 +1884,36 @@ input[type='file'] {
   gap: 10px;
   align-items: baseline;
   justify-content: space-between;
+}
+
+.provider-editor-collapsible {
+  padding: 0;
+  gap: 0;
+}
+
+.provider-editor-collapsible > summary {
+  min-height: 46px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.provider-editor-collapsible > summary::-webkit-details-marker {
+  display: none;
+}
+
+.provider-editor-collapsible > summary::after {
+  content: '+';
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.provider-editor-collapsible[open] > summary::after {
+  content: '−';
+}
+
+.provider-editor-collapsible > :not(summary) {
+  margin: 0 12px 12px;
 }
 
 .provider-editor-section-head strong {
@@ -2460,6 +2557,19 @@ input.is-invalid {
   font-weight: 750;
 }
 
+.route-scenario-controls {
+  display: grid;
+  gap: 6px;
+}
+
+.route-scenario-controls input,
+.route-scenario-controls select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+}
+
 .route-scenario-list {
   display: grid;
   gap: 6px;
@@ -2469,16 +2579,59 @@ input.is-invalid {
 
 .route-scenario {
   display: grid;
+  grid-template-rows: auto auto;
+  align-content: center;
   gap: 2px;
   width: 100%;
-  min-height: 58px;
-  padding: 9px 10px;
+  min-height: 68px;
+  padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
   color: var(--text);
   text-align: left;
   cursor: pointer;
+}
+
+.route-scenario[hidden] {
+  display: none;
+}
+
+.group-type-filters {
+  display: flex;
+  gap: 4px;
+  margin: 0 2px 10px;
+}
+
+.group-type-filter {
+  min-height: 28px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.group-type-filter.is-active {
+  border-color: rgba(8, 124, 128, 0.35);
+  background: #e9f7f8;
+  color: var(--accent-dark);
+}
+
+.provider-list-status.is-service-group {
+  border-color: rgba(90, 116, 145, 0.28);
+  background: #f3f7fb;
+  color: #526b86;
+}
+
+.provider-list-status.is-proxy-group {
+  border-color: rgba(8, 124, 128, 0.32);
+  background: #effafa;
+  color: var(--accent-dark);
 }
 
 .route-scenario:hover {
@@ -3187,7 +3340,7 @@ button.review-check-card:hover {
   font-style: italic;
 }
 
-@media (max-width: 1500px) {
+@media (max-width: 1100px) {
   .route-map {
     grid-template-columns: 1fr;
   }
