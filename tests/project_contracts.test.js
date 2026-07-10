@@ -13,9 +13,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="bulkIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
-    assert.match(html, /id="toggleOutputSecretsButton"[^>]+aria-pressed=/);
-    assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML, включая скрытые ссылки"/);
-    assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML, включая скрытые ссылки"/);
+    assert.match(html, /id="hideProviderUrlsSetting" type="checkbox"/);
+    assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML с исходными ссылками"/);
+    assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML с исходными ссылками"/);
     assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
     assert.match(html, /id="addProviderButton"[^>]+aria-label="Добавить подписку"/);
     assert.match(html, /id="addGroupButton"[^>]+aria-label="Добавить группу"/);

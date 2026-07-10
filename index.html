@@ -31,7 +31,7 @@
                 <span>Загрузить</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
               </label>
-              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
                 <span>Экспорт</span>
               </button>
             </div>
@@ -65,7 +65,7 @@
         <button id="mobileReviewButton" class="button primary compact mobile-flow-action" type="button">
           <span>Проверка</span>
         </button>
-        <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+        <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
           <span>Скачать YAML</span>
         </button>
       </nav>
@@ -357,16 +357,13 @@
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
-                <button id="toggleOutputSecretsButton" class="button compact" type="button" aria-pressed="false" hidden>
-                  <span>Показать ссылки</span>
-                </button>
                 <button id="checkConfigButton" class="button compact" type="button" disabled>
                   <span class="button-label">Проверить в ядре</span>
                 </button>
-                <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML, включая скрытые ссылки" aria-label="Копировать полный YAML, включая скрытые ссылки" disabled>
+                <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML с исходными ссылками" aria-label="Копировать полный YAML с исходными ссылками" disabled>
                   <span class="button-label">Копировать</span>
                 </button>
-                <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+                <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
                   <span class="button-label">Скачать YAML</span>
                 </button>
               </div>
@@ -380,6 +377,21 @@
       </section>
 
       <section class="app-section" data-section-panel="settings" hidden>
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <h2>Интерфейс</h2>
+          </div>
+          <div class="settings-form">
+            <label class="settings-toggle">
+              <input id="hideProviderUrlsSetting" type="checkbox" />
+              <span>
+                <strong>Скрывать ссылки подписок</strong>
+                <small>Только отображение в редакторе; YAML при копировании и скачивании не меняется.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
         <section class="panel settings-panel">
           <div class="panel-head">
             <h2>Happ Decoder</h2>

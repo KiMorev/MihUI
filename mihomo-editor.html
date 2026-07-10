@@ -1511,6 +1511,38 @@ input[type='file'] {
   gap: 8px;
 }
 
+.settings-toggle {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.settings-toggle input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
+.settings-toggle span {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-toggle strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-toggle small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .interval-tools {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3837,7 +3869,7 @@ button.review-check-card:hover {
                 <span>Загрузить</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
               </label>
-              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
                 <span>Экспорт</span>
               </button>
             </div>
@@ -3871,7 +3903,7 @@ button.review-check-card:hover {
         <button id="mobileReviewButton" class="button primary compact mobile-flow-action" type="button">
           <span>Проверка</span>
         </button>
-        <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+        <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
           <span>Скачать YAML</span>
         </button>
       </nav>
@@ -4163,16 +4195,13 @@ button.review-check-card:hover {
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
-                <button id="toggleOutputSecretsButton" class="button compact" type="button" aria-pressed="false" hidden>
-                  <span>Показать ссылки</span>
-                </button>
                 <button id="checkConfigButton" class="button compact" type="button" disabled>
                   <span class="button-label">Проверить в ядре</span>
                 </button>
-                <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML, включая скрытые ссылки" aria-label="Копировать полный YAML, включая скрытые ссылки" disabled>
+                <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML с исходными ссылками" aria-label="Копировать полный YAML с исходными ссылками" disabled>
                   <span class="button-label">Копировать</span>
                 </button>
-                <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML, включая скрытые ссылки" aria-label="Скачать полный YAML, включая скрытые ссылки" disabled>
+                <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
                   <span class="button-label">Скачать YAML</span>
                 </button>
               </div>
@@ -4186,6 +4215,21 @@ button.review-check-card:hover {
       </section>
 
       <section class="app-section" data-section-panel="settings" hidden>
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <h2>Интерфейс</h2>
+          </div>
+          <div class="settings-form">
+            <label class="settings-toggle">
+              <input id="hideProviderUrlsSetting" type="checkbox" />
+              <span>
+                <strong>Скрывать ссылки подписок</strong>
+                <small>Только отображение в редакторе; YAML при копировании и скачивании не меняется.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
         <section class="panel settings-panel">
           <div class="panel-head">
             <h2>Happ Decoder</h2>
@@ -4372,6 +4416,7 @@ const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
+const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -4721,7 +4766,7 @@ const state = {
   },
   recommendationCount: 0,
   changeCount: 0,
-  outputSecretsRevealed: false,
+  hideProviderUrls: readProviderUrlMaskingPreference(),
   lastUndo: null,
 };
 
@@ -4757,7 +4802,6 @@ const els = {
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
   checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
-  toggleOutputSecretsButton: document.querySelector('#toggleOutputSecretsButton'),
   mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
@@ -4806,6 +4850,7 @@ const els = {
   happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
+  hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
   providerViewPanels: document.querySelectorAll('[data-provider-view-panel]'),
@@ -4846,7 +4891,7 @@ els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
-els.toggleOutputSecretsButton.addEventListener('click', toggleOutputSecrets);
+els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
 els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
@@ -4877,8 +4922,31 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+renderInterfaceSettings();
 renderHappDecoderSettings();
 initRouterMode();
+
+function readProviderUrlMaskingPreference() {
+  try {
+    return window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function renderInterfaceSettings() {
+  els.hideProviderUrlsSetting.checked = state.hideProviderUrls;
+}
+
+function setProviderUrlMasking(enabled) {
+  state.hideProviderUrls = Boolean(enabled);
+  try {
+    window.localStorage?.setItem(PROVIDER_URL_MASKING_STORAGE_KEY, String(state.hideProviderUrls));
+  } catch {
+    // Настройка работает и без доступного localStorage.
+  }
+  render();
+}
 
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
@@ -5694,7 +5762,6 @@ function getProviderRequestHeaders(provider) {
 }
 
 function parseAndRender() {
-  state.outputSecretsRevealed = false;
   const lines = splitLines(state.originalText);
   const providersSection = findTopSection(lines, 'proxy-providers');
   const groupsSection = findTopSection(lines, 'proxy-groups');
@@ -5755,6 +5822,7 @@ function render() {
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
   renderSectionTabs();
+  renderInterfaceSettings();
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText || !state.hasGroupsSection;
@@ -7300,10 +7368,10 @@ function bindProviderUrl(root, provider) {
     input.classList.remove('is-masked');
   };
   const showMaskedValue = () => {
-    const masked = maskSensitiveUrl(provider.url);
-    input.type = 'text';
+    const masked = state.hideProviderUrls ? maskSensitiveUrl(provider.url) : provider.url || '';
+    input.type = state.hideProviderUrls ? 'text' : 'url';
     input.value = masked;
-    input.classList.toggle('is-masked', masked !== provider.url);
+    input.classList.toggle('is-masked', state.hideProviderUrls && masked !== provider.url);
   };
 
   input.type = 'text';
@@ -7314,11 +7382,7 @@ function bindProviderUrl(root, provider) {
 }
 
 function maskSensitiveUrl(value) {
-  const text = String(value || '');
-  const sensitiveIndexes = [text.indexOf('?'), text.indexOf('#')].filter((index) => index !== -1);
-  if (sensitiveIndexes.length === 0) return text;
-  const sensitiveIndex = Math.min(...sensitiveIndexes);
-  return `${text.slice(0, sensitiveIndex)}${text[sensitiveIndex]}••••`;
+  return String(value || '').trim() ? '••••' : '';
 }
 
 function formatProviderListBadge(provider) {
@@ -10467,7 +10531,7 @@ function renderOutputPreview() {
 
 function getOutputPreviewText(text) {
   const value = String(text || '');
-  return state.outputSecretsRevealed ? value : maskProviderUrlsInYaml(value);
+  return state.hideProviderUrls ? maskProviderUrlsInYaml(value) : value;
 }
 
 function maskProviderUrlsInYaml(text) {
@@ -10555,17 +10619,6 @@ function maskProviderUrlLine(line) {
 
   const nextScalar = quote ? `${quote}${maskedValue}${quote}` : maskedValue;
   return `${match[1]}${leading}${nextScalar}${trailing}${hasFlowComma ? ',' : ''}${split.comment}`;
-}
-
-function hasSensitiveProviderUrlsInYaml(text) {
-  const value = splitLines(text).join('\n');
-  return maskProviderUrlsInYaml(value) !== value;
-}
-
-function toggleOutputSecrets() {
-  state.outputSecretsRevealed = !state.outputSecretsRevealed;
-  renderOutputPreview();
-  renderConfigurationEditorControls();
 }
 
 function renderYamlPreview(text) {
@@ -10699,7 +10752,6 @@ function renderChangesOnly() {
 
 function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
-  const canRevealSecrets = !isEditing && hasSensitiveProviderUrlsInYaml(state.outputText);
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
   if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
@@ -10716,10 +10768,6 @@ function renderConfigurationEditorControls() {
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.reviewDownloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
-  els.toggleOutputSecretsButton.hidden = !canRevealSecrets;
-  els.toggleOutputSecretsButton.disabled = !canRevealSecrets;
-  els.toggleOutputSecretsButton.setAttribute('aria-pressed', String(canRevealSecrets && state.outputSecretsRevealed));
-  els.toggleOutputSecretsButton.querySelector('span').textContent = state.outputSecretsRevealed ? 'Скрыть ссылки' : 'Показать ссылки';
   els.changesJumpButton.disabled = !state.originalText;
   renderMobileFlowActions();
   renderRouterControls();

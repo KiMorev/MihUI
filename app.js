@@ -8,6 +8,7 @@ const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
+const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -357,7 +358,7 @@ const state = {
   },
   recommendationCount: 0,
   changeCount: 0,
-  outputSecretsRevealed: false,
+  hideProviderUrls: readProviderUrlMaskingPreference(),
   lastUndo: null,
 };
 
@@ -393,7 +394,6 @@ const els = {
   cancelConfigEditButton: document.querySelector('#cancelConfigEditButton'),
   checkConfigButton: document.querySelector('#checkConfigButton'),
   copyButton: document.querySelector('#copyButton'),
-  toggleOutputSecretsButton: document.querySelector('#toggleOutputSecretsButton'),
   mihomoUiUpdateButton: document.querySelector('#mihomoUiUpdateButton'),
   changesJumpButton: document.querySelector('#changesJumpButton'),
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
@@ -442,6 +442,7 @@ const els = {
   happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
+  hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
   providerViewPanels: document.querySelectorAll('[data-provider-view-panel]'),
@@ -482,7 +483,7 @@ els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
-els.toggleOutputSecretsButton.addEventListener('click', toggleOutputSecrets);
+els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
 els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
@@ -513,8 +514,31 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+renderInterfaceSettings();
 renderHappDecoderSettings();
 initRouterMode();
+
+function readProviderUrlMaskingPreference() {
+  try {
+    return window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function renderInterfaceSettings() {
+  els.hideProviderUrlsSetting.checked = state.hideProviderUrls;
+}
+
+function setProviderUrlMasking(enabled) {
+  state.hideProviderUrls = Boolean(enabled);
+  try {
+    window.localStorage?.setItem(PROVIDER_URL_MASKING_STORAGE_KEY, String(state.hideProviderUrls));
+  } catch {
+    // Настройка работает и без доступного localStorage.
+  }
+  render();
+}
 
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
@@ -1330,7 +1354,6 @@ function getProviderRequestHeaders(provider) {
 }
 
 function parseAndRender() {
-  state.outputSecretsRevealed = false;
   const lines = splitLines(state.originalText);
   const providersSection = findTopSection(lines, 'proxy-providers');
   const groupsSection = findTopSection(lines, 'proxy-groups');
@@ -1391,6 +1414,7 @@ function render() {
   els.providerCount.textContent = String(activeProviders.length);
   renderGroupMetric();
   renderSectionTabs();
+  renderInterfaceSettings();
   els.downloadButton.disabled = !state.outputText;
   renderRouterControls();
   els.addProviderButton.disabled = !state.originalText || !state.hasGroupsSection;
@@ -2936,10 +2960,10 @@ function bindProviderUrl(root, provider) {
     input.classList.remove('is-masked');
   };
   const showMaskedValue = () => {
-    const masked = maskSensitiveUrl(provider.url);
-    input.type = 'text';
+    const masked = state.hideProviderUrls ? maskSensitiveUrl(provider.url) : provider.url || '';
+    input.type = state.hideProviderUrls ? 'text' : 'url';
     input.value = masked;
-    input.classList.toggle('is-masked', masked !== provider.url);
+    input.classList.toggle('is-masked', state.hideProviderUrls && masked !== provider.url);
   };
 
   input.type = 'text';
@@ -2950,11 +2974,7 @@ function bindProviderUrl(root, provider) {
 }
 
 function maskSensitiveUrl(value) {
-  const text = String(value || '');
-  const sensitiveIndexes = [text.indexOf('?'), text.indexOf('#')].filter((index) => index !== -1);
-  if (sensitiveIndexes.length === 0) return text;
-  const sensitiveIndex = Math.min(...sensitiveIndexes);
-  return `${text.slice(0, sensitiveIndex)}${text[sensitiveIndex]}••••`;
+  return String(value || '').trim() ? '••••' : '';
 }
 
 function formatProviderListBadge(provider) {
@@ -6103,7 +6123,7 @@ function renderOutputPreview() {
 
 function getOutputPreviewText(text) {
   const value = String(text || '');
-  return state.outputSecretsRevealed ? value : maskProviderUrlsInYaml(value);
+  return state.hideProviderUrls ? maskProviderUrlsInYaml(value) : value;
 }
 
 function maskProviderUrlsInYaml(text) {
@@ -6191,17 +6211,6 @@ function maskProviderUrlLine(line) {
 
   const nextScalar = quote ? `${quote}${maskedValue}${quote}` : maskedValue;
   return `${match[1]}${leading}${nextScalar}${trailing}${hasFlowComma ? ',' : ''}${split.comment}`;
-}
-
-function hasSensitiveProviderUrlsInYaml(text) {
-  const value = splitLines(text).join('\n');
-  return maskProviderUrlsInYaml(value) !== value;
-}
-
-function toggleOutputSecrets() {
-  state.outputSecretsRevealed = !state.outputSecretsRevealed;
-  renderOutputPreview();
-  renderConfigurationEditorControls();
 }
 
 function renderYamlPreview(text) {
@@ -6335,7 +6344,6 @@ function renderChangesOnly() {
 
 function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
-  const canRevealSecrets = !isEditing && hasSensitiveProviderUrlsInYaml(state.outputText);
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
   if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
@@ -6352,10 +6360,6 @@ function renderConfigurationEditorControls() {
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.reviewDownloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
-  els.toggleOutputSecretsButton.hidden = !canRevealSecrets;
-  els.toggleOutputSecretsButton.disabled = !canRevealSecrets;
-  els.toggleOutputSecretsButton.setAttribute('aria-pressed', String(canRevealSecrets && state.outputSecretsRevealed));
-  els.toggleOutputSecretsButton.querySelector('span').textContent = state.outputSecretsRevealed ? 'Скрыть ссылки' : 'Показать ссылки';
   els.changesJumpButton.disabled = !state.originalText;
   renderMobileFlowActions();
   renderRouterControls();
