@@ -44,6 +44,17 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.section-tab,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.download-warning,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.check-cell input\s*{[\s\S]+?width: 44px;/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?#routerSaveButton\s*{\s*display: none;/);
+  }
+});
+
+test('main and standalone consolidate node inventory errors', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /if \(state\.nodeInventoryError\) \{[\s\S]+?panel\.hidden = true;/);
+    assert.match(source, /retry\.textContent = 'Повторить загрузку'/);
+    assert.match(source, /els\.nodeInventoryControls\.hidden = Boolean\(state\.nodeInventoryError\)/);
+    assert.match(source, /els\.nodeInventorySummary\.hidden = true;/);
   }
 });
 

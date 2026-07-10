@@ -4141,6 +4141,10 @@ button.review-check-card:hover {
 }
 
 @media (max-width: 560px) {
+  #routerSaveButton {
+    display: none;
+  }
+
   .app-shell {
     width: 100%;
     padding: 0;

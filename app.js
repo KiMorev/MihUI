@@ -431,6 +431,7 @@ const els = {
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
   nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
+  nodeInventoryControls: document.querySelector('.node-inventory-controls'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
   nodeGroupSelections: document.querySelector('#nodeGroupSelections'),
   nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
@@ -700,7 +701,7 @@ async function loadRouterConfig(options = {}) {
     renderBackups([]);
     render();
   } finally {
-    setRouterBusy(false, 'Открыть конфиг');
+    setRouterBusy(false, 'Открыть с роутера');
   }
 }
 
@@ -761,7 +762,7 @@ async function saveRouterConfig() {
   } catch (error) {
     showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
   } finally {
-    setRouterBusy(false, 'Открыть конфиг');
+    setRouterBusy(false, 'Открыть с роутера');
   }
 }
 
@@ -781,7 +782,7 @@ async function restoreSelectedBackup() {
   } catch (error) {
     showMessage(`Не удалось восстановить бэкап: ${error?.message || error}`);
   } finally {
-    setRouterBusy(false, 'Открыть конфиг');
+    setRouterBusy(false, 'Открыть с роутера');
   }
 }
 
@@ -1264,13 +1265,6 @@ async function loadNodeInventory(options = {}) {
     state.nodeInventoryErrorDetail = error?.message || String(error);
     state.nodeInventoryError = formatNodeInventoryError(state.nodeInventoryErrorDetail);
     state.nodeGroupSelectionsError = state.nodeInventoryError;
-    if (!options.silent) {
-      showMessage(state.nodeInventoryError, {
-        severity: 'error',
-        details: state.nodeInventoryErrorDetail,
-        actions: [{ label: 'Повторить', onClick: () => loadNodeInventory({ silent: false }) }],
-      });
-    }
   } finally {
     state.nodeInventoryLoading = false;
     render();
@@ -3183,6 +3177,11 @@ function renderNodeInventory() {
   replaceFilterOptions(els.nodeProtocolFilter, 'Все протоколы', protocolOptions, state.nodeFilters.protocol);
   els.nodeSearchInput.value = state.nodeFilters.search;
   els.nodeStatusFilter.value = state.nodeFilters.status;
+  const controlsDisabled = state.nodeInventoryLoading || Boolean(state.nodeInventoryError) || nodes.length === 0;
+  els.nodeInventoryControls.hidden = Boolean(state.nodeInventoryError);
+  [els.nodeSearchInput, els.nodeProviderFilter, els.nodeGroupFilter, els.nodeProtocolFilter, els.nodeStatusFilter]
+    .forEach((control) => { control.disabled = controlsDisabled; });
+  els.nodeInventoryRefreshButton.hidden = Boolean(state.nodeInventoryError);
   els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
   els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading ? 'Загрузка...' : 'Обновить';
 
@@ -3202,7 +3201,7 @@ function renderNodeInventory() {
     const retry = document.createElement('button');
     retry.className = 'button compact';
     retry.type = 'button';
-    retry.textContent = 'Повторить';
+    retry.textContent = 'Повторить загрузку';
     retry.addEventListener('click', () => loadNodeInventory({ silent: false }));
     els.nodeInventoryList.querySelector('.empty-state-content')?.append(retry);
     return;
@@ -3229,6 +3228,12 @@ function renderNodeInventory() {
 function renderNodeGroupSelections(nodes) {
   const panel = els.nodeGroupSelections;
   if (!panel) return;
+
+  if (state.nodeInventoryError) {
+    panel.hidden = true;
+    panel.textContent = '';
+    return;
+  }
 
   panel.hidden = false;
   panel.textContent = '';
@@ -3417,10 +3422,12 @@ function renderNodeInventorySummary(nodes, filtered) {
   }
 
   if (state.nodeInventoryError) {
-    els.nodeInventorySummary.textContent = 'Не удалось получить live-список нод.';
+    els.nodeInventorySummary.hidden = true;
+    els.nodeInventorySummary.textContent = '';
     return;
   }
 
+  els.nodeInventorySummary.hidden = false;
   els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
 }
 
