@@ -462,6 +462,7 @@ h2 {
   display: grid;
   gap: 16px;
   margin-top: 12px;
+  scroll-margin-top: 136px;
 }
 
 .app-section[hidden] {
@@ -3384,6 +3385,10 @@ button.review-check-card:hover {
 }
 
 @media (max-width: 980px) {
+  .app-section {
+    scroll-margin-top: 12px;
+  }
+
   .topbar,
   .actions {
     align-items: stretch;

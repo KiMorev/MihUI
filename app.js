@@ -547,7 +547,7 @@ function setActiveSection(section, options = {}) {
   renderSectionTabs();
   if (options.scroll === false) return;
 
-  document.querySelector('.section-tabs')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  document.querySelector(`[data-section-panel="${section}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
 }
 
 function renderSectionTabs() {
