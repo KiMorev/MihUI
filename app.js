@@ -400,6 +400,10 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  topbarValidation: document.querySelector('#topbarValidation'),
+  sidebarStatusDot: document.querySelector('#sidebarStatusDot'),
+  sidebarStatusValue: document.querySelector('#sidebarStatusValue'),
+  sidebarStatusMeta: document.querySelector('#sidebarStatusMeta'),
   providerCount: document.querySelector('#providerCount'),
   groupCount: document.querySelector('#groupCount'),
   rulesMetric: document.querySelector('#rulesMetric'),
@@ -1483,6 +1487,7 @@ function render() {
 
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
+  renderShellStatus(changes, diagnostics);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderConnectionSettings();
@@ -1493,6 +1498,38 @@ function render() {
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
+}
+
+function renderShellStatus(changes, diagnostics) {
+  const changeCount = countChanges(changes);
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  let value = 'Конфигурация не загружена';
+  let validation = 'Проверка недоступна';
+  let variant = '';
+
+  if (state.originalText) {
+    if (hasStructuralError || errorCount > 0) {
+      value = hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount);
+      validation = hasStructuralError ? 'Проверка: ошибка структуры' : `Проверка: ${formatErrorCount(errorCount)}`;
+      variant = 'is-danger';
+    } else if (warningCount > 0) {
+      value = 'Конфигурация требует внимания';
+      validation = `Проверка: ${formatWarningCount(warningCount)}`;
+      variant = 'is-warning';
+    } else {
+      value = 'Конфигурация валидна';
+      validation = 'Проверка: OK';
+      variant = 'is-ok';
+    }
+  }
+
+  els.sidebarStatusValue.textContent = value;
+  els.sidebarStatusMeta.textContent = formatChangeCount(changeCount);
+  els.sidebarStatusDot.className = `sidebar-status-dot ${variant}`.trim();
+  els.topbarValidation.textContent = validation;
+  els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
 
 function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {

@@ -6,19 +6,20 @@
     <title>WebMihomo — редактор конфигурации</title>
     <style>
 :root {
-  --bg: #f6f8fb;
+  --bg: #f8fafb;
   --panel: #ffffff;
-  --panel-soft: #f8fafc;
-  --line: #dce3ec;
-  --line-strong: #b9c5d4;
-  --text: #182234;
-  --muted: #69778c;
-  --accent: #087c80;
-  --accent-dark: #05666a;
-  --success: #137333;
+  --panel-soft: #f5f7f9;
+  --line: #e0e5e9;
+  --line-strong: #c7d0d7;
+  --text: #17212b;
+  --muted: #647386;
+  --accent: #087b80;
+  --accent-dark: #05656a;
+  --success: #218a4a;
   --danger: #b42318;
-  --warning: #8a5a00;
-  --shadow: 0 12px 28px rgba(24, 34, 52, 0.06);
+  --warning: #a66300;
+  --shadow: 0 8px 24px rgba(24, 34, 52, 0.045);
+  --sidebar-width: 220px;
 }
 
 * {
@@ -30,7 +31,7 @@ body {
   min-height: 100vh;
   color: var(--text);
   background: var(--bg);
-  font: 15px/1.45 Inter, Segoe UI, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font: 14px/1.45 Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 button,
@@ -41,22 +42,150 @@ textarea {
 }
 
 .app-shell {
-  width: min(1500px, calc(100% - 24px));
-  margin: 0 auto;
-  padding: 10px 0 20px;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+}
+
+.icon-sprite {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100vh;
+  padding: 22px 14px 18px;
+  border-right: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 40px;
+  padding: 0 7px;
+}
+
+.app-brand-icon,
+.nav-icon,
+.topbar-file-icon,
+.action-icon {
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app-brand-icon {
+  width: 26px;
+  height: 26px;
+  color: var(--accent-dark);
+}
+
+.app-brand-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.app-main {
+  min-width: 0;
+  padding: 0 22px 28px;
+}
+
+.sidebar-footer {
+  display: grid;
+  gap: 12px;
+  margin-top: auto;
+  padding: 18px 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar-status {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.sidebar-status-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.sidebar-status-dot.is-ok {
+  border-color: var(--success);
+  background: var(--success);
+}
+
+.sidebar-status-dot.is-warning {
+  border-color: var(--warning);
+  background: #fff;
+}
+
+.sidebar-status-dot.is-danger {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.sidebar-status strong,
+.sidebar-status span {
+  display: block;
+}
+
+.sidebar-status strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sidebar-status span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sidebar-check-button {
+  width: 100%;
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  min-height: 58px;
-  padding-bottom: 10px;
+  gap: 18px;
+  min-height: 70px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line);
+  background: rgba(248, 250, 251, 0.96);
+  backdrop-filter: blur(10px);
 }
 
 .topbar-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -75,9 +204,9 @@ p {
 }
 
 h1 {
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.2;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
 }
 
 .version-pill {
@@ -87,8 +216,8 @@ h1 {
   min-height: 24px;
   padding: 2px 8px;
   border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
+  border-radius: 5px;
+  background: var(--panel-soft);
   color: var(--muted);
   cursor: default;
   font: inherit;
@@ -206,20 +335,63 @@ h2 {
 }
 
 #fileMeta {
-  display: inline-flex;
-  align-items: center;
-  max-width: min(100%, 560px);
-  min-height: 24px;
-  margin-top: 7px;
-  padding: 2px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--muted);
-  font-size: 13px;
+  display: block;
+  max-width: min(100%, 420px);
+  color: var(--text);
+  font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.topbar-file-icon,
+.action-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.topbar-validation {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.topbar-validation::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.topbar-validation.is-ok {
+  color: var(--accent-dark);
+}
+
+.topbar-validation.is-ok::before {
+  background: var(--success);
+}
+
+.topbar-validation.is-warning {
+  color: var(--warning);
+}
+
+.topbar-validation.is-warning::before {
+  background: var(--warning);
+}
+
+.topbar-validation.is-danger {
+  color: var(--danger);
+}
+
+.topbar-validation.is-danger::before {
+  background: var(--danger);
 }
 
 .actions {
@@ -238,7 +410,9 @@ h2 {
   display: inline-flex;
   align-items: center;
   min-height: 40px;
-  padding: 0 12px;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fff;
@@ -366,31 +540,15 @@ h2 {
 }
 
 .section-tabs {
-  display: flex;
-  gap: 6px;
-  margin: 12px 0;
-  padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
-  overflow-x: auto;
+  display: grid;
+  gap: 4px;
+  margin: 28px 0 16px;
+  padding: 0;
 }
 
 @media (min-width: 981px) {
-  .topbar {
-    position: sticky;
-    top: 0;
-    z-index: 30;
-    padding-top: 10px;
-    background: rgba(246, 248, 251, 0.96);
-    backdrop-filter: blur(10px);
-  }
-
   .section-tabs {
-    position: sticky;
-    top: 68px;
-    z-index: 29;
+    position: static;
   }
 }
 
@@ -399,31 +557,42 @@ h2 {
 }
 
 .section-tab {
-  flex: 0 0 auto;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid transparent;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 600;
+  text-align: left;
   white-space: nowrap;
+}
+
+.nav-icon {
+  width: 21px;
+  height: 21px;
 }
 
 .section-tab:hover,
 .section-tab:focus-visible {
-  border-color: var(--line-strong);
+  background: var(--panel-soft);
   color: var(--text);
-  outline: 0;
+  outline: 2px solid rgba(8, 124, 128, 0.18);
+  outline-offset: 1px;
 }
 
 .section-tab.is-active {
-  border-color: rgba(8, 124, 128, 0.22);
-  background: #e9f7f8;
+  background: #e8f3f3;
   color: var(--accent-dark);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .subsection-tabs {
@@ -3392,6 +3561,50 @@ button.review-check-card:hover {
 }
 
 @media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-sidebar {
+    position: static;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    height: auto;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .app-main {
+    padding: 0 16px 24px;
+  }
+
+  .app-brand {
+    min-width: 180px;
+    padding: 0;
+  }
+
+  .section-tabs {
+    display: flex;
+    gap: 4px;
+    min-width: 0;
+    margin: 0;
+    overflow-x: auto;
+  }
+
+  .section-tab {
+    display: inline-flex;
+    width: auto;
+    padding-inline: 10px;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
   .app-section {
     scroll-margin-top: 12px;
   }
@@ -3593,18 +3806,36 @@ button.review-check-card:hover {
 
 @media (max-width: 560px) {
   .app-shell {
-    width: min(100% - 20px, 1440px);
-    padding: 14px 0;
+    width: 100%;
+    padding: 0;
+  }
+
+  .app-sidebar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px 10px 10px;
+  }
+
+  .app-main {
+    padding: 0 10px 18px;
+  }
+
+  .app-brand {
+    min-width: 0;
   }
 
   .section-tabs {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
     overflow: visible;
   }
 
   .section-tab {
-    justify-content: center;
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr);
+    justify-content: stretch;
     min-width: 0;
     padding-inline: 8px;
   }
@@ -3850,25 +4081,84 @@ button.review-check-card:hover {
     </style>
   </head>
   <body>
+    <!-- Interface icons: Tabler Icons, MIT License, https://tabler.io/icons -->
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="icon-brand" viewBox="0 0 24 24">
+        <path d="M12 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 6h8" /><path d="M16 6h4" />
+        <path d="M6 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 12h2" /><path d="M10 12h10" />
+        <path d="M15 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 18h11" /><path d="M19 18h1" />
+      </symbol>
+      <symbol id="icon-overview" viewBox="0 0 24 24">
+        <path d="M5 4h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /><path d="M5 16h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" /><path d="M15 12h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-6a1 1 0 0 1 1 -1" /><path d="M15 4h4a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-2a1 1 0 0 1 1 -1" />
+      </symbol>
+      <symbol id="icon-providers" viewBox="0 0 24 24">
+        <path d="M15 3v4a1 1 0 0 0 1 1h4" /><path d="M18 17h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h4l5 5v7a2 2 0 0 1 -2 2" /><path d="M16 17v2a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h2" />
+      </symbol>
+      <symbol id="icon-routing" viewBox="0 0 24 24">
+        <path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" />
+      </symbol>
+      <symbol id="icon-nodes" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
+      </symbol>
+      <symbol id="icon-review" viewBox="0 0 24 24">
+        <path d="M11.46 20.846a12 12 0 0 1 -7.96 -14.846a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 -.09 7.06" /><path d="M15 19l2 2l4 -4" />
+      </symbol>
+      <symbol id="icon-settings" viewBox="0 0 24 24">
+        <path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" />
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /></symbol>
+      <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
+      <symbol id="icon-more" viewBox="0 0 24 24"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></symbol>
+    </svg>
     <main class="app-shell">
+      <aside class="app-sidebar">
+        <div class="app-brand">
+          <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
+          <div class="app-brand-copy">
+            <h1>WebMihomo</h1>
+            <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
+          </div>
+        </div>
+        <nav class="section-tabs" aria-label="Разделы редактора">
+          <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
+        <div class="sidebar-footer" aria-live="polite">
+          <div class="sidebar-status">
+            <span id="sidebarStatusDot" class="sidebar-status-dot"></span>
+            <div>
+              <strong id="sidebarStatusValue">Конфигурация не загружена</strong>
+              <span id="sidebarStatusMeta">Изменений нет</span>
+            </div>
+          </div>
+          <button class="button compact sidebar-check-button" type="button" data-section-target="review">Проверить конфиг</button>
+          <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
+        </div>
+      </aside>
+
+      <div class="app-main">
       <header class="topbar">
         <div class="topbar-main">
-          <div class="title-row">
-            <h1>WebMihomo — редактор конфигурации</h1>
-            <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
-            <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
-          </div>
+          <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
           <p id="fileMeta">Конфигурация не загружена</p>
+          <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
         </div>
         <div class="actions">
-          <button id="routerLoadButton" class="button" type="button">
+          <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
+            <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
+          </button>
+          <button id="routerLoadButton" class="button primary" type="button">
             <span>Открыть конфиг</span>
           </button>
-          <button id="routerSaveButton" class="button primary" type="button" disabled>
+          <button id="routerSaveButton" class="button" type="button" disabled>
             <span>Нет изменений</span>
           </button>
           <details class="file-tools">
-            <summary>Файл</summary>
+            <summary aria-label="Файл" title="Файл"><svg class="action-icon" aria-hidden="true"><use href="#icon-more"></use></svg></summary>
             <div class="file-tools-menu">
               <label class="button compact">
                 <span>Загрузить</span>
@@ -3885,21 +4175,9 @@ button.review-check-card:hover {
           <button id="changesJumpButton" class="link-button" type="button" disabled hidden>
             <span>Изменения</span>
           </button>
-          <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
-            <span>Рекомендации</span>
-          </button>
           <button id="downloadWarning" class="download-warning" type="button" hidden></button>
         </div>
       </header>
-
-      <nav class="section-tabs" aria-label="Разделы редактора">
-        <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true">Обзор</button>
-        <button class="section-tab" type="button" data-section="providers" aria-pressed="false">Подписки</button>
-        <button class="section-tab" type="button" data-section="routing" aria-pressed="false">Маршрутизация</button>
-        <button class="section-tab" type="button" data-section="nodes" aria-pressed="false">Ноды</button>
-        <button class="section-tab" type="button" data-section="review" aria-pressed="false">Проверка</button>
-        <button class="section-tab" type="button" data-section="settings" aria-pressed="false">Настройки</button>
-      </nav>
 
       <nav id="mobileFlowActions" class="mobile-flow-actions" aria-label="Быстрые действия" hidden>
         <button id="mobileChangesButton" class="button compact mobile-flow-action" type="button" disabled>
@@ -4274,6 +4552,7 @@ button.review-check-card:hover {
           </form>
         </section>
       </section>
+      </div>
     </main>
 
     <template id="providerTemplate">
@@ -4813,6 +5092,10 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  topbarValidation: document.querySelector('#topbarValidation'),
+  sidebarStatusDot: document.querySelector('#sidebarStatusDot'),
+  sidebarStatusValue: document.querySelector('#sidebarStatusValue'),
+  sidebarStatusMeta: document.querySelector('#sidebarStatusMeta'),
   providerCount: document.querySelector('#providerCount'),
   groupCount: document.querySelector('#groupCount'),
   rulesMetric: document.querySelector('#rulesMetric'),
@@ -5896,6 +6179,7 @@ function render() {
 
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
+  renderShellStatus(changes, diagnostics);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderConnectionSettings();
@@ -5906,6 +6190,38 @@ function render() {
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
+}
+
+function renderShellStatus(changes, diagnostics) {
+  const changeCount = countChanges(changes);
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  let value = 'Конфигурация не загружена';
+  let validation = 'Проверка недоступна';
+  let variant = '';
+
+  if (state.originalText) {
+    if (hasStructuralError || errorCount > 0) {
+      value = hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount);
+      validation = hasStructuralError ? 'Проверка: ошибка структуры' : `Проверка: ${formatErrorCount(errorCount)}`;
+      variant = 'is-danger';
+    } else if (warningCount > 0) {
+      value = 'Конфигурация требует внимания';
+      validation = `Проверка: ${formatWarningCount(warningCount)}`;
+      variant = 'is-warning';
+    } else {
+      value = 'Конфигурация валидна';
+      validation = 'Проверка: OK';
+      variant = 'is-ok';
+    }
+  }
+
+  els.sidebarStatusValue.textContent = value;
+  els.sidebarStatusMeta.textContent = formatChangeCount(changeCount);
+  els.sidebarStatusDot.className = `sidebar-status-dot ${variant}`.trim();
+  els.topbarValidation.textContent = validation;
+  els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
 
 function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
