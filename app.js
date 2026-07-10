@@ -381,6 +381,7 @@ const els = {
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
   providerListActionHome: document.querySelector('#providerListActionHome'),
+  groupListActionHome: document.querySelector('#groupListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -5257,6 +5258,7 @@ function splitRuleParts(value) {
 }
 
 function renderGroups(activeProviders, groupsWithUse) {
+  els.groupListActionHome.append(els.addGroupButton);
   els.groupsMatrix.innerHTML = '';
   els.groupsMatrix.classList.toggle('empty-state', !state.originalText);
 
@@ -5354,12 +5356,14 @@ function renderGroupEditor(activeProviders) {
   const wrap = document.createElement('div');
   const sidebar = document.createElement('div');
   const detail = document.createElement('div');
+  const sidebarHead = document.createElement('div');
   const summary = document.createElement('div');
   const filters = document.createElement('div');
 
   wrap.className = 'group-editor';
   sidebar.className = 'group-editor-sidebar';
   detail.className = 'group-editor-detail';
+  sidebarHead.className = 'group-editor-sidebar-head';
   summary.className = 'group-editor-summary';
   summary.textContent = `Групп: ${state.groups.length}`;
   filters.className = 'group-type-filters';
@@ -5379,7 +5383,8 @@ function renderGroupEditor(activeProviders) {
     });
     filters.append(button);
   });
-  sidebar.append(summary, filters);
+  sidebarHead.append(summary, els.addGroupButton);
+  sidebar.append(sidebarHead, filters);
 
   state.groups.forEach((group, index) => {
     if (!visibleGroups.includes(group)) return;

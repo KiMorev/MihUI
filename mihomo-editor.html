@@ -2429,10 +2429,22 @@ input.is-invalid {
 }
 
 .group-editor-summary {
-  margin: 2px 2px 8px;
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
+}
+
+.group-editor-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 2px 8px;
+}
+
+.group-editor-sidebar-head #addGroupButton {
+  white-space: nowrap;
 }
 
 .group-list-item {
@@ -4659,9 +4671,11 @@ button.review-check-card:hover {
           <div class="panel-head">
             <h2>Группы и подписки</h2>
             <div class="panel-actions">
-              <button id="addGroupButton" class="icon-button" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
-                +
-              </button>
+              <div id="groupListActionHome" class="provider-list-action-home">
+                <button id="addGroupButton" class="button primary compact" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить группу</span>
+                </button>
+              </div>
             </div>
           </div>
           <div id="groupsMatrix" class="matrix-wrap empty-state">
@@ -4697,8 +4711,8 @@ button.review-check-card:hover {
             <div class="panel-head">
               <h2>Правила (rules)</h2>
               <div class="panel-actions">
-                <button id="addRuleButton" class="icon-button" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
-                  +
+                <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить правило</span>
                 </button>
               </div>
             </div>
@@ -5405,6 +5419,7 @@ const els = {
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
   providerListActionHome: document.querySelector('#providerListActionHome'),
+  groupListActionHome: document.querySelector('#groupListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
@@ -10281,6 +10296,7 @@ function splitRuleParts(value) {
 }
 
 function renderGroups(activeProviders, groupsWithUse) {
+  els.groupListActionHome.append(els.addGroupButton);
   els.groupsMatrix.innerHTML = '';
   els.groupsMatrix.classList.toggle('empty-state', !state.originalText);
 
@@ -10378,12 +10394,14 @@ function renderGroupEditor(activeProviders) {
   const wrap = document.createElement('div');
   const sidebar = document.createElement('div');
   const detail = document.createElement('div');
+  const sidebarHead = document.createElement('div');
   const summary = document.createElement('div');
   const filters = document.createElement('div');
 
   wrap.className = 'group-editor';
   sidebar.className = 'group-editor-sidebar';
   detail.className = 'group-editor-detail';
+  sidebarHead.className = 'group-editor-sidebar-head';
   summary.className = 'group-editor-summary';
   summary.textContent = `Групп: ${state.groups.length}`;
   filters.className = 'group-type-filters';
@@ -10403,7 +10421,8 @@ function renderGroupEditor(activeProviders) {
     });
     filters.append(button);
   });
-  sidebar.append(summary, filters);
+  sidebarHead.append(summary, els.addGroupButton);
+  sidebar.append(sidebarHead, filters);
 
   state.groups.forEach((group, index) => {
     if (!visibleGroups.includes(group)) return;

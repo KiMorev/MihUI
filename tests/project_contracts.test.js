@@ -18,12 +18,13 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML с исходными ссылками"/);
     assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
     assert.match(html, /id="providerListActionHome"/);
+    assert.match(html, /id="groupListActionHome"/);
     assert.match(html, /id="intervalToolsButton"[\s\S]+?Настроить обновления/);
     assert.match(html, /id="providerStatusRefreshButton"[\s\S]+?Обновить статусы/);
     assert.match(html, /id="addProviderButton"[^>]+aria-label="Добавить подписку"/);
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
-    assert.match(html, /id="addGroupButton"[^>]+aria-label="Добавить группу"/);
-    assert.match(html, /id="addRuleButton"[^>]+aria-label="Добавить правило"/);
+    assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
+    assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
   }
 });
 
