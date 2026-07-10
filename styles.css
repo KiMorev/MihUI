@@ -591,18 +591,18 @@ h2 {
 .subsection-tabs {
   display: inline-flex;
   justify-self: start;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  gap: 22px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--line);
 }
 
 .subsection-tab {
   min-height: 40px;
-  padding: 0 13px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  margin-bottom: -1px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -610,8 +610,7 @@ h2 {
 }
 
 .subsection-tab.is-active {
-  border-color: rgba(8, 124, 128, 0.22);
-  background: #e9f7f8;
+  border-bottom-color: var(--accent);
   color: var(--accent-dark);
 }
 
@@ -650,20 +649,11 @@ h2 {
   min-height: 116px;
   padding: 13px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  box-shadow: var(--shadow);
-}
-
-.overview-card::after {
-  content: '→';
-  justify-self: end;
-  color: var(--line-strong);
-  font-size: 18px;
-  line-height: 1;
 }
 
 .overview-card:hover,
@@ -708,7 +698,7 @@ h2 {
   min-height: 74px;
   padding: 10px 12px;
   border: 1px solid #e4c36a;
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fffaf0;
   color: var(--text);
   cursor: pointer;
@@ -925,9 +915,8 @@ input[type='file'] {
   min-height: 58px;
   padding: 11px 14px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel);
-  box-shadow: var(--shadow);
 }
 
 .metric-actionable {
@@ -1624,9 +1613,8 @@ input[type='file'] {
 
 .panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--panel);
-  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -4008,7 +3996,8 @@ button.review-check-card:hover {
 
   .route-scenario-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
+    max-height: 300px;
+    overflow-y: auto;
   }
 
   .route-flow-arrow {
@@ -4249,7 +4238,7 @@ button.review-check-card:hover {
 
   .route-scenario-list {
     grid-template-columns: 1fr;
-    max-height: none;
+    max-height: 240px;
   }
 
   .route-split {
