@@ -6033,7 +6033,7 @@ function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount,
   if (!state.originalText) return 'Конфигурация не загружена';
   if (errorCount > 0) return formatErrorCount(errorCount);
   if (warningCount > 0) return formatWarningCount(warningCount);
-  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть что проверить';
+  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть на что обратить внимание';
   return 'Готово';
 }
 
