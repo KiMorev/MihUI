@@ -9,6 +9,7 @@ const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
+const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -1143,6 +1144,7 @@ async function checkRouterConfig(options = {}) {
     });
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = Boolean(data.available);
+    if (state.lastConfigCheckOk) persistSuccessfulConfigCheck(state.outputText);
     if (!options.silent) {
       showMessage(data.available ? 'Проверка Mihomo пройдена.' : `Проверка недоступна: ${data.message || 'mihomo не найден'}`);
     }
@@ -1150,11 +1152,60 @@ async function checkRouterConfig(options = {}) {
   } catch (error) {
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = false;
+    clearPersistedConfigCheck(state.outputText);
     showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`);
     return false;
   } finally {
     setConfigCheckBusy(false);
+    render();
   }
+}
+
+function getConfigFingerprint(text) {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+  }
+  return `${text.length}:${first >>> 0}:${second >>> 0}`;
+}
+
+function getPersistedConfigCheck() {
+  try {
+    return window.localStorage?.getItem(CONFIG_CHECK_STORAGE_KEY) || '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function persistSuccessfulConfigCheck(text) {
+  try {
+    window.localStorage?.setItem(CONFIG_CHECK_STORAGE_KEY, getConfigFingerprint(text));
+  } catch (error) {
+    // Проверка работает и без доступного localStorage.
+  }
+}
+
+function clearPersistedConfigCheck(text) {
+  try {
+    if (getPersistedConfigCheck() === getConfigFingerprint(text)) {
+      window.localStorage?.removeItem(CONFIG_CHECK_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Проверка работает и без доступного localStorage.
+  }
+}
+
+function restorePersistedConfigCheck() {
+  const isPersisted = Boolean(
+    state.routerApiAvailable
+      && state.outputText
+      && getPersistedConfigCheck() === getConfigFingerprint(state.outputText),
+  );
+  state.lastConfigCheckText = isPersisted ? state.outputText : '';
+  state.lastConfigCheckOk = isPersisted;
 }
 
 function setConfigCheckBusy(isBusy) {
@@ -6084,6 +6135,7 @@ function setOutputText(text) {
     state.lastConfigCheckOk = false;
   }
   state.outputText = nextText;
+  restorePersistedConfigCheck();
 }
 
 function serializeConnectionSettingsToAdd() {

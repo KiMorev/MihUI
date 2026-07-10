@@ -64,6 +64,7 @@ function readSource(source) {
 }
 
 function loadApp(source) {
+  const storage = new Map();
   const runTimer = (callback) => {
     callback();
     return 0;
@@ -85,6 +86,11 @@ function loadApp(source) {
     },
     setTimeout: runTimer,
     window: {
+      localStorage: {
+        getItem: (key) => storage.get(key) ?? null,
+        removeItem: (key) => storage.delete(key),
+        setItem: (key, value) => storage.set(key, String(value)),
+      },
       requestAnimationFrame: (callback) => callback(),
       setTimeout: runTimer,
     },
@@ -128,6 +134,7 @@ globalThis.__app = {
   getRuleScenarios,
   getGroupUsage,
   getProviderIntervalDefaults,
+  persistSuccessfulConfigCheck,
   parseGroups,
   parseRules,
   parseProviders,
@@ -144,6 +151,7 @@ globalThis.__app = {
   snapshotGroup,
   snapshotRule,
   snapshotProvider,
+  setOutputText,
   setProviderUrlMasking,
   splitLines,
   moveGroupProxy,
@@ -191,6 +199,20 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: restores only the successful unchanged config check`, () => {
+    const app = loadApp(source);
+    app.state.routerApiAvailable = true;
+    app.persistSuccessfulConfigCheck('current yaml');
+
+    app.setOutputText('current yaml');
+    assert.equal(app.state.lastConfigCheckOk, true);
+    assert.equal(app.state.lastConfigCheckText, 'current yaml');
+
+    app.setOutputText('changed yaml');
+    assert.equal(app.state.lastConfigCheckOk, false);
+    assert.equal(app.state.lastConfigCheckText, '');
+  });
+
   test(`${source.name}: reports broken route links`, () => {
     const app = loadApp(source);
     const activeProviders = hydrate(app, `
