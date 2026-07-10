@@ -42,6 +42,23 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
+test('main and standalone expose the editorial shell and routing workbench', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const html = read(name);
+    assert.match(html, /class="app-sidebar"/);
+    assert.match(html, /id="topbarValidation"/);
+    assert.match(html, /class="routing-workbench"/);
+    assert.match(html, /Interface icons: Tabler Icons, MIT License/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.route-map\s*{[\s\S]+?grid-template-columns: 244px minmax\(380px, 1fr\) 300px;/);
+    assert.match(source, /\.route-inspector\s*{/);
+    assert.match(source, /\.route-visual-stack\s*{/);
+  }
+});
+
 test('standalone editor exactly mirrors the main html, styles and script', () => {
   const expected = read('index.html')
     .replace('    <link rel="stylesheet" href="./styles.css" />', () => `    <style>\n${read('styles.css')}\n    </style>`)

@@ -2613,8 +2613,23 @@ input.is-invalid {
 
 .group-order-list {
   display: grid;
-  gap: 10px;
-  padding: 10px;
+  min-height: 680px;
+}
+
+.group-order-list.empty-state {
+  min-height: 360px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.routing-workbench {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
 }
 
 .rules-editor-list {
@@ -2748,9 +2763,9 @@ input.is-invalid {
 
 .route-map {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  grid-template-columns: 244px minmax(380px, 1fr) 300px;
+  min-height: 680px;
+  align-items: stretch;
 }
 
 .route-scenarios,
@@ -2758,11 +2773,21 @@ input.is-invalid {
   min-width: 0;
   display: grid;
   gap: 10px;
+  align-content: start;
+  padding: 20px 16px;
+}
+
+.route-scenarios {
+  border-right: 1px solid var(--line);
+}
+
+.route-flow {
+  background: #fbfcfd;
 }
 
 .route-map-title {
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 750;
 }
 
@@ -2781,22 +2806,24 @@ input.is-invalid {
 
 .route-scenario-list {
   display: grid;
-  gap: 6px;
-  max-height: 420px;
+  gap: 0;
+  max-height: 555px;
   overflow: auto;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .route-scenario {
   display: grid;
-  grid-template-rows: auto auto;
+  grid-template-columns: 28px minmax(0, 1fr);
   align-content: center;
-  gap: 2px;
+  gap: 8px;
   width: 100%;
-  min-height: 68px;
-  padding: 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  min-height: 72px;
+  padding: 9px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -2844,13 +2871,35 @@ input.is-invalid {
 }
 
 .route-scenario:hover {
-  border-color: var(--line-strong);
+  background: var(--panel-soft);
 }
 
 .route-scenario.is-active {
-  border-color: rgba(0, 111, 120, 0.5);
-  background: #f0fbfc;
+  background: #edf7f7;
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.route-scenario-index,
+.route-inspector-number,
+.route-visual-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.route-scenario-copy {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-width: 0;
 }
 
 .route-scenario strong {
@@ -2875,7 +2924,7 @@ input.is-invalid {
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  padding: 2px 2px 0;
+  padding: 0 2px;
 }
 
 .route-flow-head strong {
@@ -2884,6 +2933,216 @@ input.is-invalid {
   font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.route-visualization {
+  display: grid;
+  place-items: start center;
+  min-height: 590px;
+  padding: 20px 12px 32px;
+}
+
+.route-visual-stack {
+  display: grid;
+  justify-items: center;
+  width: min(100%, 440px);
+}
+
+.route-visual-node {
+  width: min(100%, 360px);
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.route-visual-node.is-entry {
+  width: min(100%, 260px);
+}
+
+.route-visual-node.is-rule {
+  border-color: rgba(8, 123, 128, 0.7);
+  background: #f8fcfc;
+}
+
+.route-visual-node.is-direct,
+.route-visual-node.is-built-in {
+  border-color: #dfa72f;
+  background: #fffaf0;
+}
+
+.route-visual-node.is-reject {
+  border-color: #d98e84;
+  background: #fff7f5;
+}
+
+.route-visual-node.is-group,
+.route-visual-node.is-mode,
+.route-visual-node.is-provider,
+.route-visual-node.is-external {
+  border-color: #9aa9c3;
+  background: #fafbfe;
+}
+
+.route-visual-node-head,
+.route-visual-node-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.route-visual-node-head {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.route-visual-node-title {
+  gap: 10px;
+}
+
+.route-visual-node strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-visual-node > span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.route-visual-badge {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.route-visual-connector {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  min-height: 82px;
+}
+
+.route-visual-line {
+  width: 1px;
+  height: 82px;
+  background: #8290a3;
+}
+
+.route-visual-line::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid #8290a3;
+  border-bottom: 1px solid #8290a3;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.route-visual-label {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + 14px);
+  padding: 2px 6px;
+  background: #fbfcfd;
+  color: #435166;
+  font-size: 12px;
+  font-weight: 700;
+  transform: translateY(-50%);
+}
+
+.route-inspector {
+  min-width: 0;
+  padding: 20px 16px;
+  border-left: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.route-inspector-heading {
+  padding-bottom: 18px;
+  font-size: 14px;
+}
+
+.route-inspector-identity {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.route-inspector-identity > strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-inspector-badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #e5f3f3;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.route-inspector-main {
+  display: grid;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.route-inspector-field {
+  display: grid;
+  gap: 5px;
+}
+
+.route-inspector-field > span,
+.route-inspector-field > p,
+.route-inspector-section span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.route-inspector-field > strong,
+.route-inspector-field > p {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fbfcfd;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.route-inspector-section {
+  border-bottom: 1px solid var(--line);
+}
+
+.route-inspector-section summary {
+  display: grid;
+  gap: 4px;
+  padding: 14px 0;
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.route-inspector-section strong {
+  font-size: 13px;
 }
 
 .route-chain {
@@ -3551,12 +3810,17 @@ button.review-check-card:hover {
 
 @media (max-width: 1100px) {
   .route-map {
-    grid-template-columns: 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .route-inspector {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .route-scenario-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    max-height: none;
+    max-height: 560px;
   }
 }
 
@@ -3742,6 +4006,16 @@ button.review-check-card:hover {
   .route-map,
   .route-chain {
     grid-template-columns: 1fr;
+  }
+
+  .route-scenarios {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .route-scenario-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-height: none;
   }
 
   .route-flow-arrow {
@@ -4349,10 +4623,7 @@ button.review-check-card:hover {
             </button>
           </div>
 
-          <section id="routingMapPanel" class="panel group-order-panel" role="tabpanel" aria-labelledby="routingMapTab" data-routing-view-panel="map">
-            <div class="panel-head">
-              <h2>Схема маршрутизации</h2>
-            </div>
+          <section id="routingMapPanel" class="routing-workbench" role="tabpanel" aria-labelledby="routingMapTab" data-routing-view-panel="map">
             <div id="groupOrderList" class="group-order-list empty-state">
               <div class="empty-state-content">
                 <strong>Схема появится после загрузки</strong>
@@ -9091,11 +9362,12 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
   const flowMeta = document.createElement('span');
   const chain = document.createElement('div');
   const targetNode = buildRouteNodeModel(selectedScenario.target, groups, activeProviders);
+  const inspector = createRouteInspector(selectedScenario, targetNode, scenarios.indexOf(selectedScenario) + 1);
 
   map.className = 'route-map';
   scenarioPanel.className = 'route-scenarios';
   scenarioTitle.className = 'route-map-title';
-  scenarioTitle.textContent = 'Сценарии из rules';
+  scenarioTitle.textContent = 'Сценарии';
   scenarioControls.className = 'route-scenario-controls';
   scenarioSearch.type = 'search';
   scenarioSearch.placeholder = 'Поиск сценария';
@@ -9115,8 +9387,8 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
     });
   scenarioControls.append(scenarioSearch, scenarioTarget);
   scenarioList.className = 'route-scenario-list';
-  scenarios.forEach((scenario) => {
-    const button = createRouteScenarioButton(scenario, selectedScenario.id);
+  scenarios.forEach((scenario, index) => {
+    const button = createRouteScenarioButton(scenario, selectedScenario.id, index + 1);
     button.setAttribute('data-search', `${scenario.label} ${scenario.matcher} ${scenario.target}`.toLowerCase());
     button.setAttribute('data-target', scenario.target);
     scenarioList.append(button);
@@ -9135,29 +9407,22 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
 
   flow.className = 'route-flow';
   flowHead.className = 'route-flow-head';
-  flowTitle.textContent = selectedScenario.label;
-  flowMeta.textContent = `${formatRuleCount(selectedScenario.ruleCount)} · цель: ${selectedScenario.target}`;
+  flowTitle.textContent = 'Маршрутизация';
+  flowMeta.textContent = 'сверху вниз';
   flowHead.append(flowTitle, flowMeta);
-  chain.className = 'route-chain';
-  chain.append(
-    createRouteNodeCard({
-      kind: 'rule',
-      title: formatRouteRuleTitle(selectedScenario),
-      badge: formatRouteRuleBadge(selectedScenario),
-      description: formatRouteRuleDescription(selectedScenario),
-    }),
-    createRouteFlowArrow(),
-    createRouteNodeTree(targetNode),
-  );
+  chain.className = 'route-visualization';
+  chain.append(createRouteVisualization(selectedScenario, targetNode, scenarios.indexOf(selectedScenario) + 1));
 
   scenarioPanel.append(scenarioTitle, scenarioControls, scenarioList);
   flow.append(flowHead, chain);
-  map.append(scenarioPanel, flow);
+  map.append(scenarioPanel, flow, inspector);
   return map;
 }
 
-function createRouteScenarioButton(scenario, selectedId) {
+function createRouteScenarioButton(scenario, selectedId, index) {
   const button = document.createElement('button');
+  const number = document.createElement('span');
+  const copy = document.createElement('span');
   const name = document.createElement('strong');
   const meta = document.createElement('span');
   const selected = scenario.id === selectedId;
@@ -9166,15 +9431,167 @@ function createRouteScenarioButton(scenario, selectedId) {
   button.type = 'button';
   button.setAttribute('aria-pressed', String(selected));
   if (selected) button.classList.add('is-active');
+  number.className = 'route-scenario-index';
+  number.textContent = String(index);
+  copy.className = 'route-scenario-copy';
   name.textContent = scenario.label;
   meta.textContent = formatRouteScenarioMeta(scenario);
-  button.append(name, meta);
+  copy.append(name, meta);
+  button.append(number, copy);
   button.addEventListener('click', () => {
     state.selectedRouteScenarioId = scenario.id;
     renderMainGroup(state.groups, state.providers.filter((provider) => !provider.deleted));
   });
 
   return button;
+}
+
+function createRouteVisualization(scenario, targetNode, index) {
+  const diagram = document.createElement('div');
+  const entry = createRouteVisualNode('entry', 'Входящий трафик', 'Все запросы');
+  const rule = createRouteVisualNode(
+    'rule',
+    scenario.label,
+    scenario.isDefault ? 'Правило по умолчанию' : formatRouteRuleDescription(scenario),
+    String(index),
+    formatRouteRuleBadge(scenario),
+  );
+  const target = createRouteVisualNode(
+    targetNode.kind,
+    targetNode.title,
+    targetNode.description,
+    '',
+    targetNode.badge,
+  );
+
+  diagram.className = 'route-visual-stack';
+  diagram.append(
+    entry,
+    createRouteVisualConnector(''),
+    rule,
+    createRouteVisualConnector(scenario.matcher),
+    target,
+  );
+  return diagram;
+}
+
+function createRouteVisualNode(kind, titleText, descriptionText, numberText = '', badgeText = '') {
+  const node = document.createElement('div');
+  const head = document.createElement('div');
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('strong');
+  const description = document.createElement('span');
+
+  node.className = `route-visual-node is-${kind}`;
+  head.className = 'route-visual-node-head';
+  titleWrap.className = 'route-visual-node-title';
+  if (numberText) {
+    const number = document.createElement('span');
+    number.className = 'route-visual-number';
+    number.textContent = numberText;
+    titleWrap.append(number);
+  }
+  title.textContent = titleText;
+  titleWrap.append(title);
+  head.append(titleWrap);
+  if (badgeText) {
+    const badge = document.createElement('span');
+    badge.className = 'route-visual-badge';
+    badge.textContent = badgeText;
+    head.append(badge);
+  }
+  description.textContent = descriptionText;
+  node.append(head, description);
+  return node;
+}
+
+function createRouteVisualConnector(labelText) {
+  const connector = document.createElement('div');
+  const line = document.createElement('span');
+  connector.className = 'route-visual-connector';
+  line.className = 'route-visual-line';
+  connector.append(line);
+  if (labelText) {
+    const label = document.createElement('span');
+    label.className = 'route-visual-label';
+    label.textContent = labelText;
+    connector.append(label);
+  }
+  return connector;
+}
+
+function createRouteInspector(scenario, targetNode, index) {
+  const inspector = document.createElement('aside');
+  const heading = document.createElement('div');
+  const title = document.createElement('strong');
+  const identity = document.createElement('div');
+  const number = document.createElement('span');
+  const name = document.createElement('strong');
+  const badge = document.createElement('span');
+  const main = document.createElement('section');
+  const mainTitle = document.createElement('strong');
+  const description = document.createElement('p');
+
+  inspector.className = 'route-inspector';
+  heading.className = 'route-inspector-heading';
+  title.textContent = 'Подробности сценария';
+  heading.append(title);
+  identity.className = 'route-inspector-identity';
+  number.className = 'route-inspector-number';
+  number.textContent = String(index);
+  name.textContent = scenario.label;
+  badge.className = 'route-inspector-badge';
+  badge.textContent = formatRouteRuleBadge(scenario);
+  identity.append(number, name, badge);
+  main.className = 'route-inspector-main';
+  mainTitle.textContent = 'Основные';
+  description.textContent = formatRouteRuleDescription(scenario);
+  main.append(
+    mainTitle,
+    createRouteInspectorField('Условие', scenario.matcher),
+    createRouteInspectorField('Цель', `${scenario.target} (${targetNode.badge})`),
+    createRouteInspectorField('Описание', description.textContent, true),
+  );
+  inspector.append(
+    heading,
+    identity,
+    main,
+    createRouteInspectorSection(`Правила сценария (${scenario.ruleCount})`, scenario.examples.join(' · ')),
+    createRouteInspectorSection('Фильтрация узлов', getRouteInspectorFilterSummary(targetNode)),
+    createRouteInspectorSection('Протоколы', 'Наследуются от выбранной цели'),
+    createRouteInspectorSection('Дополнительно', 'Редактирование доступно во вкладке «Правила»'),
+  );
+  return inspector;
+}
+
+function createRouteInspectorField(labelText, valueText, multiline = false) {
+  const field = document.createElement('div');
+  const label = document.createElement('span');
+  const value = document.createElement(multiline ? 'p' : 'strong');
+  field.className = `route-inspector-field${multiline ? ' is-multiline' : ''}`;
+  label.textContent = labelText;
+  value.textContent = valueText;
+  field.append(label, value);
+  return field;
+}
+
+function createRouteInspectorSection(titleText, metaText) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  details.className = 'route-inspector-section';
+  title.textContent = titleText;
+  meta.textContent = metaText;
+  summary.append(title, meta);
+  details.append(summary);
+  return details;
+}
+
+function getRouteInspectorFilterSummary(targetNode) {
+  if (targetNode.kind === 'provider') return 'Фильтры берутся из подписки';
+  if (targetNode.kind === 'group' || targetNode.kind === 'mode') return 'Определяется составом группы';
+  return 'Не применяется';
 }
 
 function getSelectedRouteScenario(scenarios) {
@@ -9229,8 +9646,7 @@ function getRuleScenarios() {
 }
 
 function formatRouteScenarioMeta(scenario) {
-  const matcher = scenario.ruleCount > 1 ? `первое: ${scenario.matcher}` : scenario.matcher;
-  return `${formatRuleCount(scenario.ruleCount)} · ${matcher}`;
+  return `${formatRuleCount(scenario.ruleCount)} · цель: ${scenario.target}`;
 }
 
 function formatRouteRuleTitle(scenario) {

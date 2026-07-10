@@ -4399,11 +4399,12 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
   const flowMeta = document.createElement('span');
   const chain = document.createElement('div');
   const targetNode = buildRouteNodeModel(selectedScenario.target, groups, activeProviders);
+  const inspector = createRouteInspector(selectedScenario, targetNode, scenarios.indexOf(selectedScenario) + 1);
 
   map.className = 'route-map';
   scenarioPanel.className = 'route-scenarios';
   scenarioTitle.className = 'route-map-title';
-  scenarioTitle.textContent = 'Сценарии из rules';
+  scenarioTitle.textContent = 'Сценарии';
   scenarioControls.className = 'route-scenario-controls';
   scenarioSearch.type = 'search';
   scenarioSearch.placeholder = 'Поиск сценария';
@@ -4423,8 +4424,8 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
     });
   scenarioControls.append(scenarioSearch, scenarioTarget);
   scenarioList.className = 'route-scenario-list';
-  scenarios.forEach((scenario) => {
-    const button = createRouteScenarioButton(scenario, selectedScenario.id);
+  scenarios.forEach((scenario, index) => {
+    const button = createRouteScenarioButton(scenario, selectedScenario.id, index + 1);
     button.setAttribute('data-search', `${scenario.label} ${scenario.matcher} ${scenario.target}`.toLowerCase());
     button.setAttribute('data-target', scenario.target);
     scenarioList.append(button);
@@ -4443,29 +4444,22 @@ function createRouteMap(scenarios, selectedScenario, groups, activeProviders) {
 
   flow.className = 'route-flow';
   flowHead.className = 'route-flow-head';
-  flowTitle.textContent = selectedScenario.label;
-  flowMeta.textContent = `${formatRuleCount(selectedScenario.ruleCount)} · цель: ${selectedScenario.target}`;
+  flowTitle.textContent = 'Маршрутизация';
+  flowMeta.textContent = 'сверху вниз';
   flowHead.append(flowTitle, flowMeta);
-  chain.className = 'route-chain';
-  chain.append(
-    createRouteNodeCard({
-      kind: 'rule',
-      title: formatRouteRuleTitle(selectedScenario),
-      badge: formatRouteRuleBadge(selectedScenario),
-      description: formatRouteRuleDescription(selectedScenario),
-    }),
-    createRouteFlowArrow(),
-    createRouteNodeTree(targetNode),
-  );
+  chain.className = 'route-visualization';
+  chain.append(createRouteVisualization(selectedScenario, targetNode, scenarios.indexOf(selectedScenario) + 1));
 
   scenarioPanel.append(scenarioTitle, scenarioControls, scenarioList);
   flow.append(flowHead, chain);
-  map.append(scenarioPanel, flow);
+  map.append(scenarioPanel, flow, inspector);
   return map;
 }
 
-function createRouteScenarioButton(scenario, selectedId) {
+function createRouteScenarioButton(scenario, selectedId, index) {
   const button = document.createElement('button');
+  const number = document.createElement('span');
+  const copy = document.createElement('span');
   const name = document.createElement('strong');
   const meta = document.createElement('span');
   const selected = scenario.id === selectedId;
@@ -4474,15 +4468,167 @@ function createRouteScenarioButton(scenario, selectedId) {
   button.type = 'button';
   button.setAttribute('aria-pressed', String(selected));
   if (selected) button.classList.add('is-active');
+  number.className = 'route-scenario-index';
+  number.textContent = String(index);
+  copy.className = 'route-scenario-copy';
   name.textContent = scenario.label;
   meta.textContent = formatRouteScenarioMeta(scenario);
-  button.append(name, meta);
+  copy.append(name, meta);
+  button.append(number, copy);
   button.addEventListener('click', () => {
     state.selectedRouteScenarioId = scenario.id;
     renderMainGroup(state.groups, state.providers.filter((provider) => !provider.deleted));
   });
 
   return button;
+}
+
+function createRouteVisualization(scenario, targetNode, index) {
+  const diagram = document.createElement('div');
+  const entry = createRouteVisualNode('entry', 'Входящий трафик', 'Все запросы');
+  const rule = createRouteVisualNode(
+    'rule',
+    scenario.label,
+    scenario.isDefault ? 'Правило по умолчанию' : formatRouteRuleDescription(scenario),
+    String(index),
+    formatRouteRuleBadge(scenario),
+  );
+  const target = createRouteVisualNode(
+    targetNode.kind,
+    targetNode.title,
+    targetNode.description,
+    '',
+    targetNode.badge,
+  );
+
+  diagram.className = 'route-visual-stack';
+  diagram.append(
+    entry,
+    createRouteVisualConnector(''),
+    rule,
+    createRouteVisualConnector(scenario.matcher),
+    target,
+  );
+  return diagram;
+}
+
+function createRouteVisualNode(kind, titleText, descriptionText, numberText = '', badgeText = '') {
+  const node = document.createElement('div');
+  const head = document.createElement('div');
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('strong');
+  const description = document.createElement('span');
+
+  node.className = `route-visual-node is-${kind}`;
+  head.className = 'route-visual-node-head';
+  titleWrap.className = 'route-visual-node-title';
+  if (numberText) {
+    const number = document.createElement('span');
+    number.className = 'route-visual-number';
+    number.textContent = numberText;
+    titleWrap.append(number);
+  }
+  title.textContent = titleText;
+  titleWrap.append(title);
+  head.append(titleWrap);
+  if (badgeText) {
+    const badge = document.createElement('span');
+    badge.className = 'route-visual-badge';
+    badge.textContent = badgeText;
+    head.append(badge);
+  }
+  description.textContent = descriptionText;
+  node.append(head, description);
+  return node;
+}
+
+function createRouteVisualConnector(labelText) {
+  const connector = document.createElement('div');
+  const line = document.createElement('span');
+  connector.className = 'route-visual-connector';
+  line.className = 'route-visual-line';
+  connector.append(line);
+  if (labelText) {
+    const label = document.createElement('span');
+    label.className = 'route-visual-label';
+    label.textContent = labelText;
+    connector.append(label);
+  }
+  return connector;
+}
+
+function createRouteInspector(scenario, targetNode, index) {
+  const inspector = document.createElement('aside');
+  const heading = document.createElement('div');
+  const title = document.createElement('strong');
+  const identity = document.createElement('div');
+  const number = document.createElement('span');
+  const name = document.createElement('strong');
+  const badge = document.createElement('span');
+  const main = document.createElement('section');
+  const mainTitle = document.createElement('strong');
+  const description = document.createElement('p');
+
+  inspector.className = 'route-inspector';
+  heading.className = 'route-inspector-heading';
+  title.textContent = 'Подробности сценария';
+  heading.append(title);
+  identity.className = 'route-inspector-identity';
+  number.className = 'route-inspector-number';
+  number.textContent = String(index);
+  name.textContent = scenario.label;
+  badge.className = 'route-inspector-badge';
+  badge.textContent = formatRouteRuleBadge(scenario);
+  identity.append(number, name, badge);
+  main.className = 'route-inspector-main';
+  mainTitle.textContent = 'Основные';
+  description.textContent = formatRouteRuleDescription(scenario);
+  main.append(
+    mainTitle,
+    createRouteInspectorField('Условие', scenario.matcher),
+    createRouteInspectorField('Цель', `${scenario.target} (${targetNode.badge})`),
+    createRouteInspectorField('Описание', description.textContent, true),
+  );
+  inspector.append(
+    heading,
+    identity,
+    main,
+    createRouteInspectorSection(`Правила сценария (${scenario.ruleCount})`, scenario.examples.join(' · ')),
+    createRouteInspectorSection('Фильтрация узлов', getRouteInspectorFilterSummary(targetNode)),
+    createRouteInspectorSection('Протоколы', 'Наследуются от выбранной цели'),
+    createRouteInspectorSection('Дополнительно', 'Редактирование доступно во вкладке «Правила»'),
+  );
+  return inspector;
+}
+
+function createRouteInspectorField(labelText, valueText, multiline = false) {
+  const field = document.createElement('div');
+  const label = document.createElement('span');
+  const value = document.createElement(multiline ? 'p' : 'strong');
+  field.className = `route-inspector-field${multiline ? ' is-multiline' : ''}`;
+  label.textContent = labelText;
+  value.textContent = valueText;
+  field.append(label, value);
+  return field;
+}
+
+function createRouteInspectorSection(titleText, metaText) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  details.className = 'route-inspector-section';
+  title.textContent = titleText;
+  meta.textContent = metaText;
+  summary.append(title, meta);
+  details.append(summary);
+  return details;
+}
+
+function getRouteInspectorFilterSummary(targetNode) {
+  if (targetNode.kind === 'provider') return 'Фильтры берутся из подписки';
+  if (targetNode.kind === 'group' || targetNode.kind === 'mode') return 'Определяется составом группы';
+  return 'Не применяется';
 }
 
 function getSelectedRouteScenario(scenarios) {
@@ -4537,8 +4683,7 @@ function getRuleScenarios() {
 }
 
 function formatRouteScenarioMeta(scenario) {
-  const matcher = scenario.ruleCount > 1 ? `первое: ${scenario.matcher}` : scenario.matcher;
-  return `${formatRuleCount(scenario.ruleCount)} · ${matcher}`;
+  return `${formatRuleCount(scenario.ruleCount)} · цель: ${scenario.target}`;
 }
 
 function formatRouteRuleTitle(scenario) {
