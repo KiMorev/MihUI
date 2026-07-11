@@ -440,8 +440,10 @@ const els = {
   overviewHealth: document.querySelector('.overview-health'),
   overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
   overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
+  overviewConfigSource: document.querySelector('#overviewConfigSource'),
   overviewConfigPath: document.querySelector('#overviewConfigPath'),
   overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
+  overviewConfigLoadedLabel: document.querySelector('#overviewConfigLoadedLabel'),
   overviewConfigLoadedAt: document.querySelector('#overviewConfigLoadedAt'),
   mobileFlowActions: document.querySelector('#mobileFlowActions'),
   mobileChangesButton: document.querySelector('#mobileChangesButton'),
@@ -1849,12 +1851,18 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
         ? `${formatWarningCount(warnings)} перед сохранением`
         : changeCount > 0
           ? `${formatChangeCount(changeCount)} · можно проверять`
-          : 'Можно сохранять';
+          : 'Изменений нет';
 
-  els.overviewConfigPath.textContent = state.fileName || 'Не загружен';
+  els.overviewConfigSource.textContent = state.originalText ? (state.routerMode ? 'Роутер' : 'Локальный YAML') : '—';
+  els.overviewConfigPath.textContent = state.fileName || 'Не открыт';
   els.overviewConfigPath.title = state.fileName || '';
-  els.overviewConfigChanges.textContent = state.originalText ? formatChangeCount(changeCount) : '—';
+  els.overviewConfigChanges.textContent = state.originalText
+    ? changeCount > 0
+      ? formatChangeCount(changeCount)
+      : 'Без локальных изменений'
+    : '—';
   els.overviewConfigChanges.classList.toggle('metric-warning', changeCount > 0);
+  els.overviewConfigLoadedLabel.textContent = state.routerMode ? 'Получена с роутера' : 'Открыта в редакторе';
   els.overviewConfigLoadedAt.textContent = state.configLoadedAt ? formatOverviewLoadedAt(state.configLoadedAt) : '—';
 
   if (!state.originalText) {

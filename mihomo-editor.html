@@ -1100,81 +1100,24 @@ h2 {
   min-height: 62px;
 }
 
-.overview-services-body {
-  display: grid;
-  width: 100%;
-  padding: 12px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.overview-services-body:hover,
-.overview-services-body:focus-visible {
-  background: #f7fcfc;
-  outline: 0;
-}
-
-.overview-services .service-health-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-}
-
-.overview-services .service-health-item + .service-health-item {
-  border-top: 0;
-}
-
-.overview-services .service-health-item:first-child {
-  border-radius: 6px 6px 0 0;
-}
-
-.overview-services .service-health-item:nth-child(2) {
-  border-radius: 0 0 6px 6px;
-}
-
-.overview-services .service-health-status {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.overview-services .service-health-item.is-ok .service-health-status {
-  color: var(--success);
-}
-
-.overview-services .service-health-item.is-error .service-health-status {
-  color: var(--danger);
-}
-
-.overview-services-checked {
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .overview-config-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.7fr) minmax(200px, 0.8fr);
-  padding: 12px 16px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 12px 12px;
 }
 
 .overview-config-grid > div {
   display: grid;
   gap: 3px;
   min-width: 0;
-  padding: 0 16px;
-  border-left: 1px solid var(--line);
+  min-height: 50px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--line);
 }
 
-.overview-config-grid > div:first-child {
-  padding-left: 0;
-  border-left: 0;
+.overview-config-grid > div:nth-child(2n) {
+  padding-left: 16px;
+  border-left: 1px solid var(--line);
 }
 
 .overview-config-grid span {
@@ -4633,10 +4576,6 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
-  .overview-config-grid {
-    grid-template-columns: minmax(0, 1fr) repeat(2, minmax(160px, auto));
-  }
-
   .review-workflow.has-review-side {
     grid-template-columns: 1fr;
   }
@@ -4871,7 +4810,13 @@ button.review-check-card:hover {
   }
 
   .overview-config-grid > div {
-    padding: 0;
+    min-height: 0;
+    padding: 10px 8px;
+    border-left: 0;
+  }
+
+  .overview-config-grid > div:nth-child(2n) {
+    padding-left: 8px;
     border-left: 0;
   }
 
@@ -5281,36 +5226,18 @@ button.review-check-card:hover {
             <div id="overviewAttentionList" class="overview-attention-list"></div>
           </section>
 
-          <section class="panel overview-services" aria-live="polite">
+          <section class="panel overview-config" aria-live="polite">
             <div class="panel-head">
-              <h2>Состояние сервисов</h2>
+              <h2>Конфигурация</h2>
             </div>
-            <button class="overview-services-body" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
-              <span class="service-health-item is-loading" data-service-health="xkeen">
-                <span class="service-health-name">XKeen</span>
-                <span class="service-health-dot" aria-hidden="true"></span>
-                <strong class="service-health-status">Проверка...</strong>
-              </span>
-              <span class="service-health-item is-loading" data-service-health="mihomo">
-                <span class="service-health-name">Mihomo</span>
-                <span class="service-health-dot" aria-hidden="true"></span>
-                <strong class="service-health-status">Проверка...</strong>
-              </span>
-              <span class="overview-services-checked" data-service-health-checked>Проверка...</span>
-            </button>
+            <div class="overview-config-grid">
+              <div><span>Источник</span><strong id="overviewConfigSource">—</strong></div>
+              <div><span>Файл</span><strong id="overviewConfigPath">Не открыт</strong></div>
+              <div><span>Состояние</span><strong id="overviewConfigChanges">—</strong></div>
+              <div><span id="overviewConfigLoadedLabel">Получена</span><strong id="overviewConfigLoadedAt">—</strong></div>
+            </div>
           </section>
         </div>
-
-        <section class="panel overview-config" aria-live="polite">
-          <div class="panel-head">
-            <h2>Конфигурация</h2>
-          </div>
-          <div class="overview-config-grid">
-            <div><span>Файл конфигурации</span><strong id="overviewConfigPath">Не загружен</strong></div>
-            <div><span>Состояние</span><strong id="overviewConfigChanges">Изменений нет</strong></div>
-            <div><span>Загружено</span><strong id="overviewConfigLoadedAt">—</strong></div>
-          </div>
-        </section>
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
@@ -6229,8 +6156,10 @@ const els = {
   overviewHealth: document.querySelector('.overview-health'),
   overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
   overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
+  overviewConfigSource: document.querySelector('#overviewConfigSource'),
   overviewConfigPath: document.querySelector('#overviewConfigPath'),
   overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
+  overviewConfigLoadedLabel: document.querySelector('#overviewConfigLoadedLabel'),
   overviewConfigLoadedAt: document.querySelector('#overviewConfigLoadedAt'),
   mobileFlowActions: document.querySelector('#mobileFlowActions'),
   mobileChangesButton: document.querySelector('#mobileChangesButton'),
@@ -7638,12 +7567,18 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
         ? `${formatWarningCount(warnings)} перед сохранением`
         : changeCount > 0
           ? `${formatChangeCount(changeCount)} · можно проверять`
-          : 'Можно сохранять';
+          : 'Изменений нет';
 
-  els.overviewConfigPath.textContent = state.fileName || 'Не загружен';
+  els.overviewConfigSource.textContent = state.originalText ? (state.routerMode ? 'Роутер' : 'Локальный YAML') : '—';
+  els.overviewConfigPath.textContent = state.fileName || 'Не открыт';
   els.overviewConfigPath.title = state.fileName || '';
-  els.overviewConfigChanges.textContent = state.originalText ? formatChangeCount(changeCount) : '—';
+  els.overviewConfigChanges.textContent = state.originalText
+    ? changeCount > 0
+      ? formatChangeCount(changeCount)
+      : 'Без локальных изменений'
+    : '—';
   els.overviewConfigChanges.classList.toggle('metric-warning', changeCount > 0);
+  els.overviewConfigLoadedLabel.textContent = state.routerMode ? 'Получена с роутера' : 'Открыта в редакторе';
   els.overviewConfigLoadedAt.textContent = state.configLoadedAt ? formatOverviewLoadedAt(state.configLoadedAt) : '—';
 
   if (!state.originalText) {

@@ -211,36 +211,18 @@
             <div id="overviewAttentionList" class="overview-attention-list"></div>
           </section>
 
-          <section class="panel overview-services" aria-live="polite">
+          <section class="panel overview-config" aria-live="polite">
             <div class="panel-head">
-              <h2>Состояние сервисов</h2>
+              <h2>Конфигурация</h2>
             </div>
-            <button class="overview-services-body" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
-              <span class="service-health-item is-loading" data-service-health="xkeen">
-                <span class="service-health-name">XKeen</span>
-                <span class="service-health-dot" aria-hidden="true"></span>
-                <strong class="service-health-status">Проверка...</strong>
-              </span>
-              <span class="service-health-item is-loading" data-service-health="mihomo">
-                <span class="service-health-name">Mihomo</span>
-                <span class="service-health-dot" aria-hidden="true"></span>
-                <strong class="service-health-status">Проверка...</strong>
-              </span>
-              <span class="overview-services-checked" data-service-health-checked>Проверка...</span>
-            </button>
+            <div class="overview-config-grid">
+              <div><span>Источник</span><strong id="overviewConfigSource">—</strong></div>
+              <div><span>Файл</span><strong id="overviewConfigPath">Не открыт</strong></div>
+              <div><span>Состояние</span><strong id="overviewConfigChanges">—</strong></div>
+              <div><span id="overviewConfigLoadedLabel">Получена</span><strong id="overviewConfigLoadedAt">—</strong></div>
+            </div>
           </section>
         </div>
-
-        <section class="panel overview-config" aria-live="polite">
-          <div class="panel-head">
-            <h2>Конфигурация</h2>
-          </div>
-          <div class="overview-config-grid">
-            <div><span>Файл конфигурации</span><strong id="overviewConfigPath">Не загружен</strong></div>
-            <div><span>Состояние</span><strong id="overviewConfigChanges">Изменений нет</strong></div>
-            <div><span>Загружено</span><strong id="overviewConfigLoadedAt">—</strong></div>
-          </div>
-        </section>
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
