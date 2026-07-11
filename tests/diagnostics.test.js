@@ -76,6 +76,7 @@ function loadApp(source) {
     document: {
       body: createElement(),
       createElement,
+      createElementNS: createElement,
       querySelector: createElement,
       querySelectorAll: () => [],
     },
@@ -1502,7 +1503,7 @@ proxy-providers:
     app.state.lastConfigCheckText = app.state.outputText;
     app.state.lastConfigCheckOk = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить и применить', tone: 'primary' });
-    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: true, label: 'YAML проверен в Mihomo' });
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить повторно' });
     app.state.hasGroupsSection = false;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Исправить ошибки', tone: 'danger' });
     app.renderConfigurationEditorControls();

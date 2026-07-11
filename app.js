@@ -453,6 +453,9 @@ const els = {
   reviewSummaryPanel: document.querySelector('.review-summary-panel'),
   reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
   reviewChecklist: document.querySelector('#reviewChecklist'),
+  reviewChangeStatus: document.querySelector('#reviewChangeStatus'),
+  reviewYamlStatus: document.querySelector('#reviewYamlStatus'),
+  reviewYamlMeta: document.querySelector('#reviewYamlMeta'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -1119,7 +1122,7 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) return { disabled: true, label: 'YAML проверен в Mihomo' };
+  if (isCurrentConfigKernelChecked()) return { disabled: false, label: 'Проверить повторно' };
   return {
     disabled: false,
     label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
@@ -1992,33 +1995,55 @@ function renderReviewSummary(changes, diagnostics) {
   els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
   els.reviewChecklist.textContent = '';
   els.reviewSummaryStatus.textContent = getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount);
+  renderReviewYamlSummary(changeCount);
 
   [
     {
-      title: 'Конфигурация',
-      value: !state.originalText ? 'не загружена' : hasStructuralError ? 'ошибка структуры' : 'загружена',
-      note: state.fileName || 'Файл или вставленный текст',
-      variant: !state.originalText ? 'is-muted' : hasStructuralError ? 'is-danger' : 'is-ok',
+      title: 'Локальная проверка',
+      value: !state.originalText
+        ? 'Нет конфигурации'
+        : errorCount > 0
+          ? formatErrorCount(errorCount)
+          : warningCount > 0
+            ? formatWarningCount(warningCount)
+            : 'Без ошибок',
+      note: !state.originalText
+        ? 'Откройте YAML, чтобы запустить проверку.'
+        : errorCount > 0
+          ? 'Исправьте блокирующие ошибки перед сохранением.'
+          : warningCount > 0
+            ? 'Проверьте предупреждения перед сохранением.'
+            : 'Синтаксис и обязательные поля корректны.',
+      variant: !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
+      icon: 'review',
     },
     {
-      title: 'Изменения',
-      value: formatChangeCount(changeCount),
-      note: changeCount > 0 ? 'Проверьте перед сохранением' : 'Diff пустой',
-      variant: changeCount > 0 ? 'is-warning' : 'is-ok',
-      action: state.originalText && state.hasGroupsSection ? focusChangesPanel : null,
-    },
-    {
-      title: 'Рекомендации',
-      value: missingConnectionCount > 0 ? `не включено: ${missingConnectionCount}` : 'нет',
-      note: missingConnectionCount > 0 ? 'Настройки подключения' : 'Блок скрыт',
-      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
-      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+      title: 'Структура и связи',
+      value: !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
+      note: !state.originalText
+        ? 'Связи появятся после загрузки конфигурации.'
+        : hasStructuralError
+          ? 'Отсутствует обязательный раздел proxy-groups.'
+          : errorCount > 0
+            ? 'Проверьте ссылки между подписками, группами и правилами.'
+            : 'Подписки, группы и правила связаны корректно.',
+      variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      icon: 'routing',
     },
     {
       title: 'Проверка Mihomo',
       value: kernelCheck.value,
       note: kernelCheck.note,
       variant: kernelCheck.variant,
+      icon: 'nodes',
+    },
+    {
+      title: 'Рекомендации',
+      value: missingConnectionCount > 0 ? formatRouteCount(missingConnectionCount, 'настройка', 'настройки', 'настроек') : 'Нет',
+      note: missingConnectionCount > 0 ? 'Можно улучшить параметры подключения.' : 'Дополнительных настроек не требуется.',
+      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
+      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+      icon: 'warning',
     },
   ].forEach((item) => {
     els.reviewChecklist.append(createReviewChecklistItem(item));
@@ -2027,10 +2052,52 @@ function renderReviewSummary(changes, diagnostics) {
 
 function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount) {
   if (!state.originalText) return 'Конфигурация не загружена';
-  if (errorCount > 0) return formatErrorCount(errorCount);
-  if (warningCount > 0) return formatWarningCount(warningCount);
-  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть на что обратить внимание';
-  return 'Готово';
+  const diagnosticsSummary = errorCount > 0 ? formatErrorCount(errorCount) : warningCount > 0 ? formatWarningCount(warningCount) : 'Ошибок нет';
+  const recommendationsSummary = missingConnectionCount > 0
+    ? formatRouteCount(missingConnectionCount, 'рекомендация', 'рекомендации', 'рекомендаций')
+    : 'рекомендаций нет';
+  const changesSummary = changeCount > 0 ? formatChangeCount(changeCount) : 'изменений нет';
+  return `${diagnosticsSummary} · ${recommendationsSummary} · ${changesSummary}`;
+}
+
+function renderReviewYamlSummary(changeCount) {
+  const text = state.outputText || '';
+  const lineCount = text ? text.split(/\r?\n/).length : 0;
+  const size = getUtf8ByteLength(text);
+
+  els.reviewChangeStatus.textContent = !state.originalText
+    ? 'Нет конфигурации'
+    : changeCount > 0
+      ? formatChangeCount(changeCount)
+      : 'Без локальных изменений';
+  els.reviewChangeStatus.classList.toggle('is-warning', changeCount > 0);
+
+  els.reviewYamlStatus.classList.remove('is-ok', 'is-warning', 'is-danger');
+  if (!text) {
+    els.reviewYamlStatus.textContent = 'Нет YAML для проверки';
+  } else if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
+    els.reviewYamlStatus.textContent = 'YAML проверен в Mihomo';
+    els.reviewYamlStatus.classList.add('is-ok');
+  } else if (state.lastConfigCheckText === text) {
+    els.reviewYamlStatus.textContent = 'Mihomo отклонил текущий YAML';
+    els.reviewYamlStatus.classList.add('is-danger');
+  } else if (!state.routerApiAvailable) {
+    els.reviewYamlStatus.textContent = 'Проверка Mihomo недоступна';
+  } else {
+    els.reviewYamlStatus.textContent = 'YAML ещё не проверен в Mihomo';
+    els.reviewYamlStatus.classList.add('is-warning');
+  }
+
+  els.reviewYamlMeta.textContent = `Строк: ${lineCount} · Размер: ${formatBackupSize(size) || '0 Б'}`;
+}
+
+function getUtf8ByteLength(value) {
+  let length = 0;
+  for (const char of String(value || '')) {
+    const code = char.codePointAt(0);
+    length += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return length;
 }
 
 function getKernelCheckSummary() {
@@ -2044,7 +2111,7 @@ function getKernelCheckSummary() {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
   }
   if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
-    return { value: 'пройдена', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
+    return { value: 'YAML принят', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
   }
   if (state.lastConfigCheckText === state.outputText) {
     return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
@@ -2054,18 +2121,29 @@ function getKernelCheckSummary() {
 
 function createReviewChecklistItem(item) {
   const card = document.createElement(item.action ? 'button' : 'div');
+  const icon = document.createElement('span');
+  const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  const copy = document.createElement('span');
   const title = document.createElement('span');
   const value = document.createElement('strong');
   const note = document.createElement('span');
 
-  card.className = `review-check-card ${item.variant || ''}`.trim();
+  card.className = `review-check-card review-check-row ${item.variant || ''}`.trim();
+  icon.className = 'review-check-icon';
+  iconSvg.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', `#icon-${item.icon || 'check'}`);
+  iconSvg.append(iconUse);
+  icon.append(iconSvg);
+  copy.className = 'review-check-copy';
   title.className = 'review-check-title';
   value.className = 'review-check-value';
   note.className = 'review-check-note';
   title.textContent = item.title;
   value.textContent = item.value;
   note.textContent = item.note;
-  card.append(title, value, note);
+  copy.append(title, value, note);
+  card.append(icon, copy);
 
   if (item.action) {
     card.type = 'button';
@@ -2719,20 +2797,21 @@ function renderConnectionSettings() {
   const grid = document.createElement('div');
 
   head.className = 'panel-head';
-  title.textContent = 'Рекомендации по подключению';
+  title.textContent = 'Рекомендации';
   actions.className = 'panel-actions';
   summary.className = 'connection-settings-summary';
-  summary.textContent = `Не включено: ${missing.length}`;
-  button.className = 'button compact';
+  summary.textContent = String(missing.length);
+  button.className = 'button primary compact connection-settings-primary';
   button.type = 'button';
-  button.textContent = 'Включить недостающие';
+  button.textContent = missing.length === 1 ? 'Включить настройку' : 'Включить настройки';
   button.addEventListener('click', addRecommendedConnectionSettings);
   toggleButton.className = 'button compact connection-settings-toggle';
   toggleButton.type = 'button';
-  toggleButton.textContent = 'Подробнее';
-  toggleButton.setAttribute('aria-expanded', 'false');
+  toggleButton.textContent = 'Скрыть';
+  toggleButton.hidden = missing.length === 1;
+  toggleButton.setAttribute('aria-expanded', 'true');
   body.className = 'connection-settings-body';
-  body.hidden = true;
+  body.hidden = false;
   grid.className = 'connection-settings-grid';
 
   missing.forEach((definition) => {
@@ -2756,11 +2835,13 @@ function renderConnectionSettings() {
     recommendation.textContent = formatConnectionSettingRecommendation(definition.recommended);
 
     card.append(name, key, value, explanation, recommendation);
-    addButton.className = 'button compact connection-setting-action';
-    addButton.type = 'button';
-    addButton.textContent = 'Применить рекомендацию';
-    addButton.addEventListener('click', () => addConnectionSetting(definition.key));
-    card.append(addButton);
+    if (missing.length > 1) {
+      addButton.className = 'button compact connection-setting-action';
+      addButton.type = 'button';
+      addButton.textContent = 'Включить';
+      addButton.addEventListener('click', () => addConnectionSetting(definition.key));
+      card.append(addButton);
+    }
     grid.append(card);
   });
 
@@ -2771,9 +2852,9 @@ function renderConnectionSettings() {
     toggleButton.setAttribute('aria-expanded', String(expanded));
   });
 
-  actions.append(summary, toggleButton, button);
+  actions.append(summary, toggleButton);
   head.append(title, actions);
-  body.append(grid);
+  body.append(grid, button);
   els.connectionSettingsPanel.append(head, body);
   els.connectionSettingsPanel.classList.remove('hidden');
 }
@@ -2846,7 +2927,7 @@ function formatConnectionSettingRecommendation(value) {
 function renderChanges(changes) {
   els.changesPanel.textContent = '';
 
-  if (!state.originalText) {
+  if (!state.originalText || changes.length === 0) {
     els.changesPanel.classList.add('hidden');
     return;
   }
@@ -2863,32 +2944,25 @@ function renderChanges(changes) {
   head.append(title, summary);
   body.className = 'changes-body';
 
-  if (changes.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'changes-empty';
-    empty.textContent = 'Изменений нет.';
-    body.append(empty);
-  } else {
-    changes.forEach((section) => {
-      const wrap = document.createElement('div');
-      const sectionTitle = document.createElement('div');
-      const list = document.createElement('ul');
+  changes.forEach((section) => {
+    const wrap = document.createElement('div');
+    const sectionTitle = document.createElement('div');
+    const list = document.createElement('ul');
 
-      wrap.className = 'change-section';
-      sectionTitle.className = 'change-section-title';
-      sectionTitle.textContent = section.title;
-      list.className = 'change-list';
-      section.items.forEach((text) => {
-        const item = document.createElement('li');
-        item.className = getChangeItemClass(text);
-        item.textContent = text;
-        list.append(item);
-      });
-
-      wrap.append(sectionTitle, list);
-      body.append(wrap);
+    wrap.className = 'change-section';
+    sectionTitle.className = 'change-section-title';
+    sectionTitle.textContent = section.title;
+    list.className = 'change-list';
+    section.items.forEach((text) => {
+      const item = document.createElement('li');
+      item.className = getChangeItemClass(text);
+      item.textContent = text;
+      list.append(item);
     });
-  }
+
+    wrap.append(sectionTitle, list);
+    body.append(wrap);
+  });
 
   els.changesPanel.append(head, body);
   els.changesPanel.classList.remove('hidden');

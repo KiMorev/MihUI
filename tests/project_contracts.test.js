@@ -29,7 +29,7 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
-    assert.match(html, /id="checkConfigButton"[^>]+class="button compact"[\s\S]+?Проверить YAML в Mihomo/);
+    assert.match(html, /id="checkConfigButton"[^>]+class="[^"]*button[^"]*compact[^"]*"[\s\S]+?Проверить YAML в Mihomo/);
     assert.match(html, /id="fileTools"[\s\S]+?summary aria-label="Конфигурация"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
     assert.match(html, /id="backupHistoryButton"[^>]+class="file-menu-item"[\s\S]+?file-tools-separator[\s\S]+?Загрузить YAML[\s\S]+?Скачать YAML/);
     assert.doesNotMatch(html, /icon-more|Загрузить файл/);
@@ -45,6 +45,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="overviewConfigSource"/);
     assert.match(html, /id="overviewConfigLoadedLabel"/);
     assert.doesNotMatch(html, /Состояние сервисов/);
+    assert.match(html, /review-page-head[\s\S]+?Результат проверки[\s\S]+?Итоговый YAML/);
+    assert.match(html, /id="reviewChangeStatus"[\s\S]+?id="reviewYamlStatus"[\s\S]+?id="reviewYamlMeta"/);
+    assert.doesNotMatch(html, /Финальная проверка|Итоговая конфигурация/);
   }
 });
 
@@ -117,8 +120,9 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
-    assert.match(source, /\.review-support-column \.changes-panel\s*{\s*order: 1;/);
-    assert.match(source, /\.review-support-column \.connection-settings-panel\s*{\s*order: 2;/);
+    assert.match(source, /\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: minmax\(330px, 0\.72fr\) minmax\(0, 1\.28fr\);/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: 1fr;/);
+    assert.doesNotMatch(source, /review-support-column/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.section-tab,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.download-warning,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.check-cell input\s*{[\s\S]+?width: 44px;/);

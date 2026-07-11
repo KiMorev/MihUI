@@ -1717,24 +1717,29 @@ input[type='file'] {
   }
 }
 
-.connection-settings-panel {
-  margin: 12px 0;
-  border-color: #ead6a1;
-  background: #fffdf7;
-}
-
-.connection-settings-panel.hidden {
+.review-recommendations.hidden {
   display: none;
 }
 
-.connection-settings-panel .panel-head {
-  background: rgba(255, 247, 224, 0.64);
+.review-recommendations {
+  border-top: 1px solid var(--line);
+}
+
+.review-recommendations .panel-head {
+  min-height: 0;
+  padding: 16px 16px 8px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.review-recommendations .panel-head h2 {
+  font-size: 14px;
 }
 
 .connection-settings-body {
   display: grid;
   gap: 12px;
-  padding: 10px 14px 12px;
+  padding: 0 16px 16px;
 }
 
 .connection-settings-body[hidden] {
@@ -1743,18 +1748,18 @@ input[type='file'] {
 
 .connection-settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .connection-setting-card {
   display: grid;
-  grid-template-rows: 22px 20px 20px minmax(38px, auto) 18px 34px;
-  gap: 7px;
-  padding: 10px 11px;
-  border: 1px solid #ead6a1;
-  border-radius: 8px;
-  background: #fff;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf8;
 }
 
 .connection-setting-card strong {
@@ -1773,6 +1778,9 @@ input[type='file'] {
 }
 
 .connection-setting-value {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
   color: var(--accent-dark);
   font-size: 13px;
   font-weight: 750;
@@ -1783,13 +1791,15 @@ input[type='file'] {
 }
 
 .connection-setting-explanation {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .connection-setting-recommendation {
+  grid-column: 1;
   align-self: start;
   color: var(--muted);
   font-size: 12px;
@@ -1797,8 +1807,25 @@ input[type='file'] {
 }
 
 .connection-setting-action {
+  grid-column: 2;
   align-self: end;
-  justify-self: start;
+  justify-self: end;
+}
+
+.connection-settings-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: #fff4d8;
+  color: var(--warning);
+}
+
+.connection-settings-primary {
+  width: 100%;
 }
 
 .node-inventory-panel {
@@ -4071,75 +4098,130 @@ input.is-invalid {
   font-size: 13px;
 }
 
-.review-summary-panel {
-  margin-bottom: 16px;
+.review-section {
+  gap: 12px;
+}
+
+.review-page-head {
+  display: grid;
+  gap: 2px;
+  padding: 4px 2px 0;
+}
+
+.review-page-head h2 {
+  font-size: 20px;
 }
 
 .review-summary-status {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .review-checklist {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
-  background: #fbfcfe;
+  padding: 0 16px;
 }
 
 .review-check-card {
   min-width: 0;
   display: grid;
-  gap: 4px;
-  padding: 10px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   text-align: left;
 }
 
 button.review-check-card {
+  width: 100%;
   cursor: pointer;
   font: inherit;
 }
 
-button.review-check-card:hover {
-  border-color: var(--line-strong);
+button.review-check-card:hover,
+button.review-check-card:focus-visible {
+  background: #fbfefe;
+  outline: none;
 }
 
-.review-check-card.is-ok {
-  border-color: rgba(19, 115, 51, 0.22);
-  background: #f7fcf8;
+.review-check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #edf7f3;
+  color: var(--accent);
 }
 
-.review-check-card.is-warning {
-  border-color: #ead6a1;
-  background: #fffdf7;
+.review-check-icon svg,
+.button-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.review-check-card.is-danger {
-  border-color: #d89a96;
-  background: #fff5f5;
+.review-check-card.is-warning .review-check-icon {
+  background: #fff5df;
+  color: var(--warning);
+}
+
+.review-check-card.is-danger .review-check-icon {
+  background: #fff0ef;
+  color: var(--danger);
+}
+
+.review-check-card.is-muted .review-check-icon {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.review-check-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .review-check-title,
 .review-check-note {
-  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.review-check-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .review-check-value {
-  overflow: hidden;
-  color: var(--text);
+  color: var(--success);
   font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.review-check-card.is-warning .review-check-value {
+  color: var(--warning);
+}
+
+.review-check-card.is-danger .review-check-value {
+  color: var(--danger);
+}
+
+.review-check-card.is-muted .review-check-value {
+  color: var(--muted);
 }
 
 .review-workflow {
@@ -4148,22 +4230,28 @@ button.review-check-card:hover {
 }
 
 .review-workflow.has-review-side {
-  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
   align-items: start;
 }
 
-.review-support-column {
-  display: grid;
-  gap: 16px;
+.review-result-panel {
+  min-width: 0;
 }
 
-.review-support-column .connection-settings-panel,
-.review-support-column .changes-panel {
-  margin: 0;
+.review-result-actions {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.review-repeat-button {
+  width: 100%;
 }
 
 .changes-panel {
-  margin-top: 16px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
 }
 
 .changes-panel.hidden {
@@ -4299,8 +4387,23 @@ button.review-check-card:hover {
   margin-top: 0;
 }
 
+.preview-panel .panel-head {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+}
+
+.review-yaml-change-status {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.review-yaml-change-status.is-warning {
+  color: var(--warning);
+}
+
 .output-viewer {
-  border-radius: 0 0 8px 8px;
   background: #fbfcfe;
 }
 
@@ -4309,16 +4412,15 @@ button.review-check-card:hover {
   display: block;
   width: 100%;
   margin: 0;
-  min-height: 280px;
+  min-height: 520px;
   border: 0;
-  border-radius: 0 0 8px 8px;
   font: 13px/1.55 Consolas, Menlo, Monaco, monospace;
   tab-size: 2;
   white-space: pre;
 }
 
 #outputCodeView {
-  max-height: min(70vh, 720px);
+  max-height: min(68vh, 720px);
   overflow: auto;
   padding: 10px 0;
   color: #182234;
@@ -4349,6 +4451,31 @@ button.review-check-card:hover {
 
 .yaml-code-view.is-empty::before {
   content: attr(data-placeholder);
+}
+
+.review-yaml-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#reviewYamlStatus.is-ok {
+  color: var(--success);
+}
+
+#reviewYamlStatus.is-warning {
+  color: var(--warning);
+}
+
+#reviewYamlStatus.is-danger {
+  color: var(--danger);
 }
 
 .yaml-line {
@@ -4573,18 +4700,6 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
-  .review-support-column .changes-panel {
-    order: 1;
-  }
-
-  .review-support-column .connection-settings-panel {
-    order: 2;
-  }
-
-  .review-checklist {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .node-inventory-controls label:first-child {
     grid-column: 1 / -1;
   }
@@ -4783,9 +4898,27 @@ button.review-check-card:hover {
     width: 100%;
   }
 
-  .overview-flow-steps,
-  .review-checklist {
+  .overview-flow-steps {
     grid-template-columns: 1fr;
+  }
+
+  .preview-panel .panel-head {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .review-yaml-change-status {
+    justify-self: start;
+  }
+
+  .review-yaml-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #outputCodeView,
+  #outputPreview {
+    min-height: 380px;
   }
 
   .overview-health {

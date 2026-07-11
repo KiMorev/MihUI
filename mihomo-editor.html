@@ -1724,24 +1724,29 @@ input[type='file'] {
   }
 }
 
-.connection-settings-panel {
-  margin: 12px 0;
-  border-color: #ead6a1;
-  background: #fffdf7;
-}
-
-.connection-settings-panel.hidden {
+.review-recommendations.hidden {
   display: none;
 }
 
-.connection-settings-panel .panel-head {
-  background: rgba(255, 247, 224, 0.64);
+.review-recommendations {
+  border-top: 1px solid var(--line);
+}
+
+.review-recommendations .panel-head {
+  min-height: 0;
+  padding: 16px 16px 8px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.review-recommendations .panel-head h2 {
+  font-size: 14px;
 }
 
 .connection-settings-body {
   display: grid;
   gap: 12px;
-  padding: 10px 14px 12px;
+  padding: 0 16px 16px;
 }
 
 .connection-settings-body[hidden] {
@@ -1750,18 +1755,18 @@ input[type='file'] {
 
 .connection-settings-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .connection-setting-card {
   display: grid;
-  grid-template-rows: 22px 20px 20px minmax(38px, auto) 18px 34px;
-  gap: 7px;
-  padding: 10px 11px;
-  border: 1px solid #ead6a1;
-  border-radius: 8px;
-  background: #fff;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf8;
 }
 
 .connection-setting-card strong {
@@ -1780,6 +1785,9 @@ input[type='file'] {
 }
 
 .connection-setting-value {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
   color: var(--accent-dark);
   font-size: 13px;
   font-weight: 750;
@@ -1790,13 +1798,15 @@ input[type='file'] {
 }
 
 .connection-setting-explanation {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
 .connection-setting-recommendation {
+  grid-column: 1;
   align-self: start;
   color: var(--muted);
   font-size: 12px;
@@ -1804,8 +1814,25 @@ input[type='file'] {
 }
 
 .connection-setting-action {
+  grid-column: 2;
   align-self: end;
-  justify-self: start;
+  justify-self: end;
+}
+
+.connection-settings-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: #fff4d8;
+  color: var(--warning);
+}
+
+.connection-settings-primary {
+  width: 100%;
 }
 
 .node-inventory-panel {
@@ -4078,75 +4105,130 @@ input.is-invalid {
   font-size: 13px;
 }
 
-.review-summary-panel {
-  margin-bottom: 16px;
+.review-section {
+  gap: 12px;
+}
+
+.review-page-head {
+  display: grid;
+  gap: 2px;
+  padding: 4px 2px 0;
+}
+
+.review-page-head h2 {
+  font-size: 20px;
 }
 
 .review-summary-status {
   color: var(--muted);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .review-checklist {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px;
-  background: #fbfcfe;
+  padding: 0 16px;
 }
 
 .review-check-card {
   min-width: 0;
   display: grid;
-  gap: 4px;
-  padding: 10px 11px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 16px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
   color: var(--text);
   text-align: left;
 }
 
 button.review-check-card {
+  width: 100%;
   cursor: pointer;
   font: inherit;
 }
 
-button.review-check-card:hover {
-  border-color: var(--line-strong);
+button.review-check-card:hover,
+button.review-check-card:focus-visible {
+  background: #fbfefe;
+  outline: none;
 }
 
-.review-check-card.is-ok {
-  border-color: rgba(19, 115, 51, 0.22);
-  background: #f7fcf8;
+.review-check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: #edf7f3;
+  color: var(--accent);
 }
 
-.review-check-card.is-warning {
-  border-color: #ead6a1;
-  background: #fffdf7;
+.review-check-icon svg,
+.button-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.review-check-card.is-danger {
-  border-color: #d89a96;
-  background: #fff5f5;
+.review-check-card.is-warning .review-check-icon {
+  background: #fff5df;
+  color: var(--warning);
+}
+
+.review-check-card.is-danger .review-check-icon {
+  background: #fff0ef;
+  color: var(--danger);
+}
+
+.review-check-card.is-muted .review-check-icon {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.review-check-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .review-check-title,
 .review-check-note {
-  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.review-check-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .review-check-value {
-  overflow: hidden;
-  color: var(--text);
+  color: var(--success);
   font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.review-check-card.is-warning .review-check-value {
+  color: var(--warning);
+}
+
+.review-check-card.is-danger .review-check-value {
+  color: var(--danger);
+}
+
+.review-check-card.is-muted .review-check-value {
+  color: var(--muted);
 }
 
 .review-workflow {
@@ -4155,22 +4237,28 @@ button.review-check-card:hover {
 }
 
 .review-workflow.has-review-side {
-  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
   align-items: start;
 }
 
-.review-support-column {
-  display: grid;
-  gap: 16px;
+.review-result-panel {
+  min-width: 0;
 }
 
-.review-support-column .connection-settings-panel,
-.review-support-column .changes-panel {
-  margin: 0;
+.review-result-actions {
+  padding: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.review-repeat-button {
+  width: 100%;
 }
 
 .changes-panel {
-  margin-top: 16px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
 }
 
 .changes-panel.hidden {
@@ -4306,8 +4394,23 @@ button.review-check-card:hover {
   margin-top: 0;
 }
 
+.preview-panel .panel-head {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+}
+
+.review-yaml-change-status {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.review-yaml-change-status.is-warning {
+  color: var(--warning);
+}
+
 .output-viewer {
-  border-radius: 0 0 8px 8px;
   background: #fbfcfe;
 }
 
@@ -4316,16 +4419,15 @@ button.review-check-card:hover {
   display: block;
   width: 100%;
   margin: 0;
-  min-height: 280px;
+  min-height: 520px;
   border: 0;
-  border-radius: 0 0 8px 8px;
   font: 13px/1.55 Consolas, Menlo, Monaco, monospace;
   tab-size: 2;
   white-space: pre;
 }
 
 #outputCodeView {
-  max-height: min(70vh, 720px);
+  max-height: min(68vh, 720px);
   overflow: auto;
   padding: 10px 0;
   color: #182234;
@@ -4356,6 +4458,31 @@ button.review-check-card:hover {
 
 .yaml-code-view.is-empty::before {
   content: attr(data-placeholder);
+}
+
+.review-yaml-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#reviewYamlStatus.is-ok {
+  color: var(--success);
+}
+
+#reviewYamlStatus.is-warning {
+  color: var(--warning);
+}
+
+#reviewYamlStatus.is-danger {
+  color: var(--danger);
 }
 
 .yaml-line {
@@ -4580,18 +4707,6 @@ button.review-check-card:hover {
     grid-template-columns: 1fr;
   }
 
-  .review-support-column .changes-panel {
-    order: 1;
-  }
-
-  .review-support-column .connection-settings-panel {
-    order: 2;
-  }
-
-  .review-checklist {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .node-inventory-controls label:first-child {
     grid-column: 1 / -1;
   }
@@ -4790,9 +4905,27 @@ button.review-check-card:hover {
     width: 100%;
   }
 
-  .overview-flow-steps,
-  .review-checklist {
+  .overview-flow-steps {
     grid-template-columns: 1fr;
+  }
+
+  .preview-panel .panel-head {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .review-yaml-change-status {
+    justify-self: start;
+  }
+
+  .review-yaml-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  #outputCodeView,
+  #outputPreview {
+    min-height: 380px;
   }
 
   .overview-health {
@@ -5055,6 +5188,8 @@ button.review-check-card:hover {
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
       <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 8l-5 -5l-5 5" /><path d="M5 21h14" /></symbol>
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 10l-5 5l-5 -5" /><path d="M5 21h14" /></symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" /></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8m-2 0a2 2 0 0 1 2 -2h9a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-9a2 2 0 0 1 -2 -2z" /><path d="M16 6v-1a2 2 0 0 0 -2 -2h-9a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h1" /></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
     </svg>
     <main class="app-shell">
@@ -5443,27 +5578,37 @@ button.review-check-card:hover {
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
-        <section class="panel review-summary-panel" tabindex="-1">
-          <div class="panel-head">
-            <h2>Финальная проверка</h2>
-            <span id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</span>
-          </div>
-          <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
-        </section>
+        <header class="review-page-head">
+          <h2>Проверка</h2>
+          <p id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</p>
+        </header>
 
         <div id="reviewWorkflow" class="review-workflow">
-          <div class="review-support-column">
-            <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+          <aside class="panel review-summary-panel review-result-panel" tabindex="-1">
+            <div class="panel-head">
+              <h2>Результат проверки</h2>
+            </div>
+            <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
 
+            <section id="connectionSettingsPanel" class="review-recommendations hidden" aria-live="polite"></section>
             <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
-          </div>
+
+            <div class="review-result-actions">
+              <button id="checkConfigButton" class="button compact review-repeat-button" type="button" disabled>
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                <span class="button-label">Проверить YAML в Mihomo</span>
+              </button>
+            </div>
+          </aside>
 
           <section class="panel preview-panel">
             <div class="panel-head">
-              <h2>Итоговая конфигурация</h2>
+              <h2>Итоговый YAML</h2>
+              <span id="reviewChangeStatus" class="review-yaml-change-status">Без локальных изменений</span>
               <div class="panel-actions">
-                <button id="editConfigButton" class="button compact" type="button">
-                  <span>Редактировать конфигурацию</span>
+                <button id="editConfigButton" class="button compact" type="button" aria-label="Редактировать конфигурацию">
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-edit"></use></svg>
+                  <span>Редактировать</span>
                 </button>
                 <button id="applyConfigButton" class="button primary compact" type="button" hidden>
                   <span>Проверить и применить</span>
@@ -5471,14 +5616,13 @@ button.review-check-card:hover {
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
-                <button id="checkConfigButton" class="button compact" type="button" disabled>
-                  <span class="button-label">Проверить YAML в Mihomo</span>
-                </button>
                 <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML с исходными ссылками" aria-label="Копировать полный YAML с исходными ссылками" disabled>
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-copy"></use></svg>
                   <span class="button-label">Копировать</span>
                 </button>
                 <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
-                  <span class="button-label">Скачать YAML</span>
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-download"></use></svg>
+                  <span class="button-label">Скачать</span>
                 </button>
               </div>
             </div>
@@ -5486,6 +5630,10 @@ button.review-check-card:hover {
               <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
               <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" placeholder="Здесь появится обновленная конфигурация"></textarea>
             </div>
+            <footer class="review-yaml-footer">
+              <span id="reviewYamlStatus">YAML ещё не проверен в Mihomo</span>
+              <span id="reviewYamlMeta">Строк: 0 · Размер: 0 Б</span>
+            </footer>
           </section>
         </div>
       </section>
@@ -6169,6 +6317,9 @@ const els = {
   reviewSummaryPanel: document.querySelector('.review-summary-panel'),
   reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
   reviewChecklist: document.querySelector('#reviewChecklist'),
+  reviewChangeStatus: document.querySelector('#reviewChangeStatus'),
+  reviewYamlStatus: document.querySelector('#reviewYamlStatus'),
+  reviewYamlMeta: document.querySelector('#reviewYamlMeta'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
@@ -6835,7 +6986,7 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) return { disabled: true, label: 'YAML проверен в Mihomo' };
+  if (isCurrentConfigKernelChecked()) return { disabled: false, label: 'Проверить повторно' };
   return {
     disabled: false,
     label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
@@ -7708,33 +7859,55 @@ function renderReviewSummary(changes, diagnostics) {
   els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
   els.reviewChecklist.textContent = '';
   els.reviewSummaryStatus.textContent = getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount);
+  renderReviewYamlSummary(changeCount);
 
   [
     {
-      title: 'Конфигурация',
-      value: !state.originalText ? 'не загружена' : hasStructuralError ? 'ошибка структуры' : 'загружена',
-      note: state.fileName || 'Файл или вставленный текст',
-      variant: !state.originalText ? 'is-muted' : hasStructuralError ? 'is-danger' : 'is-ok',
+      title: 'Локальная проверка',
+      value: !state.originalText
+        ? 'Нет конфигурации'
+        : errorCount > 0
+          ? formatErrorCount(errorCount)
+          : warningCount > 0
+            ? formatWarningCount(warningCount)
+            : 'Без ошибок',
+      note: !state.originalText
+        ? 'Откройте YAML, чтобы запустить проверку.'
+        : errorCount > 0
+          ? 'Исправьте блокирующие ошибки перед сохранением.'
+          : warningCount > 0
+            ? 'Проверьте предупреждения перед сохранением.'
+            : 'Синтаксис и обязательные поля корректны.',
+      variant: !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
+      icon: 'review',
     },
     {
-      title: 'Изменения',
-      value: formatChangeCount(changeCount),
-      note: changeCount > 0 ? 'Проверьте перед сохранением' : 'Diff пустой',
-      variant: changeCount > 0 ? 'is-warning' : 'is-ok',
-      action: state.originalText && state.hasGroupsSection ? focusChangesPanel : null,
-    },
-    {
-      title: 'Рекомендации',
-      value: missingConnectionCount > 0 ? `не включено: ${missingConnectionCount}` : 'нет',
-      note: missingConnectionCount > 0 ? 'Настройки подключения' : 'Блок скрыт',
-      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
-      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+      title: 'Структура и связи',
+      value: !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
+      note: !state.originalText
+        ? 'Связи появятся после загрузки конфигурации.'
+        : hasStructuralError
+          ? 'Отсутствует обязательный раздел proxy-groups.'
+          : errorCount > 0
+            ? 'Проверьте ссылки между подписками, группами и правилами.'
+            : 'Подписки, группы и правила связаны корректно.',
+      variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      icon: 'routing',
     },
     {
       title: 'Проверка Mihomo',
       value: kernelCheck.value,
       note: kernelCheck.note,
       variant: kernelCheck.variant,
+      icon: 'nodes',
+    },
+    {
+      title: 'Рекомендации',
+      value: missingConnectionCount > 0 ? formatRouteCount(missingConnectionCount, 'настройка', 'настройки', 'настроек') : 'Нет',
+      note: missingConnectionCount > 0 ? 'Можно улучшить параметры подключения.' : 'Дополнительных настроек не требуется.',
+      variant: missingConnectionCount > 0 ? 'is-warning' : 'is-ok',
+      action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
+      icon: 'warning',
     },
   ].forEach((item) => {
     els.reviewChecklist.append(createReviewChecklistItem(item));
@@ -7743,10 +7916,52 @@ function renderReviewSummary(changes, diagnostics) {
 
 function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount, warningCount) {
   if (!state.originalText) return 'Конфигурация не загружена';
-  if (errorCount > 0) return formatErrorCount(errorCount);
-  if (warningCount > 0) return formatWarningCount(warningCount);
-  if (changeCount > 0 || missingConnectionCount > 0) return 'Есть на что обратить внимание';
-  return 'Готово';
+  const diagnosticsSummary = errorCount > 0 ? formatErrorCount(errorCount) : warningCount > 0 ? formatWarningCount(warningCount) : 'Ошибок нет';
+  const recommendationsSummary = missingConnectionCount > 0
+    ? formatRouteCount(missingConnectionCount, 'рекомендация', 'рекомендации', 'рекомендаций')
+    : 'рекомендаций нет';
+  const changesSummary = changeCount > 0 ? formatChangeCount(changeCount) : 'изменений нет';
+  return `${diagnosticsSummary} · ${recommendationsSummary} · ${changesSummary}`;
+}
+
+function renderReviewYamlSummary(changeCount) {
+  const text = state.outputText || '';
+  const lineCount = text ? text.split(/\r?\n/).length : 0;
+  const size = getUtf8ByteLength(text);
+
+  els.reviewChangeStatus.textContent = !state.originalText
+    ? 'Нет конфигурации'
+    : changeCount > 0
+      ? formatChangeCount(changeCount)
+      : 'Без локальных изменений';
+  els.reviewChangeStatus.classList.toggle('is-warning', changeCount > 0);
+
+  els.reviewYamlStatus.classList.remove('is-ok', 'is-warning', 'is-danger');
+  if (!text) {
+    els.reviewYamlStatus.textContent = 'Нет YAML для проверки';
+  } else if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
+    els.reviewYamlStatus.textContent = 'YAML проверен в Mihomo';
+    els.reviewYamlStatus.classList.add('is-ok');
+  } else if (state.lastConfigCheckText === text) {
+    els.reviewYamlStatus.textContent = 'Mihomo отклонил текущий YAML';
+    els.reviewYamlStatus.classList.add('is-danger');
+  } else if (!state.routerApiAvailable) {
+    els.reviewYamlStatus.textContent = 'Проверка Mihomo недоступна';
+  } else {
+    els.reviewYamlStatus.textContent = 'YAML ещё не проверен в Mihomo';
+    els.reviewYamlStatus.classList.add('is-warning');
+  }
+
+  els.reviewYamlMeta.textContent = `Строк: ${lineCount} · Размер: ${formatBackupSize(size) || '0 Б'}`;
+}
+
+function getUtf8ByteLength(value) {
+  let length = 0;
+  for (const char of String(value || '')) {
+    const code = char.codePointAt(0);
+    length += code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return length;
 }
 
 function getKernelCheckSummary() {
@@ -7760,7 +7975,7 @@ function getKernelCheckSummary() {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
   }
   if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
-    return { value: 'пройдена', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
+    return { value: 'YAML принят', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
   }
   if (state.lastConfigCheckText === state.outputText) {
     return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
@@ -7770,18 +7985,29 @@ function getKernelCheckSummary() {
 
 function createReviewChecklistItem(item) {
   const card = document.createElement(item.action ? 'button' : 'div');
+  const icon = document.createElement('span');
+  const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  const copy = document.createElement('span');
   const title = document.createElement('span');
   const value = document.createElement('strong');
   const note = document.createElement('span');
 
-  card.className = `review-check-card ${item.variant || ''}`.trim();
+  card.className = `review-check-card review-check-row ${item.variant || ''}`.trim();
+  icon.className = 'review-check-icon';
+  iconSvg.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', `#icon-${item.icon || 'check'}`);
+  iconSvg.append(iconUse);
+  icon.append(iconSvg);
+  copy.className = 'review-check-copy';
   title.className = 'review-check-title';
   value.className = 'review-check-value';
   note.className = 'review-check-note';
   title.textContent = item.title;
   value.textContent = item.value;
   note.textContent = item.note;
-  card.append(title, value, note);
+  copy.append(title, value, note);
+  card.append(icon, copy);
 
   if (item.action) {
     card.type = 'button';
@@ -8435,20 +8661,21 @@ function renderConnectionSettings() {
   const grid = document.createElement('div');
 
   head.className = 'panel-head';
-  title.textContent = 'Рекомендации по подключению';
+  title.textContent = 'Рекомендации';
   actions.className = 'panel-actions';
   summary.className = 'connection-settings-summary';
-  summary.textContent = `Не включено: ${missing.length}`;
-  button.className = 'button compact';
+  summary.textContent = String(missing.length);
+  button.className = 'button primary compact connection-settings-primary';
   button.type = 'button';
-  button.textContent = 'Включить недостающие';
+  button.textContent = missing.length === 1 ? 'Включить настройку' : 'Включить настройки';
   button.addEventListener('click', addRecommendedConnectionSettings);
   toggleButton.className = 'button compact connection-settings-toggle';
   toggleButton.type = 'button';
-  toggleButton.textContent = 'Подробнее';
-  toggleButton.setAttribute('aria-expanded', 'false');
+  toggleButton.textContent = 'Скрыть';
+  toggleButton.hidden = missing.length === 1;
+  toggleButton.setAttribute('aria-expanded', 'true');
   body.className = 'connection-settings-body';
-  body.hidden = true;
+  body.hidden = false;
   grid.className = 'connection-settings-grid';
 
   missing.forEach((definition) => {
@@ -8472,11 +8699,13 @@ function renderConnectionSettings() {
     recommendation.textContent = formatConnectionSettingRecommendation(definition.recommended);
 
     card.append(name, key, value, explanation, recommendation);
-    addButton.className = 'button compact connection-setting-action';
-    addButton.type = 'button';
-    addButton.textContent = 'Применить рекомендацию';
-    addButton.addEventListener('click', () => addConnectionSetting(definition.key));
-    card.append(addButton);
+    if (missing.length > 1) {
+      addButton.className = 'button compact connection-setting-action';
+      addButton.type = 'button';
+      addButton.textContent = 'Включить';
+      addButton.addEventListener('click', () => addConnectionSetting(definition.key));
+      card.append(addButton);
+    }
     grid.append(card);
   });
 
@@ -8487,9 +8716,9 @@ function renderConnectionSettings() {
     toggleButton.setAttribute('aria-expanded', String(expanded));
   });
 
-  actions.append(summary, toggleButton, button);
+  actions.append(summary, toggleButton);
   head.append(title, actions);
-  body.append(grid);
+  body.append(grid, button);
   els.connectionSettingsPanel.append(head, body);
   els.connectionSettingsPanel.classList.remove('hidden');
 }
@@ -8562,7 +8791,7 @@ function formatConnectionSettingRecommendation(value) {
 function renderChanges(changes) {
   els.changesPanel.textContent = '';
 
-  if (!state.originalText) {
+  if (!state.originalText || changes.length === 0) {
     els.changesPanel.classList.add('hidden');
     return;
   }
@@ -8579,32 +8808,25 @@ function renderChanges(changes) {
   head.append(title, summary);
   body.className = 'changes-body';
 
-  if (changes.length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'changes-empty';
-    empty.textContent = 'Изменений нет.';
-    body.append(empty);
-  } else {
-    changes.forEach((section) => {
-      const wrap = document.createElement('div');
-      const sectionTitle = document.createElement('div');
-      const list = document.createElement('ul');
+  changes.forEach((section) => {
+    const wrap = document.createElement('div');
+    const sectionTitle = document.createElement('div');
+    const list = document.createElement('ul');
 
-      wrap.className = 'change-section';
-      sectionTitle.className = 'change-section-title';
-      sectionTitle.textContent = section.title;
-      list.className = 'change-list';
-      section.items.forEach((text) => {
-        const item = document.createElement('li');
-        item.className = getChangeItemClass(text);
-        item.textContent = text;
-        list.append(item);
-      });
-
-      wrap.append(sectionTitle, list);
-      body.append(wrap);
+    wrap.className = 'change-section';
+    sectionTitle.className = 'change-section-title';
+    sectionTitle.textContent = section.title;
+    list.className = 'change-list';
+    section.items.forEach((text) => {
+      const item = document.createElement('li');
+      item.className = getChangeItemClass(text);
+      item.textContent = text;
+      list.append(item);
     });
-  }
+
+    wrap.append(sectionTitle, list);
+    body.append(wrap);
+  });
 
   els.changesPanel.append(head, body);
   els.changesPanel.classList.remove('hidden');

@@ -40,6 +40,8 @@
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
       <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 8l-5 -5l-5 5" /><path d="M5 21h14" /></symbol>
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 10l-5 5l-5 -5" /><path d="M5 21h14" /></symbol>
+      <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" /></symbol>
+      <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8m-2 0a2 2 0 0 1 2 -2h9a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-9a2 2 0 0 1 -2 -2z" /><path d="M16 6v-1a2 2 0 0 0 -2 -2h-9a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h1" /></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
     </svg>
     <main class="app-shell">
@@ -428,27 +430,37 @@
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
-        <section class="panel review-summary-panel" tabindex="-1">
-          <div class="panel-head">
-            <h2>Финальная проверка</h2>
-            <span id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</span>
-          </div>
-          <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
-        </section>
+        <header class="review-page-head">
+          <h2>Проверка</h2>
+          <p id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</p>
+        </header>
 
         <div id="reviewWorkflow" class="review-workflow">
-          <div class="review-support-column">
-            <section id="connectionSettingsPanel" class="panel connection-settings-panel hidden" aria-live="polite"></section>
+          <aside class="panel review-summary-panel review-result-panel" tabindex="-1">
+            <div class="panel-head">
+              <h2>Результат проверки</h2>
+            </div>
+            <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
 
+            <section id="connectionSettingsPanel" class="review-recommendations hidden" aria-live="polite"></section>
             <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
-          </div>
+
+            <div class="review-result-actions">
+              <button id="checkConfigButton" class="button compact review-repeat-button" type="button" disabled>
+                <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+                <span class="button-label">Проверить YAML в Mihomo</span>
+              </button>
+            </div>
+          </aside>
 
           <section class="panel preview-panel">
             <div class="panel-head">
-              <h2>Итоговая конфигурация</h2>
+              <h2>Итоговый YAML</h2>
+              <span id="reviewChangeStatus" class="review-yaml-change-status">Без локальных изменений</span>
               <div class="panel-actions">
-                <button id="editConfigButton" class="button compact" type="button">
-                  <span>Редактировать конфигурацию</span>
+                <button id="editConfigButton" class="button compact" type="button" aria-label="Редактировать конфигурацию">
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-edit"></use></svg>
+                  <span>Редактировать</span>
                 </button>
                 <button id="applyConfigButton" class="button primary compact" type="button" hidden>
                   <span>Проверить и применить</span>
@@ -456,14 +468,13 @@
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
-                <button id="checkConfigButton" class="button compact" type="button" disabled>
-                  <span class="button-label">Проверить YAML в Mihomo</span>
-                </button>
                 <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML с исходными ссылками" aria-label="Копировать полный YAML с исходными ссылками" disabled>
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-copy"></use></svg>
                   <span class="button-label">Копировать</span>
                 </button>
                 <button id="reviewDownloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
-                  <span class="button-label">Скачать YAML</span>
+                  <svg class="button-icon" aria-hidden="true"><use href="#icon-download"></use></svg>
+                  <span class="button-label">Скачать</span>
                 </button>
               </div>
             </div>
@@ -471,6 +482,10 @@
               <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
               <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" placeholder="Здесь появится обновленная конфигурация"></textarea>
             </div>
+            <footer class="review-yaml-footer">
+              <span id="reviewYamlStatus">YAML ещё не проверен в Mihomo</span>
+              <span id="reviewYamlMeta">Строк: 0 · Размер: 0 Б</span>
+            </footer>
           </section>
         </div>
       </section>
