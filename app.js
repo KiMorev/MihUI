@@ -307,6 +307,8 @@ const state = {
   intervalToolsOpen: false,
   isEditingConfiguration: false,
   selectedProviderName: '',
+  providerInspectorEditing: false,
+  providerSearch: '',
   selectedGroupName: '',
   groupTypeFilter: 'all',
   selectedRouteScenarioId: '',
@@ -394,11 +396,13 @@ const els = {
   downloadButton: document.querySelector('#downloadButton'),
   reviewDownloadButton: document.querySelector('#reviewDownloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
+  providersPageSummary: document.querySelector('#providersPageSummary'),
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
   providerListActionHome: document.querySelector('#providerListActionHome'),
   groupListActionHome: document.querySelector('#groupListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
+  providerSearchInput: document.querySelector('#providerSearchInput'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
   bulkIntervalInput: document.querySelector('#bulkIntervalInput'),
@@ -511,6 +515,10 @@ els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
 els.addRuleButton.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
+els.providerSearchInput.addEventListener('input', () => {
+  state.providerSearch = els.providerSearchInput.value || '';
+  render();
+});
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
 els.bulkHealthIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -749,6 +757,8 @@ async function reloadRouterConfig() {
 
 function resetWorkspaceViewState() {
   state.providerView = 'editor';
+  state.providerInspectorEditing = false;
+  state.providerSearch = '';
   state.routingView = 'map';
   state.ruleFilters = { search: '', type: '', target: '' };
   state.lastUndo = null;
@@ -3354,7 +3364,8 @@ function formatChangeCount(count) {
 }
 
 function renderProviders(activeProviders) {
-  els.providerListActionHome.append(els.providerStatusRefreshButton, els.addProviderButton);
+  els.providerListActionHome.append(els.addProviderButton, els.providerStatusRefreshButton);
+  els.providerSearchInput.value = state.providerSearch;
   els.providersList.innerHTML = '';
   els.providersList.classList.toggle('empty-state', activeProviders.length === 0);
   els.providersList.classList.toggle('providers-workbench', activeProviders.length > 0);
@@ -3374,28 +3385,57 @@ function renderProviders(activeProviders) {
   }
 
   const selectedProvider = getSelectedProvider(activeProviders);
-  const sidebar = document.createElement('div');
-  const sidebarHead = document.createElement('div');
-  const sidebarTitleRow = document.createElement('div');
-  const summary = document.createElement('div');
+  const providerSearch = state.providerSearch.trim().toLocaleLowerCase('ru-RU');
+  const visibleProviders = providerSearch
+    ? activeProviders.filter((provider) => {
+      const groupNames = getProviderUseGroupNames(provider.name).join(' ');
+      return `${provider.name} ${provider.type || ''} ${groupNames}`.toLocaleLowerCase('ru-RU').includes(providerSearch);
+    })
+    : activeProviders;
+  const displayedProvider = visibleProviders.includes(selectedProvider) ? selectedProvider : visibleProviders[0] || selectedProvider;
+  els.providersList.classList.toggle('providers-editing', state.providerInspectorEditing || Boolean(displayedProvider?.isNew));
+  const registry = document.createElement('div');
+  const tableWrap = document.createElement('div');
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
   const detail = document.createElement('div');
 
-  sidebar.className = 'providers-sidebar';
-  sidebarHead.className = 'providers-sidebar-head';
-  sidebarTitleRow.className = 'providers-sidebar-title-row';
-  summary.className = 'providers-summary';
-  summary.textContent = `Всего: ${activeProviders.length}`;
-  sidebarTitleRow.append(summary, els.addProviderButton);
-  sidebarHead.append(sidebarTitleRow, els.providerStatusRefreshButton);
-  sidebar.append(sidebarHead);
+  if (els.providersPageSummary) {
+    const connectedCount = activeProviders.filter((provider) => getProviderUseGroupNames(provider.name).length > 0).length;
+    els.providersPageSummary.textContent = `${activeProviders.length} подписок · ${connectedCount} используются в группах`;
+  }
 
-  activeProviders.forEach((provider, index) => {
-    sidebar.append(createProviderListItem(provider, index, provider === selectedProvider));
+  registry.className = 'providers-registry';
+  tableWrap.className = 'providers-table-wrap';
+  table.className = 'providers-table';
+  thead.innerHTML = '<tr><th>Подписка</th><th>Состояние</th><th>Ноды</th><th>Используется в группах</th><th>Обновлена</th></tr>';
+
+  visibleProviders.forEach((provider) => {
+    const index = activeProviders.indexOf(provider);
+    tbody.append(createProviderListItem(provider, index, provider === displayedProvider));
   });
+  if (visibleProviders.length === 0) {
+    const emptyRow = document.createElement('tr');
+    const emptyCell = document.createElement('td');
+    emptyCell.colSpan = 5;
+    emptyCell.className = 'providers-table-empty';
+    emptyCell.textContent = 'Подписки по этому запросу не найдены.';
+    emptyRow.append(emptyCell);
+    tbody.append(emptyRow);
+  }
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  registry.append(tableWrap);
 
   detail.className = 'provider-detail';
-  detail.append(createProviderEditor(selectedProvider, activeProviders.indexOf(selectedProvider)));
-  els.providersList.append(sidebar, detail);
+  if (state.providerInspectorEditing || displayedProvider?.isNew) {
+    detail.classList.add('is-editing');
+    detail.append(createProviderEditorHeader(displayedProvider), createProviderEditor(displayedProvider, activeProviders.indexOf(displayedProvider)));
+  } else {
+    detail.append(createProviderInspector(displayedProvider));
+  }
+  els.providersList.append(registry, detail);
 }
 
 function syncSelectedProvider(activeProviders) {
@@ -3408,39 +3448,165 @@ function getSelectedProvider(activeProviders) {
 }
 
 function createProviderListItem(provider, index, isSelected) {
-  const button = document.createElement('button');
-  const number = document.createElement('span');
-  const body = document.createElement('span');
-  const title = document.createElement('strong');
-  const meta = document.createElement('span');
-  const status = document.createElement('span');
+  const row = document.createElement('tr');
+  const nameCell = document.createElement('td');
+  const nameButton = document.createElement('button');
+  const statusCell = document.createElement('td');
+  const nodeCell = document.createElement('td');
+  const groupsCell = document.createElement('td');
+  const updatedCell = document.createElement('td');
+  const status = getProviderStatus(provider.name);
+  const groups = getProviderUseGroupNames(provider.name);
 
-  button.className = 'provider-list-item';
-  button.classList.toggle('is-selected', isSelected);
-  button.type = 'button';
-  button.setAttribute('aria-pressed', String(isSelected));
-  button.setAttribute(
-    'aria-label',
-    `Подписка ${index + 1}: ${provider.name || 'Без названия'}. ${formatProviderListMeta(provider)}. ${formatProviderListBadge(provider)}.`,
-  );
-  number.className = 'provider-list-number';
-  number.textContent = String(index + 1);
-  body.className = 'provider-list-body';
-  title.textContent = provider.name || 'Без названия';
-  title.title = provider.name || 'Без названия';
-  meta.className = 'provider-list-meta';
-  meta.textContent = formatProviderListMeta(provider);
-  status.className = 'provider-list-status';
-  status.classList.toggle('is-live', Boolean(getProviderStatus(provider.name)));
-  status.textContent = formatProviderListBadge(provider);
+  row.className = 'provider-list-item';
+  row.classList.toggle('is-selected', isSelected);
+  row.setAttribute('aria-selected', String(isSelected));
+  nameButton.type = 'button';
+  nameButton.className = 'provider-name-button';
+  nameButton.innerHTML = `<strong></strong><span>${provider.type || 'http'}</span>`;
+  nameButton.querySelector('strong').textContent = provider.name || 'Без названия';
+  nameButton.setAttribute('aria-label', `Открыть подписку ${index + 1}: ${provider.name || 'Без названия'}`);
+  nameCell.append(nameButton);
+  statusCell.append(createProviderStatusPill(provider));
+  nodeCell.textContent = status?.proxyCount ?? '—';
+  groupsCell.textContent = groups.length > 0 ? groups.join(', ') : 'Не используется';
+  groupsCell.title = groups.join(', ');
+  updatedCell.textContent = formatProviderUpdatedAt(status?.updatedAt) || '—';
 
-  body.append(title, meta);
-  button.append(number, body, status);
-  button.addEventListener('click', () => {
+  row.append(nameCell, statusCell, nodeCell, groupsCell, updatedCell);
+  row.addEventListener('click', () => {
     state.selectedProviderName = provider.name;
+    state.providerInspectorEditing = false;
     render();
   });
-  return button;
+  return row;
+}
+
+function createProviderStatusPill(provider) {
+  const pill = document.createElement('span');
+  const status = getProviderStatus(provider.name);
+  const isUpdating = state.providerUpdatingName === provider.name;
+  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
+  const isLive = hasNodeCount && Number(status.proxyCount) > 0;
+  pill.className = 'provider-status-pill';
+  pill.classList.toggle('is-live', isLive && !isUpdating);
+  pill.classList.toggle('is-empty', hasNodeCount && !isLive && !isUpdating);
+  pill.classList.toggle('is-loading', isUpdating || state.providerStatusLoading);
+  pill.textContent = isUpdating
+    ? 'Обновляется'
+    : state.providerStatusLoading
+      ? 'Проверяется'
+      : isLive
+        ? 'Работает'
+        : hasNodeCount
+          ? 'Нет нод'
+          : 'Нет данных';
+  return pill;
+}
+
+function createProviderEditorHeader(provider) {
+  const header = document.createElement('div');
+  const title = document.createElement('div');
+  const close = document.createElement('button');
+  header.className = 'provider-editor-mode-head';
+  title.innerHTML = '<span>Редактирование подписки</span><strong></strong>';
+  title.querySelector('strong').textContent = provider?.name || 'Без названия';
+  close.className = 'button compact';
+  close.type = 'button';
+  close.textContent = 'Закрыть редактор';
+  close.hidden = Boolean(provider?.isNew);
+  close.addEventListener('click', () => {
+    state.providerInspectorEditing = false;
+    render();
+  });
+  header.append(title, close);
+  return header;
+}
+
+function createProviderInspector(provider) {
+  const inspector = document.createElement('article');
+  if (!provider) return inspector;
+
+  const status = getProviderStatus(provider.name);
+  const groups = getProviderUseGroupNames(provider.name);
+  const head = document.createElement('div');
+  const title = document.createElement('div');
+  const content = document.createElement('div');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const updateButton = document.createElement('button');
+  const removeButton = document.createElement('button');
+
+  inspector.className = 'provider-inspector';
+  head.className = 'provider-inspector-head';
+  title.className = 'provider-inspector-title';
+  title.innerHTML = '<strong></strong><span></span>';
+  title.querySelector('strong').textContent = provider.name || 'Без названия';
+  title.querySelector('span').textContent = provider.type || 'http';
+  head.append(title, createProviderStatusPill(provider));
+
+  content.className = 'provider-inspector-content';
+  content.append(
+    createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
+    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? 'Ссылка скрыта' : provider.url || 'Не указан'], 'value'),
+    createProviderInspectorSection('Фильтрация нод', [
+      provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
+      provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
+    ], 'list'),
+    createProviderInspectorSection('Обновление', [
+      provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
+      status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
+    ], 'list'),
+  );
+
+  actions.className = 'provider-inspector-actions';
+  editButton.className = 'button primary compact';
+  editButton.type = 'button';
+  editButton.textContent = 'Редактировать';
+  editButton.addEventListener('click', () => {
+    state.providerInspectorEditing = true;
+    render();
+  });
+  updateButton.className = 'button compact';
+  updateButton.type = 'button';
+  updateButton.textContent = state.providerUpdatingName === provider.name ? 'Обновление...' : 'Обновить';
+  updateButton.hidden = !state.routerApiAvailable;
+  updateButton.disabled = !state.routerApiAvailable || provider.isNew || state.providerUpdatingName === provider.name;
+  updateButton.addEventListener('click', () => updateProviderNow(provider));
+  removeButton.className = 'button compact danger';
+  removeButton.type = 'button';
+  removeButton.textContent = 'Удалить';
+  removeButton.addEventListener('click', () => removeProvider(provider));
+  actions.append(editButton, updateButton, removeButton);
+  inspector.append(head, content, actions);
+  return inspector;
+}
+
+function createProviderInspectorSection(label, values, variant) {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const body = document.createElement('div');
+  section.className = 'provider-inspector-section';
+  title.textContent = label;
+  body.className = `provider-inspector-${variant}`;
+  values.forEach((value) => {
+    const item = document.createElement(variant === 'list' ? 'span' : variant === 'chips' ? 'span' : 'p');
+    item.textContent = value;
+    body.append(item);
+  });
+  section.append(title, body);
+  return section;
+}
+
+function formatDuration(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return `${value} сек`;
+  if (seconds % 86400 === 0) return `${seconds / 86400} дн.`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} ч`;
+  if (seconds % 60 === 0) return `${seconds / 60} мин`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)} ч ${Math.floor((seconds % 3600) / 60)} мин`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)} мин ${seconds % 60} сек`;
+  return `${seconds} сек`;
 }
 
 function createProviderEditor(provider, index) {
@@ -6503,6 +6669,7 @@ function removeProvider(provider) {
   };
   provider.deleted = true;
   if (state.selectedProviderName === provider.name) state.selectedProviderName = '';
+  state.providerInspectorEditing = false;
   state.groups.forEach((group) => {
     group.use = group.use.filter((name) => name !== provider.name);
   });
@@ -6596,6 +6763,7 @@ function addProvider() {
 
   state.providers.unshift(provider);
   state.selectedProviderName = provider.name;
+  state.providerInspectorEditing = true;
   connectProviderToUseGroups(provider.name);
   generateOutput();
   render();

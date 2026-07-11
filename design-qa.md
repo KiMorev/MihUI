@@ -1,31 +1,32 @@
-# Design QA — «Проверка», двухколоночный рабочий экран
+# Design QA — subscriptions registry
 
-## Evidence
+- Reference: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-5f0b2f59-841e-479d-b328-f22eb25fb599.png`
+- Implementation: `audit-providers-redesign-2026-07-11/07-implementation-neutral.png`
+- Side-by-side comparison: `audit-providers-redesign-2026-07-11/08-comparison-final.png`
+- Test configuration: router mock loaded from `config (4).yaml`, 5 subscriptions and 4 groups.
 
-- Reference: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-5846873e-94cc-487e-9a71-531a046d444c.png`
-- Implementation: `C:\Users\morev\Desktop\WebMihomo\audit-review-redesign-2026-07-11\03-review-final.png`
-- Side-by-side comparison: `C:\Users\morev\Desktop\WebMihomo\audit-review-redesign-2026-07-11\04-comparison.png`
-- State: конфигурация без локальных изменений; локальная и структурная проверки успешны; YAML принят Mihomo; одна рекомендация `unified-delay`.
+## Mandatory comparison
 
-## Findings and resolutions
+- Layout and hierarchy: passed. The selected table-and-inspector direction is preserved; registry actions remain adjacent to the registry, and the inspector stays secondary to the list.
+- Typography and spacing: passed. Heading scale, table density, selected-row treatment and inspector rhythm match the existing Overview and Check pages.
+- Colors and surfaces: passed. Existing project tokens are used for teal actions, muted states, borders and selected backgrounds; no new decorative treatment was introduced.
+- Copy and content: passed. Status, group usage, source, filters and update interval use real configuration data. Raw interval values are converted to readable durations.
+- States and interactions: passed. Row selection, live search, group tab, explicit edit mode, close editor, add, update and delete controls were exercised in the in-app browser.
+- Accessibility: passed. Table semantics, labeled search, keyboard-focusable row controls, explicit button labels and responsive touch targets are retained.
+- Responsive layout: passed. Desktop uses the reference split layout; tablet stacks registry and inspector; mobile removes low-priority table columns instead of forcing horizontal overflow.
+- Assets and icons: passed. The screen uses the existing WebMihomo icon system and contains no generated placeholder assets, custom SVG substitutes or CSS illustration art.
+- Main/standalone synchronization: passed. `mihomo-editor.html` exactly mirrors `index.html`, `styles.css` and `app.js`.
 
-- [Fixed P1 — layout] Результаты проверки перенесены в левую первичную колонку, итоговый YAML — в правую рабочую область. На ширине 1536 px колонки занимают примерно 36/64%, горизонтального переполнения нет.
-- [Fixed P1 — hierarchy] Четыре независимых результата собраны в один вертикальный список: локальная проверка, структура и связи, Mihomo, рекомендации. Цвет используется только как семантический сигнал.
-- [Fixed P1 — workflow] Рекомендация раскрыта рядом с результатами и содержит основное действие «Включить настройку». После применения блок рекомендаций скрывается, появляется блок изменений, сводка меняется на «рекомендаций нет · 1 изменение».
-- [Fixed P2 — content] Неопределённое «проверка пройдена» уточнено до «YAML принят»; рядом остаётся пояснение «Текущий YAML принят Mihomo».
-- [Fixed P2 — actions] Панель над YAML сокращена до «Редактировать», «Копировать», «Скачать» и помещается в одну строку без переполнения. Редактирование открывает действия «Проверить и применить» и «Отменить».
-- [Fixed P2 — empty state] При отсутствии изменений отдельная пустая карточка не выводится; состояние отображается один раз как «Без локальных изменений».
-- [Fixed P2 — visual fidelity] Убрана прежняя россыпь равнозначных карточек. Сохранены токены, типографика, рамки, радиусы и Tabler-иконки существующего интерфейса; новые растровые ассеты не требуются.
+## Severity review
+
+- P0: none.
+- P1: none.
+- P2: none remaining after narrowing the table minimum width, adding the compact mobile table, synchronizing the filtered inspector and formatting non-round update intervals.
 
 ## Verification
 
-- Reference и implementation открыты вместе в side-by-side сравнении: passed.
-- Desktop DOM geometry: `innerWidth = scrollWidth = 1536`; clipping и горизонтального overflow нет.
-- Core interactions: повторная проверка, редактирование/отмена и применение рекомендации — passed.
-- Responsive contracts: при `<= 980px` колонки складываются в порядок «результат → YAML», при `<= 560px` панель действий и footer складываются; project contract tests — passed.
-- Browser console warnings/errors: none.
 - `node --check app.js`: passed.
-- `node --test tests/*.test.js`: 104 of 104 passed.
-- Main/standalone synchronization contract: passed.
+- `npm.cmd test`: 104/104 passed.
+- Browser visual and interaction review: passed.
 
 final result: passed

@@ -228,6 +228,10 @@
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
+        <header class="providers-page-head">
+          <h2>Подписки и группы</h2>
+          <p id="providersPageSummary">Источники нод и группы, которые используют их в конфигурации</p>
+        </header>
         <div class="subsection-tabs" role="tablist" aria-label="Подписки и группы">
           <button id="providersEditorTab" class="subsection-tab is-active" type="button" role="tab" data-provider-view="editor" aria-controls="providersEditorPanel" aria-selected="true">
             Подписки
@@ -239,19 +243,20 @@
 
         <section id="providersEditorPanel" class="panel providers-panel" role="tabpanel" aria-labelledby="providersEditorTab" data-provider-view-panel="editor">
           <div class="panel-head">
-            <h2>Подписки (proxy-providers)</h2>
+            <h2>Реестр подписок</h2>
             <div class="panel-actions">
-              <button id="intervalToolsButton" class="button compact" type="button" disabled>
-                <span>Настроить обновления</span>
-              </button>
               <div id="providerListActionHome" class="provider-list-action-home">
+                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить подписку</span>
+                </button>
                 <button id="providerStatusRefreshButton" class="button compact provider-status-button" type="button" disabled>
                   <span>Обновить статусы</span>
                 </button>
-                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
-                  <span>+ Добавить</span>
-                </button>
               </div>
+              <button id="intervalToolsButton" class="button compact" type="button" disabled>
+                <span>Настроить обновления</span>
+              </button>
+              <input id="providerSearchInput" class="provider-search-input" type="search" placeholder="Поиск подписки" aria-label="Поиск подписки" />
             </div>
           </div>
           <section id="intervalTools" class="interval-tools hidden" aria-label="Настройка обновлений для всех подписок">

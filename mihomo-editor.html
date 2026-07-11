@@ -2236,6 +2236,11 @@ input[type='file'] {
   display: none;
 }
 
+.providers-panel .provider-search-input {
+  width: 190px;
+  min-height: 36px;
+}
+
 .settings-status {
   color: var(--muted);
   font-size: 12px;
@@ -2392,142 +2397,291 @@ input[type='file'] {
   padding: 12px;
 }
 
+.providers-page-head {
+  display: grid;
+  gap: 4px;
+  padding: 4px 2px 0;
+}
+
+.providers-page-head h2 {
+  font-size: 20px;
+}
+
+.providers-page-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .providers-list.providers-workbench {
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(620px, 1.55fr) minmax(340px, 0.8fr);
   gap: 0;
   padding: 0;
 }
 
-.providers-sidebar {
-  min-height: 470px;
+.providers-list.providers-workbench.providers-editing {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.providers-registry {
+  min-width: 0;
+  background: #fff;
+}
+
+.providers-table-wrap {
+  min-height: 510px;
   max-height: 720px;
   overflow: auto;
-  padding: 10px;
-  border-right: 1px solid var(--line);
-  background: #fbfcfe;
 }
 
-.providers-sidebar-head {
-  display: grid;
-  gap: 8px;
-  margin: 2px 2px 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.providers-sidebar-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.providers-sidebar-head .provider-status-button {
+.providers-table {
   width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
 }
 
-.provider-add-button {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.providers-summary {
-  margin: 0;
+.providers-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.providers-table th:nth-child(1) { width: 27%; }
+.providers-table th:nth-child(2) { width: 16%; }
+.providers-table th:nth-child(3) { width: 10%; }
+.providers-table th:nth-child(4) { width: 29%; }
+.providers-table th:nth-child(5) { width: 18%; }
+
+.providers-table-empty {
+  height: 160px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .provider-list-item {
-  width: 100%;
-  min-height: 48px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 9px;
-  align-items: center;
-  margin: 0 0 6px;
-  padding: 8px 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
+  cursor: pointer;
+}
+
+.provider-list-item td {
+  height: 66px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
   color: var(--text);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.provider-list-item:hover td {
+  background: #f8fbfc;
+}
+
+.provider-list-item.is-selected td {
+  background: #effafa;
+}
+
+.provider-list-item.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.provider-name-button {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
 }
 
-.provider-list-item:hover {
-  border-color: var(--line);
-  background: #fff;
+.provider-name-button strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.provider-list-item.is-selected {
-  border-color: rgba(8, 124, 128, 0.45);
-  background: #effafa;
-  box-shadow: inset 3px 0 0 var(--accent);
+.provider-name-button span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.provider-list-number {
+.provider-list-item td:nth-child(4) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-status-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  min-width: 28px;
-  height: 24px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: #fff;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.provider-list-body {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-
-.provider-list-body strong {
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-url.is-masked {
-  color: var(--muted);
-}
-
-.provider-list-meta {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.provider-list-status {
-  justify-self: end;
-  padding: 2px 6px;
+  min-height: 26px;
+  padding: 3px 8px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: #fff;
+  background: #f8fafc;
   color: var(--muted);
   font-size: 11px;
   font-weight: 750;
   white-space: nowrap;
 }
 
-.provider-list-status.is-live {
+.provider-status-pill.is-live {
   border-color: rgba(8, 124, 128, 0.32);
   background: #effafa;
   color: var(--accent-dark);
 }
 
+.provider-status-pill.is-loading {
+  border-color: rgba(194, 120, 3, 0.34);
+  background: #fff9ed;
+  color: #a76300;
+}
+
+.provider-status-pill.is-empty {
+  border-color: rgba(194, 120, 3, 0.34);
+  background: #fff9ed;
+  color: #a76300;
+}
+
 .provider-detail {
   min-width: 0;
-  padding: 12px;
+  min-height: 510px;
+  padding: 20px;
+  border-left: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.provider-detail.is-editing {
+  padding: 16px;
+  background: #fff;
+}
+
+.provider-inspector {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 20px;
+}
+
+.provider-inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.provider-inspector-title {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.provider-inspector-title strong {
+  overflow: hidden;
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-inspector-title span,
+.provider-inspector-section > span,
+.provider-editor-mode-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.provider-inspector-content {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+
+.provider-inspector-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.provider-inspector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.provider-inspector-chips span {
+  padding: 4px 8px;
+  border: 1px solid rgba(8, 124, 128, 0.28);
+  border-radius: 999px;
+  background: #effafa;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.provider-inspector-value p {
+  overflow-wrap: anywhere;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.provider-inspector-list {
+  display: grid;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.provider-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.provider-editor-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.provider-editor-mode-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.provider-editor-mode-head strong {
+  font-size: 16px;
+}
+
+.provider-url.is-masked {
+  color: var(--muted);
 }
 
 .empty-state {
@@ -4680,7 +4834,21 @@ button.review-check-card:focus-visible {
   }
 
   .providers-list.providers-workbench {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 1fr;
+  }
+
+  .providers-list.providers-workbench.providers-editing {
+    grid-template-columns: 1fr;
+  }
+
+  .providers-table-wrap {
+    min-height: 0;
+    max-height: 440px;
+  }
+
+  .provider-detail {
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 
   .group-editor {
@@ -4975,6 +5143,25 @@ button.review-check-card:focus-visible {
 
   .providers-list.providers-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .providers-table {
+    min-width: 0;
+  }
+
+  .providers-table th:nth-child(1) { width: 38%; }
+  .providers-table th:nth-child(2) { width: 25%; }
+  .providers-table th:nth-child(4) { width: 37%; }
+
+  .providers-table th:nth-child(3),
+  .providers-table td:nth-child(3),
+  .providers-table th:nth-child(5),
+  .providers-table td:nth-child(5) {
+    display: none;
+  }
+
+  .providers-panel .provider-search-input {
+    width: 100%;
   }
 
   .group-editor {
@@ -5376,6 +5563,10 @@ button.review-check-card:focus-visible {
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
+        <header class="providers-page-head">
+          <h2>Подписки и группы</h2>
+          <p id="providersPageSummary">Источники нод и группы, которые используют их в конфигурации</p>
+        </header>
         <div class="subsection-tabs" role="tablist" aria-label="Подписки и группы">
           <button id="providersEditorTab" class="subsection-tab is-active" type="button" role="tab" data-provider-view="editor" aria-controls="providersEditorPanel" aria-selected="true">
             Подписки
@@ -5387,19 +5578,20 @@ button.review-check-card:focus-visible {
 
         <section id="providersEditorPanel" class="panel providers-panel" role="tabpanel" aria-labelledby="providersEditorTab" data-provider-view-panel="editor">
           <div class="panel-head">
-            <h2>Подписки (proxy-providers)</h2>
+            <h2>Реестр подписок</h2>
             <div class="panel-actions">
-              <button id="intervalToolsButton" class="button compact" type="button" disabled>
-                <span>Настроить обновления</span>
-              </button>
               <div id="providerListActionHome" class="provider-list-action-home">
+                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
+                  <span>+ Добавить подписку</span>
+                </button>
                 <button id="providerStatusRefreshButton" class="button compact provider-status-button" type="button" disabled>
                   <span>Обновить статусы</span>
                 </button>
-                <button id="addProviderButton" class="button primary compact provider-add-button" type="button" aria-label="Добавить подписку" disabled title="Сначала загрузите конфигурацию">
-                  <span>+ Добавить</span>
-                </button>
               </div>
+              <button id="intervalToolsButton" class="button compact" type="button" disabled>
+                <span>Настроить обновления</span>
+              </button>
+              <input id="providerSearchInput" class="provider-search-input" type="search" placeholder="Поиск подписки" aria-label="Поиск подписки" />
             </div>
           </div>
           <section id="intervalTools" class="interval-tools hidden" aria-label="Настройка обновлений для всех подписок">
@@ -6171,6 +6363,8 @@ const state = {
   intervalToolsOpen: false,
   isEditingConfiguration: false,
   selectedProviderName: '',
+  providerInspectorEditing: false,
+  providerSearch: '',
   selectedGroupName: '',
   groupTypeFilter: 'all',
   selectedRouteScenarioId: '',
@@ -6258,11 +6452,13 @@ const els = {
   downloadButton: document.querySelector('#downloadButton'),
   reviewDownloadButton: document.querySelector('#reviewDownloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
+  providersPageSummary: document.querySelector('#providersPageSummary'),
   addGroupButton: document.querySelector('#addGroupButton'),
   addRuleButton: document.querySelector('#addRuleButton'),
   providerListActionHome: document.querySelector('#providerListActionHome'),
   groupListActionHome: document.querySelector('#groupListActionHome'),
   providerStatusRefreshButton: document.querySelector('#providerStatusRefreshButton'),
+  providerSearchInput: document.querySelector('#providerSearchInput'),
   intervalToolsButton: document.querySelector('#intervalToolsButton'),
   intervalTools: document.querySelector('#intervalTools'),
   bulkIntervalInput: document.querySelector('#bulkIntervalInput'),
@@ -6375,6 +6571,10 @@ els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
 els.addRuleButton.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
+els.providerSearchInput.addEventListener('input', () => {
+  state.providerSearch = els.providerSearchInput.value || '';
+  render();
+});
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
 els.bulkHealthIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -6613,6 +6813,8 @@ async function reloadRouterConfig() {
 
 function resetWorkspaceViewState() {
   state.providerView = 'editor';
+  state.providerInspectorEditing = false;
+  state.providerSearch = '';
   state.routingView = 'map';
   state.ruleFilters = { search: '', type: '', target: '' };
   state.lastUndo = null;
@@ -9218,7 +9420,8 @@ function formatChangeCount(count) {
 }
 
 function renderProviders(activeProviders) {
-  els.providerListActionHome.append(els.providerStatusRefreshButton, els.addProviderButton);
+  els.providerListActionHome.append(els.addProviderButton, els.providerStatusRefreshButton);
+  els.providerSearchInput.value = state.providerSearch;
   els.providersList.innerHTML = '';
   els.providersList.classList.toggle('empty-state', activeProviders.length === 0);
   els.providersList.classList.toggle('providers-workbench', activeProviders.length > 0);
@@ -9238,28 +9441,57 @@ function renderProviders(activeProviders) {
   }
 
   const selectedProvider = getSelectedProvider(activeProviders);
-  const sidebar = document.createElement('div');
-  const sidebarHead = document.createElement('div');
-  const sidebarTitleRow = document.createElement('div');
-  const summary = document.createElement('div');
+  const providerSearch = state.providerSearch.trim().toLocaleLowerCase('ru-RU');
+  const visibleProviders = providerSearch
+    ? activeProviders.filter((provider) => {
+      const groupNames = getProviderUseGroupNames(provider.name).join(' ');
+      return `${provider.name} ${provider.type || ''} ${groupNames}`.toLocaleLowerCase('ru-RU').includes(providerSearch);
+    })
+    : activeProviders;
+  const displayedProvider = visibleProviders.includes(selectedProvider) ? selectedProvider : visibleProviders[0] || selectedProvider;
+  els.providersList.classList.toggle('providers-editing', state.providerInspectorEditing || Boolean(displayedProvider?.isNew));
+  const registry = document.createElement('div');
+  const tableWrap = document.createElement('div');
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
   const detail = document.createElement('div');
 
-  sidebar.className = 'providers-sidebar';
-  sidebarHead.className = 'providers-sidebar-head';
-  sidebarTitleRow.className = 'providers-sidebar-title-row';
-  summary.className = 'providers-summary';
-  summary.textContent = `Всего: ${activeProviders.length}`;
-  sidebarTitleRow.append(summary, els.addProviderButton);
-  sidebarHead.append(sidebarTitleRow, els.providerStatusRefreshButton);
-  sidebar.append(sidebarHead);
+  if (els.providersPageSummary) {
+    const connectedCount = activeProviders.filter((provider) => getProviderUseGroupNames(provider.name).length > 0).length;
+    els.providersPageSummary.textContent = `${activeProviders.length} подписок · ${connectedCount} используются в группах`;
+  }
 
-  activeProviders.forEach((provider, index) => {
-    sidebar.append(createProviderListItem(provider, index, provider === selectedProvider));
+  registry.className = 'providers-registry';
+  tableWrap.className = 'providers-table-wrap';
+  table.className = 'providers-table';
+  thead.innerHTML = '<tr><th>Подписка</th><th>Состояние</th><th>Ноды</th><th>Используется в группах</th><th>Обновлена</th></tr>';
+
+  visibleProviders.forEach((provider) => {
+    const index = activeProviders.indexOf(provider);
+    tbody.append(createProviderListItem(provider, index, provider === displayedProvider));
   });
+  if (visibleProviders.length === 0) {
+    const emptyRow = document.createElement('tr');
+    const emptyCell = document.createElement('td');
+    emptyCell.colSpan = 5;
+    emptyCell.className = 'providers-table-empty';
+    emptyCell.textContent = 'Подписки по этому запросу не найдены.';
+    emptyRow.append(emptyCell);
+    tbody.append(emptyRow);
+  }
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  registry.append(tableWrap);
 
   detail.className = 'provider-detail';
-  detail.append(createProviderEditor(selectedProvider, activeProviders.indexOf(selectedProvider)));
-  els.providersList.append(sidebar, detail);
+  if (state.providerInspectorEditing || displayedProvider?.isNew) {
+    detail.classList.add('is-editing');
+    detail.append(createProviderEditorHeader(displayedProvider), createProviderEditor(displayedProvider, activeProviders.indexOf(displayedProvider)));
+  } else {
+    detail.append(createProviderInspector(displayedProvider));
+  }
+  els.providersList.append(registry, detail);
 }
 
 function syncSelectedProvider(activeProviders) {
@@ -9272,39 +9504,165 @@ function getSelectedProvider(activeProviders) {
 }
 
 function createProviderListItem(provider, index, isSelected) {
-  const button = document.createElement('button');
-  const number = document.createElement('span');
-  const body = document.createElement('span');
-  const title = document.createElement('strong');
-  const meta = document.createElement('span');
-  const status = document.createElement('span');
+  const row = document.createElement('tr');
+  const nameCell = document.createElement('td');
+  const nameButton = document.createElement('button');
+  const statusCell = document.createElement('td');
+  const nodeCell = document.createElement('td');
+  const groupsCell = document.createElement('td');
+  const updatedCell = document.createElement('td');
+  const status = getProviderStatus(provider.name);
+  const groups = getProviderUseGroupNames(provider.name);
 
-  button.className = 'provider-list-item';
-  button.classList.toggle('is-selected', isSelected);
-  button.type = 'button';
-  button.setAttribute('aria-pressed', String(isSelected));
-  button.setAttribute(
-    'aria-label',
-    `Подписка ${index + 1}: ${provider.name || 'Без названия'}. ${formatProviderListMeta(provider)}. ${formatProviderListBadge(provider)}.`,
-  );
-  number.className = 'provider-list-number';
-  number.textContent = String(index + 1);
-  body.className = 'provider-list-body';
-  title.textContent = provider.name || 'Без названия';
-  title.title = provider.name || 'Без названия';
-  meta.className = 'provider-list-meta';
-  meta.textContent = formatProviderListMeta(provider);
-  status.className = 'provider-list-status';
-  status.classList.toggle('is-live', Boolean(getProviderStatus(provider.name)));
-  status.textContent = formatProviderListBadge(provider);
+  row.className = 'provider-list-item';
+  row.classList.toggle('is-selected', isSelected);
+  row.setAttribute('aria-selected', String(isSelected));
+  nameButton.type = 'button';
+  nameButton.className = 'provider-name-button';
+  nameButton.innerHTML = `<strong></strong><span>${provider.type || 'http'}</span>`;
+  nameButton.querySelector('strong').textContent = provider.name || 'Без названия';
+  nameButton.setAttribute('aria-label', `Открыть подписку ${index + 1}: ${provider.name || 'Без названия'}`);
+  nameCell.append(nameButton);
+  statusCell.append(createProviderStatusPill(provider));
+  nodeCell.textContent = status?.proxyCount ?? '—';
+  groupsCell.textContent = groups.length > 0 ? groups.join(', ') : 'Не используется';
+  groupsCell.title = groups.join(', ');
+  updatedCell.textContent = formatProviderUpdatedAt(status?.updatedAt) || '—';
 
-  body.append(title, meta);
-  button.append(number, body, status);
-  button.addEventListener('click', () => {
+  row.append(nameCell, statusCell, nodeCell, groupsCell, updatedCell);
+  row.addEventListener('click', () => {
     state.selectedProviderName = provider.name;
+    state.providerInspectorEditing = false;
     render();
   });
-  return button;
+  return row;
+}
+
+function createProviderStatusPill(provider) {
+  const pill = document.createElement('span');
+  const status = getProviderStatus(provider.name);
+  const isUpdating = state.providerUpdatingName === provider.name;
+  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
+  const isLive = hasNodeCount && Number(status.proxyCount) > 0;
+  pill.className = 'provider-status-pill';
+  pill.classList.toggle('is-live', isLive && !isUpdating);
+  pill.classList.toggle('is-empty', hasNodeCount && !isLive && !isUpdating);
+  pill.classList.toggle('is-loading', isUpdating || state.providerStatusLoading);
+  pill.textContent = isUpdating
+    ? 'Обновляется'
+    : state.providerStatusLoading
+      ? 'Проверяется'
+      : isLive
+        ? 'Работает'
+        : hasNodeCount
+          ? 'Нет нод'
+          : 'Нет данных';
+  return pill;
+}
+
+function createProviderEditorHeader(provider) {
+  const header = document.createElement('div');
+  const title = document.createElement('div');
+  const close = document.createElement('button');
+  header.className = 'provider-editor-mode-head';
+  title.innerHTML = '<span>Редактирование подписки</span><strong></strong>';
+  title.querySelector('strong').textContent = provider?.name || 'Без названия';
+  close.className = 'button compact';
+  close.type = 'button';
+  close.textContent = 'Закрыть редактор';
+  close.hidden = Boolean(provider?.isNew);
+  close.addEventListener('click', () => {
+    state.providerInspectorEditing = false;
+    render();
+  });
+  header.append(title, close);
+  return header;
+}
+
+function createProviderInspector(provider) {
+  const inspector = document.createElement('article');
+  if (!provider) return inspector;
+
+  const status = getProviderStatus(provider.name);
+  const groups = getProviderUseGroupNames(provider.name);
+  const head = document.createElement('div');
+  const title = document.createElement('div');
+  const content = document.createElement('div');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const updateButton = document.createElement('button');
+  const removeButton = document.createElement('button');
+
+  inspector.className = 'provider-inspector';
+  head.className = 'provider-inspector-head';
+  title.className = 'provider-inspector-title';
+  title.innerHTML = '<strong></strong><span></span>';
+  title.querySelector('strong').textContent = provider.name || 'Без названия';
+  title.querySelector('span').textContent = provider.type || 'http';
+  head.append(title, createProviderStatusPill(provider));
+
+  content.className = 'provider-inspector-content';
+  content.append(
+    createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
+    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? 'Ссылка скрыта' : provider.url || 'Не указан'], 'value'),
+    createProviderInspectorSection('Фильтрация нод', [
+      provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
+      provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
+    ], 'list'),
+    createProviderInspectorSection('Обновление', [
+      provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
+      status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
+    ], 'list'),
+  );
+
+  actions.className = 'provider-inspector-actions';
+  editButton.className = 'button primary compact';
+  editButton.type = 'button';
+  editButton.textContent = 'Редактировать';
+  editButton.addEventListener('click', () => {
+    state.providerInspectorEditing = true;
+    render();
+  });
+  updateButton.className = 'button compact';
+  updateButton.type = 'button';
+  updateButton.textContent = state.providerUpdatingName === provider.name ? 'Обновление...' : 'Обновить';
+  updateButton.hidden = !state.routerApiAvailable;
+  updateButton.disabled = !state.routerApiAvailable || provider.isNew || state.providerUpdatingName === provider.name;
+  updateButton.addEventListener('click', () => updateProviderNow(provider));
+  removeButton.className = 'button compact danger';
+  removeButton.type = 'button';
+  removeButton.textContent = 'Удалить';
+  removeButton.addEventListener('click', () => removeProvider(provider));
+  actions.append(editButton, updateButton, removeButton);
+  inspector.append(head, content, actions);
+  return inspector;
+}
+
+function createProviderInspectorSection(label, values, variant) {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const body = document.createElement('div');
+  section.className = 'provider-inspector-section';
+  title.textContent = label;
+  body.className = `provider-inspector-${variant}`;
+  values.forEach((value) => {
+    const item = document.createElement(variant === 'list' ? 'span' : variant === 'chips' ? 'span' : 'p');
+    item.textContent = value;
+    body.append(item);
+  });
+  section.append(title, body);
+  return section;
+}
+
+function formatDuration(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return `${value} сек`;
+  if (seconds % 86400 === 0) return `${seconds / 86400} дн.`;
+  if (seconds % 3600 === 0) return `${seconds / 3600} ч`;
+  if (seconds % 60 === 0) return `${seconds / 60} мин`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)} ч ${Math.floor((seconds % 3600) / 60)} мин`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)} мин ${seconds % 60} сек`;
+  return `${seconds} сек`;
 }
 
 function createProviderEditor(provider, index) {
@@ -12367,6 +12725,7 @@ function removeProvider(provider) {
   };
   provider.deleted = true;
   if (state.selectedProviderName === provider.name) state.selectedProviderName = '';
+  state.providerInspectorEditing = false;
   state.groups.forEach((group) => {
     group.use = group.use.filter((name) => name !== provider.name);
   });
@@ -12460,6 +12819,7 @@ function addProvider() {
 
   state.providers.unshift(provider);
   state.selectedProviderName = provider.name;
+  state.providerInspectorEditing = true;
   connectProviderToUseGroups(provider.name);
   generateOutput();
   render();
