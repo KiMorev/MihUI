@@ -3180,6 +3180,7 @@ function collectGroupUseChanges() {
   const changes = [];
   const originalByName = new Map(state.originalGroups.map((group) => [group.name, group]));
   const originalProviderNames = new Set(state.originalProviders.map((provider) => provider.name));
+  const activeOriginalNames = new Set();
 
   state.groups.forEach((group) => {
     const original = originalByName.get(group.originalName || group.name);
@@ -3187,6 +3188,7 @@ function collectGroupUseChanges() {
       changes.push(`Добавлена группа ${group.name}.`);
       return;
     }
+    activeOriginalNames.add(original.name);
 
     if (group.name !== original.name) {
       changes.push(`Группа ${original.name}: переименована в ${group.name}.`);
@@ -3219,6 +3221,12 @@ function collectGroupUseChanges() {
         changes.push(`В группе ${group.name} отключена подписка ${providerName}.`);
       }
     });
+  });
+
+  state.originalGroups.forEach((group) => {
+    if (!activeOriginalNames.has(group.name)) {
+      changes.push(`Удалена группа ${group.name}.`);
+    }
   });
 
   return changes;
@@ -6127,6 +6135,7 @@ function createGroupInspector(group) {
   const content = document.createElement('div');
   const actions = document.createElement('div');
   const editButton = document.createElement('button');
+  const removeButton = document.createElement('button');
   const usage = getGroupUsage(group);
   const orderedOptions = group.proxies.length > 0 ? group.proxies : group.use;
 
@@ -6163,7 +6172,11 @@ function createGroupInspector(group) {
     state.groupInspectorEditing = true;
     render();
   });
-  actions.append(editButton);
+  removeButton.className = 'button danger compact';
+  removeButton.type = 'button';
+  removeButton.textContent = 'Удалить';
+  removeButton.addEventListener('click', () => removeGroup(group));
+  actions.append(editButton, removeButton);
   inspector.append(head, content, actions);
   return inspector;
 }
@@ -6850,6 +6863,16 @@ function undoLastRemoval() {
     undo.rule.deleted = false;
   }
 
+  if (undo.type === 'group') {
+    const hasNameCollision = state.groups.some((group) => group.name === undo.group.name);
+    if (hasNameCollision) {
+      showMessage(`Нельзя восстановить группу ${undo.group.name}: имя уже занято.`, { severity: 'error' });
+      return;
+    }
+    state.groups.splice(Math.min(undo.index, state.groups.length), 0, undo.group);
+    state.selectedGroupName = undo.selectedGroupName || undo.group.name;
+  }
+
   state.lastUndo = null;
   generateOutput();
   render();
@@ -6944,6 +6967,41 @@ function addGroup() {
   state.groupInspectorEditing = true;
   generateOutput();
   render();
+}
+
+function removeGroup(group) {
+  const usage = getGroupUsage(group);
+  if (usage.used) {
+    const dependencies = [];
+    if (usage.ruleCount > 0) {
+      dependencies.push(formatRouteCount(usage.ruleCount, 'правило ссылается', 'правила ссылаются', 'правил ссылаются'));
+    }
+    if (usage.parentGroups.length > 0) {
+      dependencies.push(`используется в группах ${formatNameList(usage.parentGroups)}`);
+    }
+    showMessage(`Нельзя удалить группу ${group.name}: ${dependencies.join('; ')}. Сначала замените эти ссылки.`, {
+      severity: 'error',
+    });
+    return;
+  }
+
+  const confirmed = window.confirm(`Удалить группу ${group.name}? Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
+  const index = state.groups.indexOf(group);
+  if (index === -1) return;
+  state.lastUndo = {
+    type: 'group',
+    group,
+    index,
+    selectedGroupName: state.selectedGroupName,
+  };
+  state.groups.splice(index, 1);
+  if (state.selectedGroupName === group.name) state.selectedGroupName = '';
+  state.groupInspectorEditing = false;
+  generateOutput();
+  render();
+  showUndoMessage(`Группа ${group.name} будет удалена.`);
 }
 
 function connectProviderToUseGroups(providerName) {
@@ -7745,7 +7803,13 @@ function serializeGroupsSection(lines, groupsSection) {
   const replacements = parseGroups(lines, groupsSection)
     .map((parsedGroup) => {
       const currentGroup = state.groups.find((group) => (group.originalName || group.name) === parsedGroup.name);
-      if (!currentGroup) return null;
+      if (!currentGroup) {
+        return {
+          start: parsedGroup.start - groupsSection.start,
+          end: parsedGroup.end - groupsSection.start,
+          lines: [],
+        };
+      }
       return {
         start: parsedGroup.start - groupsSection.start,
         end: parsedGroup.end - groupsSection.start,

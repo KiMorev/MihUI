@@ -87,6 +87,7 @@ function loadApp(source) {
     },
     setTimeout: runTimer,
     window: {
+      confirm: () => true,
       localStorage: {
         getItem: (key) => storage.get(key) ?? null,
         removeItem: (key) => storage.delete(key),
@@ -149,6 +150,7 @@ globalThis.__app = {
   renameGroup,
   addRule,
   moveRule,
+  removeGroup,
   removeRule,
   removeProvider,
   undoLastRemoval,
@@ -1159,6 +1161,63 @@ rules:
     const custom = app.state.groups.find((group) => group.isNew);
 
     assert.equal(app.getGroupUsage(custom).used, false);
+  });
+
+  test(`${source.name}: removes an unused group and restores it through undo`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+  - name: Unused
+    type: fallback
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,Proxy
+`);
+
+    const unused = app.state.groups.find((group) => group.name === 'Unused');
+    app.removeGroup(unused);
+
+    assert.equal(app.state.groups.some((group) => group.name === 'Unused'), false);
+    assert.doesNotMatch(app.state.outputText, /name: Unused/);
+    assert(flattenChanges(app.collectChanges(app.state.providers)).includes('Удалена группа Unused.'));
+
+    app.undoLastRemoval();
+
+    assert.equal(app.state.groups[1].name, 'Unused');
+    assert.match(app.state.outputText, /  - name: Unused/);
+  });
+
+  test(`${source.name}: blocks removal of a referenced group`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - Nested
+  - name: Nested
+    type: fallback
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,Proxy
+`);
+
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+    const nested = app.state.groups.find((group) => group.name === 'Nested');
+    app.generateOutput();
+    const outputBefore = app.state.outputText;
+
+    app.removeGroup(proxy);
+    app.removeGroup(nested);
+
+    assert.deepEqual([...app.state.groups.map((group) => group.name)], ['Proxy', 'Nested']);
+    assert.equal(app.state.outputText, outputBefore);
   });
 
   test(`${source.name}: orders live group selections by main proxy sequence`, () => {

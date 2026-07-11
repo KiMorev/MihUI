@@ -15,14 +15,14 @@ No actionable P0, P1 or P2 findings remain.
 - Colors and tokens: passed. Existing teal accent, pale selected row, neutral dividers and light surfaces are reused.
 - Image and icon fidelity: passed. The target contains no raster assets; existing project icons and native controls are retained without substitute artwork.
 - Copy and content: passed. Real group names, types, provider counts, route order and rule usage are rendered from the configuration. Live node counts appear when Mihomo supplies them.
-- Interactions: passed. Group selection, name search, type filters, explicit edit mode, close editor, add group and the existing relationship matrix remain functional.
+- Interactions: passed. Group selection, name search, type filters, explicit edit mode, close editor, add group, guarded group deletion with undo and the existing relationship matrix remain functional.
 - Responsive behavior: passed by code review. Tablet stacks registry and inspector; mobile removes lower-priority columns and keeps the search and filters usable without horizontal overflow.
 - Accessibility: passed for the implemented scope. Table semantics, labeled search, keyboard-focusable row controls and explicit button names remain present.
 
 ## Intentional product constraints
 
 - The existing panel title `Реестр групп` remains above the toolbar to match the implemented subscriptions screen, even though the concept image omits that label.
-- The concept's `Удалить` action is not implemented because group deletion did not exist in the current product behavior and this pass is scoped to visual alignment.
+- Group deletion is blocked while rules or other groups reference the selected group; the interface lists those dependencies instead of silently rewriting routes.
 - The existing subscription/group relationship matrix is preserved below the workbench as an advanced bulk-editing tool.
 
 ## Comparison history
