@@ -112,6 +112,9 @@
               <button id="routerLoadButton" class="button compact" type="button">
                 <span>Перезагрузить с роутера</span>
               </button>
+              <button id="backupHistoryButton" class="button compact" type="button" disabled hidden>
+                <span>История конфигурации…</span>
+              </button>
               <label class="button compact">
                 <span>Загрузить файл</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
@@ -159,16 +162,6 @@
             <span class="metric-label">Проверка</span>
             <strong id="rulesStatus">нет конфигурации</strong>
             <span id="rulesHint" class="metric-hint" hidden></span>
-          </div>
-        </section>
-
-        <section id="routerPanel" class="router-panel hidden" aria-live="polite">
-          <div class="backup-tools">
-            <select id="backupSelect" class="backup-select" aria-label="Резервная копия конфигурации" disabled></select>
-            <button id="restoreBackupButton" class="button compact" type="button" disabled>
-              <span>Восстановить</span>
-            </button>
-            <span id="backupMeta" class="backup-meta" hidden></span>
           </div>
         </section>
 
@@ -510,6 +503,37 @@
       </section>
       </div>
     </main>
+
+    <dialog id="backupHistoryDialog" class="backup-history-dialog" aria-labelledby="backupHistoryTitle" aria-describedby="backupHistoryDescription">
+      <form method="dialog" class="backup-history-surface">
+        <header class="backup-history-head">
+          <div>
+            <h2 id="backupHistoryTitle">История конфигурации</h2>
+            <p id="backupHistoryDescription">Копии создаются автоматически перед сохранением и восстановлением.</p>
+          </div>
+          <button id="closeBackupHistoryButton" class="button compact" type="submit" value="cancel">Закрыть</button>
+        </header>
+        <div class="backup-history-body">
+          <p class="backup-history-note">Перед восстановлением MihUI проверит выбранную версию через Mihomo и сохранит текущую конфигурацию в новую копию.</p>
+          <div id="backupUnsavedWarning" class="backup-history-warning" hidden>
+            <strong>Есть несохранённые изменения</strong>
+            <span>Изменения в редакторе будут заменены выбранной версией и не попадут в страховочную копию.</span>
+          </div>
+          <div id="backupHistoryEmpty" class="backup-history-empty" hidden>
+            <strong>Резервных копий пока нет</strong>
+            <span>Первая копия появится после сохранения конфигурации.</span>
+          </div>
+          <div id="backupHistoryList" class="backup-history-list" role="radiogroup" aria-label="Версии конфигурации"></div>
+          <p id="backupHistoryStatus" class="backup-history-status" aria-live="polite" hidden></p>
+        </div>
+        <footer class="backup-history-actions">
+          <button class="button" type="submit" value="cancel">Отмена</button>
+          <button id="restoreBackupButton" class="button primary" type="button" disabled>
+            <span>Восстановить эту версию</span>
+          </button>
+        </footer>
+      </form>
+    </dialog>
 
     <template id="providerTemplate">
       <article class="provider-row">

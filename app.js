@@ -334,6 +334,7 @@ const state = {
   routerConfigPath: '',
   routerBusy: false,
   backups: [],
+  selectedBackupName: '',
   happDecoderSettings: {
     apiKey: '',
     apiUrl: '',
@@ -378,11 +379,14 @@ const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
   fileTools: document.querySelector('#fileTools'),
-  routerPanel: document.querySelector('#routerPanel'),
+  backupHistoryButton: document.querySelector('#backupHistoryButton'),
+  backupHistoryDialog: document.querySelector('#backupHistoryDialog'),
+  backupHistoryList: document.querySelector('#backupHistoryList'),
+  backupHistoryEmpty: document.querySelector('#backupHistoryEmpty'),
+  backupHistoryStatus: document.querySelector('#backupHistoryStatus'),
+  backupUnsavedWarning: document.querySelector('#backupUnsavedWarning'),
   updateHint: document.querySelector('#updateHint'),
   uiLinks: document.querySelector('#uiLinks'),
-  backupSelect: document.querySelector('#backupSelect'),
-  backupMeta: document.querySelector('#backupMeta'),
   restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
   downloadButton: document.querySelector('#downloadButton'),
@@ -483,8 +487,9 @@ const els = {
 
 els.routerLoadButton.addEventListener('click', reloadRouterConfig);
 els.routerSaveButton.addEventListener('click', handleTopbarSaveAction);
+els.backupHistoryButton.addEventListener('click', openBackupHistoryDialog);
+els.backupHistoryList.addEventListener('change', handleBackupSelection);
 els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
-els.backupSelect.addEventListener('change', renderBackupMeta);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.reviewDownloadButton.addEventListener('click', downloadYaml);
@@ -793,8 +798,10 @@ async function saveRouterConfig() {
 }
 
 async function restoreSelectedBackup() {
-  const name = els.backupSelect.value;
+  const name = state.selectedBackupName;
   if (!name) return;
+  setBackupRestoreBusy(true);
+  setBackupHistoryStatus('Проверяем выбранную версию и восстанавливаем конфигурацию…');
   setRouterBusy(true, 'Восстановление...');
 
   try {
@@ -804,12 +811,61 @@ async function restoreSelectedBackup() {
       body: JSON.stringify({ name }),
     });
     await loadRouterConfig({ silent: true });
-    showMessage(data.reload?.ok ? 'Бэкап восстановлен, Mihomo перезагружен.' : 'Бэкап восстановлен, reload Mihomo не прошел.');
+    els.backupHistoryDialog.close();
+    showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
+      severity: data.reload?.ok ? 'success' : 'warning',
+    });
   } catch (error) {
-    showMessage(`Не удалось восстановить бэкап: ${error?.message || error}`);
+    setBackupHistoryStatus(`Не удалось восстановить версию: ${error?.message || error}`, 'error');
   } finally {
     setRouterBusy(false, 'Перезагрузить с роутера');
+    setBackupRestoreBusy(false);
   }
+}
+
+function openBackupHistoryDialog() {
+  els.fileTools.removeAttribute('open');
+  state.selectedBackupName = '';
+  renderBackupHistoryList();
+  setBackupHistoryStatus('');
+  els.backupUnsavedWarning.hidden = !hasUnsavedRouterChanges();
+  els.backupHistoryDialog.showModal();
+}
+
+function handleBackupSelection(event) {
+  const target = event.target;
+  if (target?.name !== 'backupHistoryVersion') return;
+  state.selectedBackupName = String(target.value || '');
+  syncBackupSelection();
+}
+
+function syncBackupSelection() {
+  els.backupHistoryList.querySelectorAll('.backup-history-item').forEach((item) => {
+    const selected = item.dataset.backupName === state.selectedBackupName;
+    item.classList.toggle('is-selected', selected);
+    const input = item.querySelector('input');
+    if (input) input.checked = selected;
+  });
+  els.restoreBackupButton.disabled = state.routerBusy || !state.selectedBackupName;
+}
+
+function setBackupRestoreBusy(isBusy) {
+  els.backupHistoryList.setAttribute('aria-busy', String(isBusy));
+  els.backupHistoryList.querySelectorAll('input').forEach((input) => {
+    input.disabled = isBusy;
+  });
+  els.backupHistoryDialog.querySelectorAll('[value="cancel"]').forEach((button) => {
+    button.disabled = isBusy;
+  });
+  const label = els.restoreBackupButton.querySelector('span');
+  if (label) label.textContent = isBusy ? 'Восстановление…' : 'Восстановить эту версию';
+  els.restoreBackupButton.disabled = isBusy || !state.selectedBackupName;
+}
+
+function setBackupHistoryStatus(text, severity = '') {
+  els.backupHistoryStatus.textContent = text;
+  els.backupHistoryStatus.hidden = !text;
+  els.backupHistoryStatus.className = `backup-history-status${severity ? ` is-${severity}` : ''}`;
 }
 
 async function loadBackups() {
@@ -975,7 +1031,8 @@ async function fetchMihuiUpdateCheck() {
 function renderRouterControls() {
   const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
   const saveState = getRouterSaveState();
-  els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
+  els.backupHistoryButton.hidden = window.location?.protocol === 'file:';
+  els.backupHistoryButton.disabled = !state.routerApiAvailable || state.routerBusy;
   els.routerSaveButton.disabled = saveState.disabled;
   els.routerSaveButton.classList.toggle('primary', saveState.tone === 'primary');
   els.routerSaveButton.classList.toggle('danger', saveState.tone === 'danger');
@@ -1065,57 +1122,56 @@ function renderReviewPrimaryActionButton() {
 }
 
 function renderBackups(backups) {
-  els.backupSelect.textContent = '';
   state.backups = backups;
-  if (!backups.length) {
-    els.routerPanel.classList.add('router-panel-empty');
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Резервных копий нет';
-    els.backupSelect.append(option);
-    els.backupSelect.disabled = true;
-    els.restoreBackupButton.disabled = true;
-    renderBackupMeta();
-    return;
-  }
+  if (!backups.some((backup) => backup.name === state.selectedBackupName)) state.selectedBackupName = '';
+  renderBackupHistoryList();
+}
 
-  els.routerPanel.classList.remove('router-panel-empty');
-  backups.forEach((backup) => {
-    const option = document.createElement('option');
-    option.value = backup.name;
-    option.textContent = formatBackupOptionLabel(backup);
-    option.title = backup.name;
-    els.backupSelect.append(option);
+function renderBackupHistoryList() {
+  els.backupHistoryList.textContent = '';
+  els.backupHistoryEmpty.hidden = state.backups.length > 0;
+
+  state.backups.forEach((backup, index) => {
+    const item = document.createElement('label');
+    const input = document.createElement('input');
+    const copy = document.createElement('span');
+    const heading = document.createElement('span');
+    const title = document.createElement('strong');
+    const details = document.createElement('span');
+
+    item.className = 'backup-history-item';
+    item.dataset.backupName = backup.name;
+    input.type = 'radio';
+    input.name = 'backupHistoryVersion';
+    input.value = backup.name;
+    copy.className = 'backup-history-item-copy';
+    heading.className = 'backup-history-item-heading';
+    title.textContent = formatBackupVersionTitle(backup);
+    details.className = 'backup-history-item-meta';
+    details.textContent = [backup.name, formatBackupSize(backup.size)].filter(Boolean).join(' · ');
+    heading.append(title);
+
+    if (index === 0) {
+      const latest = document.createElement('span');
+      latest.className = 'backup-history-latest';
+      latest.textContent = 'Последняя';
+      heading.append(latest);
+    }
+
+    copy.append(heading, details);
+    item.append(input, copy);
+    els.backupHistoryList.append(item);
   });
-  els.backupSelect.disabled = false;
-  els.restoreBackupButton.disabled = false;
-  renderBackupMeta();
+
+  syncBackupSelection();
 }
 
-function renderBackupMeta() {
-  if (!els.backupMeta) return;
-  const selected = state.backups.find((backup) => backup.name === els.backupSelect.value);
-  if (!selected) {
-    els.backupMeta.textContent = '';
-    els.backupMeta.hidden = true;
-    return;
-  }
-
-  const size = formatBackupSize(selected.size);
-  els.backupMeta.textContent = size ? `${selected.name} · ${size}` : selected.name;
-  els.backupMeta.title = selected.name;
-  els.backupMeta.hidden = false;
-}
-
-function formatBackupOptionLabel(backup) {
+function formatBackupVersionTitle(backup) {
   const parsed = parseBackupName(backup.name);
-  if (parsed) {
-    const suffix = parsed.suffix ? ` · ${parsed.suffix}` : '';
-    return `${parsed.date} ${parsed.time} · ${parsed.prefix}${suffix}`;
-  }
+  if (parsed) return `${parsed.date} · ${parsed.time}`;
 
   const mtime = formatBackupMtime(backup.mtime);
-  return mtime ? `${mtime} · ${backup.name}` : backup.name;
+  return mtime || backup.name;
 }
 
 function parseBackupName(name) {

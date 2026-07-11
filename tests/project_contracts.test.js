@@ -9,7 +9,11 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 test('main and standalone UI expose labels for audited controls', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
-    assert.match(html, /id="backupSelect"[^>]+aria-label=/);
+    assert.match(html, /id="backupHistoryButton"[\s\S]+?История конфигурации…/);
+    assert.match(html, /id="backupHistoryDialog"[^>]+aria-labelledby="backupHistoryTitle"[^>]+aria-describedby="backupHistoryDescription"/);
+    assert.match(html, /id="backupHistoryList"[^>]+role="radiogroup"[^>]+aria-label="Версии конфигурации"/);
+    assert.match(html, /id="backupUnsavedWarning"[\s\S]+?Есть несохранённые изменения/);
+    assert.doesNotMatch(html, /id="routerPanel"|class="backup-tools"|id="backupSelect"/);
     assert.match(html, /id="bulkIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
@@ -76,10 +80,21 @@ test('main and standalone expose the UI switcher in the brand block', () => {
   }
 });
 
-test('main and standalone styles stack backup controls on mobile', () => {
+test('main and standalone styles adapt backup history dialog on mobile', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.backup-tools\s*{\s*display: grid;/);
+    assert.match(source, /\.backup-history-dialog::backdrop\s*{/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.backup-history-dialog,[\s\S]+?max-height: calc\(100vh - 20px\);/);
+  }
+});
+
+test('main and standalone require an explicit backup selection before restore', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /state\.selectedBackupName = '';/);
+    assert.match(source, /els\.backupUnsavedWarning\.hidden = !hasUnsavedRouterChanges\(\)/);
+    assert.match(source, /els\.restoreBackupButton\.disabled = state\.routerBusy \|\| !state\.selectedBackupName/);
+    assert.match(source, /Версия восстановлена, Mihomo перезагружен/);
   }
 });
 
