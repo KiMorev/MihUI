@@ -3617,7 +3617,7 @@ input.is-invalid {
 .group-type-filters {
   display: flex;
   gap: 4px;
-  margin: 0 2px 10px;
+  margin: 0;
 }
 
 .group-type-filter {
@@ -4263,6 +4263,281 @@ input.is-invalid {
   gap: 12px;
 }
 
+.groups-panel .group-search-input {
+  width: 190px;
+  min-height: 36px;
+}
+
+.groups-panel .group-type-filter {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.group-registry-workbench {
+  display: grid;
+  grid-template-columns: minmax(620px, 1.55fr) minmax(340px, 0.8fr);
+  min-height: 510px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.group-registry-workbench.is-editing {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.group-registry {
+  min-width: 0;
+  background: #fff;
+}
+
+.group-registry-table-wrap {
+  min-height: 510px;
+  max-height: 720px;
+  overflow: auto;
+}
+
+.group-registry-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.group-registry-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.group-registry-table th:nth-child(1) { width: 25%; }
+.group-registry-table th:nth-child(2) { width: 16%; }
+.group-registry-table th:nth-child(3) { width: 20%; }
+.group-registry-table th:nth-child(4) { width: 18%; }
+.group-registry-table th:nth-child(5) { width: 21%; }
+
+.group-registry-row {
+  cursor: pointer;
+}
+
+.group-registry-row td {
+  height: 66px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+.group-registry-row:hover td {
+  background: #f8fbfc;
+}
+
+.group-registry-row.is-selected td {
+  background: #effafa;
+}
+
+.group-registry-row.is-selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.group-registry-name {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.group-registry-name > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.group-registry-name strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-registry-empty {
+  height: 160px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.group-registry-detail {
+  min-width: 0;
+  min-height: 510px;
+  padding: 20px;
+  border-left: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.group-registry-detail.is-editing {
+  padding: 16px;
+  background: #fff;
+}
+
+.group-inspector {
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 20px;
+}
+
+.group-inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.group-inspector-title {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.group-inspector-title strong {
+  overflow: hidden;
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-inspector-title span,
+.group-inspector-section > span,
+.group-editor-mode-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.group-type-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid rgba(8, 124, 128, 0.28);
+  border-radius: 999px;
+  background: #effafa;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.group-inspector-content {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+}
+
+.group-inspector-section {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.group-inspector-text p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.group-inspector-ordered,
+.group-inspector-list {
+  display: grid;
+  gap: 7px;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+.group-inspector-ordered > div {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.group-inspector-order-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.group-inspector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.group-inspector-chips span {
+  padding: 4px 8px;
+  border: 1px solid rgba(8, 124, 128, 0.28);
+  border-radius: 999px;
+  background: #effafa;
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.group-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.group-editor-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.group-editor-mode-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.group-editor-mode-head strong {
+  font-size: 16px;
+}
+
 .review-page-head {
   display: grid;
   gap: 2px;
@@ -4855,6 +5130,21 @@ button.review-check-card:focus-visible {
     grid-template-columns: 220px minmax(0, 1fr);
   }
 
+  .group-registry-workbench,
+  .group-registry-workbench.is-editing {
+    grid-template-columns: 1fr;
+  }
+
+  .group-registry-table-wrap {
+    min-height: 0;
+    max-height: 440px;
+  }
+
+  .group-registry-detail {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
   .connection-settings-grid {
     grid-template-columns: 1fr;
   }
@@ -5166,6 +5456,29 @@ button.review-check-card:focus-visible {
 
   .group-editor {
     grid-template-columns: 1fr;
+  }
+
+  .group-registry-table {
+    min-width: 0;
+  }
+
+  .group-registry-table th:nth-child(1) { width: 38%; }
+  .group-registry-table th:nth-child(2) { width: 25%; }
+  .group-registry-table th:nth-child(4) { width: 37%; }
+
+  .group-registry-table th:nth-child(3),
+  .group-registry-table td:nth-child(3),
+  .group-registry-table th:nth-child(5),
+  .group-registry-table td:nth-child(5) {
+    display: none;
+  }
+
+  .groups-panel .group-search-input {
+    width: 100%;
+  }
+
+  .groups-panel .group-type-filters {
+    width: 100%;
   }
 
   .actions,
@@ -5640,15 +5953,18 @@ button.review-check-card:focus-visible {
 
         <section id="providerRelationsPanel" class="panel groups-panel" role="tabpanel" aria-labelledby="providerRelationsTab" data-provider-view-panel="relations" hidden>
           <div class="panel-head">
-            <div class="groups-panel-title">
-              <h2>Прокси-группы</h2>
-              <p>Управление группами, их составом и подключёнными подписками</p>
-            </div>
+            <h2>Реестр групп</h2>
             <div class="panel-actions">
               <div id="groupListActionHome" class="provider-list-action-home">
                 <button id="addGroupButton" class="button primary compact" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
                   <span>+ Добавить группу</span>
                 </button>
+              </div>
+              <input id="groupSearchInput" class="group-search-input" type="search" placeholder="Поиск группы" aria-label="Поиск группы" />
+              <div class="group-type-filters" aria-label="Фильтр групп по назначению">
+                <button class="group-type-filter is-active" type="button" data-group-type-filter="all">Все</button>
+                <button class="group-type-filter" type="button" data-group-type-filter="service">Сервисные</button>
+                <button class="group-type-filter" type="button" data-group-type-filter="proxy">Прокси</button>
               </div>
             </div>
           </div>
@@ -6366,6 +6682,8 @@ const state = {
   providerInspectorEditing: false,
   providerSearch: '',
   selectedGroupName: '',
+  groupInspectorEditing: false,
+  groupSearch: '',
   groupTypeFilter: 'all',
   selectedRouteScenarioId: '',
   providerStatuses: {},
@@ -6454,6 +6772,8 @@ const els = {
   addProviderButton: document.querySelector('#addProviderButton'),
   providersPageSummary: document.querySelector('#providersPageSummary'),
   addGroupButton: document.querySelector('#addGroupButton'),
+  groupSearchInput: document.querySelector('#groupSearchInput'),
+  groupTypeFilters: document.querySelectorAll('[data-group-type-filter]'),
   addRuleButton: document.querySelector('#addRuleButton'),
   providerListActionHome: document.querySelector('#providerListActionHome'),
   groupListActionHome: document.querySelector('#groupListActionHome'),
@@ -6575,6 +6895,15 @@ els.providerSearchInput.addEventListener('input', () => {
   state.providerSearch = els.providerSearchInput.value || '';
   render();
 });
+els.groupSearchInput.addEventListener('input', () => {
+  state.groupSearch = els.groupSearchInput.value || '';
+  render();
+});
+els.groupTypeFilters.forEach((button) => button.addEventListener('click', () => {
+  state.groupTypeFilter = button.dataset.groupTypeFilter || 'all';
+  state.groupInspectorEditing = false;
+  render();
+}));
 els.intervalToolsButton.addEventListener('click', toggleIntervalTools);
 els.bulkIntervalInput.addEventListener('input', handleBulkIntervalInput);
 els.bulkHealthIntervalInput.addEventListener('input', handleBulkIntervalInput);
@@ -6687,6 +7016,18 @@ function renderProviderView() {
   els.providerViewPanels.forEach((panel) => {
     panel.hidden = panel.dataset.providerViewPanel !== state.providerView;
   });
+  renderProviderPageSummary();
+}
+
+function renderProviderPageSummary() {
+  if (!els.providersPageSummary) return;
+  const activeProviders = state.providers.filter((provider) => !provider.deleted);
+  if (state.providerView === 'relations') {
+    els.providersPageSummary.textContent = `${formatRouteCount(activeProviders.length, 'подписка', 'подписки', 'подписок')} · ${formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')}`;
+    return;
+  }
+  const connectedCount = activeProviders.filter((provider) => getProviderUseGroupNames(provider.name).length > 0).length;
+  els.providersPageSummary.textContent = `${activeProviders.length} подписок · ${connectedCount} используются в группах`;
 }
 
 function setRoutingView(view) {
@@ -6815,6 +7156,9 @@ function resetWorkspaceViewState() {
   state.providerView = 'editor';
   state.providerInspectorEditing = false;
   state.providerSearch = '';
+  state.groupInspectorEditing = false;
+  state.groupSearch = '';
+  state.groupTypeFilter = 'all';
   state.routingView = 'map';
   state.ruleFilters = { search: '', type: '', target: '' };
   state.lastUndo = null;
@@ -9457,11 +9801,6 @@ function renderProviders(activeProviders) {
   const tbody = document.createElement('tbody');
   const detail = document.createElement('div');
 
-  if (els.providersPageSummary) {
-    const connectedCount = activeProviders.filter((provider) => getProviderUseGroupNames(provider.name).length > 0).length;
-    els.providersPageSummary.textContent = `${activeProviders.length} подписок · ${connectedCount} используются в группах`;
-  }
-
   registry.className = 'providers-registry';
   tableWrap.className = 'providers-table-wrap';
   table.className = 'providers-table';
@@ -12021,90 +12360,209 @@ function getSelectedGroup() {
 }
 
 function renderGroupEditor(activeProviders) {
+  els.groupSearchInput.value = state.groupSearch;
+  els.groupTypeFilters.forEach((button) => {
+    button.classList.toggle('is-active', button.dataset.groupTypeFilter === state.groupTypeFilter);
+  });
+  const search = state.groupSearch.trim().toLocaleLowerCase('ru-RU');
   const visibleGroups = state.groups.filter((group) => {
     const isProxy = isProxyModeGroup(group);
     if (state.groupTypeFilter === 'service') return !isProxy;
     if (state.groupTypeFilter === 'proxy') return isProxy;
     return true;
+  }).filter((group) => {
+    if (!search) return true;
+    return `${group.name} ${group.type}`
+      .toLocaleLowerCase('ru-RU')
+      .includes(search);
   });
   const selectedGroup = visibleGroups.find((group) => group.name === state.selectedGroupName) || visibleGroups[0] || null;
   const wrap = document.createElement('div');
-  const sidebar = document.createElement('div');
+  const registry = document.createElement('div');
+  const tableWrap = document.createElement('div');
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
   const detail = document.createElement('div');
-  const sidebarHead = document.createElement('div');
-  const summary = document.createElement('div');
-  const filters = document.createElement('div');
 
-  wrap.className = 'group-editor';
-  sidebar.className = 'group-editor-sidebar';
-  detail.className = 'group-editor-detail';
-  sidebarHead.className = 'group-editor-sidebar-head';
-  summary.className = 'group-editor-summary';
-  summary.textContent = `Групп: ${state.groups.length}`;
-  filters.className = 'group-type-filters';
-  [
-    ['all', 'Все'],
-    ['service', 'Сервисные'],
-    ['proxy', 'Прокси'],
-  ].forEach(([value, label]) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = label;
-    button.className = 'group-type-filter';
-    button.classList.toggle('is-active', state.groupTypeFilter === value);
-    button.addEventListener('click', () => {
-      state.groupTypeFilter = value;
-      render();
-    });
-    filters.append(button);
-  });
-  sidebarHead.append(summary, els.addGroupButton);
-  sidebar.append(sidebarHead, filters);
+  wrap.className = 'group-registry-workbench';
+  wrap.classList.toggle('is-editing', state.groupInspectorEditing || Boolean(selectedGroup?.isNew));
+  registry.className = 'group-registry';
+  tableWrap.className = 'group-registry-table-wrap';
+  table.className = 'group-registry-table';
+  thead.innerHTML = '<tr><th>Группа</th><th>Тип</th><th>Источники</th><th>Варианты</th><th>Используется в правилах</th></tr>';
 
   state.groups.forEach((group, index) => {
     if (!visibleGroups.includes(group)) return;
-    sidebar.append(createGroupListItem(group, index, group === selectedGroup));
+    tbody.append(createGroupListItem(group, index, group === selectedGroup));
   });
+  if (visibleGroups.length === 0) {
+    const emptyRow = document.createElement('tr');
+    const emptyCell = document.createElement('td');
+    emptyCell.colSpan = 5;
+    emptyCell.className = 'group-registry-empty';
+    emptyCell.textContent = 'Группы по этому запросу не найдены.';
+    emptyRow.append(emptyCell);
+    tbody.append(emptyRow);
+  }
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  registry.append(tableWrap);
 
   if (selectedGroup) {
-    detail.append(createGroupEditorDetail(selectedGroup, activeProviders));
+    if (state.groupInspectorEditing || selectedGroup.isNew) {
+      detail.className = 'group-registry-detail is-editing';
+      detail.append(createGroupEditorModeHeader(selectedGroup), createGroupEditorDetail(selectedGroup, activeProviders));
+    } else {
+      detail.className = 'group-registry-detail';
+      detail.append(createGroupInspector(selectedGroup));
+    }
   } else {
+    detail.className = 'group-registry-detail';
     setEmptyState(detail, 'Нет групп', 'Добавьте первую группу маршрутизации.');
   }
 
-  wrap.append(sidebar, detail);
+  wrap.append(registry, detail);
   els.groupsMatrix.append(wrap);
 }
 
 function createGroupListItem(group, index, isSelected) {
-  const button = document.createElement('button');
-  const number = document.createElement('span');
-  const body = document.createElement('span');
-  const title = document.createElement('strong');
-  const meta = document.createElement('span');
-  const status = document.createElement('span');
+  const row = document.createElement('tr');
+  const nameCell = document.createElement('td');
+  const nameButton = document.createElement('button');
+  const typeCell = document.createElement('td');
+  const sourceCell = document.createElement('td');
+  const variantCell = document.createElement('td');
+  const ruleCell = document.createElement('td');
+  const usage = getGroupUsage(group);
 
-  button.className = 'group-list-item';
-  button.classList.toggle('is-selected', isSelected);
-  button.type = 'button';
-  button.setAttribute('aria-pressed', String(isSelected));
-  number.className = 'provider-list-number';
-  number.textContent = String(index + 1);
-  body.className = 'provider-list-body';
-  title.textContent = group.name || 'Без названия';
-  meta.className = 'provider-list-meta';
-  meta.textContent = formatGroupSources(group);
-  status.className = 'provider-list-status';
-  status.classList.add(isProxyModeGroup(group) ? 'is-proxy-group' : 'is-service-group');
-  status.textContent = group.type || 'group';
-
-  body.append(title, meta);
-  button.append(number, body, status);
-  button.addEventListener('click', () => {
+  row.className = 'group-registry-row';
+  row.classList.toggle('is-selected', isSelected);
+  row.setAttribute('aria-selected', String(isSelected));
+  nameButton.type = 'button';
+  nameButton.className = 'group-registry-name';
+  nameButton.innerHTML = '<span></span><strong></strong>';
+  nameButton.querySelector('span').textContent = String(index + 1);
+  nameButton.querySelector('strong').textContent = group.name || 'Без названия';
+  nameButton.setAttribute('aria-label', `Открыть группу ${index + 1}: ${group.name || 'Без названия'}`);
+  nameCell.append(nameButton);
+  typeCell.textContent = group.type || 'group';
+  sourceCell.textContent = formatGroupRegistrySources(group);
+  variantCell.textContent = formatGroupRegistryVariants(group);
+  ruleCell.textContent = formatRouteCount(usage.ruleCount, 'правило', 'правила', 'правил');
+  row.append(nameCell, typeCell, sourceCell, variantCell, ruleCell);
+  row.addEventListener('click', () => {
     state.selectedGroupName = group.name;
+    state.groupInspectorEditing = false;
     render();
   });
-  return button;
+  return row;
+}
+
+function formatGroupRegistrySources(group) {
+  if (group.includeAll || group.includeAllProviders) return 'Все подписки';
+  return formatRouteCount(group.use.length, 'подписка', 'подписки', 'подписок');
+}
+
+function formatGroupRegistryVariants(group) {
+  const live = state.mihomoGroupSelections.find((item) => normalizeLookupName(item?.name) === normalizeLookupName(group.name));
+  const optionCount = Array.isArray(live?.all) ? live.all.length : null;
+  if (optionCount !== null) return formatProxyCount(optionCount);
+  if (group.proxies.length > 0) return formatRouteCount(group.proxies.length, 'вариант', 'варианта', 'вариантов');
+  return '—';
+}
+
+function createGroupEditorModeHeader(group) {
+  const header = document.createElement('div');
+  const title = document.createElement('div');
+  const close = document.createElement('button');
+  header.className = 'group-editor-mode-head';
+  title.innerHTML = '<span>Редактирование группы</span><strong></strong>';
+  title.querySelector('strong').textContent = group?.name || 'Без названия';
+  close.className = 'button compact';
+  close.type = 'button';
+  close.textContent = 'Закрыть редактор';
+  close.hidden = Boolean(group?.isNew);
+  close.addEventListener('click', () => {
+    state.groupInspectorEditing = false;
+    render();
+  });
+  header.append(title, close);
+  return header;
+}
+
+function createGroupInspector(group) {
+  const inspector = document.createElement('article');
+  const head = document.createElement('div');
+  const title = document.createElement('div');
+  const type = document.createElement('span');
+  const content = document.createElement('div');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const usage = getGroupUsage(group);
+  const orderedOptions = group.proxies.length > 0 ? group.proxies : group.use;
+
+  inspector.className = 'group-inspector';
+  head.className = 'group-inspector-head';
+  title.className = 'group-inspector-title';
+  title.innerHTML = '<strong></strong><span></span>';
+  title.querySelector('strong').textContent = group.name || 'Без названия';
+  title.querySelector('span').textContent = isProxyModeGroup(group) ? 'Прокси-группа' : 'Сервисная группа';
+  type.className = 'group-type-pill';
+  type.textContent = group.type || 'group';
+  head.append(title, type);
+
+  content.className = 'group-inspector-content';
+  content.append(
+    createGroupInspectorSection('Роль группы', [describeGroupTypeForEditor(group)], 'text'),
+    createGroupInspectorSection(
+      group.proxies.length > 0 ? 'Порядок маршрутизации' : 'Подписки-источники',
+      orderedOptions.length > 0 ? orderedOptions : ['Варианты не заданы'],
+      group.proxies.length > 0 ? 'ordered' : 'chips',
+    ),
+    createGroupInspectorSection('Используется в правилах', [
+      formatRouteCount(usage.ruleCount, 'правило', 'правила', 'правил'),
+      usage.parentGroups.length > 0 ? `Также входит в: ${usage.parentGroups.join(', ')}` : 'В другие группы не входит',
+    ], 'list'),
+    createGroupInspectorSection('Источники', [formatGroupRegistrySources(group)], 'list'),
+  );
+
+  actions.className = 'group-inspector-actions';
+  editButton.className = 'button primary compact';
+  editButton.type = 'button';
+  editButton.textContent = 'Редактировать';
+  editButton.addEventListener('click', () => {
+    state.groupInspectorEditing = true;
+    render();
+  });
+  actions.append(editButton);
+  inspector.append(head, content, actions);
+  return inspector;
+}
+
+function createGroupInspectorSection(label, values, variant) {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const body = document.createElement('div');
+  section.className = 'group-inspector-section';
+  title.textContent = label;
+  body.className = `group-inspector-${variant}`;
+  values.forEach((value, index) => {
+    const item = document.createElement(variant === 'text' ? 'p' : variant === 'ordered' ? 'div' : 'span');
+    if (variant === 'ordered') {
+      const number = document.createElement('span');
+      const label = document.createElement('span');
+      number.className = 'group-inspector-order-number';
+      number.textContent = String(index + 1);
+      label.textContent = value;
+      item.append(number, label);
+    } else {
+      item.textContent = value;
+    }
+    body.append(item);
+  });
+  section.append(title, body);
+  return section;
 }
 
 function createGroupEditorDetail(group, activeProviders) {
@@ -12855,6 +13313,7 @@ function addGroup() {
 
   state.groups.push(group);
   state.selectedGroupName = name;
+  state.groupInspectorEditing = true;
   generateOutput();
   render();
 }
@@ -12921,8 +13380,8 @@ function renameGroup(group, nextName) {
 
 function syncRenamedGroupLabels(group) {
   const text = group.name || 'Без названия';
-  const sidebarTitle = els.groupsMatrix.querySelector('.group-list-item.is-selected strong');
-  const detailTitle = els.groupsMatrix.querySelector('.group-editor-detail .provider-card-title');
+  const sidebarTitle = els.groupsMatrix.querySelector('.group-registry-row.is-selected .group-registry-name strong');
+  const detailTitle = els.groupsMatrix.querySelector('.group-registry-detail .provider-card-title');
   if (sidebarTitle) sidebarTitle.textContent = text;
   if (detailTitle) detailTitle.textContent = text;
 }

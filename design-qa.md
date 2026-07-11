@@ -1,32 +1,49 @@
-# Design QA — subscriptions registry
+# Design QA — groups registry
 
-- Reference: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-5f0b2f59-841e-479d-b328-f22eb25fb599.png`
-- Implementation: `audit-providers-redesign-2026-07-11/07-implementation-neutral.png`
-- Side-by-side comparison: `audit-providers-redesign-2026-07-11/08-comparison-final.png`
-- Test configuration: router mock loaded from `config (4).yaml`, 5 subscriptions and 4 groups.
+- Source visual truth: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-e9fb6b43-87aa-41a9-9d0d-cedacec09f50.png`
+- Implementation screenshot: `audit-groups-redesign-2026-07-11/05-implementation-final.png`
+- Full-view comparison: `audit-groups-redesign-2026-07-11/06-comparison-final.png`
+- Viewport: 1265 × 712 comparison crop.
+- State: router mock, `config (4).yaml`, Groups tab, PROXY selected, inspector closed.
 
-## Mandatory comparison
+## Findings
 
-- Layout and hierarchy: passed. The selected table-and-inspector direction is preserved; registry actions remain adjacent to the registry, and the inspector stays secondary to the list.
-- Typography and spacing: passed. Heading scale, table density, selected-row treatment and inspector rhythm match the existing Overview and Check pages.
-- Colors and surfaces: passed. Existing project tokens are used for teal actions, muted states, borders and selected backgrounds; no new decorative treatment was introduced.
-- Copy and content: passed. Status, group usage, source, filters and update interval use real configuration data. Raw interval values are converted to readable durations.
-- States and interactions: passed. Row selection, live search, group tab, explicit edit mode, close editor, add, update and delete controls were exercised in the in-app browser.
-- Accessibility: passed. Table semantics, labeled search, keyboard-focusable row controls, explicit button labels and responsive touch targets are retained.
-- Responsive layout: passed. Desktop uses the reference split layout; tablet stacks registry and inspector; mobile removes low-priority table columns instead of forcing horizontal overflow.
-- Assets and icons: passed. The screen uses the existing WebMihomo icon system and contains no generated placeholder assets, custom SVG substitutes or CSS illustration art.
-- Main/standalone synchronization: passed. `mihomo-editor.html` exactly mirrors `index.html`, `styles.css` and `app.js`.
+No actionable P0, P1 or P2 findings remain.
 
-## Severity review
+- Typography: passed. Heading, table, compact metadata and inspector hierarchy use the established WebMihomo scale and weights.
+- Spacing and layout: passed. Registry remains dominant, inspector is secondary, and table rows align with the approved subscriptions pattern.
+- Colors and tokens: passed. Existing teal accent, pale selected row, neutral dividers and light surfaces are reused.
+- Image and icon fidelity: passed. The target contains no raster assets; existing project icons and native controls are retained without substitute artwork.
+- Copy and content: passed. Real group names, types, provider counts, route order and rule usage are rendered from the configuration. Live node counts appear when Mihomo supplies them.
+- Interactions: passed. Group selection, name search, type filters, explicit edit mode, close editor, add group and the existing relationship matrix remain functional.
+- Responsive behavior: passed by code review. Tablet stacks registry and inspector; mobile removes lower-priority columns and keeps the search and filters usable without horizontal overflow.
+- Accessibility: passed for the implemented scope. Table semantics, labeled search, keyboard-focusable row controls and explicit button names remain present.
 
-- P0: none.
-- P1: none.
-- P2: none remaining after narrowing the table minimum width, adding the compact mobile table, synchronizing the filtered inspector and formatting non-round update intervals.
+## Intentional product constraints
+
+- The existing panel title `Реестр групп` remains above the toolbar to match the implemented subscriptions screen, even though the concept image omits that label.
+- The concept's `Удалить` action is not implemented because group deletion did not exist in the current product behavior and this pass is scoped to visual alignment.
+- The existing subscription/group relationship matrix is preserved below the workbench as an advanced bulk-editing tool.
+
+## Comparison history
+
+### Iteration 1
+
+- P2: type-filter controls were visibly smaller than the target toolbar controls.
+- Fix: increased group filter height, padding and text size.
+- P2: group search also matched member names, leaving unrelated groups visible.
+- Fix: limited search to group name and type so the registry and inspector remain synchronized.
+- Evidence after fixes: `audit-groups-redesign-2026-07-11/05-implementation-final.png` and `audit-groups-redesign-2026-07-11/06-comparison-final.png`.
+
+## Focused comparison
+
+A separate crop was not required: at the 1265 × 712 combined comparison, toolbar controls, table text, selected state and inspector labels remain readable at original detail.
 
 ## Verification
 
 - `node --check app.js`: passed.
 - `npm.cmd test`: 104/104 passed.
-- Browser visual and interaction review: passed.
+- Main/standalone synchronization: passed.
+- Browser scenarios: selection, search, editor open/close and tab summary passed.
 
 final result: passed

@@ -305,15 +305,18 @@
 
         <section id="providerRelationsPanel" class="panel groups-panel" role="tabpanel" aria-labelledby="providerRelationsTab" data-provider-view-panel="relations" hidden>
           <div class="panel-head">
-            <div class="groups-panel-title">
-              <h2>Прокси-группы</h2>
-              <p>Управление группами, их составом и подключёнными подписками</p>
-            </div>
+            <h2>Реестр групп</h2>
             <div class="panel-actions">
               <div id="groupListActionHome" class="provider-list-action-home">
                 <button id="addGroupButton" class="button primary compact" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
                   <span>+ Добавить группу</span>
                 </button>
+              </div>
+              <input id="groupSearchInput" class="group-search-input" type="search" placeholder="Поиск группы" aria-label="Поиск группы" />
+              <div class="group-type-filters" aria-label="Фильтр групп по назначению">
+                <button class="group-type-filter is-active" type="button" data-group-type-filter="all">Все</button>
+                <button class="group-type-filter" type="button" data-group-type-filter="service">Сервисные</button>
+                <button class="group-type-filter" type="button" data-group-type-filter="proxy">Прокси</button>
               </div>
             </div>
           </div>

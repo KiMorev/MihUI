@@ -37,7 +37,7 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /app-brand-title-row[\s\S]+?id="uiLinks" class="brand-ui-links"/);
     assert.match(html, /data-section="providers"[^>]*[\s\S]+?Подписки и группы/);
     assert.match(html, /aria-label="Подписки и группы"[\s\S]+?id="providerRelationsTab"[\s\S]+?Группы/);
-    assert.match(html, /groups-panel-title[\s\S]+?Прокси-группы[\s\S]+?Управление группами, их составом и подключёнными подписками/);
+    assert.match(html, /Реестр групп[\s\S]+?id="groupSearchInput"[^>]+aria-label="Поиск группы"[\s\S]+?data-group-type-filter="all"/);
     assert.doesNotMatch(html, /Связи с группами|class="top-ui-links"/);
     assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
     assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
