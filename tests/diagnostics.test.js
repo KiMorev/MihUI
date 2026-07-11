@@ -123,6 +123,7 @@ globalThis.__app = {
   getMissingConnectionSettings,
   getOutputPreviewText,
   getRouterSaveState,
+  getReviewPrimaryActionState,
   shouldShowRecommendations,
   maskProviderUrlsInYaml,
   maskSensitiveUrl,
@@ -142,6 +143,7 @@ globalThis.__app = {
   readConnectionSettings,
   renderChangesJumpButton,
   renderConfigurationEditorControls,
+  renderOutputOnly,
   renderConnectionSettings,
   renameGroup,
   addRule,
@@ -535,6 +537,29 @@ rules:
     assert.equal(changes.includes('Proxy: подключена added.'), false);
     assert(changes.includes('В группе Proxy отключена подписка existing.'));
     assert(changes.includes('В группе Proxy отключена подписка removed.'));
+  });
+
+  test(`${source.name}: updates the shell change count after an inline edit`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://old.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    app.state.providers[0].url = 'https://new.example/sub';
+    app.generateOutput();
+    app.renderOutputOnly();
+
+    assert.equal(app.els.sidebarStatusMeta.textContent, '1 изменение');
   });
 
   test(`${source.name}: preserves optional http provider defaults until an explicit action`, () => {
@@ -1465,16 +1490,17 @@ proxy-providers:
     app.state.routerMode = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
     app.state.outputText = 'changed';
-    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
-    app.state.changeCount = 1;
-    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить изменения' });
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'К сохранению' });
     app.state.isEditingConfiguration = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Завершите редактирование' });
     app.state.isEditingConfiguration = false;
-    app.state.saveReviewReady = true;
-    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить в ядро' });
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'К сохранению' });
 
     app.state.routerApiAvailable = true;
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить в Mihomo' });
+    app.state.lastConfigCheckText = app.state.outputText;
+    app.state.lastConfigCheckOk = true;
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Сохранить и применить' });
     app.state.hasGroupsSection = false;
     app.renderConfigurationEditorControls();
     assert.equal(app.els.checkConfigButton.disabled, true);

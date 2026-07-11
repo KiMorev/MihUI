@@ -326,9 +326,9 @@ const state = {
     protocol: '',
     status: '',
   },
-  saveReviewReady: false,
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
+  kernelCheckBusy: false,
   routerMode: false,
   routerApiAvailable: false,
   routerConfigPath: '',
@@ -483,7 +483,7 @@ const els = {
 };
 
 els.routerLoadButton.addEventListener('click', loadRouterConfig);
-els.routerSaveButton.addEventListener('click', saveRouterConfig);
+els.routerSaveButton.addEventListener('click', focusChangesPanel);
 els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.backupSelect.addEventListener('change', renderBackupMeta);
 els.fileInput.addEventListener('change', handleFileSelect);
@@ -501,7 +501,7 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
-els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
+els.checkConfigButton.addEventListener('click', handleReviewPrimaryAction);
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
 els.updateHint.addEventListener('click', updateMihui);
@@ -656,7 +656,6 @@ function handleFileSelect(event) {
     state.nodeInventoryError = '';
     state.nodeInventoryErrorDetail = '';
     state.nodeGroupSelectionsError = '';
-    state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -693,7 +692,6 @@ async function loadRouterConfig(options = {}) {
     state.fileName = state.routerConfigPath || 'router config';
     state.originalText = String(data.text || '');
     state.isEditingConfiguration = false;
-    state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -738,15 +736,6 @@ async function saveRouterConfig() {
     }
     return;
   }
-  const changes = collectChanges(state.providers.filter((provider) => !provider.deleted));
-  if (state.outputText !== state.originalText && countChanges(changes) > 0 && !state.saveReviewReady) {
-    state.saveReviewReady = true;
-    renderRouterControls();
-    focusChangesPanel();
-    showMessage('Проверьте изменения ниже. Повторное нажатие сохранит конфиг в ядро.');
-    return;
-  }
-
   setRouterBusy(true, 'Сохранение...');
 
   try {
@@ -762,7 +751,6 @@ async function saveRouterConfig() {
     state.routerConfigPath = data.path || state.routerConfigPath;
     state.fileName = state.routerConfigPath;
     state.originalText = state.outputText;
-    state.saveReviewReady = false;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
     parseAndRender();
@@ -771,7 +759,8 @@ async function saveRouterConfig() {
     await loadNodeInventory({ silent: true });
 
     if (data.reload?.ok) {
-      showMessage('Конфиг сохранен, Mihomo перезагружен.', { severity: 'success' });
+      const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      showMessage(`Конфиг сохранен, Mihomo перезагружен. Применено в ${appliedAt}.`, { severity: 'success' });
     } else {
       showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
     }
@@ -987,19 +976,58 @@ function getRouterSaveState() {
     };
   }
 
-  const hasUnsavedChanges = Boolean(
-    state.changeCount > 0 && state.outputText && state.originalText && state.outputText !== state.originalText,
-  );
+  const hasUnsavedChanges = hasUnsavedRouterChanges();
   return {
     disabled: state.routerBusy || state.isEditingConfiguration || !state.outputText || !hasUnsavedChanges,
     label: state.isEditingConfiguration
       ? 'Завершите редактирование'
       : !hasUnsavedChanges
       ? 'Нет изменений'
-      : state.saveReviewReady
-        ? 'Сохранить в ядро'
-        : 'Проверить изменения',
+      : 'К сохранению',
   };
+}
+
+function hasUnsavedRouterChanges() {
+  return Boolean(state.outputText && state.originalText && state.outputText !== state.originalText);
+}
+
+function isCurrentConfigKernelChecked() {
+  return Boolean(state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk);
+}
+
+function getReviewPrimaryActionState() {
+  if (state.isEditingConfiguration) return { disabled: true, label: 'Завершите редактирование' };
+  if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
+  if (!state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
+  if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
+  if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
+  if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
+  if (isCurrentConfigKernelChecked() && hasUnsavedRouterChanges()) {
+    return { disabled: false, label: 'Сохранить и применить' };
+  }
+  if (isCurrentConfigKernelChecked()) return { disabled: true, label: 'Проверено в Mihomo' };
+  return {
+    disabled: false,
+    label: state.lastConfigCheckText === state.outputText ? 'Проверить повторно' : 'Проверить в Mihomo',
+  };
+}
+
+async function handleReviewPrimaryAction() {
+  const action = getReviewPrimaryActionState();
+  if (action.disabled) return;
+  if (isCurrentConfigKernelChecked() && hasUnsavedRouterChanges()) {
+    await saveRouterConfig();
+    return;
+  }
+  await checkRouterConfig({ silent: false });
+}
+
+function renderReviewPrimaryActionButton() {
+  const action = getReviewPrimaryActionState();
+  els.checkConfigButton.disabled = action.disabled;
+  els.checkConfigButton.title = action.label;
+  const label = els.checkConfigButton.querySelector('.button-label');
+  if (label) label.textContent = action.label;
 }
 
 function renderBackups(backups) {
@@ -1138,6 +1166,7 @@ function setRouterBusy(isBusy, text) {
   if (loadLabel) loadLabel.textContent = text;
   els.routerSaveButton.disabled = isBusy || !state.outputText || !state.routerMode;
   renderRouterControls();
+  renderReviewPrimaryActionButton();
 }
 
 async function apiJson(url, options = {}) {
@@ -1321,12 +1350,8 @@ function restorePersistedConfigCheck() {
 }
 
 function setConfigCheckBusy(isBusy) {
-  els.checkConfigButton.disabled = isBusy || state.routerBusy || state.isEditingConfiguration || !state.routerApiAvailable || !state.outputText;
-  els.checkConfigButton.title = state.routerApiAvailable
-    ? 'Проверить текущий текст конфига через mihomo -t'
-    : 'Доступно только в MihUI на роутере рядом с Mihomo';
-  const label = els.checkConfigButton.querySelector('.button-label');
-  if (label) label.textContent = isBusy ? 'Проверка...' : 'Проверить в ядре';
+  state.kernelCheckBusy = isBusy;
+  renderReviewPrimaryActionButton();
 }
 
 async function loadProviderStatuses(options = {}) {
@@ -1613,15 +1638,15 @@ function renderShellStatus(changes, diagnostics) {
   if (state.originalText) {
     if (hasStructuralError || errorCount > 0) {
       value = hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount);
-      validation = hasStructuralError ? 'Проверка: ошибка структуры' : `Проверка: ${formatErrorCount(errorCount)}`;
+      validation = hasStructuralError ? 'Локальная проверка: ошибка структуры' : `Локальная проверка: ${formatErrorCount(errorCount)}`;
       variant = 'is-danger';
     } else if (warningCount > 0) {
-      value = 'Конфигурация требует внимания';
-      validation = `Проверка: ${formatWarningCount(warningCount)}`;
+      value = 'Структура и связи требуют внимания';
+      validation = `Локальная проверка: ${formatWarningCount(warningCount)}`;
       variant = 'is-warning';
     } else {
-      value = 'Конфигурация валидна';
-      validation = 'Проверка: OK';
+      value = 'Структура и связи: без ошибок';
+      validation = 'Локальная проверка: OK';
       variant = 'is-ok';
     }
   }
@@ -1744,7 +1769,7 @@ function renderReviewSummary(changes, diagnostics) {
       action: missingConnectionCount > 0 ? focusConnectionSettingsPanel : null,
     },
     {
-      title: 'Проверка в ядре',
+      title: 'Проверка Mihomo',
       value: kernelCheck.value,
       note: kernelCheck.note,
       variant: kernelCheck.variant,
@@ -1773,12 +1798,12 @@ function getKernelCheckSummary() {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
   }
   if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
-    return { value: 'пройдена', note: 'Текущий YAML проверен', variant: 'is-ok' };
+    return { value: 'пройдена', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
   }
   if (state.lastConfigCheckText === state.outputText) {
     return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
   }
-  return { value: 'не проверено', note: 'Кнопка в итоговом блоке', variant: 'is-warning' };
+  return { value: 'не проверено', note: 'Нажмите основную кнопку ниже', variant: 'is-warning' };
 }
 
 function createReviewChecklistItem(item) {
@@ -2037,6 +2062,7 @@ function renderMobileFlowActions() {
   els.mobileChangesButton.disabled = !hasValidConfig || isEditing || state.changeCount === 0;
   els.mobileChangesButton.querySelector('span').textContent = formatChangeCount(state.changeCount);
   els.mobileReviewButton.disabled = !hasValidConfig || isEditing;
+  els.mobileReviewButton.querySelector('span').textContent = state.routerMode && hasUnsavedRouterChanges() ? 'К сохранению' : 'К проверке';
   els.mobileDownloadButton.disabled = !hasValidConfig || isEditing || !state.outputText;
   els.mobileReviewButton.title = isEditing ? 'Завершите редактирование' : 'Перейти к финальной проверке';
 }
@@ -6449,7 +6475,6 @@ function generateOutput() {
 function setOutputText(text) {
   const nextText = String(text || '');
   if (state.outputText !== nextText) {
-    state.saveReviewReady = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
   }
@@ -6479,6 +6504,7 @@ function renderOutputOnly() {
   renderConfigurationEditorControls();
   renderRouterControls();
   const diagnostics = collectDiagnostics(activeProviders);
+  renderShellStatus(changes, diagnostics);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
@@ -6722,12 +6748,7 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
-  els.checkConfigButton.disabled = isEditing || !state.hasGroupsSection || !state.routerApiAvailable || !state.outputText;
-  els.checkConfigButton.title = !state.hasGroupsSection
-    ? 'Сначала исправьте структуру конфигурации'
-    : state.routerApiAvailable
-      ? 'Проверить текущий текст конфига через mihomo -t'
-      : 'Доступно только в MihUI на роутере рядом с Mihomo';
+  renderReviewPrimaryActionButton();
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.reviewDownloadButton.disabled = isEditing || !state.outputText;
   els.copyButton.disabled = isEditing || !state.outputText;
