@@ -1835,13 +1835,58 @@ input[type='file'] {
   width: 100%;
 }
 
-.node-inventory-panel {
+.node-inventory-page {
+  display: grid;
+  gap: 16px;
+}
+
+.nodes-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px 0;
+}
+
+.settings-page-head {
+  display: grid;
+  gap: 2px;
+  padding: 4px 2px 0;
+}
+
+.nodes-page-head > div {
+  min-width: 0;
+}
+
+.nodes-page-head h2,
+.settings-page-head h2 {
   margin: 0;
+  font-size: 20px;
+}
+
+.nodes-page-head p,
+.settings-page-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.nodes-page-head p.is-success {
+  color: var(--success);
+}
+
+.nodes-page-head p.is-warning {
+  color: var(--warning);
+}
+
+.nodes-page-head p.is-danger {
+  color: var(--danger);
 }
 
 .node-inventory-controls {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) repeat(4, minmax(140px, 1fr));
+  grid-template-columns: minmax(240px, 1.5fr) repeat(4, minmax(120px, 1fr)) auto;
+  align-items: end;
   gap: 10px;
   padding: 12px;
   border-bottom: 1px solid var(--line);
@@ -1864,7 +1909,16 @@ input[type='file'] {
   white-space: nowrap;
 }
 
+.node-filter-reset {
+  min-width: 100px;
+  white-space: nowrap;
+}
+
 .node-inventory-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 9px 12px;
   border-bottom: 1px solid var(--line);
   background: #fff;
@@ -1878,7 +1932,7 @@ input[type='file'] {
   gap: 10px;
   padding: 12px;
   border-bottom: 1px solid var(--line);
-  background: #fbfcfe;
+  background: #fff;
 }
 
 .node-group-selections.empty-state {
@@ -1905,13 +1959,30 @@ input[type='file'] {
 }
 
 .node-group-selection-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  display: flex;
   gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.node-group-selection-list::-webkit-scrollbar {
+  height: 6px;
+}
+
+.node-group-selection-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.node-group-selection-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .node-group-selection-card {
-  min-width: 0;
+  flex: 1 0 260px;
+  min-width: min(260px, 100%);
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -2242,9 +2313,38 @@ input[type='file'] {
 }
 
 .settings-status {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.settings-status.is-success {
+  background: #edf8ef;
+  color: var(--success);
+}
+
+.settings-status.is-muted {
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.settings-panel-title {
+  display: grid;
+  gap: 2px;
+}
+
+.settings-panel-title p {
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
-  font-weight: 750;
+}
+
+.settings-panel-title code {
+  font: inherit;
+  font-weight: 650;
 }
 
 .settings-form {
@@ -2259,11 +2359,106 @@ input[type='file'] {
   gap: 10px;
 }
 
+.settings-integration-form {
+  gap: 0;
+  padding: 0;
+}
+
+.settings-method {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+  gap: 24px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-method-copy {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+}
+
+.settings-method-copy h3,
+.settings-method-copy p {
+  margin: 0;
+}
+
+.settings-method-copy h3 {
+  font-size: 14px;
+}
+
+.settings-method-copy p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.settings-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-field-label {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.settings-field-label strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-field-label small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-grid-local {
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+
+.settings-secret-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.settings-secret-control .button {
+  min-width: 82px;
+}
+
+.settings-field-wide {
+  min-width: 0;
+}
+
 .settings-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.settings-integration-form .settings-actions {
+  padding: 12px 16px 16px;
+}
+
+.settings-form-state {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.settings-form-state.is-dirty {
+  color: var(--warning);
 }
 
 .settings-toggle {
@@ -3162,6 +3357,11 @@ input.is-invalid {
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
+}
+
+.node-inventory-summary strong {
+  color: var(--text);
+  font-size: 14px;
 }
 
 .group-editor-sidebar-head {
@@ -5481,6 +5681,14 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .settings-method {
+    grid-template-columns: 180px minmax(0, 1fr);
+  }
+
+  .settings-grid-local {
+    grid-template-columns: minmax(0, 1fr) 160px;
+  }
+
   .node-inventory-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5759,6 +5967,47 @@ button.review-check-card:focus-visible {
 
   .providers-list.providers-workbench {
     grid-template-columns: 1fr;
+  }
+
+  .nodes-page-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .nodes-page-head .button {
+    width: 100%;
+  }
+
+  .node-inventory-summary {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settings-method {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .settings-grid-local {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-secret-control {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-secret-control .button {
+    width: 100%;
+  }
+
+  .settings-integration-form .settings-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .settings-form-state {
+    margin-right: 0;
   }
 
   .providers-table {
@@ -6392,51 +6641,61 @@ button.review-check-card:focus-visible {
       </section>
 
       <section class="app-section" data-section-panel="nodes" hidden>
-        <section id="nodeInventoryPanel" class="panel node-inventory-panel hidden" aria-live="polite">
-          <div class="panel-head">
-            <h2>Текущие ноды Mihomo</h2>
-            <div class="panel-actions">
-              <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
-                <span>Обновить</span>
+        <div id="nodeInventoryPanel" class="node-inventory-page hidden" aria-live="polite">
+          <header class="nodes-page-head">
+            <div>
+              <h2>Ноды Mihomo</h2>
+              <p id="nodeInventoryStatus">Текущий список еще не получен</p>
+            </div>
+            <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
+              <span>Обновить</span>
+            </button>
+          </header>
+
+          <section class="panel node-inventory-panel">
+            <div id="nodeGroupSelections" class="node-group-selections empty-state" hidden></div>
+            <div class="node-inventory-controls">
+              <label class="node-search-control">
+                <span>Поиск</span>
+                <input id="nodeSearchInput" type="search" placeholder="Имя, подписка, группа" autocomplete="off" />
+              </label>
+              <label>
+                <span>Подписка</span>
+                <select id="nodeProviderFilter"></select>
+              </label>
+              <label>
+                <span>Группа</span>
+                <select id="nodeGroupFilter"></select>
+              </label>
+              <label>
+                <span>Протокол</span>
+                <select id="nodeProtocolFilter"></select>
+              </label>
+              <label>
+                <span>Статус</span>
+                <select id="nodeStatusFilter">
+                  <option value="">Все</option>
+                  <option value="alive">Доступные</option>
+                  <option value="dead">Недоступные</option>
+                  <option value="unknown">Без статуса</option>
+                </select>
+              </label>
+              <button id="nodeResetFiltersButton" class="button ghost compact node-filter-reset" type="button" hidden>
+                <span>Сбросить</span>
               </button>
             </div>
-          </div>
-          <div class="node-inventory-controls">
-            <label>
-              <span>Поиск</span>
-              <input id="nodeSearchInput" type="search" placeholder="Имя, подписка, группа" autocomplete="off" />
-            </label>
-            <label>
-              <span>Подписка</span>
-              <select id="nodeProviderFilter"></select>
-            </label>
-            <label>
-              <span>Группа</span>
-              <select id="nodeGroupFilter"></select>
-            </label>
-            <label>
-              <span>Протокол</span>
-              <select id="nodeProtocolFilter"></select>
-            </label>
-            <label>
-              <span>Статус</span>
-              <select id="nodeStatusFilter">
-                <option value="">Все</option>
-                <option value="alive">Доступные</option>
-                <option value="dead">Недоступные</option>
-                <option value="unknown">Без статуса</option>
-              </select>
-            </label>
-          </div>
-          <div id="nodeGroupSelections" class="node-group-selections empty-state" hidden></div>
-          <div id="nodeInventorySummary" class="node-inventory-summary"></div>
-          <div id="nodeInventoryList" class="node-inventory-list empty-state">
-            <div class="empty-state-content">
-              <strong>Ноды появятся после ответа Mihomo</strong>
-              <span>Список показывает текущие ноды, которые ядро вернуло после фильтров подписок.</span>
+            <div class="node-inventory-summary">
+              <strong>Все ноды</strong>
+              <span id="nodeInventorySummary"></span>
             </div>
-          </div>
-        </section>
+            <div id="nodeInventoryList" class="node-inventory-list empty-state">
+              <div class="empty-state-content">
+                <strong>Ноды появятся после ответа Mihomo</strong>
+                <span>Список показывает текущие ноды, которые ядро вернуло после фильтров подписок.</span>
+              </div>
+            </div>
+          </section>
+        </div>
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
@@ -6501,6 +6760,11 @@ button.review-check-card:focus-visible {
       </section>
 
       <section class="app-section" data-section-panel="settings" hidden>
+        <header class="settings-page-head">
+          <h2>Настройки</h2>
+          <p>Параметры интерфейса и подключенных к MihUI интеграций.</p>
+        </header>
+
         <section class="panel settings-panel">
           <div class="panel-head">
             <h2>Интерфейс</h2>
@@ -6518,35 +6782,65 @@ button.review-check-card:focus-visible {
 
         <section class="panel settings-panel">
           <div class="panel-head">
-            <h2>Happ Decoder</h2>
+            <div class="settings-panel-title">
+              <h2>Интеграция Happ Decoder</h2>
+              <p>Способы расшифровки ссылок формата <code>happ://</code>.</p>
+            </div>
             <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
           </div>
-          <form id="happDecoderSettingsForm" class="settings-form">
-            <div class="settings-grid">
-              <label>
-                <span>MIHUI_HAPP_DECODER_API_KEY</span>
-                <input id="happDecoderApiKey" type="text" autocomplete="off" placeholder="Ключ" />
-              </label>
-              <label>
-                <span>MIHUI_HAPP_DECODER_API_URL</span>
-                <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
-              </label>
-              <label>
-                <span>MIHUI_HAPP_DECRYPTOR_CMD</span>
-                <input id="happDecryptorCmd" type="text" autocomplete="off" placeholder="/opt/bin/node /opt/etc/mihui/bin/happ-decrypt-universal %LINK%" />
-              </label>
-              <label>
-                <span>MIHUI_HAPP_DECRYPTOR_TIMEOUT</span>
-                <input id="happDecryptorTimeout" type="number" min="1" max="120" step="1" autocomplete="off" placeholder="45" />
-              </label>
-              <label>
-                <span>MIHUI_HAPP_DECRYPTOR_REMOTE_URL</span>
+          <form id="happDecoderSettingsForm" class="settings-form settings-integration-form">
+            <section class="settings-method">
+              <div class="settings-method-copy">
+                <h3>Облачный API</h3>
+                <p>Запрос к совместимому сервису декодирования.</p>
+              </div>
+              <div class="settings-grid">
+                <div class="settings-field">
+                  <label class="settings-field-label" for="happDecoderApiKey"><strong>API-ключ</strong><small>MIHUI_HAPP_DECODER_API_KEY</small></label>
+                  <span class="settings-secret-control">
+                    <input id="happDecoderApiKey" type="password" autocomplete="new-password" placeholder="Ключ не задан" />
+                    <button id="toggleHappDecoderApiKeyButton" class="button ghost compact" type="button" aria-pressed="false">Показать</button>
+                  </span>
+                </div>
+                <label class="settings-field">
+                  <span class="settings-field-label"><strong>Адрес API</strong><small>MIHUI_HAPP_DECODER_API_URL</small></span>
+                  <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-method">
+              <div class="settings-method-copy">
+                <h3>Локальный декодер</h3>
+                <p>Команда, которая запускается непосредственно на роутере.</p>
+              </div>
+              <div class="settings-grid settings-grid-local">
+                <label class="settings-field">
+                  <span class="settings-field-label"><strong>Локальная команда</strong><small>MIHUI_HAPP_DECRYPTOR_CMD</small></span>
+                  <input id="happDecryptorCmd" type="text" autocomplete="off" placeholder="/opt/bin/node /opt/etc/mihui/bin/happ-decrypt-universal %LINK%" />
+                </label>
+                <label class="settings-field settings-timeout-field">
+                  <span class="settings-field-label"><strong>Тайм-аут, секунд</strong><small>MIHUI_HAPP_DECRYPTOR_TIMEOUT</small></span>
+                  <input id="happDecryptorTimeout" type="number" min="1" max="120" step="1" autocomplete="off" placeholder="45" />
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-method">
+              <div class="settings-method-copy">
+                <h3>Удаленный резерв</h3>
+                <p>Используется, если локальный способ недоступен.</p>
+              </div>
+              <label class="settings-field settings-field-wide">
+                <span class="settings-field-label"><strong>Резервный URL</strong><small>MIHUI_HAPP_DECRYPTOR_REMOTE_URL</small></span>
                 <input id="happDecryptorRemoteUrl" type="url" autocomplete="off" placeholder="https://decoder.example/decrypt?url=%LINK_ENCODED%" />
               </label>
-            </div>
+            </section>
+
             <div class="settings-actions">
+              <span id="happDecoderFormState" class="settings-form-state">Изменений нет</span>
               <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
-                <span>Перечитать настройки</span>
+                <span>Перечитать</span>
               </button>
               <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
                 <span>Сохранить</span>
@@ -7050,6 +7344,7 @@ const state = {
   nodeInventoryError: '',
   nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
+  nodeInventoryUpdatedAt: 0,
   nodeFilters: {
     search: '',
     provider: '',
@@ -7197,7 +7492,9 @@ const els = {
   changesPanel: document.querySelector('#changesPanel'),
   nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
   nodeInventoryControls: document.querySelector('.node-inventory-controls'),
+  nodeInventoryStatus: document.querySelector('#nodeInventoryStatus'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
+  nodeResetFiltersButton: document.querySelector('#nodeResetFiltersButton'),
   nodeGroupSelections: document.querySelector('#nodeGroupSelections'),
   nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
   nodeInventoryList: document.querySelector('#nodeInventoryList'),
@@ -7213,6 +7510,8 @@ const els = {
   happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
   happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
   happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
+  happDecoderFormState: document.querySelector('#happDecoderFormState'),
+  toggleHappDecoderApiKeyButton: document.querySelector('#toggleHappDecoderApiKeyButton'),
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
@@ -7281,12 +7580,15 @@ els.mobileChangesButton.addEventListener('click', focusChangesPanel);
 els.mobileReviewButton.addEventListener('click', handleTopbarSaveAction);
 els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
+els.nodeResetFiltersButton.addEventListener('click', resetNodeFilters);
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
 els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
+els.happDecoderSettingsForm.addEventListener('input', renderHappDecoderSettings);
+els.toggleHappDecoderApiKeyButton.addEventListener('click', toggleHappDecoderApiKeyVisibility);
 els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -7754,30 +8056,54 @@ function renderHappDecoderSettings() {
   if (!els.happDecoderSettingsForm) return;
   const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
   const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
+  const dirty = isHappDecoderSettingsDirty();
   els.happDecoderApiKey.disabled = unavailable || busy;
   els.happDecoderApiUrl.disabled = unavailable || busy;
   els.happDecryptorCmd.disabled = unavailable || busy;
   els.happDecryptorTimeout.disabled = unavailable || busy;
   els.happDecryptorRemoteUrl.disabled = unavailable || busy;
-  els.saveHappDecoderSettingsButton.disabled = unavailable || busy;
+  els.saveHappDecoderSettingsButton.disabled = unavailable || busy || !dirty;
   els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
 
   const label = els.saveHappDecoderSettingsButton.querySelector('span');
   if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
   const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
-  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать настройки';
+  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать';
 
+  els.happDecoderFormState.textContent = dirty ? 'Есть несохраненные изменения' : 'Изменений нет';
+  els.happDecoderFormState.classList.toggle('is-dirty', dirty);
+
+  els.happDecoderSettingsStatus.classList.remove('is-success', 'is-muted');
   if (unavailable) {
     els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
+    els.happDecoderSettingsStatus.classList.add('is-muted');
   } else if (state.happDecoderSettings.loading) {
     els.happDecoderSettingsStatus.textContent = 'Загрузка...';
+    els.happDecoderSettingsStatus.classList.add('is-muted');
   } else {
     const modes = [];
-    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('local');
-    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('remote');
-    if (state.happDecoderSettings.hasApiKey) modes.push('API key');
-    els.happDecoderSettingsStatus.textContent = modes.length ? modes.join(' / ') : 'Не настроен';
+    if (state.happDecoderSettings.hasApiKey) modes.push('API');
+    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('локально');
+    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('резерв');
+    els.happDecoderSettingsStatus.textContent = modes.length ? `Настроено · ${modes.join(' · ')}` : 'Не настроено';
+    els.happDecoderSettingsStatus.classList.add(modes.length ? 'is-success' : 'is-muted');
   }
+}
+
+function isHappDecoderSettingsDirty() {
+  if (!els.happDecoderSettingsForm) return false;
+  return String(els.happDecoderApiKey.value || '').trim() !== String(state.happDecoderSettings.apiKey || '').trim()
+    || String(els.happDecoderApiUrl.value || '').trim() !== String(state.happDecoderSettings.apiUrl || '').trim()
+    || String(els.happDecryptorCmd.value || '').trim() !== String(state.happDecoderSettings.decryptorCmd || '').trim()
+    || String(els.happDecryptorTimeout.value || '').trim() !== String(state.happDecoderSettings.decryptorTimeout || '').trim()
+    || String(els.happDecryptorRemoteUrl.value || '').trim() !== String(state.happDecoderSettings.remoteUrl || '').trim();
+}
+
+function toggleHappDecoderApiKeyVisibility() {
+  const isVisible = els.happDecoderApiKey.type === 'text';
+  els.happDecoderApiKey.type = isVisible ? 'password' : 'text';
+  els.toggleHappDecoderApiKeyButton.textContent = isVisible ? 'Показать' : 'Скрыть';
+  els.toggleHappDecoderApiKeyButton.setAttribute('aria-pressed', String(!isVisible));
 }
 
 async function checkMihuiUpdate() {
@@ -8292,6 +8618,7 @@ async function loadNodeInventory(options = {}) {
     state.mihomoNodes = Array.isArray(data.nodes) ? data.nodes : [];
     state.mihomoGroupSelections = Array.isArray(data.groups) ? data.groups : [];
     state.nodeGroupSelectionsError = data.groupsError || '';
+    state.nodeInventoryUpdatedAt = Math.floor(Date.now() / 1000);
   } catch (error) {
     state.mihomoNodes = [];
     state.mihomoGroupSelections = [];
@@ -8317,6 +8644,17 @@ function handleNodeFilterChange() {
   state.nodeFilters.group = els.nodeGroupFilter.value || '';
   state.nodeFilters.protocol = els.nodeProtocolFilter.value || '';
   state.nodeFilters.status = els.nodeStatusFilter.value || '';
+  renderNodeInventory();
+}
+
+function resetNodeFilters() {
+  state.nodeFilters = {
+    search: '',
+    provider: '',
+    group: '',
+    protocol: '',
+    status: '',
+  };
   renderNodeInventory();
 }
 
@@ -10554,12 +10892,21 @@ function renderNodeInventory() {
   els.nodeSearchInput.value = state.nodeFilters.search;
   els.nodeStatusFilter.value = state.nodeFilters.status;
   const controlsDisabled = state.nodeInventoryLoading || Boolean(state.nodeInventoryError) || nodes.length === 0;
-  els.nodeInventoryControls.hidden = Boolean(state.nodeInventoryError);
+  const activeFilterCount = Object.values(state.nodeFilters).filter(Boolean).length;
+  els.nodeInventoryControls.hidden = Boolean(state.nodeInventoryError) || nodes.length === 0;
   [els.nodeSearchInput, els.nodeProviderFilter, els.nodeGroupFilter, els.nodeProtocolFilter, els.nodeStatusFilter]
     .forEach((control) => { control.disabled = controlsDisabled; });
-  els.nodeInventoryRefreshButton.hidden = Boolean(state.nodeInventoryError);
+  els.nodeResetFiltersButton.hidden = controlsDisabled || activeFilterCount === 0;
+  els.nodeResetFiltersButton.querySelector('span').textContent = `Сбросить (${activeFilterCount})`;
+  els.nodeInventoryRefreshButton.hidden = false;
   els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
-  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading ? 'Загрузка...' : 'Обновить';
+  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading
+    ? 'Загрузка...'
+    : state.nodeInventoryError
+      ? 'Повторить'
+      : 'Обновить';
+
+  renderNodeInventoryStatus(nodes);
 
   renderNodeGroupSelections(nodes);
   renderNodeInventorySummary(nodes, filtered);
@@ -10605,7 +10952,7 @@ function renderNodeGroupSelections(nodes) {
   const panel = els.nodeGroupSelections;
   if (!panel) return;
 
-  if (state.nodeInventoryError) {
+  if (state.nodeInventoryError || state.nodeInventoryLoading || nodes.length === 0) {
     panel.hidden = true;
     panel.textContent = '';
     return;
@@ -10613,12 +10960,6 @@ function renderNodeGroupSelections(nodes) {
 
   panel.hidden = false;
   panel.textContent = '';
-
-  if (state.nodeInventoryLoading) {
-    panel.classList.add('empty-state');
-    setEmptyState(panel, 'Выбор в группах', 'Mihomo отдает текущий выбранный вариант для каждой группы.');
-    return;
-  }
 
   if (state.nodeGroupSelectionsError) {
     panel.classList.add('empty-state');
@@ -10641,7 +10982,7 @@ function renderNodeGroupSelections(nodes) {
 
   panel.classList.remove('empty-state');
   head.className = 'node-group-selection-head';
-  title.textContent = 'Выбор в группах';
+  title.textContent = 'Текущий выбор в группах';
   meta.textContent = `${knownCount} из ${items.length}`;
   list.className = 'node-group-selection-list';
   items.forEach((item) => list.append(createNodeGroupSelectionCard(item)));
@@ -10791,20 +11132,45 @@ function matchesNodeFilters(node) {
 function renderNodeInventorySummary(nodes, filtered) {
   const providerCount = new Set(nodes.map((node) => node.provider).filter(Boolean)).size;
   const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
+  const summary = els.nodeInventorySummary.closest('.node-inventory-summary');
+
+  if (state.nodeInventoryLoading || state.nodeInventoryError || nodes.length === 0) {
+    summary.hidden = true;
+    return;
+  }
+
+  summary.hidden = false;
+  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+}
+
+function renderNodeInventoryStatus(nodes) {
+  const availableCount = nodes.filter((node) => node.alive === true).length;
+  const updatedAt = state.nodeInventoryUpdatedAt ? formatServiceHealthTime(state.nodeInventoryUpdatedAt) : '';
+  els.nodeInventoryStatus.classList.remove('is-success', 'is-warning', 'is-danger');
 
   if (state.nodeInventoryLoading) {
-    els.nodeInventorySummary.textContent = 'Обновление списка нод из Mihomo...';
+    els.nodeInventoryStatus.textContent = 'Получаем актуальный список из Mihomo...';
     return;
   }
 
   if (state.nodeInventoryError) {
-    els.nodeInventorySummary.hidden = true;
-    els.nodeInventorySummary.textContent = '';
+    els.nodeInventoryStatus.textContent = state.nodeInventoryError;
+    els.nodeInventoryStatus.classList.add('is-danger');
     return;
   }
 
-  els.nodeInventorySummary.hidden = false;
-  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+  if (nodes.length === 0) {
+    els.nodeInventoryStatus.textContent = 'Mihomo не вернул текущий список нод';
+    els.nodeInventoryStatus.classList.add('is-warning');
+    return;
+  }
+
+  const unavailableCount = nodes.length - availableCount;
+  const parts = [`${availableCount} из ${nodes.length} доступны`];
+  if (unavailableCount > 0) parts.push(`${unavailableCount} без ответа`);
+  if (updatedAt) parts.push(`обновлено ${updatedAt}`);
+  els.nodeInventoryStatus.textContent = parts.join(' · ');
+  els.nodeInventoryStatus.classList.add(unavailableCount > 0 ? 'is-warning' : 'is-success');
 }
 
 function replaceFilterOptions(select, allLabel, values, selected) {

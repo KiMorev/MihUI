@@ -324,6 +324,7 @@ const state = {
   nodeInventoryError: '',
   nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
+  nodeInventoryUpdatedAt: 0,
   nodeFilters: {
     search: '',
     provider: '',
@@ -471,7 +472,9 @@ const els = {
   changesPanel: document.querySelector('#changesPanel'),
   nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
   nodeInventoryControls: document.querySelector('.node-inventory-controls'),
+  nodeInventoryStatus: document.querySelector('#nodeInventoryStatus'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
+  nodeResetFiltersButton: document.querySelector('#nodeResetFiltersButton'),
   nodeGroupSelections: document.querySelector('#nodeGroupSelections'),
   nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
   nodeInventoryList: document.querySelector('#nodeInventoryList'),
@@ -487,6 +490,8 @@ const els = {
   happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
   happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
   happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
+  happDecoderFormState: document.querySelector('#happDecoderFormState'),
+  toggleHappDecoderApiKeyButton: document.querySelector('#toggleHappDecoderApiKeyButton'),
   saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
   reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
@@ -555,12 +560,15 @@ els.mobileChangesButton.addEventListener('click', focusChangesPanel);
 els.mobileReviewButton.addEventListener('click', handleTopbarSaveAction);
 els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
+els.nodeResetFiltersButton.addEventListener('click', resetNodeFilters);
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
 els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
+els.happDecoderSettingsForm.addEventListener('input', renderHappDecoderSettings);
+els.toggleHappDecoderApiKeyButton.addEventListener('click', toggleHappDecoderApiKeyVisibility);
 els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -1028,30 +1036,54 @@ function renderHappDecoderSettings() {
   if (!els.happDecoderSettingsForm) return;
   const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
   const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
+  const dirty = isHappDecoderSettingsDirty();
   els.happDecoderApiKey.disabled = unavailable || busy;
   els.happDecoderApiUrl.disabled = unavailable || busy;
   els.happDecryptorCmd.disabled = unavailable || busy;
   els.happDecryptorTimeout.disabled = unavailable || busy;
   els.happDecryptorRemoteUrl.disabled = unavailable || busy;
-  els.saveHappDecoderSettingsButton.disabled = unavailable || busy;
+  els.saveHappDecoderSettingsButton.disabled = unavailable || busy || !dirty;
   els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
 
   const label = els.saveHappDecoderSettingsButton.querySelector('span');
   if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
   const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
-  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать настройки';
+  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать';
 
+  els.happDecoderFormState.textContent = dirty ? 'Есть несохраненные изменения' : 'Изменений нет';
+  els.happDecoderFormState.classList.toggle('is-dirty', dirty);
+
+  els.happDecoderSettingsStatus.classList.remove('is-success', 'is-muted');
   if (unavailable) {
     els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
+    els.happDecoderSettingsStatus.classList.add('is-muted');
   } else if (state.happDecoderSettings.loading) {
     els.happDecoderSettingsStatus.textContent = 'Загрузка...';
+    els.happDecoderSettingsStatus.classList.add('is-muted');
   } else {
     const modes = [];
-    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('local');
-    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('remote');
-    if (state.happDecoderSettings.hasApiKey) modes.push('API key');
-    els.happDecoderSettingsStatus.textContent = modes.length ? modes.join(' / ') : 'Не настроен';
+    if (state.happDecoderSettings.hasApiKey) modes.push('API');
+    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('локально');
+    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('резерв');
+    els.happDecoderSettingsStatus.textContent = modes.length ? `Настроено · ${modes.join(' · ')}` : 'Не настроено';
+    els.happDecoderSettingsStatus.classList.add(modes.length ? 'is-success' : 'is-muted');
   }
+}
+
+function isHappDecoderSettingsDirty() {
+  if (!els.happDecoderSettingsForm) return false;
+  return String(els.happDecoderApiKey.value || '').trim() !== String(state.happDecoderSettings.apiKey || '').trim()
+    || String(els.happDecoderApiUrl.value || '').trim() !== String(state.happDecoderSettings.apiUrl || '').trim()
+    || String(els.happDecryptorCmd.value || '').trim() !== String(state.happDecoderSettings.decryptorCmd || '').trim()
+    || String(els.happDecryptorTimeout.value || '').trim() !== String(state.happDecoderSettings.decryptorTimeout || '').trim()
+    || String(els.happDecryptorRemoteUrl.value || '').trim() !== String(state.happDecoderSettings.remoteUrl || '').trim();
+}
+
+function toggleHappDecoderApiKeyVisibility() {
+  const isVisible = els.happDecoderApiKey.type === 'text';
+  els.happDecoderApiKey.type = isVisible ? 'password' : 'text';
+  els.toggleHappDecoderApiKeyButton.textContent = isVisible ? 'Показать' : 'Скрыть';
+  els.toggleHappDecoderApiKeyButton.setAttribute('aria-pressed', String(!isVisible));
 }
 
 async function checkMihuiUpdate() {
@@ -1566,6 +1598,7 @@ async function loadNodeInventory(options = {}) {
     state.mihomoNodes = Array.isArray(data.nodes) ? data.nodes : [];
     state.mihomoGroupSelections = Array.isArray(data.groups) ? data.groups : [];
     state.nodeGroupSelectionsError = data.groupsError || '';
+    state.nodeInventoryUpdatedAt = Math.floor(Date.now() / 1000);
   } catch (error) {
     state.mihomoNodes = [];
     state.mihomoGroupSelections = [];
@@ -1591,6 +1624,17 @@ function handleNodeFilterChange() {
   state.nodeFilters.group = els.nodeGroupFilter.value || '';
   state.nodeFilters.protocol = els.nodeProtocolFilter.value || '';
   state.nodeFilters.status = els.nodeStatusFilter.value || '';
+  renderNodeInventory();
+}
+
+function resetNodeFilters() {
+  state.nodeFilters = {
+    search: '',
+    provider: '',
+    group: '',
+    protocol: '',
+    status: '',
+  };
   renderNodeInventory();
 }
 
@@ -3828,12 +3872,21 @@ function renderNodeInventory() {
   els.nodeSearchInput.value = state.nodeFilters.search;
   els.nodeStatusFilter.value = state.nodeFilters.status;
   const controlsDisabled = state.nodeInventoryLoading || Boolean(state.nodeInventoryError) || nodes.length === 0;
-  els.nodeInventoryControls.hidden = Boolean(state.nodeInventoryError);
+  const activeFilterCount = Object.values(state.nodeFilters).filter(Boolean).length;
+  els.nodeInventoryControls.hidden = Boolean(state.nodeInventoryError) || nodes.length === 0;
   [els.nodeSearchInput, els.nodeProviderFilter, els.nodeGroupFilter, els.nodeProtocolFilter, els.nodeStatusFilter]
     .forEach((control) => { control.disabled = controlsDisabled; });
-  els.nodeInventoryRefreshButton.hidden = Boolean(state.nodeInventoryError);
+  els.nodeResetFiltersButton.hidden = controlsDisabled || activeFilterCount === 0;
+  els.nodeResetFiltersButton.querySelector('span').textContent = `Сбросить (${activeFilterCount})`;
+  els.nodeInventoryRefreshButton.hidden = false;
   els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
-  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading ? 'Загрузка...' : 'Обновить';
+  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading
+    ? 'Загрузка...'
+    : state.nodeInventoryError
+      ? 'Повторить'
+      : 'Обновить';
+
+  renderNodeInventoryStatus(nodes);
 
   renderNodeGroupSelections(nodes);
   renderNodeInventorySummary(nodes, filtered);
@@ -3879,7 +3932,7 @@ function renderNodeGroupSelections(nodes) {
   const panel = els.nodeGroupSelections;
   if (!panel) return;
 
-  if (state.nodeInventoryError) {
+  if (state.nodeInventoryError || state.nodeInventoryLoading || nodes.length === 0) {
     panel.hidden = true;
     panel.textContent = '';
     return;
@@ -3887,12 +3940,6 @@ function renderNodeGroupSelections(nodes) {
 
   panel.hidden = false;
   panel.textContent = '';
-
-  if (state.nodeInventoryLoading) {
-    panel.classList.add('empty-state');
-    setEmptyState(panel, 'Выбор в группах', 'Mihomo отдает текущий выбранный вариант для каждой группы.');
-    return;
-  }
 
   if (state.nodeGroupSelectionsError) {
     panel.classList.add('empty-state');
@@ -3915,7 +3962,7 @@ function renderNodeGroupSelections(nodes) {
 
   panel.classList.remove('empty-state');
   head.className = 'node-group-selection-head';
-  title.textContent = 'Выбор в группах';
+  title.textContent = 'Текущий выбор в группах';
   meta.textContent = `${knownCount} из ${items.length}`;
   list.className = 'node-group-selection-list';
   items.forEach((item) => list.append(createNodeGroupSelectionCard(item)));
@@ -4065,20 +4112,45 @@ function matchesNodeFilters(node) {
 function renderNodeInventorySummary(nodes, filtered) {
   const providerCount = new Set(nodes.map((node) => node.provider).filter(Boolean)).size;
   const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
+  const summary = els.nodeInventorySummary.closest('.node-inventory-summary');
+
+  if (state.nodeInventoryLoading || state.nodeInventoryError || nodes.length === 0) {
+    summary.hidden = true;
+    return;
+  }
+
+  summary.hidden = false;
+  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+}
+
+function renderNodeInventoryStatus(nodes) {
+  const availableCount = nodes.filter((node) => node.alive === true).length;
+  const updatedAt = state.nodeInventoryUpdatedAt ? formatServiceHealthTime(state.nodeInventoryUpdatedAt) : '';
+  els.nodeInventoryStatus.classList.remove('is-success', 'is-warning', 'is-danger');
 
   if (state.nodeInventoryLoading) {
-    els.nodeInventorySummary.textContent = 'Обновление списка нод из Mihomo...';
+    els.nodeInventoryStatus.textContent = 'Получаем актуальный список из Mihomo...';
     return;
   }
 
   if (state.nodeInventoryError) {
-    els.nodeInventorySummary.hidden = true;
-    els.nodeInventorySummary.textContent = '';
+    els.nodeInventoryStatus.textContent = state.nodeInventoryError;
+    els.nodeInventoryStatus.classList.add('is-danger');
     return;
   }
 
-  els.nodeInventorySummary.hidden = false;
-  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+  if (nodes.length === 0) {
+    els.nodeInventoryStatus.textContent = 'Mihomo не вернул текущий список нод';
+    els.nodeInventoryStatus.classList.add('is-warning');
+    return;
+  }
+
+  const unavailableCount = nodes.length - availableCount;
+  const parts = [`${availableCount} из ${nodes.length} доступны`];
+  if (unavailableCount > 0) parts.push(`${unavailableCount} без ответа`);
+  if (updatedAt) parts.push(`обновлено ${updatedAt}`);
+  els.nodeInventoryStatus.textContent = parts.join(' · ');
+  els.nodeInventoryStatus.classList.add(unavailableCount > 0 ? 'is-warning' : 'is-success');
 }
 
 function replaceFilterOptions(select, allLabel, values, selected) {

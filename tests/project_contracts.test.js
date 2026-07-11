@@ -18,6 +18,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
     assert.match(html, /id="hideProviderUrlsSetting" type="checkbox"/);
+    assert.match(html, /id="nodeInventoryStatus"/);
+    assert.match(html, /id="nodeResetFiltersButton"/);
+    assert.match(html, /id="happDecoderApiKey" type="password"/);
     assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML с исходными ссылками"/);
     assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML с исходными ссылками"/);
     assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
@@ -135,8 +138,8 @@ test('main and standalone consolidate node inventory errors', () => {
     const source = read(name);
     assert.match(source, /if \(state\.nodeInventoryError\) \{[\s\S]+?panel\.hidden = true;/);
     assert.match(source, /retry\.textContent = 'Повторить загрузку'/);
-    assert.match(source, /els\.nodeInventoryControls\.hidden = Boolean\(state\.nodeInventoryError\)/);
-    assert.match(source, /els\.nodeInventorySummary\.hidden = true;/);
+    assert.match(source, /els\.nodeInventoryControls\.hidden = Boolean\(state\.nodeInventoryError\) \|\| nodes\.length === 0;/);
+    assert.match(source, /summary\.hidden = true;/);
   }
 });
 
