@@ -43,13 +43,16 @@
         <div class="app-brand">
           <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
           <div class="app-brand-copy">
-            <h1>WebMihomo</h1>
+            <div class="app-brand-title-row">
+              <h1>WebMihomo</h1>
+              <div id="uiLinks" class="brand-ui-links" aria-live="polite"></div>
+            </div>
             <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
           </div>
         </div>
         <nav class="section-tabs" aria-label="Разделы редактора">
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
-          <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -82,7 +85,6 @@
             </div>
           </div>
           <button class="button compact sidebar-check-button" type="button" data-section-target="review">Итог и сохранение</button>
-          <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
         </div>
       </aside>
 
@@ -210,12 +212,12 @@
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
-        <div class="subsection-tabs" role="tablist" aria-label="Режим подписок">
+        <div class="subsection-tabs" role="tablist" aria-label="Подписки и группы">
           <button id="providersEditorTab" class="subsection-tab is-active" type="button" role="tab" data-provider-view="editor" aria-controls="providersEditorPanel" aria-selected="true">
             Подписки
           </button>
           <button id="providerRelationsTab" class="subsection-tab" type="button" role="tab" data-provider-view="relations" aria-controls="providerRelationsPanel" aria-selected="false">
-            Связи с группами
+            Группы
           </button>
         </div>
 
@@ -282,7 +284,10 @@
 
         <section id="providerRelationsPanel" class="panel groups-panel" role="tabpanel" aria-labelledby="providerRelationsTab" data-provider-view-panel="relations" hidden>
           <div class="panel-head">
-            <h2>Группы и подписки</h2>
+            <div class="groups-panel-title">
+              <h2>Прокси-группы</h2>
+              <p>Управление группами, их составом и подключёнными подписками</p>
+            </div>
             <div class="panel-actions">
               <div id="groupListActionHome" class="provider-list-action-home">
                 <button id="addGroupButton" class="button primary compact" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">

@@ -97,11 +97,18 @@ textarea {
 }
 
 .app-brand-copy {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   align-items: flex-start;
   gap: 2px;
+}
+
+.app-brand-title-row {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .app-main {
@@ -355,49 +362,78 @@ h1 {
   text-underline-offset: 2px;
 }
 
-.top-ui-links {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+.brand-ui-links {
+  display: block;
 }
 
-.top-ui-links:empty {
+.brand-ui-links:empty {
   display: none;
 }
 
 .ui-links-details {
-  position: relative;
+  position: static;
 }
 
 .ui-links-details summary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 24px;
   min-height: 24px;
-  padding: 2px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--accent-dark);
+  padding: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.2;
   list-style: none;
+}
+
+.ui-links-details summary:hover,
+.ui-links-details[open] summary {
+  background: var(--panel-soft);
+  color: var(--accent-dark);
+}
+
+.ui-links-details summary:focus-visible {
+  background: var(--panel-soft);
+  color: var(--accent-dark);
+  outline: 2px solid rgba(8, 124, 128, 0.24);
+  outline-offset: 2px;
+}
+
+.ui-links-details summary:not(:focus-visible) {
+  outline: none;
 }
 
 .ui-links-details summary::-webkit-details-marker {
   display: none;
 }
 
+.ui-switcher-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 160ms ease;
+}
+
+.ui-links-details[open] .ui-switcher-icon {
+  transform: rotate(180deg);
+}
+
 .ui-links-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   left: 0;
-  z-index: 20;
+  z-index: 50;
   display: grid;
   gap: 6px;
-  min-width: 180px;
+  min-width: 210px;
+  max-width: min(240px, calc(100vw - 24px));
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -405,8 +441,17 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.ui-links-menu-title {
+  padding: 2px 7px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .ui-link-item {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 5px;
   min-height: 24px;
@@ -419,9 +464,25 @@ h1 {
 }
 
 .ui-links-menu .ui-link-item {
-  justify-content: space-between;
   min-height: 30px;
   border-radius: 6px;
+}
+
+.ui-link-item.is-current {
+  border-color: rgba(8, 124, 128, 0.28);
+  background: #f1f8f8;
+}
+
+.ui-link-identity {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ui-link-current {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .ui-link-main,
@@ -555,6 +616,17 @@ h2 {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+.groups-panel-title {
+  display: grid;
+  gap: 3px;
+}
+
+.groups-panel-title p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .file-tools-menu .button {
@@ -4100,8 +4172,7 @@ button.review-check-card:hover {
   }
 
   .topbar-main,
-  .title-row,
-  .top-ui-links {
+  .title-row {
     width: 100%;
   }
 
@@ -4269,6 +4340,10 @@ button.review-check-card:hover {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
+  }
+
+  .ui-links-details summary {
+    width: 44px;
   }
 
   .check-cell input {
@@ -4612,13 +4687,16 @@ button.review-check-card:hover {
         <div class="app-brand">
           <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
           <div class="app-brand-copy">
-            <h1>WebMihomo</h1>
+            <div class="app-brand-title-row">
+              <h1>WebMihomo</h1>
+              <div id="uiLinks" class="brand-ui-links" aria-live="polite"></div>
+            </div>
             <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
           </div>
         </div>
         <nav class="section-tabs" aria-label="Разделы редактора">
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
-          <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -4651,7 +4729,6 @@ button.review-check-card:hover {
             </div>
           </div>
           <button class="button compact sidebar-check-button" type="button" data-section-target="review">Итог и сохранение</button>
-          <div id="uiLinks" class="top-ui-links" aria-live="polite"></div>
         </div>
       </aside>
 
@@ -4779,12 +4856,12 @@ button.review-check-card:hover {
       </section>
 
       <section class="app-section" data-section-panel="providers" hidden>
-        <div class="subsection-tabs" role="tablist" aria-label="Режим подписок">
+        <div class="subsection-tabs" role="tablist" aria-label="Подписки и группы">
           <button id="providersEditorTab" class="subsection-tab is-active" type="button" role="tab" data-provider-view="editor" aria-controls="providersEditorPanel" aria-selected="true">
             Подписки
           </button>
           <button id="providerRelationsTab" class="subsection-tab" type="button" role="tab" data-provider-view="relations" aria-controls="providerRelationsPanel" aria-selected="false">
-            Связи с группами
+            Группы
           </button>
         </div>
 
@@ -4851,7 +4928,10 @@ button.review-check-card:hover {
 
         <section id="providerRelationsPanel" class="panel groups-panel" role="tabpanel" aria-labelledby="providerRelationsTab" data-provider-view-panel="relations" hidden>
           <div class="panel-head">
-            <h2>Группы и подписки</h2>
+            <div class="groups-panel-title">
+              <h2>Прокси-группы</h2>
+              <p>Управление группами, их составом и подключёнными подписками</p>
+            </div>
             <div class="panel-actions">
               <div id="groupListActionHome" class="provider-list-action-home">
                 <button id="addGroupButton" class="button primary compact" type="button" aria-label="Добавить группу" disabled title="Сначала загрузите конфигурацию">
@@ -6377,27 +6457,53 @@ function renderUiLinks(items) {
   const details = document.createElement('details');
   const summary = document.createElement('summary');
   const menu = document.createElement('div');
+  const menuTitle = document.createElement('strong');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
 
   details.className = 'ui-links-details';
-  summary.textContent = items.length > 1 ? `UI (${items.length})` : 'UI';
+  summary.setAttribute('aria-label', 'Открыть список интерфейсов');
+  summary.title = 'Другие интерфейсы';
+  icon.classList.add('ui-switcher-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', '#icon-chevron-down');
+  icon.append(iconUse);
+  summary.append(icon);
   menu.className = 'ui-links-menu';
+  menuTitle.className = 'ui-links-menu-title';
+  menuTitle.textContent = 'Интерфейсы';
+  menu.append(menuTitle);
 
   items.forEach((item) => {
     const group = document.createElement('span');
+    const identity = document.createElement('span');
+    const isCurrent = item.name === 'MihUI';
     group.className = 'ui-link-item';
+    identity.className = 'ui-link-identity';
+    group.classList.toggle('is-current', isCurrent);
 
     if (item.localUrl) {
       const localLink = document.createElement('a');
       localLink.href = item.localUrl;
       localLink.className = 'ui-link-main';
       localLink.textContent = item.name;
-      group.append(localLink);
+      if (isCurrent) localLink.setAttribute('aria-current', 'page');
+      identity.append(localLink);
     } else {
       const name = document.createElement('span');
       name.className = 'ui-link-main';
       name.textContent = item.name;
-      group.append(name);
+      identity.append(name);
     }
+
+    if (isCurrent) {
+      const current = document.createElement('span');
+      current.className = 'ui-link-current';
+      current.textContent = 'Текущий';
+      identity.append(current);
+    }
+
+    group.append(identity);
 
     if (item.githubUrl) {
       const githubLink = document.createElement('a');

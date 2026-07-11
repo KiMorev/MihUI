@@ -28,6 +28,11 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="checkConfigButton"[^>]+class="button compact"[\s\S]+?Проверить YAML в Mihomo/);
     assert.match(html, /id="fileTools"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
     assert.match(html, /sidebar-check-button[^>]*[\s\S]+?Итог и сохранение/);
+    assert.match(html, /app-brand-title-row[\s\S]+?id="uiLinks" class="brand-ui-links"/);
+    assert.match(html, /data-section="providers"[^>]*[\s\S]+?Подписки и группы/);
+    assert.match(html, /aria-label="Подписки и группы"[\s\S]+?id="providerRelationsTab"[\s\S]+?Группы/);
+    assert.match(html, /groups-panel-title[\s\S]+?Прокси-группы[\s\S]+?Управление группами, их составом и подключёнными подписками/);
+    assert.doesNotMatch(html, /Связи с группами|class="top-ui-links"/);
     assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
     assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
     assert.match(html, /data-service-health-refresh[^>]+aria-label="Обновить статусы сервисов"/);
@@ -53,6 +58,22 @@ test('main and standalone expose responsive service traffic lights', () => {
     assert.match(source, /\.service-health-item\.is-ok \.service-health-dot/);
     assert.match(source, /\.service-health-item\.is-error \.service-health-dot/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.service-health-mobile\s*{[\s\S]+?display: grid;/);
+  }
+});
+
+test('main and standalone expose the UI switcher in the brand block', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /summary\.setAttribute\('aria-label', 'Открыть список интерфейсов'\)/);
+    assert.match(source, /menuTitle\.textContent = 'Интерфейсы'/);
+    assert.match(source, /current\.textContent = 'Текущий'/);
+    assert.doesNotMatch(source, /`UI \(\$\{items\.length\}\)`/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.app-brand-title-row\s*{/);
+    assert.match(source, /\.ui-link-item\.is-current\s*{/);
   }
 });
 

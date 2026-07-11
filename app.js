@@ -1157,27 +1157,53 @@ function renderUiLinks(items) {
   const details = document.createElement('details');
   const summary = document.createElement('summary');
   const menu = document.createElement('div');
+  const menuTitle = document.createElement('strong');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
 
   details.className = 'ui-links-details';
-  summary.textContent = items.length > 1 ? `UI (${items.length})` : 'UI';
+  summary.setAttribute('aria-label', 'Открыть список интерфейсов');
+  summary.title = 'Другие интерфейсы';
+  icon.classList.add('ui-switcher-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', '#icon-chevron-down');
+  icon.append(iconUse);
+  summary.append(icon);
   menu.className = 'ui-links-menu';
+  menuTitle.className = 'ui-links-menu-title';
+  menuTitle.textContent = 'Интерфейсы';
+  menu.append(menuTitle);
 
   items.forEach((item) => {
     const group = document.createElement('span');
+    const identity = document.createElement('span');
+    const isCurrent = item.name === 'MihUI';
     group.className = 'ui-link-item';
+    identity.className = 'ui-link-identity';
+    group.classList.toggle('is-current', isCurrent);
 
     if (item.localUrl) {
       const localLink = document.createElement('a');
       localLink.href = item.localUrl;
       localLink.className = 'ui-link-main';
       localLink.textContent = item.name;
-      group.append(localLink);
+      if (isCurrent) localLink.setAttribute('aria-current', 'page');
+      identity.append(localLink);
     } else {
       const name = document.createElement('span');
       name.className = 'ui-link-main';
       name.textContent = item.name;
-      group.append(name);
+      identity.append(name);
     }
+
+    if (isCurrent) {
+      const current = document.createElement('span');
+      current.className = 'ui-link-current';
+      current.textContent = 'Текущий';
+      identity.append(current);
+    }
+
+    group.append(identity);
 
     if (item.githubUrl) {
       const githubLink = document.createElement('a');
