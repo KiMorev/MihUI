@@ -109,15 +109,15 @@
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
           </button>
-          <button id="routerLoadButton" class="button primary" type="button">
-            <span>Открыть с роутера</span>
-          </button>
           <button id="routerSaveButton" class="button" type="button" disabled>
             <span>Нет изменений</span>
           </button>
-          <details class="file-tools">
+          <details id="fileTools" class="file-tools">
             <summary aria-label="Файл" title="Файл"><svg class="action-icon" aria-hidden="true"><use href="#icon-more"></use></svg><span>Файл</span></summary>
             <div class="file-tools-menu">
+              <button id="routerLoadButton" class="button compact" type="button">
+                <span>Перезагрузить с роутера</span>
+              </button>
               <label class="button compact">
                 <span>Загрузить файл</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
@@ -142,7 +142,7 @@
           <span>Изменений нет</span>
         </button>
         <button id="mobileReviewButton" class="button primary compact mobile-flow-action" type="button">
-          <span>К сохранению</span>
+          <span>Нет изменений</span>
         </button>
         <button id="mobileDownloadButton" class="button compact mobile-flow-action" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
           <span>Скачать YAML</span>
@@ -409,7 +409,7 @@
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
-        <section class="panel review-summary-panel">
+        <section class="panel review-summary-panel" tabindex="-1">
           <div class="panel-head">
             <h2>Финальная проверка</h2>
             <span id="reviewSummaryStatus" class="review-summary-status">Конфигурация не загружена</span>
@@ -437,8 +437,8 @@
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
                 </button>
-                <button id="checkConfigButton" class="button primary compact" type="button" disabled>
-                  <span class="button-label">Проверить в Mihomo</span>
+                <button id="checkConfigButton" class="button compact" type="button" disabled>
+                  <span class="button-label">Проверить YAML в Mihomo</span>
                 </button>
                 <button id="copyButton" class="button compact" type="button" title="Копировать полный YAML с исходными ссылками" aria-label="Копировать полный YAML с исходными ссылками" disabled>
                   <span class="button-label">Копировать</span>

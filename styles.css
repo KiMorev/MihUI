@@ -550,6 +550,11 @@ h2 {
   box-shadow: var(--shadow);
 }
 
+.file-tools-menu .button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
 .button,
 .icon-button {
   border: 1px solid var(--line-strong);
@@ -597,6 +602,25 @@ h2 {
 
 .button.primary span {
   color: #fff;
+}
+
+#routerSaveButton.is-attention {
+  animation: topbar-action-ready 480ms ease-out;
+}
+
+@keyframes topbar-action-ready {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 111, 120, 0.34), 0 2px 8px rgba(0, 111, 120, 0.18);
+  }
+  100% {
+    box-shadow: 0 0 0 7px rgba(0, 111, 120, 0), 0 2px 8px rgba(0, 111, 120, 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #routerSaveButton.is-attention {
+    animation: none;
+  }
 }
 
 .download-warning {

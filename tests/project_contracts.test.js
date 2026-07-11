@@ -25,7 +25,8 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
-    assert.match(html, /id="checkConfigButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?Проверить в Mihomo/);
+    assert.match(html, /id="checkConfigButton"[^>]+class="button compact"[\s\S]+?Проверить YAML в Mihomo/);
+    assert.match(html, /id="fileTools"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
     assert.match(html, /sidebar-check-button[^>]*[\s\S]+?Итог и сохранение/);
     assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
     assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
@@ -36,11 +37,13 @@ test('main and standalone UI expose labels for audited controls', () => {
 test('main and standalone expose one review-to-save flow', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /'К сохранению'/);
-    assert.match(source, /label: 'Сохранить и применить'/);
+    assert.match(source, /'Проверить и сохранить'/);
+    assert.match(source, /'Сохранить и применить'/);
+    assert.match(source, /label: 'Исправить ошибки'/);
+    assert.match(source, /'Проверить YAML в Mihomo'/);
     assert.match(source, /value = 'Структура и связи: без ошибок'/);
     assert.match(source, /validation = 'Локальная проверка: OK'/);
-    assert.doesNotMatch(source, /saveReviewReady|Проверить изменения|Сохранить в ядро/);
+    assert.doesNotMatch(source, /saveReviewReady|Проверить изменения|Сохранить в ядро|Открыть с роутера/);
   }
 });
 

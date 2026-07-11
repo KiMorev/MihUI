@@ -377,6 +377,7 @@ let happBrowserDecryptorPromise = null;
 const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
+  fileTools: document.querySelector('#fileTools'),
   routerPanel: document.querySelector('#routerPanel'),
   updateHint: document.querySelector('#updateHint'),
   uiLinks: document.querySelector('#uiLinks'),
@@ -437,6 +438,7 @@ const els = {
   mobileReviewButton: document.querySelector('#mobileReviewButton'),
   mobileDownloadButton: document.querySelector('#mobileDownloadButton'),
   reviewWorkflow: document.querySelector('#reviewWorkflow'),
+  reviewSummaryPanel: document.querySelector('.review-summary-panel'),
   reviewSummaryStatus: document.querySelector('#reviewSummaryStatus'),
   reviewChecklist: document.querySelector('#reviewChecklist'),
   diagnosticsPanel: document.querySelector('#diagnosticsPanel'),
@@ -482,8 +484,8 @@ const els = {
   providerTemplate: document.querySelector('#providerTemplate'),
 };
 
-els.routerLoadButton.addEventListener('click', loadRouterConfig);
-els.routerSaveButton.addEventListener('click', focusChangesPanel);
+els.routerLoadButton.addEventListener('click', reloadRouterConfig);
+els.routerSaveButton.addEventListener('click', handleTopbarSaveAction);
 els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.backupSelect.addEventListener('change', renderBackupMeta);
 els.fileInput.addEventListener('change', handleFileSelect);
@@ -501,14 +503,14 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
-els.checkConfigButton.addEventListener('click', handleReviewPrimaryAction);
+els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
 els.updateHint.addEventListener('click', updateMihui);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.mobileChangesButton.addEventListener('click', focusChangesPanel);
-els.mobileReviewButton.addEventListener('click', () => setActiveSection('review'));
+els.mobileReviewButton.addEventListener('click', handleTopbarSaveAction);
 els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
@@ -715,8 +717,17 @@ async function loadRouterConfig(options = {}) {
     renderBackups([]);
     render();
   } finally {
-    setRouterBusy(false, 'Открыть с роутера');
+    setRouterBusy(false, 'Перезагрузить с роутера');
   }
+}
+
+async function reloadRouterConfig() {
+  if (hasUnsavedRouterChanges()) {
+    const confirmed = window.confirm('Несохраненные изменения будут заменены конфигурацией с роутера. Продолжить?');
+    if (!confirmed) return;
+  }
+  els.fileTools?.removeAttribute('open');
+  await loadRouterConfig({ silent: false });
 }
 
 function resetWorkspaceViewState() {
@@ -736,12 +747,24 @@ async function saveRouterConfig() {
     }
     return;
   }
+
+  if (hasBlockingLocalErrors()) {
+    showMessage('Сначала исправьте ошибки структуры и связей.', { severity: 'error' });
+    focusReviewSummary();
+    return;
+  }
+
+  if (!isCurrentConfigKernelChecked()) {
+    const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
+    if (check === false) {
+      focusReviewSummary();
+      return;
+    }
+  }
+
   setRouterBusy(true, 'Сохранение...');
 
   try {
-    const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
-    if (check === false) return;
-
     const data = await apiJson('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -766,8 +789,9 @@ async function saveRouterConfig() {
     }
   } catch (error) {
     showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
+    focusReviewSummary();
   } finally {
-    setRouterBusy(false, 'Открыть с роутера');
+    setRouterBusy(false, 'Перезагрузить с роутера');
   }
 }
 
@@ -787,7 +811,7 @@ async function restoreSelectedBackup() {
   } catch (error) {
     showMessage(`Не удалось восстановить бэкап: ${error?.message || error}`);
   } finally {
-    setRouterBusy(false, 'Открыть с роутера');
+    setRouterBusy(false, 'Перезагрузить с роутера');
   }
 }
 
@@ -956,6 +980,10 @@ function renderRouterControls() {
   const saveState = getRouterSaveState();
   els.routerPanel.classList.toggle('hidden', window.location?.protocol === 'file:');
   els.routerSaveButton.disabled = saveState.disabled;
+  els.routerSaveButton.classList.toggle('primary', saveState.tone === 'primary');
+  els.routerSaveButton.classList.toggle('danger', saveState.tone === 'danger');
+  els.routerSaveButton.classList.toggle('is-attention', saveState.tone === 'primary');
+  els.routerSaveButton.setAttribute('aria-busy', String(state.routerBusy || state.kernelCheckBusy));
   const saveLabel = els.routerSaveButton.querySelector('span');
   if (saveLabel) saveLabel.textContent = saveState.label;
   els.providerStatusRefreshButton.disabled = !state.routerApiAvailable || state.providerStatusLoading || !hasActiveProviders;
@@ -964,6 +992,7 @@ function renderRouterControls() {
     : 'Доступно только в MihUI на роутере рядом с Mihomo';
   const statusLabel = els.providerStatusRefreshButton.querySelector('span');
   if (statusLabel) statusLabel.textContent = state.providerStatusLoading ? 'Обновляем...' : 'Обновить статусы';
+  renderMobileFlowActions();
 }
 
 function getRouterSaveState() {
@@ -977,13 +1006,16 @@ function getRouterSaveState() {
   }
 
   const hasUnsavedChanges = hasUnsavedRouterChanges();
+  if (state.isEditingConfiguration) return { disabled: true, label: 'Завершите редактирование' };
+  if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
+  if (!hasUnsavedChanges) return { disabled: true, label: 'Нет изменений' };
+  if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
+  if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
+  if (hasBlockingLocalErrors()) return { disabled: false, label: 'Исправить ошибки', tone: 'danger' };
   return {
-    disabled: state.routerBusy || state.isEditingConfiguration || !state.outputText || !hasUnsavedChanges,
-    label: state.isEditingConfiguration
-      ? 'Завершите редактирование'
-      : !hasUnsavedChanges
-      ? 'Нет изменений'
-      : 'К сохранению',
+    disabled: false,
+    label: isCurrentConfigKernelChecked() ? 'Сохранить и применить' : 'Проверить и сохранить',
+    tone: 'primary',
   };
 }
 
@@ -995,6 +1027,24 @@ function isCurrentConfigKernelChecked() {
   return Boolean(state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk);
 }
 
+function hasBlockingLocalErrors() {
+  const activeProviders = state.providers.filter((provider) => !provider.deleted);
+  return collectDiagnostics(activeProviders).some((text) => getDiagnosticSeverity(text) === 'error');
+}
+
+async function handleTopbarSaveAction() {
+  const action = getRouterSaveState();
+  if (action.disabled) return;
+  if (!state.routerMode || action.tone === 'danger') {
+    if (action.tone === 'danger') {
+      showMessage('Сначала исправьте ошибки структуры и связей.', { severity: 'error' });
+    }
+    focusReviewSummary();
+    return;
+  }
+  await saveRouterConfig();
+}
+
 function getReviewPrimaryActionState() {
   if (state.isEditingConfiguration) return { disabled: true, label: 'Завершите редактирование' };
   if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
@@ -1002,24 +1052,11 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked() && hasUnsavedRouterChanges()) {
-    return { disabled: false, label: 'Сохранить и применить' };
-  }
-  if (isCurrentConfigKernelChecked()) return { disabled: true, label: 'Проверено в Mihomo' };
+  if (isCurrentConfigKernelChecked()) return { disabled: true, label: 'YAML проверен в Mihomo' };
   return {
     disabled: false,
-    label: state.lastConfigCheckText === state.outputText ? 'Проверить повторно' : 'Проверить в Mihomo',
+    label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
   };
-}
-
-async function handleReviewPrimaryAction() {
-  const action = getReviewPrimaryActionState();
-  if (action.disabled) return;
-  if (isCurrentConfigKernelChecked() && hasUnsavedRouterChanges()) {
-    await saveRouterConfig();
-    return;
-  }
-  await checkRouterConfig({ silent: false });
 }
 
 function renderReviewPrimaryActionButton() {
@@ -1294,7 +1331,7 @@ async function checkRouterConfig(options = {}) {
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = false;
     clearPersistedConfigCheck(state.outputText);
-    showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`);
+    showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`, { severity: 'error' });
     return false;
   } finally {
     setConfigCheckBusy(false);
@@ -1352,6 +1389,7 @@ function restorePersistedConfigCheck() {
 function setConfigCheckBusy(isBusy) {
   state.kernelCheckBusy = isBusy;
   renderReviewPrimaryActionButton();
+  renderRouterControls();
 }
 
 async function loadProviderStatuses(options = {}) {
@@ -2033,6 +2071,16 @@ function focusChangesPanel() {
   }, 0);
 }
 
+function focusReviewSummary() {
+  setActiveSection('review', { scroll: false });
+  els.reviewSummaryPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  els.reviewSummaryPanel.classList.remove('target-highlight');
+  window.setTimeout(() => {
+    els.reviewSummaryPanel.classList.add('target-highlight');
+    els.reviewSummaryPanel.focus({ preventScroll: true });
+  }, 0);
+}
+
 function focusConnectionSettingsPanel() {
   setActiveSection('review', { scroll: false });
   if (els.connectionSettingsPanel.classList.contains('hidden')) return;
@@ -2058,13 +2106,15 @@ function renderChangesJumpButton(changes) {
 function renderMobileFlowActions() {
   const hasValidConfig = Boolean(state.originalText && state.hasGroupsSection);
   const isEditing = state.isEditingConfiguration;
+  const saveState = getRouterSaveState();
   els.mobileFlowActions.hidden = !hasValidConfig;
   els.mobileChangesButton.disabled = !hasValidConfig || isEditing || state.changeCount === 0;
   els.mobileChangesButton.querySelector('span').textContent = formatChangeCount(state.changeCount);
-  els.mobileReviewButton.disabled = !hasValidConfig || isEditing;
-  els.mobileReviewButton.querySelector('span').textContent = state.routerMode && hasUnsavedRouterChanges() ? 'К сохранению' : 'К проверке';
+  els.mobileReviewButton.disabled = !hasValidConfig || saveState.disabled;
+  els.mobileReviewButton.querySelector('span').textContent = saveState.label;
+  els.mobileReviewButton.classList.toggle('danger', saveState.tone === 'danger');
   els.mobileDownloadButton.disabled = !hasValidConfig || isEditing || !state.outputText;
-  els.mobileReviewButton.title = isEditing ? 'Завершите редактирование' : 'Перейти к финальной проверке';
+  els.mobileReviewButton.title = saveState.label;
 }
 
 function renderRecommendationsJumpButton(count) {

@@ -1482,6 +1482,7 @@ proxy-providers:
     app.state.outputText = 'same';
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Исправьте структуру' });
     app.state.hasGroupsSection = true;
+    app.state.groups = [{ name: 'Proxy', type: 'select', proxies: ['DIRECT'], use: [], includeAll: false, includeAllProviders: false }];
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Перейти к проверке' });
     app.state.isEditingConfiguration = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Завершите редактирование' });
@@ -1490,18 +1491,20 @@ proxy-providers:
     app.state.routerMode = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
     app.state.outputText = 'changed';
-    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'К сохранению' });
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить и сохранить', tone: 'primary' });
     app.state.isEditingConfiguration = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Завершите редактирование' });
     app.state.isEditingConfiguration = false;
-    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'К сохранению' });
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить и сохранить', tone: 'primary' });
 
     app.state.routerApiAvailable = true;
-    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить в Mihomo' });
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить YAML в Mihomo' });
     app.state.lastConfigCheckText = app.state.outputText;
     app.state.lastConfigCheckOk = true;
-    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Сохранить и применить' });
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить и применить', tone: 'primary' });
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: true, label: 'YAML проверен в Mihomo' });
     app.state.hasGroupsSection = false;
+    assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Исправить ошибки', tone: 'danger' });
     app.renderConfigurationEditorControls();
     assert.equal(app.els.checkConfigButton.disabled, true);
   });
