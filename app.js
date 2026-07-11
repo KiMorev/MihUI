@@ -290,6 +290,7 @@ const PROVIDER_DIFF_FIELDS = [
 
 const state = {
   fileName: '',
+  configLoadedAt: 0,
   originalText: '',
   providers: [],
   groups: [],
@@ -370,6 +371,7 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  overviewDiagnostics: [],
   lastUndo: null,
 };
 
@@ -431,9 +433,16 @@ const els = {
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
   overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
+  overviewNodesStatus: document.querySelector('#overviewNodesStatus'),
   overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
+  overviewHealth: document.querySelector('.overview-health'),
+  overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
+  overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
+  overviewConfigPath: document.querySelector('#overviewConfigPath'),
+  overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
+  overviewConfigLoadedAt: document.querySelector('#overviewConfigLoadedAt'),
   mobileFlowActions: document.querySelector('#mobileFlowActions'),
   mobileChangesButton: document.querySelector('#mobileChangesButton'),
   mobileReviewButton: document.querySelector('#mobileReviewButton'),
@@ -522,8 +531,7 @@ els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
 els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
-els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
-els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
+els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
@@ -664,6 +672,7 @@ function handleFileSelect(event) {
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
     state.fileName = file.name;
+    state.configLoadedAt = Date.now();
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
     parseAndRender();
@@ -694,6 +703,7 @@ async function loadRouterConfig(options = {}) {
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
     state.fileName = state.routerConfigPath || 'router config';
+    state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
     state.isEditingConfiguration = false;
     state.lastConfigCheckText = '';
@@ -775,6 +785,7 @@ async function saveRouterConfig() {
     state.routerMode = true;
     state.routerConfigPath = data.path || state.routerConfigPath;
     state.fileName = state.routerConfigPath;
+    state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
@@ -1369,6 +1380,7 @@ function renderServiceHealth() {
     button.disabled = loading;
     button.setAttribute('aria-busy', String(loading));
   });
+  renderOverviewHealth();
 }
 
 function formatServiceHealthTime(value) {
@@ -1773,27 +1785,77 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
   const errors = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error');
   const warnings = diagnostics.length - errors.length;
   const nodeCount = state.mihomoNodes.length;
+  const availableNodeCount = state.mihomoNodes.filter((node) => node.alive === true).length;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const attentionItems = [];
+  const knownProviderStatuses = activeProviders
+    .map((provider) => getProviderStatus(provider.name))
+    .filter((status) => status?.proxyCount !== null && status?.proxyCount !== undefined);
+  const workingProviderCount = knownProviderStatuses.filter((status) => Number(status.proxyCount) > 0).length;
+
+  state.overviewDiagnostics = diagnostics;
+  renderOverviewHealth();
+
+  els.providerCount.textContent = !state.originalText
+    ? 'Нет данных'
+    : state.providerStatusLoading
+      ? 'Обновляем статусы'
+      : knownProviderStatuses.length > 0
+        ? `${workingProviderCount} из ${activeProviders.length} ${workingProviderCount === 1 ? 'работает' : 'работают'}`
+        : formatConfiguredProviderCount(activeProviders.length);
 
   els.overviewProvidersSummary.textContent = state.originalText
-    ? `${formatRouteCount(activeProviders.length, 'подписка', 'подписки', 'подписок')} · ${formatProviderFilterSummary(activeProviders)}`
-    : 'Загрузите конфиг, чтобы редактировать подписки';
+    ? knownProviderStatuses.length > 0
+      ? `${formatProxyCount(knownProviderStatuses.reduce((total, status) => total + (Number(status.proxyCount) || 0), 0))} получено от Mihomo`
+      : formatProviderFilterSummary(activeProviders)
+    : 'Источники нод';
+  els.groupCount.textContent = state.originalText
+    ? formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')
+    : 'Нет данных';
   els.overviewRoutingSummary.textContent = state.originalText
-    ? `${formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')} · ${formatRouteCount(groupsWithUse.length, 'use-группа', 'use-группы', 'use-групп')}`
-    : 'Схема появится после загрузки';
+    ? `${formatRouteCount(groupsWithUse.length, 'группа использует', 'группы используют', 'групп используют')} подписки`
+    : 'Распределение трафика';
+  els.overviewNodesStatus.textContent = state.routerApiAvailable
+    ? state.nodeInventoryLoading
+      ? 'Загружаем список'
+      : state.nodeInventoryError
+        ? 'Статус недоступен'
+        : nodeCount > 0
+          ? availableNodeCount > 0
+            ? `${availableNodeCount} из ${nodeCount} доступны`
+            : `${formatProxyCount(nodeCount)} получено`
+          : 'Ноды не получены'
+    : 'Доступно в MihUI';
+  els.overviewNodesStatus.classList.remove('metric-warning', 'metric-danger');
+  if (state.routerApiAvailable && state.nodeInventoryError) {
+    els.overviewNodesStatus.classList.add('metric-danger');
+  } else if (state.routerApiAvailable && !state.nodeInventoryLoading && nodeCount === 0) {
+    els.overviewNodesStatus.classList.add('metric-warning');
+  }
   els.overviewNodesSummary.textContent = state.routerApiAvailable
     ? state.nodeInventoryLoading
-      ? 'Mihomo загружает список нод'
+      ? 'Mihomo обновляет данные'
       : state.nodeInventoryError
         ? state.nodeInventoryError
         : nodeCount > 0
-          ? `${formatProxyCount(nodeCount)} · live-список Mihomo`
+          ? 'Список получен от Mihomo'
           : 'Mihomo не вернул ноды'
     : 'Доступно при работе через локальный сервис';
   els.overviewReviewSummary.textContent = hasStructuralError
     ? 'Сначала исправьте структуру конфигурации'
-    : `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
+    : errors.length > 0
+      ? 'Исправьте ошибки перед сохранением'
+      : warnings > 0
+        ? `${formatWarningCount(warnings)} перед сохранением`
+        : changeCount > 0
+          ? `${formatChangeCount(changeCount)} · можно проверять`
+          : 'Можно сохранять';
+
+  els.overviewConfigPath.textContent = state.fileName || 'Не загружен';
+  els.overviewConfigPath.title = state.fileName || '';
+  els.overviewConfigChanges.textContent = state.originalText ? formatChangeCount(changeCount) : '—';
+  els.overviewConfigChanges.classList.toggle('metric-warning', changeCount > 0);
+  els.overviewConfigLoadedAt.textContent = state.configLoadedAt ? formatOverviewLoadedAt(state.configLoadedAt) : '—';
 
   if (!state.originalText) {
     attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });
@@ -1833,14 +1895,81 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     const button = document.createElement('button');
     const title = document.createElement('strong');
     const text = document.createElement('span');
+    const action = document.createElement('span');
     button.className = 'overview-attention-item';
     button.type = 'button';
     if (item.section) button.setAttribute('data-section-target', item.section);
     button.addEventListener('click', item.onClick || (() => setActiveSection(item.section)));
     title.textContent = item.title;
     text.textContent = item.text;
-    button.append(title, text);
+    action.className = 'overview-attention-action';
+    action.textContent = 'Посмотреть →';
+    button.append(title, text, action);
     els.overviewAttentionList.append(button);
+  });
+}
+
+function formatConfiguredProviderCount(count) {
+  const value = Number(count) || 0;
+  const noun = formatRouteCount(value, 'подписка', 'подписки', 'подписок');
+  return `${noun} ${value === 1 ? 'настроена' : 'настроены'}`;
+}
+
+function renderOverviewHealth() {
+  if (!els.overviewHealth) return;
+  const diagnostics = state.overviewDiagnostics || [];
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  const services = Object.values(state.serviceHealth.services || {});
+  const serviceProblem = state.routerApiAvailable && !state.serviceHealth.loading
+    && services.some((service) => service.state === 'error' || service.state === 'unavailable');
+  const nodesProblem = state.routerApiAvailable && !state.nodeInventoryLoading
+    && (Boolean(state.nodeInventoryError) || state.mihomoNodes.length === 0);
+  const recommendationCount = state.originalText ? getMissingConnectionSettings().length : 0;
+  const summaryParts = [];
+  let title = 'Конфигурация готова к работе';
+  let variant = '';
+
+  if (!state.originalText) {
+    title = 'Конфигурация не загружена';
+    variant = 'is-muted';
+    summaryParts.push('Откройте конфигурацию, чтобы проверить её состояние');
+  } else if (hasStructuralError || errorCount > 0) {
+    title = 'Конфигурацию нужно исправить';
+    variant = 'is-danger';
+    summaryParts.push(hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount));
+  } else {
+    if (state.routerApiAvailable) {
+      summaryParts.push(state.serviceHealth.loading ? 'Проверяем сервисы' : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
+    } else {
+      summaryParts.push('Структура проверена');
+    }
+    summaryParts.push(warningCount > 0 ? formatWarningCount(warningCount) : 'ошибок нет');
+    summaryParts.push(state.changeCount > 0 ? formatChangeCount(state.changeCount) : 'изменений нет');
+    if (nodesProblem) summaryParts.push(state.nodeInventoryError ? 'ноды недоступны' : 'ноды не получены');
+    if (recommendationCount > 0) summaryParts.push(formatRouteCount(recommendationCount, 'рекомендация', 'рекомендации', 'рекомендаций'));
+    if (serviceProblem || nodesProblem) {
+      title = serviceProblem ? 'Проверьте состояние сервисов' : 'Система работает, но требуется внимание';
+      variant = 'is-warning';
+    }
+  }
+
+  els.overviewHealth.classList.remove('is-muted', 'is-warning', 'is-danger');
+  if (variant) els.overviewHealth.classList.add(variant);
+  els.overviewHealthTitle.textContent = title;
+  els.overviewHealthSummary.textContent = summaryParts.join(' · ');
+}
+
+function formatOverviewLoadedAt(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -1949,33 +2078,9 @@ function formatProviderFilterSummary(providers) {
 }
 
 function renderGroupMetric() {
-  const proxyGroups = state.groups.filter((group) => isProxyModeGroup(group)).length;
-  const serviceGroups = state.groups.length - proxyGroups;
-  const total = document.createElement('span');
-  const detail = document.createElement('span');
-  const split = document.createElement('span');
-  const servicePart = document.createElement('span');
-  const proxyPart = document.createElement('span');
-
-  els.groupCount.textContent = '';
-  els.groupCount.classList.toggle('metric-count-split', Boolean(state.originalText));
-
-  if (!state.originalText) {
-    els.groupCount.textContent = '0';
-    return;
-  }
-
-  total.className = 'metric-main';
-  detail.className = 'metric-detail';
-  split.className = 'metric-split-bar';
-  servicePart.className = 'is-service';
-  proxyPart.className = 'is-proxy';
-  servicePart.setAttribute('style', `flex-grow: ${serviceGroups || 0}`);
-  proxyPart.setAttribute('style', `flex-grow: ${proxyGroups || 0}`);
-  total.textContent = `${state.groups.length} всего`;
-  detail.textContent = `${serviceGroups} сервисных / ${proxyGroups} прокси`;
-  split.append(servicePart, proxyPart);
-  els.groupCount.append(total, detail, split);
+  els.groupCount.textContent = state.originalText
+    ? formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')
+    : 'Нет данных';
 }
 
 function renderDiagnostics(diagnostics) {
@@ -2106,16 +2211,25 @@ function getDiagnosticContentParts(text) {
 
 function setRulesMetricActionable(isActionable) {
   els.rulesMetric.classList.toggle('metric-actionable', isActionable);
-  els.rulesMetric.setAttribute('aria-disabled', String(!isActionable));
-  els.rulesMetric.title = isActionable ? 'Открыть список предупреждений и ошибок' : '';
-  els.rulesHint.hidden = !isActionable;
-  els.rulesHint.textContent = isActionable ? 'Нажмите, чтобы увидеть' : '';
+  els.rulesMetric.setAttribute('data-diagnostics-action', String(isActionable));
+  els.rulesMetric.setAttribute('aria-disabled', 'false');
+  els.rulesMetric.title = isActionable ? 'Открыть список предупреждений и ошибок' : 'Открыть итоговую проверку';
+  els.rulesHint.hidden = false;
+  els.rulesHint.textContent = isActionable ? 'Открыть замечания →' : 'Открыть →';
 }
 
 function handleRulesMetricKeydown(event) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
   focusDiagnosticsPanel();
+}
+
+function openOverviewCheck() {
+  if (els.rulesMetric.getAttribute('data-diagnostics-action') === 'true') {
+    focusDiagnosticsPanel();
+    return;
+  }
+  setActiveSection('review');
 }
 
 function focusDiagnosticsPanel() {

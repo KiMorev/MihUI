@@ -39,8 +39,8 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /aria-label="Подписки и группы"[\s\S]+?id="providerRelationsTab"[\s\S]+?Группы/);
     assert.match(html, /groups-panel-title[\s\S]+?Прокси-группы[\s\S]+?Управление группами, их составом и подключёнными подписками/);
     assert.doesNotMatch(html, /Связи с группами|class="top-ui-links"/);
-    assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
-    assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
+    assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 3);
+    assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 3);
     assert.match(html, /data-service-health-refresh[^>]+aria-label="Обновить статусы сервисов"/);
   }
 });

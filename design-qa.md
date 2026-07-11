@@ -1,43 +1,69 @@
-# Design QA — editorial routing workbench
+# Design QA — «Обзор», вариант 2
 
-- Source visual truth path: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-12cb96e8-3e39-440a-b31d-189e142ed660.png`
-- Implementation screenshot path: `C:\Users\morev\Desktop\WebMihomo\audit-design-implementation-2026-07-10\06-routing-final-1440.png`
-- Local implementation URL: `http://127.0.0.1:63338/index.html`
-- Viewport: desktop `1440 × 1024`; responsive checks `980 × 900` and `560 × 900`
-- State: `config (2).yaml`, section “Маршрутизация”, tab “Схема”, default `MATCH → DIRECT` scenario selected
-- Full-view comparison evidence: `C:\Users\morev\Desktop\WebMihomo\audit-design-implementation-2026-07-10\09-design-qa-full.png`
-- Focused region comparison evidence: `C:\Users\morev\Desktop\WebMihomo\audit-design-implementation-2026-07-10\10-design-qa-workbench.png`
+**Source visual truth**
 
-## Findings
+- `C:\Users\morev\Desktop\WebMihomo\audit-overview-pipeline-2026-07-11\selected-option-2.png`
 
-No actionable P0, P1, or P2 differences remain.
+**Implementation evidence**
 
-- Typography: the implementation keeps the source hierarchy and compact desktop density with `Inter`, `Segoe UI`, and system fallbacks. Weights, line height, labels, truncation, and small UI copy remain readable in the three-column workbench.
-- Spacing and layout: the 220 px navigation rail, compact top bar, scenario list, central deterministic flow, and 300 px inspector preserve the source composition. Thin dividers, 6 px radii, and shadow-free surfaces keep the intended editorial rhythm.
-- Colors and tokens: off-white canvas, white work surfaces, muted blue-gray copy, teal selection, green validation, and amber `DIRECT` treatment map consistently to the source.
-- Image quality and assets: the screen does not require raster product imagery. Visible interface and flow icons use the official Tabler icon set; no placeholder, emoji, CSS-art, or handcrafted substitute remains.
-- Copy and content: labels are product-specific, concise, and consistent. The inspector is intentionally read-only and points editing to “Правила”.
-- Responsiveness: no horizontal overflow was found at 1440, 980, or 560 px. At 980 and 560 px, the scenario list keeps a bounded internal scroll so the flow remains reachable.
-- Accessibility and interaction: navigation, routing tabs, scenario selection, provider URL masking, review navigation, and disabled/save states were exercised. Mobile controls retain at least 44 px touch targets. Browser console warnings/errors: none.
+- Desktop: `C:\Users\morev\Desktop\WebMihomo\audit-overview-pipeline-2026-07-11\02-overview-default.png`
+- Compact after fixes: `C:\Users\morev\Desktop\WebMihomo\audit-overview-pipeline-2026-07-11\04-overview-final.png`
+- Main UI: `C:\Users\morev\Desktop\WebMihomo\index.html`
+- Standalone UI: `C:\Users\morev\Desktop\WebMihomo\mihomo-editor.html`
+- Desktop viewport: 1440 × 1024.
+- Compact state: actual width of the open in-app browser panel.
+- State: config loaded; XKeen and Mihomo working; one subscription; one group; nodes not returned; three recommendations; no unsaved changes.
 
-## Accepted product differences
+**Comparison evidence**
 
-- The source mock shows an editable inspector and a speculative `NO MATCH` fallback. The implementation keeps the inspector read-only and omits that branch because the current configuration model cannot guarantee it; showing it would misrepresent real routing behavior.
-- Scenario order and selected index come from the loaded YAML rather than from the static mock data.
+- The source image and the desktop implementation screenshot were opened together in one comparison input.
+- Full-view comparison covered composition, hierarchy, card proportions, sidebar/topbar balance, semantic colors and copy.
+- A separate focused crop was not needed: all critical text, status markers, actions and panel boundaries were readable in the full-resolution comparison.
+- The compact screenshot was inspected separately after the fixes to confirm the 2 × 2 flow, warning state and CTA placement.
 
-## Comparison history
+**Findings and comparison history**
 
-1. P2 — responsive scenario list expanded without a height limit and pushed the route flow too far below the fold at 980 and 560 px. Fixed with `max-height: 300px` and `240px` plus internal scrolling. Post-fix evidence: `07-routing-final-980.png`, `08-routing-final-560.png`.
-2. P3 — entry and `DIRECT` flow nodes lacked the visual anchors present in the source. Added official Tabler `world` and `arrow-up-right` icons. Post-fix evidence: `10-design-qa-workbench.png`.
-3. Final side-by-side pass found no remaining P0/P1/P2 issues.
+- [Fixed P1] Overall health contradicted the node state.
+  - Earlier evidence: the hero was green and said «Конфигурация готова к работе» while the node card said «Ноды не получены» and three recommendations were present.
+  - Fix: the hero now uses an amber state, says «Система работает, но требуется внимание» and lists the exact reasons.
+  - Post-fix evidence: `04-overview-final.png` and the browser DOM snapshot show the corrected status and summary.
 
-## Implementation checklist
+- [Fixed P1] The check step was exposed as disabled while remaining clickable.
+  - Earlier evidence: the browser accessibility snapshot marked the step as disabled.
+  - Fix: the step remains available and uses a separate internal flag only to choose between diagnostics and the review page.
+  - Post-fix evidence: the final accessibility snapshot no longer marks the control disabled; the click opened `review`.
 
-- [x] Desktop hierarchy and three-pane proportions match the selected direction.
-- [x] Routing flow reflects actual YAML behavior.
-- [x] Responsive layouts avoid clipping and horizontal overflow.
-- [x] Official icon assets and license notice are present.
-- [x] Main and standalone HTML variants are synchronized.
-- [x] Three supplied configuration examples render without console errors.
+- [Fixed P2] Subscription count used incorrect Russian agreement.
+  - Fix: «1 подписка настроена»; plural counts use «настроены».
+
+- [Fixed P2] Missing nodes looked like a normal teal status.
+  - Fix: the step now uses the warning color and contributes to the overall warning state.
+
+- [Fixed P2] Recommendation card did not clearly look actionable.
+  - Fix: added «Посмотреть →»; browser interaction opened `review`.
+
+**Required fidelity surfaces**
+
+- Fonts and typography: existing Segoe UI/system stack, weights and hierarchy are consistent with the product and close to the selected visual. Passed.
+- Spacing and layout rhythm: desktop keeps the four-step row; compact becomes a balanced 2 × 2 grid without horizontal content overflow. Passed.
+- Colors and tokens: existing light surfaces, teal accent and restrained semantic green/amber are preserved. Passed.
+- Image and icon fidelity: no raster content is required; the existing Tabler-derived icon system is reused. Passed.
+- Copy and content: opaque labels were removed; counts now include interpretation; contradictory status copy was corrected. Passed.
+
+**Interactions and technical checks**
+
+- `Подписки` → `providers`: passed.
+- `Группы и маршруты` → `routing`: passed.
+- `Ноды Mihomo` → `nodes`: passed.
+- `Проверка` → `review`: passed.
+- Recommendation → `review`: passed.
+- Browser console warnings/errors: none.
+- `npm.cmd test`: 104 of 104 tests passed.
+- Main/standalone synchronization contract: passed.
+
+**Follow-up polish**
+
+- [P3] Service status is intentionally visible both in the sidebar and in the overview; it can be compacted later if repetition feels excessive in daily use.
+- [P3] The selected mock has explicit check markers between stages; the implementation communicates health through the hero and status colors instead, matching the existing component language.
 
 final result: passed

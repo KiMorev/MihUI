@@ -40,6 +40,7 @@
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
       <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 8l-5 -5l-5 5" /><path d="M5 21h14" /></symbol>
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 10l-5 5l-5 -5" /><path d="M5 21h14" /></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -153,50 +154,92 @@
       <section id="messageBox" class="message hidden" aria-live="polite"></section>
 
       <section class="app-section is-active" data-section-panel="overview">
-        <section class="status-grid" aria-live="polite">
-          <div class="metric">
-            <span class="metric-label">Подписки (proxy-providers)</span>
-            <strong id="providerCount">0</strong>
+        <section class="overview-health panel" aria-live="polite">
+          <div id="overviewHealthIcon" class="overview-health-icon" aria-hidden="true">
+            <svg><use href="#icon-check"></use></svg>
           </div>
-          <div class="metric">
-            <span class="metric-label">Группы (proxy-groups)</span>
-            <strong id="groupCount">0</strong>
+          <div class="overview-health-copy">
+            <h2 id="overviewHealthTitle">Конфигурация не загружена</h2>
+            <p id="overviewHealthSummary">Откройте конфигурацию, чтобы проверить её состояние.</p>
           </div>
-          <div id="rulesMetric" class="metric" role="button" tabindex="0" aria-disabled="true">
-            <span class="metric-label">Проверка</span>
-            <strong id="rulesStatus">нет конфигурации</strong>
-            <span id="rulesHint" class="metric-hint" hidden></span>
-          </div>
+          <button class="button compact overview-health-action" type="button" data-section-target="review">Открыть проверку</button>
         </section>
 
-        <section class="overview-workflow" aria-label="Рабочие разделы">
-          <button class="overview-card" type="button" data-section-target="providers">
-            <span class="overview-card-kicker">Редактор</span>
+        <section class="overview-flow panel" aria-label="Путь конфигурации">
+          <div class="overview-flow-steps">
+          <button class="overview-step" type="button" data-section-target="providers">
+            <span class="overview-step-number">1</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-providers"></use></svg>
             <strong>Подписки</strong>
-            <span id="overviewProvidersSummary">Загрузите конфиг</span>
+            <span id="providerCount" class="overview-step-status">0 настроено</span>
+            <span id="overviewProvidersSummary" class="overview-step-note">Источники нод</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="routing">
-            <span class="overview-card-kicker">Поток</span>
-            <strong>Маршрутизация</strong>
-            <span id="overviewRoutingSummary">Схема появится после загрузки</span>
+          <button class="overview-step" type="button" data-section-target="routing">
+            <span class="overview-step-number">2</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-routing"></use></svg>
+            <strong>Группы и маршруты</strong>
+            <span id="groupCount" class="overview-step-status">0 групп</span>
+            <span id="overviewRoutingSummary" class="overview-step-note">Распределение трафика</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="nodes">
-            <span class="overview-card-kicker">Live</span>
+          <button class="overview-step" type="button" data-section-target="nodes">
+            <span class="overview-step-number">3</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg>
             <strong>Ноды Mihomo</strong>
-            <span id="overviewNodesSummary">Список появится после ответа ядра</span>
+            <span id="overviewNodesStatus" class="overview-step-status">Нет данных</span>
+            <span id="overviewNodesSummary" class="overview-step-note">Список появится после ответа Mihomo</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="review">
-            <span class="overview-card-kicker">Финал</span>
-            <strong>Проверка и вывод</strong>
-            <span id="overviewReviewSummary">Изменений нет</span>
+          <button id="rulesMetric" class="overview-step" type="button" aria-disabled="false">
+            <span class="overview-step-number">4</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-review"></use></svg>
+            <strong>Проверка</strong>
+            <span id="rulesStatus" class="overview-step-status">Нет конфигурации</span>
+            <span id="overviewReviewSummary" class="overview-step-note">Сначала загрузите конфигурацию</span>
+            <span id="rulesHint" class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
+          </div>
+          <p class="overview-flow-explainer">Подписки дают ноды <span aria-hidden="true">→</span> группы распределяют трафик <span aria-hidden="true">→</span> Mihomo применяет конфигурацию</p>
         </section>
 
-        <section id="overviewAttentionPanel" class="panel overview-attention-panel" aria-live="polite">
+        <div class="overview-support-grid">
+          <section id="overviewAttentionPanel" class="panel overview-attention-panel" aria-live="polite">
+            <div class="panel-head">
+              <h2>Что требует внимания</h2>
+            </div>
+            <div id="overviewAttentionList" class="overview-attention-list"></div>
+          </section>
+
+          <section class="panel overview-services" aria-live="polite">
+            <div class="panel-head">
+              <h2>Состояние сервисов</h2>
+            </div>
+            <button class="overview-services-body" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+              <span class="service-health-item is-loading" data-service-health="xkeen">
+                <span class="service-health-name">XKeen</span>
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="service-health-item is-loading" data-service-health="mihomo">
+                <span class="service-health-name">Mihomo</span>
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="overview-services-checked" data-service-health-checked>Проверка...</span>
+            </button>
+          </section>
+        </div>
+
+        <section class="panel overview-config" aria-live="polite">
           <div class="panel-head">
-            <h2>Что требует внимания</h2>
+            <h2>Конфигурация</h2>
           </div>
-          <div id="overviewAttentionList" class="overview-attention-list"></div>
+          <div class="overview-config-grid">
+            <div><span>Файл конфигурации</span><strong id="overviewConfigPath">Не загружен</strong></div>
+            <div><span>Состояние</span><strong id="overviewConfigChanges">Изменений нет</strong></div>
+            <div><span>Загружено</span><strong id="overviewConfigLoadedAt">—</strong></div>
+          </div>
         </section>
       </section>
 

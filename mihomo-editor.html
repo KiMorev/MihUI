@@ -890,48 +890,186 @@ h2 {
   display: none;
 }
 
-.overview-workflow {
+.overview-health {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 96px;
+  padding: 18px 20px;
 }
 
-.overview-card {
+.overview-health-icon {
   display: grid;
-  gap: 7px;
-  min-height: 116px;
-  padding: 13px 14px;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+}
+
+.overview-health-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.overview-health.is-warning .overview-health-icon {
+  background: var(--warning);
+}
+
+.overview-health.is-danger .overview-health-icon {
+  background: var(--danger);
+}
+
+.overview-health.is-muted .overview-health-icon {
+  background: #8b96a3;
+}
+
+.overview-health-copy {
+  min-width: 0;
+}
+
+.overview-health-copy h2,
+.overview-health-copy p {
+  margin: 0;
+}
+
+.overview-health-copy h2 {
+  font-size: 19px;
+  line-height: 1.25;
+}
+
+.overview-health-copy p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.overview-flow {
+  padding: 18px;
+}
+
+.overview-flow-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.overview-step {
+  position: relative;
+  display: grid;
+  grid-template-rows: 44px auto auto minmax(34px, auto) 42px;
+  justify-items: center;
+  min-width: 0;
+  min-height: 224px;
+  padding: 20px 12px 0;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 
-.overview-card:hover,
-.overview-card:focus-visible {
+.overview-step:not(:last-child)::after {
+  position: absolute;
+  top: 93px;
+  left: 100%;
+  width: 23px;
+  height: 2px;
+  background: var(--accent);
+  content: '';
+}
+
+.overview-step:hover,
+.overview-step:focus-visible {
   border-color: var(--accent);
   background: #f7fcfc;
   outline: 0;
 }
 
-.overview-card-kicker {
+.overview-step-number {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.overview-step-icon {
+  width: 38px;
+  height: 38px;
+  margin-bottom: 10px;
+  fill: none;
+  stroke: #5e6d7d;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.overview-step > strong {
+  align-self: center;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.overview-step-status {
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.overview-step-status.metric-danger {
+  color: var(--danger);
+}
+
+.overview-step-status.metric-warning {
+  color: var(--warning);
+}
+
+.overview-step-note {
+  align-self: start;
+  margin-top: 4px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.35;
+}
+
+.overview-step-action {
+  align-self: end;
+  width: calc(100% + 24px);
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--accent-dark);
+  font-size: 13px;
   font-weight: 750;
-  text-transform: uppercase;
 }
 
-.overview-card strong {
-  font-size: 17px;
-  line-height: 1.2;
-}
-
-.overview-card span:last-child {
+.overview-flow-explainer {
+  margin: 16px 0 0;
   color: var(--muted);
   font-size: 13px;
-  line-height: 1.35;
+  text-align: center;
+}
+
+.overview-support-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 16px;
 }
 
 .overview-attention-panel .panel-head {
@@ -940,13 +1078,13 @@ h2 {
 
 .overview-attention-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   padding: 12px;
 }
 
 .overview-attention-item {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   min-height: 74px;
   padding: 10px 12px;
@@ -959,8 +1097,97 @@ h2 {
 }
 
 .overview-attention-item:only-child {
-  grid-column: 1 / -1;
   min-height: 62px;
+}
+
+.overview-services-body {
+  display: grid;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.overview-services-body:hover,
+.overview-services-body:focus-visible {
+  background: #f7fcfc;
+  outline: 0;
+}
+
+.overview-services .service-health-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+}
+
+.overview-services .service-health-item + .service-health-item {
+  border-top: 0;
+}
+
+.overview-services .service-health-item:first-child {
+  border-radius: 6px 6px 0 0;
+}
+
+.overview-services .service-health-item:nth-child(2) {
+  border-radius: 0 0 6px 6px;
+}
+
+.overview-services .service-health-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.overview-services .service-health-item.is-ok .service-health-status {
+  color: var(--success);
+}
+
+.overview-services .service-health-item.is-error .service-health-status {
+  color: var(--danger);
+}
+
+.overview-services-checked {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.overview-config-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(180px, 0.7fr) minmax(200px, 0.8fr);
+  padding: 12px 16px 16px;
+}
+
+.overview-config-grid > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid var(--line);
+}
+
+.overview-config-grid > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.overview-config-grid span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.overview-config-grid strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric-split-bar {
@@ -988,6 +1215,7 @@ h2 {
 }
 
 .overview-attention-item strong {
+  grid-column: 1;
   color: var(--warning);
 }
 
@@ -996,6 +1224,19 @@ h2 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.35;
+}
+
+.overview-attention-item > span:not(.overview-attention-action) {
+  grid-column: 1;
+}
+
+.overview-attention-item .overview-attention-action {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--warning);
+  font-weight: 750;
+  white-space: nowrap;
 }
 
 .overview-attention-empty {
@@ -4241,6 +4482,14 @@ button.review-check-card:hover {
 }
 
 @media (max-width: 1100px) {
+  .overview-flow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-step::after {
+    display: none;
+  }
+
   .route-map {
     grid-template-columns: 220px minmax(0, 1fr);
   }
@@ -4380,9 +4629,12 @@ button.review-check-card:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .overview-workflow,
-  .overview-attention-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .overview-support-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-config-grid {
+    grid-template-columns: minmax(0, 1fr) repeat(2, minmax(160px, auto));
   }
 
   .review-workflow.has-review-side {
@@ -4599,10 +4851,28 @@ button.review-check-card:hover {
     width: 100%;
   }
 
-  .overview-workflow,
-  .overview-attention-list,
+  .overview-flow-steps,
   .review-checklist {
     grid-template-columns: 1fr;
+  }
+
+  .overview-health {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .overview-health-action {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .overview-config-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .overview-config-grid > div {
+    padding: 0;
+    border-left: 0;
   }
 
   .subsection-tabs {
@@ -4840,6 +5110,7 @@ button.review-check-card:hover {
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
       <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 8l-5 -5l-5 5" /><path d="M5 21h14" /></symbol>
       <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 10l-5 5l-5 -5" /><path d="M5 21h14" /></symbol>
+      <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -4953,50 +5224,92 @@ button.review-check-card:hover {
       <section id="messageBox" class="message hidden" aria-live="polite"></section>
 
       <section class="app-section is-active" data-section-panel="overview">
-        <section class="status-grid" aria-live="polite">
-          <div class="metric">
-            <span class="metric-label">Подписки (proxy-providers)</span>
-            <strong id="providerCount">0</strong>
+        <section class="overview-health panel" aria-live="polite">
+          <div id="overviewHealthIcon" class="overview-health-icon" aria-hidden="true">
+            <svg><use href="#icon-check"></use></svg>
           </div>
-          <div class="metric">
-            <span class="metric-label">Группы (proxy-groups)</span>
-            <strong id="groupCount">0</strong>
+          <div class="overview-health-copy">
+            <h2 id="overviewHealthTitle">Конфигурация не загружена</h2>
+            <p id="overviewHealthSummary">Откройте конфигурацию, чтобы проверить её состояние.</p>
           </div>
-          <div id="rulesMetric" class="metric" role="button" tabindex="0" aria-disabled="true">
-            <span class="metric-label">Проверка</span>
-            <strong id="rulesStatus">нет конфигурации</strong>
-            <span id="rulesHint" class="metric-hint" hidden></span>
-          </div>
+          <button class="button compact overview-health-action" type="button" data-section-target="review">Открыть проверку</button>
         </section>
 
-        <section class="overview-workflow" aria-label="Рабочие разделы">
-          <button class="overview-card" type="button" data-section-target="providers">
-            <span class="overview-card-kicker">Редактор</span>
+        <section class="overview-flow panel" aria-label="Путь конфигурации">
+          <div class="overview-flow-steps">
+          <button class="overview-step" type="button" data-section-target="providers">
+            <span class="overview-step-number">1</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-providers"></use></svg>
             <strong>Подписки</strong>
-            <span id="overviewProvidersSummary">Загрузите конфиг</span>
+            <span id="providerCount" class="overview-step-status">0 настроено</span>
+            <span id="overviewProvidersSummary" class="overview-step-note">Источники нод</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="routing">
-            <span class="overview-card-kicker">Поток</span>
-            <strong>Маршрутизация</strong>
-            <span id="overviewRoutingSummary">Схема появится после загрузки</span>
+          <button class="overview-step" type="button" data-section-target="routing">
+            <span class="overview-step-number">2</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-routing"></use></svg>
+            <strong>Группы и маршруты</strong>
+            <span id="groupCount" class="overview-step-status">0 групп</span>
+            <span id="overviewRoutingSummary" class="overview-step-note">Распределение трафика</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="nodes">
-            <span class="overview-card-kicker">Live</span>
+          <button class="overview-step" type="button" data-section-target="nodes">
+            <span class="overview-step-number">3</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg>
             <strong>Ноды Mihomo</strong>
-            <span id="overviewNodesSummary">Список появится после ответа ядра</span>
+            <span id="overviewNodesStatus" class="overview-step-status">Нет данных</span>
+            <span id="overviewNodesSummary" class="overview-step-note">Список появится после ответа Mihomo</span>
+            <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-card" type="button" data-section-target="review">
-            <span class="overview-card-kicker">Финал</span>
-            <strong>Проверка и вывод</strong>
-            <span id="overviewReviewSummary">Изменений нет</span>
+          <button id="rulesMetric" class="overview-step" type="button" aria-disabled="false">
+            <span class="overview-step-number">4</span>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-review"></use></svg>
+            <strong>Проверка</strong>
+            <span id="rulesStatus" class="overview-step-status">Нет конфигурации</span>
+            <span id="overviewReviewSummary" class="overview-step-note">Сначала загрузите конфигурацию</span>
+            <span id="rulesHint" class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
+          </div>
+          <p class="overview-flow-explainer">Подписки дают ноды <span aria-hidden="true">→</span> группы распределяют трафик <span aria-hidden="true">→</span> Mihomo применяет конфигурацию</p>
         </section>
 
-        <section id="overviewAttentionPanel" class="panel overview-attention-panel" aria-live="polite">
+        <div class="overview-support-grid">
+          <section id="overviewAttentionPanel" class="panel overview-attention-panel" aria-live="polite">
+            <div class="panel-head">
+              <h2>Что требует внимания</h2>
+            </div>
+            <div id="overviewAttentionList" class="overview-attention-list"></div>
+          </section>
+
+          <section class="panel overview-services" aria-live="polite">
+            <div class="panel-head">
+              <h2>Состояние сервисов</h2>
+            </div>
+            <button class="overview-services-body" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+              <span class="service-health-item is-loading" data-service-health="xkeen">
+                <span class="service-health-name">XKeen</span>
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="service-health-item is-loading" data-service-health="mihomo">
+                <span class="service-health-name">Mihomo</span>
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="overview-services-checked" data-service-health-checked>Проверка...</span>
+            </button>
+          </section>
+        </div>
+
+        <section class="panel overview-config" aria-live="polite">
           <div class="panel-head">
-            <h2>Что требует внимания</h2>
+            <h2>Конфигурация</h2>
           </div>
-          <div id="overviewAttentionList" class="overview-attention-list"></div>
+          <div class="overview-config-grid">
+            <div><span>Файл конфигурации</span><strong id="overviewConfigPath">Не загружен</strong></div>
+            <div><span>Состояние</span><strong id="overviewConfigChanges">Изменений нет</strong></div>
+            <div><span>Загружено</span><strong id="overviewConfigLoadedAt">—</strong></div>
+          </div>
         </section>
       </section>
 
@@ -5766,6 +6079,7 @@ const PROVIDER_DIFF_FIELDS = [
 
 const state = {
   fileName: '',
+  configLoadedAt: 0,
   originalText: '',
   providers: [],
   groups: [],
@@ -5846,6 +6160,7 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  overviewDiagnostics: [],
   lastUndo: null,
 };
 
@@ -5907,9 +6222,16 @@ const els = {
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
   overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
+  overviewNodesStatus: document.querySelector('#overviewNodesStatus'),
   overviewNodesSummary: document.querySelector('#overviewNodesSummary'),
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
+  overviewHealth: document.querySelector('.overview-health'),
+  overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
+  overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
+  overviewConfigPath: document.querySelector('#overviewConfigPath'),
+  overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
+  overviewConfigLoadedAt: document.querySelector('#overviewConfigLoadedAt'),
   mobileFlowActions: document.querySelector('#mobileFlowActions'),
   mobileChangesButton: document.querySelector('#mobileChangesButton'),
   mobileReviewButton: document.querySelector('#mobileReviewButton'),
@@ -5998,8 +6320,7 @@ els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
 els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
-els.rulesMetric.addEventListener('click', focusDiagnosticsPanel);
-els.rulesMetric.addEventListener('keydown', handleRulesMetricKeydown);
+els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
@@ -6140,6 +6461,7 @@ function handleFileSelect(event) {
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
     state.fileName = file.name;
+    state.configLoadedAt = Date.now();
     state.originalText = String(reader.result || '');
     state.isEditingConfiguration = false;
     parseAndRender();
@@ -6170,6 +6492,7 @@ async function loadRouterConfig(options = {}) {
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
     state.fileName = state.routerConfigPath || 'router config';
+    state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
     state.isEditingConfiguration = false;
     state.lastConfigCheckText = '';
@@ -6251,6 +6574,7 @@ async function saveRouterConfig() {
     state.routerMode = true;
     state.routerConfigPath = data.path || state.routerConfigPath;
     state.fileName = state.routerConfigPath;
+    state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
@@ -6845,6 +7169,7 @@ function renderServiceHealth() {
     button.disabled = loading;
     button.setAttribute('aria-busy', String(loading));
   });
+  renderOverviewHealth();
 }
 
 function formatServiceHealthTime(value) {
@@ -7249,27 +7574,77 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
   const errors = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error');
   const warnings = diagnostics.length - errors.length;
   const nodeCount = state.mihomoNodes.length;
+  const availableNodeCount = state.mihomoNodes.filter((node) => node.alive === true).length;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const attentionItems = [];
+  const knownProviderStatuses = activeProviders
+    .map((provider) => getProviderStatus(provider.name))
+    .filter((status) => status?.proxyCount !== null && status?.proxyCount !== undefined);
+  const workingProviderCount = knownProviderStatuses.filter((status) => Number(status.proxyCount) > 0).length;
+
+  state.overviewDiagnostics = diagnostics;
+  renderOverviewHealth();
+
+  els.providerCount.textContent = !state.originalText
+    ? 'Нет данных'
+    : state.providerStatusLoading
+      ? 'Обновляем статусы'
+      : knownProviderStatuses.length > 0
+        ? `${workingProviderCount} из ${activeProviders.length} ${workingProviderCount === 1 ? 'работает' : 'работают'}`
+        : formatConfiguredProviderCount(activeProviders.length);
 
   els.overviewProvidersSummary.textContent = state.originalText
-    ? `${formatRouteCount(activeProviders.length, 'подписка', 'подписки', 'подписок')} · ${formatProviderFilterSummary(activeProviders)}`
-    : 'Загрузите конфиг, чтобы редактировать подписки';
+    ? knownProviderStatuses.length > 0
+      ? `${formatProxyCount(knownProviderStatuses.reduce((total, status) => total + (Number(status.proxyCount) || 0), 0))} получено от Mihomo`
+      : formatProviderFilterSummary(activeProviders)
+    : 'Источники нод';
+  els.groupCount.textContent = state.originalText
+    ? formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')
+    : 'Нет данных';
   els.overviewRoutingSummary.textContent = state.originalText
-    ? `${formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')} · ${formatRouteCount(groupsWithUse.length, 'use-группа', 'use-группы', 'use-групп')}`
-    : 'Схема появится после загрузки';
+    ? `${formatRouteCount(groupsWithUse.length, 'группа использует', 'группы используют', 'групп используют')} подписки`
+    : 'Распределение трафика';
+  els.overviewNodesStatus.textContent = state.routerApiAvailable
+    ? state.nodeInventoryLoading
+      ? 'Загружаем список'
+      : state.nodeInventoryError
+        ? 'Статус недоступен'
+        : nodeCount > 0
+          ? availableNodeCount > 0
+            ? `${availableNodeCount} из ${nodeCount} доступны`
+            : `${formatProxyCount(nodeCount)} получено`
+          : 'Ноды не получены'
+    : 'Доступно в MihUI';
+  els.overviewNodesStatus.classList.remove('metric-warning', 'metric-danger');
+  if (state.routerApiAvailable && state.nodeInventoryError) {
+    els.overviewNodesStatus.classList.add('metric-danger');
+  } else if (state.routerApiAvailable && !state.nodeInventoryLoading && nodeCount === 0) {
+    els.overviewNodesStatus.classList.add('metric-warning');
+  }
   els.overviewNodesSummary.textContent = state.routerApiAvailable
     ? state.nodeInventoryLoading
-      ? 'Mihomo загружает список нод'
+      ? 'Mihomo обновляет данные'
       : state.nodeInventoryError
         ? state.nodeInventoryError
         : nodeCount > 0
-          ? `${formatProxyCount(nodeCount)} · live-список Mihomo`
+          ? 'Список получен от Mihomo'
           : 'Mihomo не вернул ноды'
     : 'Доступно при работе через локальный сервис';
   els.overviewReviewSummary.textContent = hasStructuralError
     ? 'Сначала исправьте структуру конфигурации'
-    : `${formatChangeCount(changeCount)} · ${missingConnectionCount > 0 ? `рекомендаций: ${missingConnectionCount}` : 'рекомендаций нет'}`;
+    : errors.length > 0
+      ? 'Исправьте ошибки перед сохранением'
+      : warnings > 0
+        ? `${formatWarningCount(warnings)} перед сохранением`
+        : changeCount > 0
+          ? `${formatChangeCount(changeCount)} · можно проверять`
+          : 'Можно сохранять';
+
+  els.overviewConfigPath.textContent = state.fileName || 'Не загружен';
+  els.overviewConfigPath.title = state.fileName || '';
+  els.overviewConfigChanges.textContent = state.originalText ? formatChangeCount(changeCount) : '—';
+  els.overviewConfigChanges.classList.toggle('metric-warning', changeCount > 0);
+  els.overviewConfigLoadedAt.textContent = state.configLoadedAt ? formatOverviewLoadedAt(state.configLoadedAt) : '—';
 
   if (!state.originalText) {
     attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });
@@ -7309,14 +7684,81 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     const button = document.createElement('button');
     const title = document.createElement('strong');
     const text = document.createElement('span');
+    const action = document.createElement('span');
     button.className = 'overview-attention-item';
     button.type = 'button';
     if (item.section) button.setAttribute('data-section-target', item.section);
     button.addEventListener('click', item.onClick || (() => setActiveSection(item.section)));
     title.textContent = item.title;
     text.textContent = item.text;
-    button.append(title, text);
+    action.className = 'overview-attention-action';
+    action.textContent = 'Посмотреть →';
+    button.append(title, text, action);
     els.overviewAttentionList.append(button);
+  });
+}
+
+function formatConfiguredProviderCount(count) {
+  const value = Number(count) || 0;
+  const noun = formatRouteCount(value, 'подписка', 'подписки', 'подписок');
+  return `${noun} ${value === 1 ? 'настроена' : 'настроены'}`;
+}
+
+function renderOverviewHealth() {
+  if (!els.overviewHealth) return;
+  const diagnostics = state.overviewDiagnostics || [];
+  const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
+  const warningCount = diagnostics.length - errorCount;
+  const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  const services = Object.values(state.serviceHealth.services || {});
+  const serviceProblem = state.routerApiAvailable && !state.serviceHealth.loading
+    && services.some((service) => service.state === 'error' || service.state === 'unavailable');
+  const nodesProblem = state.routerApiAvailable && !state.nodeInventoryLoading
+    && (Boolean(state.nodeInventoryError) || state.mihomoNodes.length === 0);
+  const recommendationCount = state.originalText ? getMissingConnectionSettings().length : 0;
+  const summaryParts = [];
+  let title = 'Конфигурация готова к работе';
+  let variant = '';
+
+  if (!state.originalText) {
+    title = 'Конфигурация не загружена';
+    variant = 'is-muted';
+    summaryParts.push('Откройте конфигурацию, чтобы проверить её состояние');
+  } else if (hasStructuralError || errorCount > 0) {
+    title = 'Конфигурацию нужно исправить';
+    variant = 'is-danger';
+    summaryParts.push(hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount));
+  } else {
+    if (state.routerApiAvailable) {
+      summaryParts.push(state.serviceHealth.loading ? 'Проверяем сервисы' : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
+    } else {
+      summaryParts.push('Структура проверена');
+    }
+    summaryParts.push(warningCount > 0 ? formatWarningCount(warningCount) : 'ошибок нет');
+    summaryParts.push(state.changeCount > 0 ? formatChangeCount(state.changeCount) : 'изменений нет');
+    if (nodesProblem) summaryParts.push(state.nodeInventoryError ? 'ноды недоступны' : 'ноды не получены');
+    if (recommendationCount > 0) summaryParts.push(formatRouteCount(recommendationCount, 'рекомендация', 'рекомендации', 'рекомендаций'));
+    if (serviceProblem || nodesProblem) {
+      title = serviceProblem ? 'Проверьте состояние сервисов' : 'Система работает, но требуется внимание';
+      variant = 'is-warning';
+    }
+  }
+
+  els.overviewHealth.classList.remove('is-muted', 'is-warning', 'is-danger');
+  if (variant) els.overviewHealth.classList.add(variant);
+  els.overviewHealthTitle.textContent = title;
+  els.overviewHealthSummary.textContent = summaryParts.join(' · ');
+}
+
+function formatOverviewLoadedAt(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
 }
 
@@ -7425,33 +7867,9 @@ function formatProviderFilterSummary(providers) {
 }
 
 function renderGroupMetric() {
-  const proxyGroups = state.groups.filter((group) => isProxyModeGroup(group)).length;
-  const serviceGroups = state.groups.length - proxyGroups;
-  const total = document.createElement('span');
-  const detail = document.createElement('span');
-  const split = document.createElement('span');
-  const servicePart = document.createElement('span');
-  const proxyPart = document.createElement('span');
-
-  els.groupCount.textContent = '';
-  els.groupCount.classList.toggle('metric-count-split', Boolean(state.originalText));
-
-  if (!state.originalText) {
-    els.groupCount.textContent = '0';
-    return;
-  }
-
-  total.className = 'metric-main';
-  detail.className = 'metric-detail';
-  split.className = 'metric-split-bar';
-  servicePart.className = 'is-service';
-  proxyPart.className = 'is-proxy';
-  servicePart.setAttribute('style', `flex-grow: ${serviceGroups || 0}`);
-  proxyPart.setAttribute('style', `flex-grow: ${proxyGroups || 0}`);
-  total.textContent = `${state.groups.length} всего`;
-  detail.textContent = `${serviceGroups} сервисных / ${proxyGroups} прокси`;
-  split.append(servicePart, proxyPart);
-  els.groupCount.append(total, detail, split);
+  els.groupCount.textContent = state.originalText
+    ? formatRouteCount(state.groups.length, 'группа', 'группы', 'групп')
+    : 'Нет данных';
 }
 
 function renderDiagnostics(diagnostics) {
@@ -7582,16 +8000,25 @@ function getDiagnosticContentParts(text) {
 
 function setRulesMetricActionable(isActionable) {
   els.rulesMetric.classList.toggle('metric-actionable', isActionable);
-  els.rulesMetric.setAttribute('aria-disabled', String(!isActionable));
-  els.rulesMetric.title = isActionable ? 'Открыть список предупреждений и ошибок' : '';
-  els.rulesHint.hidden = !isActionable;
-  els.rulesHint.textContent = isActionable ? 'Нажмите, чтобы увидеть' : '';
+  els.rulesMetric.setAttribute('data-diagnostics-action', String(isActionable));
+  els.rulesMetric.setAttribute('aria-disabled', 'false');
+  els.rulesMetric.title = isActionable ? 'Открыть список предупреждений и ошибок' : 'Открыть итоговую проверку';
+  els.rulesHint.hidden = false;
+  els.rulesHint.textContent = isActionable ? 'Открыть замечания →' : 'Открыть →';
 }
 
 function handleRulesMetricKeydown(event) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
   focusDiagnosticsPanel();
+}
+
+function openOverviewCheck() {
+  if (els.rulesMetric.getAttribute('data-diagnostics-action') === 'true') {
+    focusDiagnosticsPanel();
+    return;
+  }
+  setActiveSection('review');
 }
 
 function focusDiagnosticsPanel() {
