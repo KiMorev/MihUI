@@ -161,6 +161,12 @@ class ProviderAdapterTests(unittest.TestCase):
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode("utf-8"))
 
+    def get_json(self, server, path):
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{server.server_address[1]}{path}", timeout=3
+        ) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
     def restore_decryptor_env(self, previous):
         if previous is None:
             os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
@@ -641,6 +647,74 @@ class ProviderAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(headers, {"User-Agent": "MihomoTest/1.0", "x-hwid": "ABC123"})
+
+    def test_mihomo_service_status_reports_version(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"version": "1.19.9"},
+        ):
+            result = mihui_server.get_mihomo_service_status(Path("."))
+
+        self.assertEqual(result["state"], "ok")
+        self.assertEqual(result["detail"], "1.19.9")
+
+    def test_mihomo_service_status_reports_api_error(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=RuntimeError("connection refused"),
+        ):
+            result = mihui_server.get_mihomo_service_status(Path("."))
+
+        self.assertEqual(result["state"], "error")
+        self.assertIn("connection refused", result["detail"])
+
+    def test_xkeen_service_status_reports_missing_binary(self):
+        with mock.patch.object(mihui_server, "find_xkeen_binary", return_value=""):
+            result = mihui_server.get_xkeen_service_status(Path("."))
+
+        self.assertEqual(result["state"], "unavailable")
+
+    def test_xkeen_service_status_uses_status_command(self):
+        completed = mihui_server.subprocess.CompletedProcess(
+            ["/opt/bin/xkeen", "-status"], 0, stdout="running\n".encode()
+        )
+        with mock.patch.object(
+            mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+        ), mock.patch.object(mihui_server.subprocess, "run", return_value=completed) as run:
+            result = mihui_server.get_xkeen_service_status(Path("."))
+
+        self.assertEqual(result["state"], "ok")
+        self.assertEqual(result["detail"], "running")
+        run.assert_called_once_with(
+            ["/opt/bin/xkeen", "-status"],
+            stdout=mihui_server.subprocess.PIPE,
+            stderr=mihui_server.subprocess.STDOUT,
+            timeout=mihui_server.XKEEN_STATUS_TIMEOUT,
+            check=False,
+        )
+
+    def test_services_status_endpoint_is_read_only_and_returns_both_services(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            payload = {
+                "ok": True,
+                "checkedAt": 123,
+                "services": {
+                    "xkeen": {"state": "ok", "message": "XKeen работает", "detail": ""},
+                    "mihomo": {"state": "ok", "message": "Mihomo отвечает", "detail": "1.19.9"},
+                },
+            }
+            try:
+                with mock.patch.object(mihui_server, "get_services_status", return_value=payload):
+                    status, result = self.get_json(server, "/api/services/status")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(result, payload)
 
     def test_save_checked_config_rejects_invalid_config_without_writing(self):
         with tempfile.TemporaryDirectory() as temp_dir:

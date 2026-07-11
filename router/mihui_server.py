@@ -23,6 +23,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
+XKEEN_STATUS_TIMEOUT = 8
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
 PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
@@ -115,6 +116,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/update/status":
             self.send_json(HTTPStatus.OK, snapshot_update_state())
+            return
+        if route == "/api/services/status":
+            self.send_json(HTTPStatus.OK, get_services_status(self.app_dir))
             return
         if route == "/api/providers/status":
             self.handle_providers_status()
@@ -706,6 +710,91 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
     if not raw.strip():
         return {}
     return json.loads(raw)
+
+
+def get_services_status(app_dir):
+    return {
+        "ok": True,
+        "checkedAt": int(time.time()),
+        "services": {
+            "xkeen": get_xkeen_service_status(app_dir),
+            "mihomo": get_mihomo_service_status(app_dir),
+        },
+    }
+
+
+def get_mihomo_service_status(app_dir):
+    try:
+        data = mihomo_api_request(app_dir, "/version", timeout=3)
+        version = str(data.get("version") or "").strip() if isinstance(data, dict) else ""
+        return {
+            "state": "ok",
+            "message": "Mihomo отвечает",
+            "detail": version,
+        }
+    except Exception as error:
+        return {
+            "state": "error",
+            "message": "Mihomo не отвечает",
+            "detail": str(error),
+        }
+
+
+def find_xkeen_binary(app_dir):
+    env = get_env(app_dir)
+    candidates = [
+        env.get("MIHUI_XKEEN_BIN", ""),
+        "/opt/bin/xkeen",
+        "/opt/sbin/xkeen",
+        "/usr/bin/xkeen",
+        shutil.which("xkeen") or "",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if Path(candidate).is_file():
+            return candidate
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return ""
+
+
+def get_xkeen_service_status(app_dir):
+    binary = find_xkeen_binary(app_dir)
+    if not binary:
+        return {
+            "state": "unavailable",
+            "message": "XKeen не найден",
+            "detail": "",
+        }
+
+    try:
+        result = subprocess.run(
+            [binary, "-status"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=XKEEN_STATUS_TIMEOUT,
+            check=False,
+        )
+        output = result.stdout.decode("utf-8", "replace").strip()
+        return {
+            "state": "ok" if result.returncode == 0 else "error",
+            "message": "XKeen работает" if result.returncode == 0 else "XKeen остановлен или неисправен",
+            "detail": output,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "state": "error",
+            "message": "XKeen не ответил вовремя",
+            "detail": "",
+        }
+    except Exception as error:
+        return {
+            "state": "error",
+            "message": "Не удалось проверить XKeen",
+            "detail": str(error),
+        }
 
 
 def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):
