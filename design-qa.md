@@ -1,49 +1,47 @@
-# Design QA — groups registry
+# Design QA — rules registry
 
-- Source visual truth: `C:\Users\morev\.codex\generated_images\019f4c7b-d445-7022-8f6d-8e960a009d35\exec-e9fb6b43-87aa-41a9-9d0d-cedacec09f50.png`
-- Implementation screenshot: `audit-groups-redesign-2026-07-11/05-implementation-final.png`
-- Full-view comparison: `audit-groups-redesign-2026-07-11/06-comparison-final.png`
-- Viewport: 1265 × 712 comparison crop.
-- State: router mock, `config (4).yaml`, Groups tab, PROXY selected, inspector closed.
+- Source visual truth: `audit-rules-redesign-2026-07-11/selected-hybrid.png`
+- Implementation screenshot: `audit-rules-redesign-2026-07-11/03-implementation-selected-rule.png`
+- Full-view comparison: `audit-rules-redesign-2026-07-11/04-comparison.png`
+- Focused comparison: `audit-rules-redesign-2026-07-11/05-focused-comparison.png`
+- Viewport: 1440 × 900.
+- State: router mock, `config (4).yaml`, «Маршрутизация → Правила», правило 26 (MATCH → PROXY) выбрано.
 
 ## Findings
 
 No actionable P0, P1 or P2 findings remain.
 
-- Typography: passed. Heading, table, compact metadata and inspector hierarchy use the established WebMihomo scale and weights.
-- Spacing and layout: passed. Registry remains dominant, inspector is secondary, and table rows align with the approved subscriptions pattern.
-- Colors and tokens: passed. Existing teal accent, pale selected row, neutral dividers and light surfaces are reused.
-- Image and icon fidelity: passed. The target contains no raster assets; existing project icons and native controls are retained without substitute artwork.
-- Copy and content: passed. Real group names, types, provider counts, route order and rule usage are rendered from the configuration. Live node counts appear when Mihomo supplies them.
-- Interactions: passed. Group selection, name search, type filters, explicit edit mode, close editor, add group, guarded group deletion with undo and the existing relationship matrix remain functional.
-- Responsive behavior: passed by code review. Tablet stacks registry and inspector; mobile removes lower-priority columns and keeps the search and filters usable without horizontal overflow.
-- Accessibility: passed for the implemented scope. Table semantics, labeled search, keyboard-focusable row controls and explicit button names remain present.
+- Typography: passed. Заголовок, сводка, строки реестра и инспектор используют действующую типографическую шкалу WebMihomo.
+- Spacing and layout: passed. Реестр остаётся главным рабочим блоком, инспектор — вторичным; панель инструментов и четыре колонки соответствуют выбранному гибриду.
+- Colors and tokens: passed. Использованы существующие нейтральные поверхности, бирюзовый акцент и цветовые ярлыки DIRECT, REJECT и PROXY.
+- Image and icon fidelity: passed. Растровых материалов в целевом макете нет; использованы существующие SVG-иконки проекта.
+- Copy and content: passed. Сводка 23 DIRECT, 2 REJECT, 1 PROXY и состояние порядка строятся из загруженной конфигурации.
+- Interactions: passed. Выбор правила, фильтрация по цели, открытие и закрытие режима редактирования работают без создания изменений.
+- Responsive behavior: passed by code review. На узких экранах реестр и инспектор складываются вертикально, второстепенные размеры колонок сокращаются без горизонтального переполнения.
+- Accessibility: passed for the implemented scope. Строки правил доступны с клавиатуры, фильтры имеют подписи, а графический статус получает `aria-label` и `title` без видимого текста «Корректно».
 
 ## Intentional product constraints
 
-- The existing panel title `Реестр групп` remains above the toolbar to match the implemented subscriptions screen, even though the concept image omits that label.
-- Group deletion is blocked while rules or other groups reference the selected group; the interface lists those dependencies instead of silently rewriting routes.
-- The existing subscription/group relationship matrix is preserved below the workbench as an advanced bulk-editing tool.
+- В реальном реестре используется прокрутка всех 26 правил; синтетический разрыв «…» из макета не воспроизводится, потому что он скрывал бы реальные строки и нарушал управление порядком.
+- В компактной таблице состояние показано только маркером. Полное объяснение корректности и назначения правила находится в инспекторе справа.
+- Редактирование остаётся явным режимом инспектора, чтобы случайный выбор строки не менял YAML.
 
 ## Comparison history
 
 ### Iteration 1
 
-- P2: type-filter controls were visibly smaller than the target toolbar controls.
-- Fix: increased group filter height, padding and text size.
-- P2: group search also matched member names, leaving unrelated groups visible.
-- Fix: limited search to group name and type so the registry and inspector remain synchronized.
-- Evidence after fixes: `audit-groups-redesign-2026-07-11/05-implementation-final.png` and `audit-groups-redesign-2026-07-11/06-comparison-final.png`.
-
-## Focused comparison
-
-A separate crop was not required: at the 1265 × 712 combined comparison, toolbar controls, table text, selected state and inspector labels remain readable at original detail.
+- P2: подписи фильтров и счётчик результатов визуально перегружали компактную панель.
+- Fix: подписи сохранены для доступности, но убраны из визуального потока; панель сведена к поиску, двум фильтрам и основной кнопке.
+- P2: у строк реестра был лишний `role=listitem`, не соответствующий кнопочной модели выбора.
+- Fix: оставлены нативные кнопки строк и доступные имена состояний.
+- Evidence after fixes: `audit-rules-redesign-2026-07-11/03-implementation-selected-rule.png` and `audit-rules-redesign-2026-07-11/05-focused-comparison.png`.
 
 ## Verification
 
 - `node --check app.js`: passed.
-- `npm.cmd test`: 104/104 passed.
+- `npm.cmd test`: 110/110 passed.
 - Main/standalone synchronization: passed.
-- Browser scenarios: selection, search, editor open/close and tab summary passed.
+- Browser console warnings/errors: none.
+- Browser scenarios: выбор правила, фильтр PROXY, вход и выход из режима редактирования passed.
 
 final result: passed

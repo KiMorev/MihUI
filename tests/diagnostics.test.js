@@ -77,6 +77,7 @@ function loadApp(source) {
       body: createElement(),
       createElement,
       createElementNS: createElement,
+      createTextNode: (value) => ({ textContent: String(value) }),
       querySelector: createElement,
       querySelectorAll: () => [],
     },
@@ -136,6 +137,9 @@ globalThis.__app = {
   matchesRuleFilters,
   ruleRequiresValue,
   getRuleScenarios,
+  getRulesOrderState,
+  getRuleStatus,
+  describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
   persistSuccessfulConfigCheck,
@@ -436,6 +440,29 @@ rules:
 
     app.removeRule(app.state.rules.find((rule) => rule.value === 'first.example'));
     assert.doesNotMatch(app.state.outputText, /first\.example/);
+  });
+
+  test(`${source.name}: summarizes rule order and selected rule status`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - MATCH,Proxy
+`);
+
+    assert.equal(app.getRulesOrderState(app.state.rules).status, 'ok');
+    assert.equal(app.getRuleStatus(app.state.rules[1], 1, app.state.rules).status, 'ok');
+    assert.match(app.describeRuleRouting(app.state.rules[1]), /не совпал с правилами выше/);
+
+    app.moveRule(app.state.rules[1], -1);
+
+    assert.equal(app.getRulesOrderState(app.state.rules).status, 'warning');
+    assert.equal(app.getRuleStatus(app.state.rules[0], 0, app.state.rules).status, 'warning');
   });
 
   test(`${source.name}: reports duplicated provider urls`, () => {

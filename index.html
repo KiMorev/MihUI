@@ -350,18 +350,17 @@
           </section>
 
           <section id="routingRulesPanel" class="panel rules-panel" role="tabpanel" aria-labelledby="routingRulesTab" data-routing-view-panel="rules" hidden>
-            <div class="panel-head">
-              <h2>Правила (rules)</h2>
-              <div class="panel-actions">
-                <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
-                  <span>+ Добавить правило</span>
-                </button>
+            <div class="panel-head rules-panel-head">
+              <div>
+                <h2>Правила (rules)</h2>
+                <p id="rulesOrderSummary" class="rules-order-summary">Конфигурация не загружена</p>
               </div>
             </div>
+            <div id="rulesTargetSummary" class="rules-target-summary" aria-label="Распределение правил по целям"></div>
             <div class="rule-filters" aria-label="Фильтры правил">
               <label>
                 <span>Поиск</span>
-                <input id="ruleSearchInput" type="search" placeholder="Условие или цель" autocomplete="off" />
+                <input id="ruleSearchInput" type="search" placeholder="Поиск правила" autocomplete="off" />
               </label>
               <label>
                 <span>Тип</span>
@@ -376,12 +375,31 @@
                 </select>
               </label>
               <span id="rulesFilterSummary" class="rule-filter-summary" aria-live="polite"></span>
+              <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
+                <span>+ Добавить правило</span>
+              </button>
             </div>
-            <div id="rulesEditorList" class="rules-editor-list empty-state">
-              <div class="empty-state-content">
-                <strong>Правила появятся после загрузки</strong>
-                <span>Здесь можно будет менять условия и цели маршрутизации.</span>
+            <div class="rules-workbench">
+              <div class="rules-registry">
+                <div class="rules-table-head" aria-hidden="true">
+                  <span>№</span>
+                  <span>Правило</span>
+                  <span>Цель</span>
+                  <span>Статус</span>
+                </div>
+                <div id="rulesEditorList" class="rules-editor-list empty-state">
+                  <div class="empty-state-content">
+                    <strong>Правила появятся после загрузки</strong>
+                    <span>Здесь можно будет менять условия и цели маршрутизации.</span>
+                  </div>
+                </div>
               </div>
+              <aside id="ruleInspector" class="rule-inspector empty-state" aria-live="polite">
+                <div class="empty-state-content">
+                  <strong>Выберите правило</strong>
+                  <span>Справа появится его роль в маршрутизации.</span>
+                </div>
+              </aside>
             </div>
           </section>
 

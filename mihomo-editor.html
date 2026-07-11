@@ -3413,32 +3413,94 @@ input.is-invalid {
   overflow: hidden;
 }
 
-.rules-editor-list {
+.rules-panel-head > div {
   display: grid;
+  gap: 3px;
+}
+
+.rules-order-summary {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.rules-order-summary.is-warning {
+  color: var(--warning);
+}
+
+.rules-target-summary {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 46px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rules-target-summary-item {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
-  padding: 10px;
+  min-height: 24px;
+  padding: 0 16px;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rules-target-summary-item:first-child {
+  padding-left: 0;
+}
+
+.rules-target-summary-item:last-child {
+  border-right: 0;
+}
+
+.rules-target-summary-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.rules-target-summary-item.is-direct .rules-target-summary-dot {
+  background: var(--success);
+}
+
+.rules-target-summary-item.is-reject .rules-target-summary-dot {
+  background: #d92d20;
+}
+
+.rules-target-summary-item.is-proxy .rules-target-summary-dot,
+.rules-target-summary-item.is-group .rules-target-summary-dot {
+  background: #4d9bd6;
 }
 
 .rule-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(140px, 0.65fr) minmax(140px, 0.65fr) auto;
   gap: 10px;
-  align-items: end;
-  padding: 10px;
+  align-items: center;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel-soft);
+  background: var(--panel);
 }
 
 .rule-filters label {
+  position: relative;
   min-width: 0;
-  display: grid;
-  gap: 5px;
+  display: block;
 }
 
 .rule-filters label > span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .rule-filters input,
@@ -3453,48 +3515,318 @@ input.is-invalid {
 }
 
 .rule-filter-summary {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
-.rules-editor-list.empty-state {
-  min-height: 150px;
-}
-
-.rule-row {
+.rules-workbench {
   display: grid;
-  grid-template-columns: 34px minmax(130px, 0.8fr) minmax(180px, 1.3fr) minmax(160px, 1fr) auto;
-  gap: 8px;
-  align-items: end;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.9fr);
+  min-height: 520px;
+}
+
+.rules-registry {
+  min-width: 0;
+  border-right: 1px solid var(--line);
+}
+
+.rules-table-head,
+.rule-registry-row {
+  display: grid;
+  grid-template-columns: 54px minmax(210px, 1fr) minmax(100px, 150px) 66px;
+  align-items: center;
+}
+
+.rules-table-head {
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfd;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.rules-editor-list {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.rules-editor-list.empty-state {
+  display: grid;
+  min-height: 300px;
+  padding: 24px;
+}
+
+.rule-registry-row {
+  appearance: none;
+  width: 100%;
+  min-height: 54px;
+  padding: 6px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent;
   background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
-.rule-row.is-new {
-  border-color: rgba(0, 111, 120, 0.35);
-  background: #f0fbfc;
+.rule-registry-row:hover {
+  background: #f8fbfb;
 }
 
-.rule-row-number {
+.rule-registry-row:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid rgba(8, 124, 128, 0.28);
+  outline-offset: -2px;
+}
+
+.rule-registry-row.is-selected {
+  border-left-color: var(--accent);
+  background: #eff9f9;
+}
+
+.rule-registry-row.is-new:not(.is-selected) {
+  background: #f8fdfd;
+}
+
+.rule-registry-number {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rule-registry-identity {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.rule-registry-identity strong,
+.rule-registry-identity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-registry-identity strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rule-registry-identity span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.rule-target-pill,
+.rule-type-pill,
+.rule-number-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 34px;
-  min-width: 28px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--panel-soft);
+  justify-self: start;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.rule-target-pill.is-direct {
+  border-color: rgba(33, 138, 74, 0.16);
+  background: #edf8f1;
+  color: var(--success);
+}
+
+.rule-target-pill.is-reject {
+  border-color: rgba(180, 35, 24, 0.16);
+  background: #fff0ef;
+  color: var(--danger);
+}
+
+.rule-target-pill.is-proxy,
+.rule-target-pill.is-group,
+.rule-type-pill,
+.rule-number-pill {
+  border-color: rgba(26, 115, 184, 0.14);
+  background: #eaf4fb;
+  color: #176ca6;
+}
+
+.rule-status-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: var(--success);
+}
+
+.rule-status-marker svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rule-status-marker.is-warning {
+  color: var(--warning);
+}
+
+.rule-status-marker.is-error {
+  color: var(--danger);
+}
+
+.rule-inspector {
+  min-width: 0;
+  padding: 20px;
+  background: #fff;
+}
+
+.rule-inspector.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 300px;
+}
+
+.rule-inspector-summary,
+.rule-inspector-editor {
+  display: grid;
+  gap: 16px;
+}
+
+.rule-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rule-inspector-head h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.rule-inspector-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rule-inspector-status.is-warning {
+  color: var(--warning);
+}
+
+.rule-inspector-status.is-error {
+  color: var(--danger);
+}
+
+.rule-inspector-status .rule-status-marker {
+  width: 20px;
+  height: 20px;
+}
+
+.rule-inspector-explanation {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rule-inspector-section {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rule-inspector-section > span,
+.rule-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rule-inspector-section-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rule-inspector-section-row strong:not(.rule-target-pill) {
+  min-width: 0;
+  margin-right: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.rule-inspector-section p {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 750;
+}
+
+.rule-order-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.rule-order-button:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.42;
+}
+
+.rule-order-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.rule-order-button.is-up svg {
+  transform: rotate(180deg);
+}
+
+.rule-inspector-fields {
+  display: grid;
+  gap: 12px;
 }
 
 .rule-field {
@@ -3524,22 +3856,18 @@ input.is-invalid {
   font: inherit;
 }
 
-.rule-row-actions {
-  display: inline-flex;
-  gap: 6px;
+.rule-inspector-order {
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.rule-row-actions .button {
-  width: 40px;
-  min-height: 40px;
-  padding: 0;
-}
-
-.rule-row-actions .icon-button {
-  width: 40px;
-  height: 40px;
+.rule-inspector-actions {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
 }
 
 .route-map {
@@ -5169,26 +5497,25 @@ button.review-check-card:focus-visible {
     grid-column: 1 / -1;
   }
 
-  .rule-row {
-    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) auto;
-  }
-
   .rule-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .rule-filter-summary {
-    grid-column: 1 / -1;
-  }
-
-  .rule-target-field {
-    grid-column: 2 / 4;
-  }
-
-  .rule-row-actions {
-    grid-column: 4;
-    grid-row: 1 / span 2;
     align-self: center;
+  }
+
+  .rules-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .rules-registry {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rules-editor-list {
+    max-height: 420px;
   }
 
   .route-map,
@@ -5255,12 +5582,11 @@ button.review-check-card:focus-visible {
   }
 
   .icon-button,
-  .rule-row-actions .icon-button {
+  .rule-order-button {
     width: 44px;
     height: 44px;
   }
 
-  .rule-row-actions .button,
   .group-proxy-order-actions button {
     width: 44px;
     min-height: 44px;
@@ -5515,10 +5841,6 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .rule-row {
-    grid-template-columns: 1fr;
-  }
-
   .rule-filters {
     grid-template-columns: 1fr;
   }
@@ -5527,18 +5849,32 @@ button.review-check-card:focus-visible {
     grid-column: auto;
   }
 
-  .rule-target-field,
-  .rule-row-actions {
-    grid-column: auto;
-    grid-row: auto;
+  .rules-target-summary {
+    flex-wrap: wrap;
+    gap: 6px 0;
+    padding-block: 10px;
   }
 
-  .rule-row-number {
-    justify-self: start;
+  .rules-table-head,
+  .rule-registry-row {
+    grid-template-columns: 38px minmax(0, 1fr) 74px 34px;
   }
 
-  .rule-row-actions {
-    justify-content: flex-start;
+  .rules-table-head,
+  .rule-registry-row {
+    padding-inline: 8px;
+  }
+
+  .rule-target-pill {
+    max-width: 70px;
+    overflow: hidden;
+    padding-inline: 6px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rule-inspector {
+    padding: 16px;
   }
 
   .provider-name-row,
@@ -5998,18 +6334,17 @@ button.review-check-card:focus-visible {
           </section>
 
           <section id="routingRulesPanel" class="panel rules-panel" role="tabpanel" aria-labelledby="routingRulesTab" data-routing-view-panel="rules" hidden>
-            <div class="panel-head">
-              <h2>Правила (rules)</h2>
-              <div class="panel-actions">
-                <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
-                  <span>+ Добавить правило</span>
-                </button>
+            <div class="panel-head rules-panel-head">
+              <div>
+                <h2>Правила (rules)</h2>
+                <p id="rulesOrderSummary" class="rules-order-summary">Конфигурация не загружена</p>
               </div>
             </div>
+            <div id="rulesTargetSummary" class="rules-target-summary" aria-label="Распределение правил по целям"></div>
             <div class="rule-filters" aria-label="Фильтры правил">
               <label>
                 <span>Поиск</span>
-                <input id="ruleSearchInput" type="search" placeholder="Условие или цель" autocomplete="off" />
+                <input id="ruleSearchInput" type="search" placeholder="Поиск правила" autocomplete="off" />
               </label>
               <label>
                 <span>Тип</span>
@@ -6024,12 +6359,31 @@ button.review-check-card:focus-visible {
                 </select>
               </label>
               <span id="rulesFilterSummary" class="rule-filter-summary" aria-live="polite"></span>
+              <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
+                <span>+ Добавить правило</span>
+              </button>
             </div>
-            <div id="rulesEditorList" class="rules-editor-list empty-state">
-              <div class="empty-state-content">
-                <strong>Правила появятся после загрузки</strong>
-                <span>Здесь можно будет менять условия и цели маршрутизации.</span>
+            <div class="rules-workbench">
+              <div class="rules-registry">
+                <div class="rules-table-head" aria-hidden="true">
+                  <span>№</span>
+                  <span>Правило</span>
+                  <span>Цель</span>
+                  <span>Статус</span>
+                </div>
+                <div id="rulesEditorList" class="rules-editor-list empty-state">
+                  <div class="empty-state-content">
+                    <strong>Правила появятся после загрузки</strong>
+                    <span>Здесь можно будет менять условия и цели маршрутизации.</span>
+                  </div>
+                </div>
               </div>
+              <aside id="ruleInspector" class="rule-inspector empty-state" aria-live="polite">
+                <div class="empty-state-content">
+                  <strong>Выберите правило</strong>
+                  <span>Справа появится его роль в маршрутизации.</span>
+                </div>
+              </aside>
             </div>
           </section>
 
@@ -6731,6 +7085,8 @@ const state = {
   activeSection: 'overview',
   providerView: 'editor',
   routingView: 'map',
+  selectedRuleId: '',
+  ruleInspectorEditing: false,
   ruleFilters: {
     search: '',
     type: '',
@@ -6870,8 +7226,11 @@ const els = {
   ruleTypeFilter: document.querySelector('#ruleTypeFilter'),
   ruleTargetFilter: document.querySelector('#ruleTargetFilter'),
   rulesFilterSummary: document.querySelector('#rulesFilterSummary'),
+  rulesOrderSummary: document.querySelector('#rulesOrderSummary'),
+  rulesTargetSummary: document.querySelector('#rulesTargetSummary'),
   groupOrderList: document.querySelector('#groupOrderList'),
   rulesEditorList: document.querySelector('#rulesEditorList'),
+  ruleInspector: document.querySelector('#ruleInspector'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
@@ -7161,6 +7520,8 @@ function resetWorkspaceViewState() {
   state.groupTypeFilter = 'all';
   state.routingView = 'map';
   state.ruleFilters = { search: '', type: '', target: '' };
+  state.selectedRuleId = '';
+  state.ruleInspectorEditing = false;
   state.lastUndo = null;
 }
 
@@ -11133,30 +11494,82 @@ function renderRulesEditor() {
   const rulesViewTab = [...els.routingViewTabs].find((button) => button.dataset.routingView === 'rules');
   if (rulesViewTab) rulesViewTab.setAttribute('aria-label', `Правила, ${activeRules.length}`);
   els.rulesFilterSummary.textContent = `Показано ${visibleRules.length} из ${activeRules.length}`;
+  renderRulesSummary(activeRules);
   els.rulesEditorList.innerHTML = '';
   els.rulesEditorList.classList.toggle('empty-state', !state.originalText || activeRules.length === 0);
 
   if (!state.originalText) {
     setEmptyState(els.rulesEditorList, 'Правила появятся после загрузки', 'Загрузите конфигурацию, чтобы редактировать rules.');
+    setEmptyState(els.ruleInspector, 'Выберите правило', 'Справа появится его роль в маршрутизации.');
     return;
   }
 
   if (activeRules.length === 0) {
     setEmptyState(els.rulesEditorList, 'Нет правил маршрутизации', 'Добавьте правило, чтобы направить трафик в группу или встроенный выход.');
+    setEmptyState(els.ruleInspector, 'Нет выбранного правила', 'Добавьте первое правило маршрутизации.');
     return;
   }
 
   if (visibleRules.length === 0) {
     els.rulesEditorList.classList.add('empty-state');
     setEmptyState(els.rulesEditorList, 'Правила не найдены', 'Измените поиск или фильтры. Порядок YAML не изменен.');
+    setEmptyState(els.ruleInspector, 'Правила не найдены', 'Измените поиск или фильтры, чтобы выбрать правило.');
     return;
   }
 
   els.rulesEditorList.classList.remove('empty-state');
+  const selectedRule = ensureSelectedRule(visibleRules);
   visibleRules.forEach((rule) => {
     const index = activeRules.indexOf(rule);
-    els.rulesEditorList.append(createRuleEditorRow(rule, index, activeRules.length));
+    els.rulesEditorList.append(createRuleRegistryRow(rule, index, activeRules));
   });
+  renderRuleInspector(selectedRule, activeRules);
+}
+
+function ensureSelectedRule(visibleRules) {
+  const selected = visibleRules.find((rule) => rule.id === state.selectedRuleId) || visibleRules[0] || null;
+  state.selectedRuleId = selected?.id || '';
+  return selected;
+}
+
+function renderRulesSummary(activeRules) {
+  if (!els.rulesOrderSummary || !els.rulesTargetSummary) return;
+  const orderState = getRulesOrderState(activeRules);
+  els.rulesOrderSummary.textContent = activeRules.length > 0
+    ? `${formatRouteCount(activeRules.length, 'правило', 'правила', 'правил')} · ${orderState.label}`
+    : 'Правила не настроены';
+  els.rulesOrderSummary.className = `rules-order-summary is-${orderState.status}`;
+
+  const targetCounts = new Map();
+  activeRules.forEach((rule) => {
+    const target = String(rule.target || 'Без цели').trim() || 'Без цели';
+    targetCounts.set(target, (targetCounts.get(target) || 0) + 1);
+  });
+  els.rulesTargetSummary.textContent = '';
+  [...targetCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
+    .slice(0, 4)
+    .forEach(([target, count]) => {
+      const item = document.createElement('span');
+      const dot = document.createElement('span');
+      const text = document.createElement('span');
+      item.className = `rules-target-summary-item ${getRuleTargetTone(target)}`;
+      dot.className = 'rules-target-summary-dot';
+      text.textContent = `${count} ${target}`;
+      item.append(dot, text);
+      els.rulesTargetSummary.append(item);
+    });
+}
+
+function getRulesOrderState(rules) {
+  if (rules.length === 0) return { status: 'neutral', label: 'порядок не задан' };
+  const matchIndexes = rules
+    .map((rule, index) => (normalizeRuleType(rule.type) === 'MATCH' ? index : -1))
+    .filter((index) => index !== -1);
+  if (matchIndexes.length === 0) return { status: 'warning', label: 'MATCH отсутствует' };
+  if (matchIndexes.length > 1) return { status: 'warning', label: 'несколько правил MATCH' };
+  if (matchIndexes[0] !== rules.length - 1) return { status: 'warning', label: 'MATCH должен быть последним' };
+  return { status: 'ok', label: 'порядок корректен · MATCH на последнем месте' };
 }
 
 function handleRuleFilterChange() {
@@ -11196,9 +11609,116 @@ function replaceRuleFilterOptions(select, allLabel, values, selected) {
   }
 }
 
-function createRuleEditorRow(rule, index, count) {
-  const row = document.createElement('article');
+function createRuleRegistryRow(rule, index, activeRules) {
+  const row = document.createElement('button');
   const number = document.createElement('span');
+  const identity = document.createElement('span');
+  const condition = document.createElement('strong');
+  const type = document.createElement('span');
+  const target = document.createElement('span');
+  const status = getRuleStatus(rule, index, activeRules);
+  const statusMarker = createRuleStatusMarker(status);
+
+  row.className = 'rule-registry-row';
+  row.type = 'button';
+  row.setAttribute('data-rule-id', rule.id);
+  row.classList.toggle('is-selected', rule.id === state.selectedRuleId);
+  row.classList.toggle('is-new', Boolean(rule.isNew));
+  row.setAttribute('aria-pressed', String(rule.id === state.selectedRuleId));
+  row.setAttribute('aria-label', `Правило ${index + 1}: ${formatRuleCondition(rule)}, цель ${rule.target || 'не задана'}, ${status.label}`);
+  row.addEventListener('click', () => {
+    state.selectedRuleId = rule.id;
+    state.ruleInspectorEditing = false;
+    renderRulesEditor();
+  });
+
+  number.className = 'rule-registry-number';
+  number.textContent = String(index + 1);
+  identity.className = 'rule-registry-identity';
+  condition.textContent = formatRuleCondition(rule);
+  type.textContent = normalizeRuleType(rule.type) || 'Тип не задан';
+  identity.append(condition, type);
+  target.className = `rule-target-pill ${getRuleTargetTone(rule.target)}`;
+  target.textContent = rule.target || 'Без цели';
+  row.append(number, identity, target, statusMarker);
+  return row;
+}
+
+function renderRuleInspector(rule, activeRules) {
+  if (!els.ruleInspector) return;
+  els.ruleInspector.textContent = '';
+  els.ruleInspector.classList.toggle('empty-state', !rule);
+  if (!rule) {
+    setEmptyState(els.ruleInspector, 'Выберите правило', 'Справа появится его роль в маршрутизации.');
+    return;
+  }
+  const index = activeRules.indexOf(rule);
+  els.ruleInspector.append(
+    state.ruleInspectorEditing
+      ? createRuleInspectorEditor(rule, index, activeRules.length)
+      : createRuleInspectorSummary(rule, index, activeRules),
+  );
+}
+
+function createRuleInspectorSummary(rule, index, activeRules) {
+  const wrap = document.createElement('div');
+  const head = document.createElement('div');
+  const title = document.createElement('h3');
+  const type = document.createElement('span');
+  const status = getRuleStatus(rule, index, activeRules);
+  const statusLine = document.createElement('div');
+  const explanation = document.createElement('p');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const removeButton = document.createElement('button');
+
+  wrap.className = 'rule-inspector-summary';
+  head.className = 'rule-inspector-head';
+  title.textContent = `Правило ${index + 1}`;
+  type.className = 'rule-type-pill';
+  type.textContent = normalizeRuleType(rule.type) || 'RULE';
+  head.append(title, type);
+
+  statusLine.className = `rule-inspector-status is-${status.status}`;
+  statusLine.append(createRuleStatusMarker(status), document.createTextNode(formatRuleInspectorStatus(rule, index, activeRules, status)));
+  explanation.className = 'rule-inspector-explanation';
+  explanation.textContent = describeRuleRouting(rule);
+
+  wrap.append(
+    head,
+    statusLine,
+    explanation,
+    createRuleInspectorSection('Позиция в маршрутизации', `${index + 1} из ${activeRules.length}${index === activeRules.length - 1 ? ' (последнее)' : ''}`, [
+      createRuleOrderButton(rule, index, activeRules.length, -1),
+      createRuleOrderButton(rule, index, activeRules.length, 1),
+    ]),
+    createRuleInspectorSection('Условие', formatRuleCondition(rule), [], getRuleConditionDescription(rule)),
+    createRuleInspectorSection('Цель', rule.target || 'Не задана', [], describeRuleTarget(rule.target), getRuleTargetTone(rule.target)),
+  );
+
+  actions.className = 'rule-inspector-actions';
+  editButton.className = 'button primary compact';
+  editButton.type = 'button';
+  editButton.innerHTML = '<svg class="button-icon" aria-hidden="true"><use href="#icon-edit"></use></svg><span>Редактировать</span>';
+  editButton.addEventListener('click', () => {
+    state.ruleInspectorEditing = true;
+    renderRulesEditor();
+  });
+  removeButton.className = 'button danger compact';
+  removeButton.type = 'button';
+  removeButton.textContent = 'Удалить';
+  removeButton.addEventListener('click', () => removeRule(rule));
+  actions.append(editButton, removeButton);
+  wrap.append(actions);
+  return wrap;
+}
+
+function createRuleInspectorEditor(rule, index, count) {
+  const wrap = document.createElement('div');
+  const head = document.createElement('div');
+  const title = document.createElement('h3');
+  const number = document.createElement('span');
+  const fields = document.createElement('div');
   const typeLabel = document.createElement('label');
   const typeTitle = document.createElement('span');
   const typeSelect = document.createElement('select');
@@ -11209,21 +11729,21 @@ function createRuleEditorRow(rule, index, count) {
   const targetTitle = document.createElement('span');
   const targetInput = document.createElement('input');
   const targetOptions = document.createElement('datalist');
-  const actions = document.createElement('div');
-  const upButton = document.createElement('button');
-  const downButton = document.createElement('button');
+  const order = document.createElement('div');
+  const doneButton = document.createElement('button');
   const removeButton = document.createElement('button');
   const type = normalizeRuleType(rule.type);
 
-  row.className = 'rule-row';
-  row.setAttribute('data-rule-id', rule.id);
-  if (rule.isNew) row.classList.add('is-new');
-
-  number.className = 'rule-row-number';
+  wrap.className = 'rule-inspector-editor';
+  head.className = 'rule-inspector-head';
+  title.textContent = 'Редактирование правила';
+  number.className = 'rule-number-pill';
   number.textContent = String(index + 1);
+  head.append(title, number);
 
-  typeLabel.className = 'rule-field rule-type-field';
-  typeTitle.textContent = 'Тип';
+  fields.className = 'rule-inspector-fields';
+  typeLabel.className = 'rule-field';
+  typeTitle.textContent = 'Тип правила';
   getRuleTypeOptions(type).forEach((optionValue) => {
     const option = document.createElement('option');
     option.value = optionValue;
@@ -11234,7 +11754,7 @@ function createRuleEditorRow(rule, index, count) {
   typeSelect.addEventListener('change', () => updateRule(rule, 'type', typeSelect.value));
   typeLabel.append(typeTitle, typeSelect);
 
-  valueLabel.className = 'rule-field rule-value-field';
+  valueLabel.className = 'rule-field';
   valueTitle.textContent = 'Условие';
   valueInput.type = 'text';
   valueInput.value = rule.value || '';
@@ -11244,7 +11764,7 @@ function createRuleEditorRow(rule, index, count) {
   valueLabel.hidden = !ruleRequiresValue(type);
   valueLabel.append(valueTitle, valueInput);
 
-  targetLabel.className = 'rule-field rule-target-field';
+  targetLabel.className = 'rule-field';
   targetTitle.textContent = 'Цель';
   targetInput.type = 'text';
   targetInput.value = rule.target || '';
@@ -11259,32 +11779,140 @@ function createRuleEditorRow(rule, index, count) {
   targetInput.addEventListener('input', () => updateRule(rule, 'target', targetInput.value, { partial: true }));
   targetInput.addEventListener('change', () => updateRule(rule, 'target', targetInput.value));
   targetLabel.append(targetTitle, targetInput, targetOptions);
+  fields.append(typeLabel, valueLabel, targetLabel);
 
-  actions.className = 'rule-row-actions';
-  upButton.className = 'button compact';
-  upButton.type = 'button';
-  upButton.textContent = '↑';
-  upButton.title = 'Поднять правило';
-  upButton.setAttribute('aria-label', `Поднять правило ${index + 1}`);
-  upButton.disabled = index === 0;
-  upButton.addEventListener('click', () => moveRule(rule, -1));
-  downButton.className = 'button compact';
-  downButton.type = 'button';
-  downButton.textContent = '↓';
-  downButton.title = 'Опустить правило';
-  downButton.setAttribute('aria-label', `Опустить правило ${index + 1}`);
-  downButton.disabled = index === count - 1;
-  downButton.addEventListener('click', () => moveRule(rule, 1));
-  removeButton.className = 'icon-button danger';
+  order.className = 'rule-inspector-order';
+  order.append(
+    createRuleOrderButton(rule, index, count, -1),
+    createRuleOrderButton(rule, index, count, 1),
+    document.createTextNode(`Позиция: ${index + 1} из ${count}`),
+  );
+
+  doneButton.className = 'button primary compact';
+  doneButton.type = 'button';
+  doneButton.textContent = 'Готово';
+  doneButton.addEventListener('click', () => {
+    state.ruleInspectorEditing = false;
+    renderRulesEditor();
+  });
+  removeButton.className = 'button danger compact';
   removeButton.type = 'button';
-  removeButton.title = 'Удалить правило';
-  removeButton.setAttribute('aria-label', `Удалить правило ${index + 1}`);
-  removeButton.textContent = '×';
+  removeButton.textContent = 'Удалить';
   removeButton.addEventListener('click', () => removeRule(rule));
-  actions.append(upButton, downButton, removeButton);
 
-  row.append(number, typeLabel, valueLabel, targetLabel, actions);
-  return row;
+  const actions = document.createElement('div');
+  actions.className = 'rule-inspector-actions';
+  actions.append(doneButton, removeButton);
+  wrap.append(head, fields, order, actions);
+  return wrap;
+}
+
+function createRuleInspectorSection(label, value, controls = [], description = '', tone = '') {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const row = document.createElement('div');
+  const strong = document.createElement('strong');
+  section.className = 'rule-inspector-section';
+  title.textContent = label;
+  row.className = 'rule-inspector-section-row';
+  strong.textContent = value;
+  if (tone) strong.className = `rule-target-pill ${tone}`;
+  row.append(strong, ...controls);
+  section.append(title, row);
+  if (description) {
+    const text = document.createElement('p');
+    text.textContent = description;
+    section.append(text);
+  }
+  return section;
+}
+
+function createRuleOrderButton(rule, index, count, direction) {
+  const button = document.createElement('button');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  button.className = `rule-order-button${direction < 0 ? ' is-up' : ''}`;
+  button.type = 'button';
+  button.disabled = direction < 0 ? index === 0 : index === count - 1;
+  button.setAttribute('aria-label', `${direction < 0 ? 'Поднять' : 'Опустить'} правило ${index + 1}`);
+  use.setAttribute('href', '#icon-chevron-down');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.append(use);
+  button.append(icon);
+  button.addEventListener('click', () => moveRule(rule, direction));
+  return button;
+}
+
+function createRuleStatusMarker(status) {
+  const marker = document.createElement('span');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  marker.className = `rule-status-marker is-${status.status}`;
+  marker.title = status.label;
+  marker.setAttribute('aria-label', status.label);
+  use.setAttribute('href', status.status === 'ok' ? '#icon-check' : '#icon-warning');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.append(use);
+  marker.append(icon);
+  return marker;
+}
+
+function getRuleStatus(rule, index, activeRules) {
+  const type = normalizeRuleType(rule.type);
+  const target = String(rule.target || '').trim();
+  if (!type) return { status: 'error', label: 'Тип правила не задан' };
+  if (ruleRequiresValue(type) && !String(rule.value || '').trim()) return { status: 'error', label: 'Условие правила не задано' };
+  if (!target) return { status: 'error', label: 'Цель правила не задана' };
+  if (!getRuleTargetOptions().includes(target)) return { status: 'error', label: `Цель ${target} не найдена` };
+  if (type === 'MATCH' && index !== activeRules.length - 1) return { status: 'warning', label: 'MATCH должен быть последним правилом' };
+  return { status: 'ok', label: 'Структура правила корректна' };
+}
+
+function formatRuleCondition(rule) {
+  return normalizeRuleType(rule.type) === 'MATCH' ? 'Остальной трафик' : String(rule.value || 'Условие не задано');
+}
+
+function describeRuleRouting(rule) {
+  const type = normalizeRuleType(rule.type);
+  const target = rule.target || 'не заданную цель';
+  if (type === 'MATCH') return `Весь трафик, который не совпал с правилами выше, будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'IP-CIDR') return `Трафик к адресам сети ${rule.value || 'без адреса'} будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'GEOIP') return `Трафик к IP-адресам региона ${rule.value || 'без региона'} будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'RULE-SET') return `Набор правил ${rule.value || 'без имени'} направляет совпавший трафик в ${formatRuleTargetName(target)}.`;
+  return `Если сработает ${type || 'это правило'} для ${rule.value || 'заданного условия'}, трафик будет направлен в ${formatRuleTargetName(target)}.`;
+}
+
+function formatRuleTargetName(target) {
+  return ['DIRECT', 'REJECT', 'GLOBAL', 'PASS'].includes(String(target || '').toUpperCase())
+    ? String(target || '').toUpperCase()
+    : `группу ${target}`;
+}
+
+function getRuleConditionDescription(rule) {
+  const type = normalizeRuleType(rule.type);
+  if (type === 'MATCH') return 'Совпадает с любым оставшимся трафиком.';
+  return `Тип правила: ${type || 'не задан'}.`;
+}
+
+function describeRuleTarget(target) {
+  const value = String(target || '').trim();
+  if (value === 'DIRECT') return 'Соединение выполняется напрямую.';
+  if (value === 'REJECT') return 'Соединение будет заблокировано.';
+  return value ? `Маршрутизация через группу ${value}.` : 'Цель маршрутизации не задана.';
+}
+
+function getRuleTargetTone(target) {
+  const value = String(target || '').trim().toUpperCase();
+  if (value === 'DIRECT') return 'is-direct';
+  if (value === 'REJECT') return 'is-reject';
+  if (value === 'PROXY') return 'is-proxy';
+  return 'is-group';
+}
+
+function formatRuleInspectorStatus(rule, index, activeRules, status) {
+  if (status.status !== 'ok') return status.label;
+  if (normalizeRuleType(rule.type) === 'MATCH' && index === activeRules.length - 1) return 'Последнее правило · корректно';
+  return 'Структура правила корректна';
 }
 
 function getRuleTypeOptions(currentType) {
@@ -11354,6 +11982,8 @@ function addRule() {
   };
 
   state.rules.push(rule);
+  state.selectedRuleId = rule.id;
+  state.ruleInspectorEditing = true;
   generateOutput();
   render();
 }
@@ -11362,8 +11992,11 @@ function removeRule(rule) {
   state.lastUndo = {
     type: 'rule',
     rule,
+    selectedRuleId: state.selectedRuleId,
   };
   rule.deleted = true;
+  if (state.selectedRuleId === rule.id) state.selectedRuleId = '';
+  state.ruleInspectorEditing = false;
   generateOutput();
   render();
   showUndoMessage(`Правило ${formatRuleSummary(rule)} будет удалено.`);
@@ -13233,6 +13866,7 @@ function undoLastRemoval() {
 
   if (undo.type === 'rule') {
     undo.rule.deleted = false;
+    state.selectedRuleId = undo.selectedRuleId || undo.rule.id;
   }
 
   if (undo.type === 'group') {

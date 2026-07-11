@@ -359,6 +359,8 @@ const state = {
   activeSection: 'overview',
   providerView: 'editor',
   routingView: 'map',
+  selectedRuleId: '',
+  ruleInspectorEditing: false,
   ruleFilters: {
     search: '',
     type: '',
@@ -498,8 +500,11 @@ const els = {
   ruleTypeFilter: document.querySelector('#ruleTypeFilter'),
   ruleTargetFilter: document.querySelector('#ruleTargetFilter'),
   rulesFilterSummary: document.querySelector('#rulesFilterSummary'),
+  rulesOrderSummary: document.querySelector('#rulesOrderSummary'),
+  rulesTargetSummary: document.querySelector('#rulesTargetSummary'),
   groupOrderList: document.querySelector('#groupOrderList'),
   rulesEditorList: document.querySelector('#rulesEditorList'),
+  ruleInspector: document.querySelector('#ruleInspector'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
@@ -789,6 +794,8 @@ function resetWorkspaceViewState() {
   state.groupTypeFilter = 'all';
   state.routingView = 'map';
   state.ruleFilters = { search: '', type: '', target: '' };
+  state.selectedRuleId = '';
+  state.ruleInspectorEditing = false;
   state.lastUndo = null;
 }
 
@@ -4761,30 +4768,82 @@ function renderRulesEditor() {
   const rulesViewTab = [...els.routingViewTabs].find((button) => button.dataset.routingView === 'rules');
   if (rulesViewTab) rulesViewTab.setAttribute('aria-label', `Правила, ${activeRules.length}`);
   els.rulesFilterSummary.textContent = `Показано ${visibleRules.length} из ${activeRules.length}`;
+  renderRulesSummary(activeRules);
   els.rulesEditorList.innerHTML = '';
   els.rulesEditorList.classList.toggle('empty-state', !state.originalText || activeRules.length === 0);
 
   if (!state.originalText) {
     setEmptyState(els.rulesEditorList, 'Правила появятся после загрузки', 'Загрузите конфигурацию, чтобы редактировать rules.');
+    setEmptyState(els.ruleInspector, 'Выберите правило', 'Справа появится его роль в маршрутизации.');
     return;
   }
 
   if (activeRules.length === 0) {
     setEmptyState(els.rulesEditorList, 'Нет правил маршрутизации', 'Добавьте правило, чтобы направить трафик в группу или встроенный выход.');
+    setEmptyState(els.ruleInspector, 'Нет выбранного правила', 'Добавьте первое правило маршрутизации.');
     return;
   }
 
   if (visibleRules.length === 0) {
     els.rulesEditorList.classList.add('empty-state');
     setEmptyState(els.rulesEditorList, 'Правила не найдены', 'Измените поиск или фильтры. Порядок YAML не изменен.');
+    setEmptyState(els.ruleInspector, 'Правила не найдены', 'Измените поиск или фильтры, чтобы выбрать правило.');
     return;
   }
 
   els.rulesEditorList.classList.remove('empty-state');
+  const selectedRule = ensureSelectedRule(visibleRules);
   visibleRules.forEach((rule) => {
     const index = activeRules.indexOf(rule);
-    els.rulesEditorList.append(createRuleEditorRow(rule, index, activeRules.length));
+    els.rulesEditorList.append(createRuleRegistryRow(rule, index, activeRules));
   });
+  renderRuleInspector(selectedRule, activeRules);
+}
+
+function ensureSelectedRule(visibleRules) {
+  const selected = visibleRules.find((rule) => rule.id === state.selectedRuleId) || visibleRules[0] || null;
+  state.selectedRuleId = selected?.id || '';
+  return selected;
+}
+
+function renderRulesSummary(activeRules) {
+  if (!els.rulesOrderSummary || !els.rulesTargetSummary) return;
+  const orderState = getRulesOrderState(activeRules);
+  els.rulesOrderSummary.textContent = activeRules.length > 0
+    ? `${formatRouteCount(activeRules.length, 'правило', 'правила', 'правил')} · ${orderState.label}`
+    : 'Правила не настроены';
+  els.rulesOrderSummary.className = `rules-order-summary is-${orderState.status}`;
+
+  const targetCounts = new Map();
+  activeRules.forEach((rule) => {
+    const target = String(rule.target || 'Без цели').trim() || 'Без цели';
+    targetCounts.set(target, (targetCounts.get(target) || 0) + 1);
+  });
+  els.rulesTargetSummary.textContent = '';
+  [...targetCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || compareText(a[0], b[0]))
+    .slice(0, 4)
+    .forEach(([target, count]) => {
+      const item = document.createElement('span');
+      const dot = document.createElement('span');
+      const text = document.createElement('span');
+      item.className = `rules-target-summary-item ${getRuleTargetTone(target)}`;
+      dot.className = 'rules-target-summary-dot';
+      text.textContent = `${count} ${target}`;
+      item.append(dot, text);
+      els.rulesTargetSummary.append(item);
+    });
+}
+
+function getRulesOrderState(rules) {
+  if (rules.length === 0) return { status: 'neutral', label: 'порядок не задан' };
+  const matchIndexes = rules
+    .map((rule, index) => (normalizeRuleType(rule.type) === 'MATCH' ? index : -1))
+    .filter((index) => index !== -1);
+  if (matchIndexes.length === 0) return { status: 'warning', label: 'MATCH отсутствует' };
+  if (matchIndexes.length > 1) return { status: 'warning', label: 'несколько правил MATCH' };
+  if (matchIndexes[0] !== rules.length - 1) return { status: 'warning', label: 'MATCH должен быть последним' };
+  return { status: 'ok', label: 'порядок корректен · MATCH на последнем месте' };
 }
 
 function handleRuleFilterChange() {
@@ -4824,9 +4883,116 @@ function replaceRuleFilterOptions(select, allLabel, values, selected) {
   }
 }
 
-function createRuleEditorRow(rule, index, count) {
-  const row = document.createElement('article');
+function createRuleRegistryRow(rule, index, activeRules) {
+  const row = document.createElement('button');
   const number = document.createElement('span');
+  const identity = document.createElement('span');
+  const condition = document.createElement('strong');
+  const type = document.createElement('span');
+  const target = document.createElement('span');
+  const status = getRuleStatus(rule, index, activeRules);
+  const statusMarker = createRuleStatusMarker(status);
+
+  row.className = 'rule-registry-row';
+  row.type = 'button';
+  row.setAttribute('data-rule-id', rule.id);
+  row.classList.toggle('is-selected', rule.id === state.selectedRuleId);
+  row.classList.toggle('is-new', Boolean(rule.isNew));
+  row.setAttribute('aria-pressed', String(rule.id === state.selectedRuleId));
+  row.setAttribute('aria-label', `Правило ${index + 1}: ${formatRuleCondition(rule)}, цель ${rule.target || 'не задана'}, ${status.label}`);
+  row.addEventListener('click', () => {
+    state.selectedRuleId = rule.id;
+    state.ruleInspectorEditing = false;
+    renderRulesEditor();
+  });
+
+  number.className = 'rule-registry-number';
+  number.textContent = String(index + 1);
+  identity.className = 'rule-registry-identity';
+  condition.textContent = formatRuleCondition(rule);
+  type.textContent = normalizeRuleType(rule.type) || 'Тип не задан';
+  identity.append(condition, type);
+  target.className = `rule-target-pill ${getRuleTargetTone(rule.target)}`;
+  target.textContent = rule.target || 'Без цели';
+  row.append(number, identity, target, statusMarker);
+  return row;
+}
+
+function renderRuleInspector(rule, activeRules) {
+  if (!els.ruleInspector) return;
+  els.ruleInspector.textContent = '';
+  els.ruleInspector.classList.toggle('empty-state', !rule);
+  if (!rule) {
+    setEmptyState(els.ruleInspector, 'Выберите правило', 'Справа появится его роль в маршрутизации.');
+    return;
+  }
+  const index = activeRules.indexOf(rule);
+  els.ruleInspector.append(
+    state.ruleInspectorEditing
+      ? createRuleInspectorEditor(rule, index, activeRules.length)
+      : createRuleInspectorSummary(rule, index, activeRules),
+  );
+}
+
+function createRuleInspectorSummary(rule, index, activeRules) {
+  const wrap = document.createElement('div');
+  const head = document.createElement('div');
+  const title = document.createElement('h3');
+  const type = document.createElement('span');
+  const status = getRuleStatus(rule, index, activeRules);
+  const statusLine = document.createElement('div');
+  const explanation = document.createElement('p');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const removeButton = document.createElement('button');
+
+  wrap.className = 'rule-inspector-summary';
+  head.className = 'rule-inspector-head';
+  title.textContent = `Правило ${index + 1}`;
+  type.className = 'rule-type-pill';
+  type.textContent = normalizeRuleType(rule.type) || 'RULE';
+  head.append(title, type);
+
+  statusLine.className = `rule-inspector-status is-${status.status}`;
+  statusLine.append(createRuleStatusMarker(status), document.createTextNode(formatRuleInspectorStatus(rule, index, activeRules, status)));
+  explanation.className = 'rule-inspector-explanation';
+  explanation.textContent = describeRuleRouting(rule);
+
+  wrap.append(
+    head,
+    statusLine,
+    explanation,
+    createRuleInspectorSection('Позиция в маршрутизации', `${index + 1} из ${activeRules.length}${index === activeRules.length - 1 ? ' (последнее)' : ''}`, [
+      createRuleOrderButton(rule, index, activeRules.length, -1),
+      createRuleOrderButton(rule, index, activeRules.length, 1),
+    ]),
+    createRuleInspectorSection('Условие', formatRuleCondition(rule), [], getRuleConditionDescription(rule)),
+    createRuleInspectorSection('Цель', rule.target || 'Не задана', [], describeRuleTarget(rule.target), getRuleTargetTone(rule.target)),
+  );
+
+  actions.className = 'rule-inspector-actions';
+  editButton.className = 'button primary compact';
+  editButton.type = 'button';
+  editButton.innerHTML = '<svg class="button-icon" aria-hidden="true"><use href="#icon-edit"></use></svg><span>Редактировать</span>';
+  editButton.addEventListener('click', () => {
+    state.ruleInspectorEditing = true;
+    renderRulesEditor();
+  });
+  removeButton.className = 'button danger compact';
+  removeButton.type = 'button';
+  removeButton.textContent = 'Удалить';
+  removeButton.addEventListener('click', () => removeRule(rule));
+  actions.append(editButton, removeButton);
+  wrap.append(actions);
+  return wrap;
+}
+
+function createRuleInspectorEditor(rule, index, count) {
+  const wrap = document.createElement('div');
+  const head = document.createElement('div');
+  const title = document.createElement('h3');
+  const number = document.createElement('span');
+  const fields = document.createElement('div');
   const typeLabel = document.createElement('label');
   const typeTitle = document.createElement('span');
   const typeSelect = document.createElement('select');
@@ -4837,21 +5003,21 @@ function createRuleEditorRow(rule, index, count) {
   const targetTitle = document.createElement('span');
   const targetInput = document.createElement('input');
   const targetOptions = document.createElement('datalist');
-  const actions = document.createElement('div');
-  const upButton = document.createElement('button');
-  const downButton = document.createElement('button');
+  const order = document.createElement('div');
+  const doneButton = document.createElement('button');
   const removeButton = document.createElement('button');
   const type = normalizeRuleType(rule.type);
 
-  row.className = 'rule-row';
-  row.setAttribute('data-rule-id', rule.id);
-  if (rule.isNew) row.classList.add('is-new');
-
-  number.className = 'rule-row-number';
+  wrap.className = 'rule-inspector-editor';
+  head.className = 'rule-inspector-head';
+  title.textContent = 'Редактирование правила';
+  number.className = 'rule-number-pill';
   number.textContent = String(index + 1);
+  head.append(title, number);
 
-  typeLabel.className = 'rule-field rule-type-field';
-  typeTitle.textContent = 'Тип';
+  fields.className = 'rule-inspector-fields';
+  typeLabel.className = 'rule-field';
+  typeTitle.textContent = 'Тип правила';
   getRuleTypeOptions(type).forEach((optionValue) => {
     const option = document.createElement('option');
     option.value = optionValue;
@@ -4862,7 +5028,7 @@ function createRuleEditorRow(rule, index, count) {
   typeSelect.addEventListener('change', () => updateRule(rule, 'type', typeSelect.value));
   typeLabel.append(typeTitle, typeSelect);
 
-  valueLabel.className = 'rule-field rule-value-field';
+  valueLabel.className = 'rule-field';
   valueTitle.textContent = 'Условие';
   valueInput.type = 'text';
   valueInput.value = rule.value || '';
@@ -4872,7 +5038,7 @@ function createRuleEditorRow(rule, index, count) {
   valueLabel.hidden = !ruleRequiresValue(type);
   valueLabel.append(valueTitle, valueInput);
 
-  targetLabel.className = 'rule-field rule-target-field';
+  targetLabel.className = 'rule-field';
   targetTitle.textContent = 'Цель';
   targetInput.type = 'text';
   targetInput.value = rule.target || '';
@@ -4887,32 +5053,140 @@ function createRuleEditorRow(rule, index, count) {
   targetInput.addEventListener('input', () => updateRule(rule, 'target', targetInput.value, { partial: true }));
   targetInput.addEventListener('change', () => updateRule(rule, 'target', targetInput.value));
   targetLabel.append(targetTitle, targetInput, targetOptions);
+  fields.append(typeLabel, valueLabel, targetLabel);
 
-  actions.className = 'rule-row-actions';
-  upButton.className = 'button compact';
-  upButton.type = 'button';
-  upButton.textContent = '↑';
-  upButton.title = 'Поднять правило';
-  upButton.setAttribute('aria-label', `Поднять правило ${index + 1}`);
-  upButton.disabled = index === 0;
-  upButton.addEventListener('click', () => moveRule(rule, -1));
-  downButton.className = 'button compact';
-  downButton.type = 'button';
-  downButton.textContent = '↓';
-  downButton.title = 'Опустить правило';
-  downButton.setAttribute('aria-label', `Опустить правило ${index + 1}`);
-  downButton.disabled = index === count - 1;
-  downButton.addEventListener('click', () => moveRule(rule, 1));
-  removeButton.className = 'icon-button danger';
+  order.className = 'rule-inspector-order';
+  order.append(
+    createRuleOrderButton(rule, index, count, -1),
+    createRuleOrderButton(rule, index, count, 1),
+    document.createTextNode(`Позиция: ${index + 1} из ${count}`),
+  );
+
+  doneButton.className = 'button primary compact';
+  doneButton.type = 'button';
+  doneButton.textContent = 'Готово';
+  doneButton.addEventListener('click', () => {
+    state.ruleInspectorEditing = false;
+    renderRulesEditor();
+  });
+  removeButton.className = 'button danger compact';
   removeButton.type = 'button';
-  removeButton.title = 'Удалить правило';
-  removeButton.setAttribute('aria-label', `Удалить правило ${index + 1}`);
-  removeButton.textContent = '×';
+  removeButton.textContent = 'Удалить';
   removeButton.addEventListener('click', () => removeRule(rule));
-  actions.append(upButton, downButton, removeButton);
 
-  row.append(number, typeLabel, valueLabel, targetLabel, actions);
-  return row;
+  const actions = document.createElement('div');
+  actions.className = 'rule-inspector-actions';
+  actions.append(doneButton, removeButton);
+  wrap.append(head, fields, order, actions);
+  return wrap;
+}
+
+function createRuleInspectorSection(label, value, controls = [], description = '', tone = '') {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const row = document.createElement('div');
+  const strong = document.createElement('strong');
+  section.className = 'rule-inspector-section';
+  title.textContent = label;
+  row.className = 'rule-inspector-section-row';
+  strong.textContent = value;
+  if (tone) strong.className = `rule-target-pill ${tone}`;
+  row.append(strong, ...controls);
+  section.append(title, row);
+  if (description) {
+    const text = document.createElement('p');
+    text.textContent = description;
+    section.append(text);
+  }
+  return section;
+}
+
+function createRuleOrderButton(rule, index, count, direction) {
+  const button = document.createElement('button');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  button.className = `rule-order-button${direction < 0 ? ' is-up' : ''}`;
+  button.type = 'button';
+  button.disabled = direction < 0 ? index === 0 : index === count - 1;
+  button.setAttribute('aria-label', `${direction < 0 ? 'Поднять' : 'Опустить'} правило ${index + 1}`);
+  use.setAttribute('href', '#icon-chevron-down');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.append(use);
+  button.append(icon);
+  button.addEventListener('click', () => moveRule(rule, direction));
+  return button;
+}
+
+function createRuleStatusMarker(status) {
+  const marker = document.createElement('span');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  marker.className = `rule-status-marker is-${status.status}`;
+  marker.title = status.label;
+  marker.setAttribute('aria-label', status.label);
+  use.setAttribute('href', status.status === 'ok' ? '#icon-check' : '#icon-warning');
+  icon.setAttribute('aria-hidden', 'true');
+  icon.append(use);
+  marker.append(icon);
+  return marker;
+}
+
+function getRuleStatus(rule, index, activeRules) {
+  const type = normalizeRuleType(rule.type);
+  const target = String(rule.target || '').trim();
+  if (!type) return { status: 'error', label: 'Тип правила не задан' };
+  if (ruleRequiresValue(type) && !String(rule.value || '').trim()) return { status: 'error', label: 'Условие правила не задано' };
+  if (!target) return { status: 'error', label: 'Цель правила не задана' };
+  if (!getRuleTargetOptions().includes(target)) return { status: 'error', label: `Цель ${target} не найдена` };
+  if (type === 'MATCH' && index !== activeRules.length - 1) return { status: 'warning', label: 'MATCH должен быть последним правилом' };
+  return { status: 'ok', label: 'Структура правила корректна' };
+}
+
+function formatRuleCondition(rule) {
+  return normalizeRuleType(rule.type) === 'MATCH' ? 'Остальной трафик' : String(rule.value || 'Условие не задано');
+}
+
+function describeRuleRouting(rule) {
+  const type = normalizeRuleType(rule.type);
+  const target = rule.target || 'не заданную цель';
+  if (type === 'MATCH') return `Весь трафик, который не совпал с правилами выше, будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'IP-CIDR') return `Трафик к адресам сети ${rule.value || 'без адреса'} будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'GEOIP') return `Трафик к IP-адресам региона ${rule.value || 'без региона'} будет направлен в ${formatRuleTargetName(target)}.`;
+  if (type === 'RULE-SET') return `Набор правил ${rule.value || 'без имени'} направляет совпавший трафик в ${formatRuleTargetName(target)}.`;
+  return `Если сработает ${type || 'это правило'} для ${rule.value || 'заданного условия'}, трафик будет направлен в ${formatRuleTargetName(target)}.`;
+}
+
+function formatRuleTargetName(target) {
+  return ['DIRECT', 'REJECT', 'GLOBAL', 'PASS'].includes(String(target || '').toUpperCase())
+    ? String(target || '').toUpperCase()
+    : `группу ${target}`;
+}
+
+function getRuleConditionDescription(rule) {
+  const type = normalizeRuleType(rule.type);
+  if (type === 'MATCH') return 'Совпадает с любым оставшимся трафиком.';
+  return `Тип правила: ${type || 'не задан'}.`;
+}
+
+function describeRuleTarget(target) {
+  const value = String(target || '').trim();
+  if (value === 'DIRECT') return 'Соединение выполняется напрямую.';
+  if (value === 'REJECT') return 'Соединение будет заблокировано.';
+  return value ? `Маршрутизация через группу ${value}.` : 'Цель маршрутизации не задана.';
+}
+
+function getRuleTargetTone(target) {
+  const value = String(target || '').trim().toUpperCase();
+  if (value === 'DIRECT') return 'is-direct';
+  if (value === 'REJECT') return 'is-reject';
+  if (value === 'PROXY') return 'is-proxy';
+  return 'is-group';
+}
+
+function formatRuleInspectorStatus(rule, index, activeRules, status) {
+  if (status.status !== 'ok') return status.label;
+  if (normalizeRuleType(rule.type) === 'MATCH' && index === activeRules.length - 1) return 'Последнее правило · корректно';
+  return 'Структура правила корректна';
 }
 
 function getRuleTypeOptions(currentType) {
@@ -4982,6 +5256,8 @@ function addRule() {
   };
 
   state.rules.push(rule);
+  state.selectedRuleId = rule.id;
+  state.ruleInspectorEditing = true;
   generateOutput();
   render();
 }
@@ -4990,8 +5266,11 @@ function removeRule(rule) {
   state.lastUndo = {
     type: 'rule',
     rule,
+    selectedRuleId: state.selectedRuleId,
   };
   rule.deleted = true;
+  if (state.selectedRuleId === rule.id) state.selectedRuleId = '';
+  state.ruleInspectorEditing = false;
   generateOutput();
   render();
   showUndoMessage(`Правило ${formatRuleSummary(rule)} будет удалено.`);
@@ -6861,6 +7140,7 @@ function undoLastRemoval() {
 
   if (undo.type === 'rule') {
     undo.rule.deleted = false;
+    state.selectedRuleId = undo.selectedRuleId || undo.rule.id;
   }
 
   if (undo.type === 'group') {
