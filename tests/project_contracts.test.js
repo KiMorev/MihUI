@@ -25,6 +25,18 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
+    assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
+    assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
+    assert.match(html, /data-service-health-refresh[^>]+aria-label="Обновить статусы сервисов"/);
+  }
+});
+
+test('main and standalone expose responsive service traffic lights', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.service-health-item\.is-ok \.service-health-dot/);
+    assert.match(source, /\.service-health-item\.is-error \.service-health-dot/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.service-health-mobile\s*{[\s\S]+?display: grid;/);
   }
 });
 

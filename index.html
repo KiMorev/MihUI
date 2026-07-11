@@ -56,6 +56,24 @@
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
+          <button class="service-health-card" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+            <span class="service-health-head">
+              <strong>Сервисы</strong>
+              <span data-service-health-checked>Проверка...</span>
+            </span>
+            <span class="service-health-list">
+              <span class="service-health-item is-loading" data-service-health="xkeen">
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <span class="service-health-name">XKeen</span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="service-health-item is-loading" data-service-health="mihomo">
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <span class="service-health-name">Mihomo</span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+            </span>
+          </button>
           <div class="sidebar-status">
             <span id="sidebarStatusDot" class="sidebar-status-dot"></span>
             <div>
@@ -75,6 +93,18 @@
           <p id="fileMeta">Конфигурация не загружена</p>
           <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
         </div>
+        <button class="service-health-mobile" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+          <span class="service-health-item is-loading" data-service-health="xkeen">
+            <span class="service-health-dot" aria-hidden="true"></span>
+            <span class="service-health-name">XKeen</span>
+            <strong class="service-health-status">Проверка...</strong>
+          </span>
+          <span class="service-health-item is-loading" data-service-health="mihomo">
+            <span class="service-health-dot" aria-hidden="true"></span>
+            <span class="service-health-name">Mihomo</span>
+            <strong class="service-health-status">Проверка...</strong>
+          </span>
+        </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>

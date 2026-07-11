@@ -117,6 +117,116 @@ textarea {
   border-top: 1px solid var(--line);
 }
 
+.service-health-card,
+.service-health-mobile {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.service-health-card {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 10px;
+}
+
+.service-health-card:hover,
+.service-health-mobile:hover {
+  border-color: rgba(8, 124, 128, 0.45);
+  background: #f3f9f9;
+}
+
+.service-health-card:disabled,
+.service-health-mobile:disabled {
+  cursor: wait;
+}
+
+.service-health-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.service-health-head strong {
+  font-size: 12px;
+}
+
+.service-health-head > span {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.service-health-list {
+  display: grid;
+  gap: 7px;
+}
+
+.service-health-item {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+}
+
+.service-health-dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.service-health-item.is-ok .service-health-dot {
+  border-color: var(--success);
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(35, 153, 91, 0.1);
+}
+
+.service-health-item.is-error .service-health-dot {
+  border-color: var(--danger);
+  background: var(--danger);
+  box-shadow: 0 0 0 3px rgba(194, 51, 42, 0.1);
+}
+
+.service-health-item.is-loading .service-health-dot {
+  border-color: var(--warning);
+  background: #fff;
+}
+
+.service-health-name {
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.service-health-status {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.service-health-item.is-ok .service-health-status {
+  color: var(--success);
+}
+
+.service-health-item.is-error .service-health-status {
+  color: var(--danger);
+}
+
+.service-health-mobile {
+  display: none;
+}
+
 .sidebar-status {
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);
@@ -3937,6 +4047,20 @@ button.review-check-card:hover {
     display: none;
   }
 
+  .service-health-mobile {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+  }
+
+  .service-health-mobile .service-health-item + .service-health-item {
+    padding-left: 12px;
+    border-left: 1px solid var(--line);
+  }
+
   .app-section {
     scroll-margin-top: 12px;
   }
@@ -4477,6 +4601,24 @@ button.review-check-card:hover {
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
+          <button class="service-health-card" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+            <span class="service-health-head">
+              <strong>Сервисы</strong>
+              <span data-service-health-checked>Проверка...</span>
+            </span>
+            <span class="service-health-list">
+              <span class="service-health-item is-loading" data-service-health="xkeen">
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <span class="service-health-name">XKeen</span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+              <span class="service-health-item is-loading" data-service-health="mihomo">
+                <span class="service-health-dot" aria-hidden="true"></span>
+                <span class="service-health-name">Mihomo</span>
+                <strong class="service-health-status">Проверка...</strong>
+              </span>
+            </span>
+          </button>
           <div class="sidebar-status">
             <span id="sidebarStatusDot" class="sidebar-status-dot"></span>
             <div>
@@ -4496,6 +4638,18 @@ button.review-check-card:hover {
           <p id="fileMeta">Конфигурация не загружена</p>
           <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
         </div>
+        <button class="service-health-mobile" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+          <span class="service-health-item is-loading" data-service-health="xkeen">
+            <span class="service-health-dot" aria-hidden="true"></span>
+            <span class="service-health-name">XKeen</span>
+            <strong class="service-health-status">Проверка...</strong>
+          </span>
+          <span class="service-health-item is-loading" data-service-health="mihomo">
+            <span class="service-health-dot" aria-hidden="true"></span>
+            <span class="service-health-name">Mihomo</span>
+            <strong class="service-health-status">Проверка...</strong>
+          </span>
+        </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
@@ -5052,6 +5206,7 @@ const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'revi
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
+const SERVICE_HEALTH_REFRESH_MS = 30000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -5402,6 +5557,14 @@ const state = {
   recommendationCount: 0,
   changeCount: 0,
   hideProviderUrls: readProviderUrlMaskingPreference(),
+  serviceHealth: {
+    loading: false,
+    checkedAt: 0,
+    services: {
+      xkeen: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
+      mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
+    },
+  },
   lastUndo: null,
 };
 
@@ -5448,6 +5611,9 @@ const els = {
   sidebarStatusDot: document.querySelector('#sidebarStatusDot'),
   sidebarStatusValue: document.querySelector('#sidebarStatusValue'),
   sidebarStatusMeta: document.querySelector('#sidebarStatusMeta'),
+  serviceHealthButtons: document.querySelectorAll('[data-service-health-refresh]'),
+  serviceHealthItems: document.querySelectorAll('[data-service-health]'),
+  serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   providerCount: document.querySelector('#providerCount'),
   groupCount: document.querySelector('#groupCount'),
   rulesMetric: document.querySelector('#rulesMetric'),
@@ -5564,8 +5730,10 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+els.serviceHealthButtons.forEach((button) => button.addEventListener('click', () => loadServiceHealth({ silent: false })));
 renderInterfaceSettings();
 renderHappDecoderSettings();
+renderServiceHealth();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -5704,6 +5872,8 @@ function initRouterMode() {
   loadRouterMetadata();
   loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
+  loadServiceHealth({ silent: true });
+  startServiceHealthPolling();
   checkMihuiUpdate();
 }
 
@@ -6181,6 +6351,93 @@ async function apiJson(url, options = {}) {
     throw new Error(data.message || `HTTP ${response.status}`);
   }
   return data;
+}
+
+async function loadServiceHealth(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderServiceHealth();
+    return;
+  }
+
+  state.serviceHealth.loading = true;
+  renderServiceHealth();
+  try {
+    const data = await apiJson('/api/services/status');
+    state.serviceHealth.services = {
+      xkeen: normalizeServiceStatus(data.services?.xkeen),
+      mihomo: normalizeServiceStatus(data.services?.mihomo),
+    };
+    state.serviceHealth.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
+  } catch (error) {
+    const detail = error?.message || String(error);
+    state.serviceHealth.services = {
+      xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
+      mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
+    };
+    state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    if (!options.silent) showMessage('Не удалось обновить статусы сервисов.', { severity: 'warning', details: detail });
+  } finally {
+    state.serviceHealth.loading = false;
+    renderServiceHealth();
+  }
+}
+
+function normalizeServiceStatus(service) {
+  const stateValue = ['ok', 'error', 'unavailable'].includes(service?.state) ? service.state : 'unavailable';
+  return {
+    state: stateValue,
+    message: String(service?.message || ''),
+    detail: String(service?.detail || ''),
+  };
+}
+
+function formatServiceStatusLabel(service, loading = false) {
+  if (loading) return 'Проверка...';
+  if (service?.state === 'ok') return 'Работает';
+  if (service?.state === 'error') return 'Ошибка';
+  return 'Не найден';
+}
+
+function renderServiceHealth() {
+  const { loading, checkedAt, services } = state.serviceHealth;
+  els.serviceHealthItems.forEach((item) => {
+    const service = services[item.dataset.serviceHealth] || normalizeServiceStatus(null);
+    item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
+    item.classList.add(loading ? 'is-loading' : `is-${service.state}`);
+    const status = item.querySelector('.service-health-status');
+    if (status) status.textContent = formatServiceStatusLabel(service, loading);
+    const details = [service.message, service.detail].filter(Boolean).join(' · ');
+    item.title = details;
+  });
+
+  const checkedLabel = loading
+    ? 'Проверка...'
+    : checkedAt
+      ? `Проверено ${formatServiceHealthTime(checkedAt)}`
+      : 'Нажмите для проверки';
+  els.serviceHealthChecked.forEach((element) => { element.textContent = checkedLabel; });
+  els.serviceHealthButtons.forEach((button) => {
+    button.disabled = loading;
+    button.setAttribute('aria-busy', String(loading));
+  });
+}
+
+function formatServiceHealthTime(value) {
+  const date = new Date(Number(value) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function startServiceHealthPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (!document.hidden) loadServiceHealth({ silent: true });
+  }, SERVICE_HEALTH_REFRESH_MS);
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) loadServiceHealth({ silent: true });
+    });
+  }
 }
 
 async function checkRouterConfig(options = {}) {

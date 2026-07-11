@@ -10,6 +10,7 @@ const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'revi
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
+const SERVICE_HEALTH_REFRESH_MS = 30000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -360,6 +361,14 @@ const state = {
   recommendationCount: 0,
   changeCount: 0,
   hideProviderUrls: readProviderUrlMaskingPreference(),
+  serviceHealth: {
+    loading: false,
+    checkedAt: 0,
+    services: {
+      xkeen: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
+      mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
+    },
+  },
   lastUndo: null,
 };
 
@@ -406,6 +415,9 @@ const els = {
   sidebarStatusDot: document.querySelector('#sidebarStatusDot'),
   sidebarStatusValue: document.querySelector('#sidebarStatusValue'),
   sidebarStatusMeta: document.querySelector('#sidebarStatusMeta'),
+  serviceHealthButtons: document.querySelectorAll('[data-service-health-refresh]'),
+  serviceHealthItems: document.querySelectorAll('[data-service-health]'),
+  serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   providerCount: document.querySelector('#providerCount'),
   groupCount: document.querySelector('#groupCount'),
   rulesMetric: document.querySelector('#rulesMetric'),
@@ -522,8 +534,10 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+els.serviceHealthButtons.forEach((button) => button.addEventListener('click', () => loadServiceHealth({ silent: false })));
 renderInterfaceSettings();
 renderHappDecoderSettings();
+renderServiceHealth();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -662,6 +676,8 @@ function initRouterMode() {
   loadRouterMetadata();
   loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
+  loadServiceHealth({ silent: true });
+  startServiceHealthPolling();
   checkMihuiUpdate();
 }
 
@@ -1139,6 +1155,93 @@ async function apiJson(url, options = {}) {
     throw new Error(data.message || `HTTP ${response.status}`);
   }
   return data;
+}
+
+async function loadServiceHealth(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderServiceHealth();
+    return;
+  }
+
+  state.serviceHealth.loading = true;
+  renderServiceHealth();
+  try {
+    const data = await apiJson('/api/services/status');
+    state.serviceHealth.services = {
+      xkeen: normalizeServiceStatus(data.services?.xkeen),
+      mihomo: normalizeServiceStatus(data.services?.mihomo),
+    };
+    state.serviceHealth.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
+  } catch (error) {
+    const detail = error?.message || String(error);
+    state.serviceHealth.services = {
+      xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
+      mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
+    };
+    state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    if (!options.silent) showMessage('Не удалось обновить статусы сервисов.', { severity: 'warning', details: detail });
+  } finally {
+    state.serviceHealth.loading = false;
+    renderServiceHealth();
+  }
+}
+
+function normalizeServiceStatus(service) {
+  const stateValue = ['ok', 'error', 'unavailable'].includes(service?.state) ? service.state : 'unavailable';
+  return {
+    state: stateValue,
+    message: String(service?.message || ''),
+    detail: String(service?.detail || ''),
+  };
+}
+
+function formatServiceStatusLabel(service, loading = false) {
+  if (loading) return 'Проверка...';
+  if (service?.state === 'ok') return 'Работает';
+  if (service?.state === 'error') return 'Ошибка';
+  return 'Не найден';
+}
+
+function renderServiceHealth() {
+  const { loading, checkedAt, services } = state.serviceHealth;
+  els.serviceHealthItems.forEach((item) => {
+    const service = services[item.dataset.serviceHealth] || normalizeServiceStatus(null);
+    item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
+    item.classList.add(loading ? 'is-loading' : `is-${service.state}`);
+    const status = item.querySelector('.service-health-status');
+    if (status) status.textContent = formatServiceStatusLabel(service, loading);
+    const details = [service.message, service.detail].filter(Boolean).join(' · ');
+    item.title = details;
+  });
+
+  const checkedLabel = loading
+    ? 'Проверка...'
+    : checkedAt
+      ? `Проверено ${formatServiceHealthTime(checkedAt)}`
+      : 'Нажмите для проверки';
+  els.serviceHealthChecked.forEach((element) => { element.textContent = checkedLabel; });
+  els.serviceHealthButtons.forEach((button) => {
+    button.disabled = loading;
+    button.setAttribute('aria-busy', String(loading));
+  });
+}
+
+function formatServiceHealthTime(value) {
+  const date = new Date(Number(value) * 1000);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+function startServiceHealthPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (!document.hidden) loadServiceHealth({ silent: true });
+  }, SERVICE_HEALTH_REFRESH_MS);
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) loadServiceHealth({ silent: true });
+    });
+  }
 }
 
 async function checkRouterConfig(options = {}) {

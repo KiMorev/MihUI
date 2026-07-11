@@ -127,6 +127,7 @@ globalThis.__app = {
   maskProviderUrlsInYaml,
   maskSensitiveUrl,
   formatNodeInventoryError,
+  formatServiceStatusLabel,
   summarizeRoutePattern,
   splitRoutePattern,
   matchesRuleFilters,
@@ -1549,6 +1550,10 @@ proxy-groups: []`;
     assert.equal(app.summarizeRoutePattern('RU\\|EU|NL|DE|FR'), 'RU\\|EU · NL · DE · еще 1');
     assert.equal(app.formatNodeInventoryError('HTTP 404'), 'Список нод недоступен в текущем сервисе MihUI.');
     assert.equal(app.formatNodeInventoryError('Failed to fetch'), 'Не удалось связаться с Mihomo.');
+    assert.equal(app.formatServiceStatusLabel({ state: 'ok' }), 'Работает');
+    assert.equal(app.formatServiceStatusLabel({ state: 'error' }), 'Ошибка');
+    assert.equal(app.formatServiceStatusLabel({ state: 'unavailable' }), 'Не найден');
+    assert.equal(app.formatServiceStatusLabel({ state: 'ok' }, true), 'Проверка...');
   });
 
   test(`${source.name}: filters rules without changing yaml`, () => {
