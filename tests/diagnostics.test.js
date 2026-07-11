@@ -539,7 +539,7 @@ rules:
     assert(changes.includes('В группе Proxy отключена подписка removed.'));
   });
 
-  test(`${source.name}: updates the shell change count after an inline edit`, () => {
+  test(`${source.name}: updates the topbar change count after an inline edit`, () => {
     const app = loadApp(source);
     hydrate(app, `
 proxy-providers:
@@ -559,7 +559,7 @@ rules:
     app.generateOutput();
     app.renderOutputOnly();
 
-    assert.equal(app.els.sidebarStatusMeta.textContent, '1 изменение');
+    assert.equal(app.els.changesJumpButton.textContent, 'Изменения (1)');
   });
 
   test(`${source.name}: preserves optional http provider defaults until an explicit action`, () => {

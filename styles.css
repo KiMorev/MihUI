@@ -227,57 +227,6 @@ textarea {
   display: none;
 }
 
-.sidebar-status {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.sidebar-status-dot {
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border: 2px solid var(--muted);
-  border-radius: 50%;
-  background: transparent;
-}
-
-.sidebar-status-dot.is-ok {
-  border-color: var(--success);
-  background: var(--success);
-}
-
-.sidebar-status-dot.is-warning {
-  border-color: var(--warning);
-  background: #fff;
-}
-
-.sidebar-status-dot.is-danger {
-  border-color: var(--danger);
-  background: var(--danger);
-}
-
-.sidebar-status strong,
-.sidebar-status span {
-  display: block;
-}
-
-.sidebar-status strong {
-  font-size: 12px;
-  line-height: 1.35;
-}
-
-.sidebar-status span {
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.sidebar-check-button {
-  width: 100%;
-}
-
 .topbar {
   position: sticky;
   top: 0;

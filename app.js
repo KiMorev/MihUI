@@ -413,9 +413,6 @@ const els = {
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
   topbarValidation: document.querySelector('#topbarValidation'),
-  sidebarStatusDot: document.querySelector('#sidebarStatusDot'),
-  sidebarStatusValue: document.querySelector('#sidebarStatusValue'),
-  sidebarStatusMeta: document.querySelector('#sidebarStatusMeta'),
   serviceHealthButtons: document.querySelectorAll('[data-service-health-refresh]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
@@ -1677,7 +1674,7 @@ function render() {
 
   renderIntervalTools(activeProviders);
   renderOverview(activeProviders, groupsWithUse, changes, diagnostics);
-  renderShellStatus(changes, diagnostics);
+  renderShellStatus(diagnostics);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderConnectionSettings();
@@ -1690,34 +1687,26 @@ function render() {
   renderNodeInventory();
 }
 
-function renderShellStatus(changes, diagnostics) {
-  const changeCount = countChanges(changes);
+function renderShellStatus(diagnostics) {
   const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
   const warningCount = diagnostics.length - errorCount;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
-  let value = 'Конфигурация не загружена';
   let validation = 'Проверка недоступна';
   let variant = '';
 
   if (state.originalText) {
     if (hasStructuralError || errorCount > 0) {
-      value = hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount);
       validation = hasStructuralError ? 'Локальная проверка: ошибка структуры' : `Локальная проверка: ${formatErrorCount(errorCount)}`;
       variant = 'is-danger';
     } else if (warningCount > 0) {
-      value = 'Структура и связи требуют внимания';
       validation = `Локальная проверка: ${formatWarningCount(warningCount)}`;
       variant = 'is-warning';
     } else {
-      value = 'Структура и связи: без ошибок';
       validation = 'Локальная проверка: OK';
       variant = 'is-ok';
     }
   }
 
-  els.sidebarStatusValue.textContent = value;
-  els.sidebarStatusMeta.textContent = formatChangeCount(changeCount);
-  els.sidebarStatusDot.className = `sidebar-status-dot ${variant}`.trim();
   els.topbarValidation.textContent = validation;
   els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
@@ -6580,7 +6569,7 @@ function renderOutputOnly() {
   renderConfigurationEditorControls();
   renderRouterControls();
   const diagnostics = collectDiagnostics(activeProviders);
-  renderShellStatus(changes, diagnostics);
+  renderShellStatus(diagnostics);
   renderDiagnostics(diagnostics);
   renderReviewSummary(changes, diagnostics);
   renderChanges(changes);
