@@ -35,8 +35,11 @@
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /></symbol>
       <symbol id="icon-direct" viewBox="0 0 24 24"><path d="M17 7l-10 10" /><path d="M8 7l9 0l0 9" /></symbol>
       <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
-      <symbol id="icon-more" viewBox="0 0 24 24"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></symbol>
       <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6" /></symbol>
+      <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></symbol>
+      <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
+      <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 8l-5 -5l-5 5" /><path d="M5 21h14" /></symbol>
+      <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12" /><path d="M17 10l-5 5l-5 -5" /><path d="M5 21h14" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -107,20 +110,21 @@
             <span>Нет изменений</span>
           </button>
           <details id="fileTools" class="file-tools">
-            <summary aria-label="Файл" title="Файл"><svg class="action-icon" aria-hidden="true"><use href="#icon-more"></use></svg><span>Файл</span></summary>
-            <div class="file-tools-menu">
-              <button id="routerLoadButton" class="button compact" type="button">
-                <span>Перезагрузить с роутера</span>
+            <summary aria-label="Конфигурация" title="Конфигурация"><span>Конфигурация</span><svg class="action-icon file-tools-chevron" aria-hidden="true"><use href="#icon-chevron-down"></use></svg></summary>
+            <div class="file-tools-menu" aria-label="Действия с конфигурацией">
+              <button id="routerLoadButton" class="file-menu-item" type="button">
+                <svg class="file-menu-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg><span>Перезагрузить с роутера</span>
               </button>
-              <button id="backupHistoryButton" class="button compact" type="button" disabled hidden>
-                <span>История конфигурации…</span>
+              <button id="backupHistoryButton" class="file-menu-item" type="button" disabled hidden>
+                <svg class="file-menu-icon" aria-hidden="true"><use href="#icon-history"></use></svg><span>История конфигурации…</span>
               </button>
-              <label class="button compact">
-                <span>Загрузить файл</span>
+              <div class="file-tools-separator" role="separator"></div>
+              <label class="file-menu-item">
+                <svg class="file-menu-icon" aria-hidden="true"><use href="#icon-upload"></use></svg><span>Загрузить YAML</span>
                 <input id="fileInput" type="file" accept=".yaml,.yml,text/yaml,text/plain" />
               </label>
-              <button id="downloadButton" class="button compact" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
-                <span>Скачать YAML</span>
+              <button id="downloadButton" class="file-menu-item" type="button" title="Скачать полный YAML с исходными ссылками" aria-label="Скачать полный YAML с исходными ссылками" disabled>
+                <svg class="file-menu-icon" aria-hidden="true"><use href="#icon-download"></use></svg><span>Скачать YAML</span>
               </button>
             </div>
           </details>

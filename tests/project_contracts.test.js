@@ -30,7 +30,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
     assert.match(html, /id="checkConfigButton"[^>]+class="button compact"[\s\S]+?Проверить YAML в Mihomo/);
-    assert.match(html, /id="fileTools"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
+    assert.match(html, /id="fileTools"[\s\S]+?summary aria-label="Конфигурация"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
+    assert.match(html, /id="backupHistoryButton"[^>]+class="file-menu-item"[\s\S]+?file-tools-separator[\s\S]+?Загрузить YAML[\s\S]+?Скачать YAML/);
+    assert.doesNotMatch(html, /icon-more|>Файл<|Загрузить файл/);
     assert.doesNotMatch(html, /sidebarStatus|sidebar-status|sidebar-check-button|Итог и сохранение/);
     assert.match(html, /app-brand-title-row[\s\S]+?id="uiLinks" class="brand-ui-links"/);
     assert.match(html, /data-section="providers"[^>]*[\s\S]+?Подписки и группы/);
@@ -77,6 +79,16 @@ test('main and standalone expose the UI switcher in the brand block', () => {
     const source = read(name);
     assert.match(source, /\.app-brand-title-row\s*{/);
     assert.match(source, /\.ui-link-item\.is-current\s*{/);
+  }
+});
+
+test('main and standalone expose a flat configuration menu', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.file-tools-menu\s*{[\s\S]+?min-width: 240px;/);
+    assert.match(source, /\.file-menu-item\s*{[\s\S]+?border: 0;[\s\S]+?text-align: left;[\s\S]+?white-space: nowrap;/);
+    assert.match(source, /\.file-tools-separator\s*{/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.file-menu-item,[\s\S]+?min-height: 44px;/);
   }
 });
 

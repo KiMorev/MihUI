@@ -74,7 +74,8 @@ textarea {
 .app-brand-icon,
 .nav-icon,
 .topbar-file-icon,
-.action-icon {
+.action-icon,
+.file-menu-icon {
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -539,10 +540,34 @@ h2 {
   cursor: pointer;
   font-weight: 650;
   list-style: none;
+  white-space: nowrap;
+}
+
+.file-tools summary:hover,
+.file-tools summary:focus-visible,
+.file-tools[open] summary {
+  border-color: rgba(8, 124, 128, 0.42);
+  background: #fbfefe;
+  outline: none;
+}
+
+.file-tools summary:focus-visible {
+  outline: 2px solid rgba(8, 124, 128, 0.24);
+  outline-offset: 2px;
 }
 
 .file-tools summary::-webkit-details-marker {
   display: none;
+}
+
+.file-tools-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform 160ms ease;
+}
+
+.file-tools[open] .file-tools-chevron {
+  transform: rotate(180deg);
 }
 
 .file-tools-menu {
@@ -551,9 +576,10 @@ h2 {
   right: 0;
   z-index: 20;
   display: grid;
-  gap: 8px;
-  min-width: 150px;
-  padding: 8px;
+  gap: 2px;
+  min-width: 240px;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -571,9 +597,67 @@ h2 {
   line-height: 1.35;
 }
 
-.file-tools-menu .button {
+.file-menu-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
   justify-content: flex-start;
+  line-height: 1.25;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.file-menu-item:hover,
+.file-menu-item:focus-visible {
+  background: #e8f3f3;
+  color: var(--accent-dark);
+  outline: none;
+}
+
+.file-menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(8, 124, 128, 0.24);
+}
+
+.file-menu-item:disabled {
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.file-menu-item > span {
+  color: inherit;
+  font-size: inherit;
+}
+
+.file-menu-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+}
+
+.file-menu-item:hover .file-menu-icon,
+.file-menu-item:focus-visible .file-menu-icon {
+  color: var(--accent-dark);
+}
+
+.file-tools-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--line);
 }
 
 .button,
@@ -4362,6 +4446,7 @@ button.review-check-card:hover {
   .download-warning,
   .message-action,
   .file-tools summary,
+  .file-menu-item,
   .version-pill:not(:disabled),
   .ui-links-details summary,
   .ui-link-item,
