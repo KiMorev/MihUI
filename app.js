@@ -1767,6 +1767,8 @@ function normalizeComponentItem(item) {
     current: String(item?.current || ''),
     channel: String(item?.channel || ''),
     latest: String(item?.latest || ''),
+    buildTimestamp: String(item?.buildTimestamp || ''),
+    latestBuildTimestamp: String(item?.latestBuildTimestamp || ''),
     versions: Array.isArray(item?.versions) ? item.versions.map((value) => String(value || '')).filter(Boolean) : [],
     updateAvailable: Boolean(item?.updateAvailable),
     error: String(item?.error || ''),
@@ -1863,6 +1865,16 @@ function formatComponentVersion(value) {
   return version.startsWith('v') ? version : `v${version}`;
 }
 
+function formatXkeenBuildTimestamp(value) {
+  const match = String(value || '').match(/^(20\d{2})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):\d{2}\s+MSK$/i);
+  return match ? `${match[3]}.${match[2]}.${match[1]}, ${match[4]}:${match[5]}` : '';
+}
+
+function formatXkeenBuild(version, timestamp) {
+  const date = formatXkeenBuildTimestamp(timestamp);
+  return date ? `${formatComponentVersion(version)} · ${date}` : formatComponentVersion(version);
+}
+
 function componentVersionKey(value) {
   const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})/i);
   if (!match) return [];
@@ -1923,31 +1935,34 @@ function renderComponentManager() {
     } else if (service.state === 'error') {
       element.textContent = 'Ошибка запуска';
       element.classList.add('is-error');
-    } else if (name === 'xkeen' && xkeenChannel === 'beta') {
-      element.textContent = service.state === 'ok' ? 'Работает · Beta' : 'Канал Beta';
-      if (service.state === 'ok') element.classList.add('is-ok');
     } else if (item.error || !item.latest) {
       element.textContent = 'Проверка недоступна';
       element.classList.add('is-error');
+    } else if (name === 'xkeen' && xkeenChannel === 'beta') {
+      element.textContent = service.state === 'ok' ? 'Работает · Beta' : 'Канал Beta';
+      if (service.state === 'ok') element.classList.add('is-ok');
     } else {
       element.textContent = service.state === 'ok' ? 'Работает · актуально' : 'Актуально';
       element.classList.add('is-ok');
     }
   });
   els.componentCurrentVersions.forEach((element) => {
-    const item = state.components.items[element.dataset.componentCurrent] || normalizeComponentItem(null);
-    element.textContent = formatComponentVersion(item.current);
+    const name = element.dataset.componentCurrent;
+    const item = state.components.items[name] || normalizeComponentItem(null);
+    element.textContent = name === 'xkeen' && xkeenChannel === 'beta'
+      ? formatXkeenBuild(item.current, item.buildTimestamp)
+      : formatComponentVersion(item.current);
   });
   els.componentLatestVersions.forEach((element) => {
     const name = element.dataset.componentLatest;
     const item = state.components.items[name] || normalizeComponentItem(null);
     element.textContent = name === 'xkeen' && xkeenChannel === 'beta'
-      ? 'Через XKeen'
+      ? formatXkeenBuild(item.latest, item.latestBuildTimestamp)
       : formatComponentVersion(item.latest);
   });
   els.componentLatestLabels.forEach((element) => {
     element.textContent = element.dataset.componentLatestLabel === 'xkeen' && xkeenChannel === 'beta'
-      ? 'Обновление'
+      ? 'Последняя сборка'
       : 'Доступна';
   });
   els.componentChannels.forEach((element) => {
@@ -1960,7 +1975,7 @@ function renderComponentManager() {
     const betaUpdate = name === 'xkeen' && xkeenChannel === 'beta';
     button.disabled = busy || !item.installed || (!item.updateAvailable && !betaUpdate);
     button.textContent = betaUpdate
-      ? 'Проверить обновление'
+      ? item.updateAvailable ? 'Обновить сборку' : 'Проверить обновление'
       : item.updateAvailable && item.latest
       ? `Обновить до ${formatComponentVersion(item.latest)}`
       : item.error || !item.latest
@@ -2041,7 +2056,9 @@ function getComponentActionLabel(job) {
 function getComponentUpdateSummary() {
   return Object.entries(state.components.items)
     .filter(([, item]) => item.updateAvailable)
-    .map(([name, item]) => `${name === 'xkeen' ? 'XKeen' : 'Mihomo'} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
+    .map(([name, item]) => name === 'xkeen' && normalizeXkeenChannel(item.channel) === 'beta'
+      ? `XKeen Beta → ${formatXkeenBuild(item.latest, item.latestBuildTimestamp)}`
+      : `${name === 'xkeen' ? 'XKeen' : 'Mihomo'} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
     .join(' · ');
 }
 

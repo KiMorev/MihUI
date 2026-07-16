@@ -2,6 +2,7 @@
 import argparse
 import base64
 import html
+import io
 import ipaddress
 import json
 import os
@@ -10,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -30,6 +32,7 @@ DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
 DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
 XKEEN_STATUS_TIMEOUT = 8
 XKEEN_FILES_MAX_BYTES = 512 * 1024
+XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
 COMPONENT_ACTION_TIMEOUT = 10 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
@@ -1269,7 +1272,7 @@ def component_update_available(current, latest):
 def get_xkeen_version_info(app_dir):
     binary = find_xkeen_binary(app_dir)
     if not binary:
-        return {"installed": False, "version": "", "channel": "", "output": ""}
+        return {"installed": False, "version": "", "channel": "", "buildTimestamp": "", "output": ""}
     try:
         result = subprocess.run(
             [binary, "-v"],
@@ -1280,17 +1283,19 @@ def get_xkeen_version_info(app_dir):
         )
         output = strip_ansi(result.stdout.decode("utf-8", "replace")).strip()
     except Exception as error:
-        return {"installed": True, "version": "", "channel": "", "output": str(error)}
+        return {"installed": True, "version": "", "channel": "", "buildTimestamp": "", "output": str(error)}
 
     match = re.search(
         r"\bXKeen\s+v?([0-9]+(?:\.[0-9]+){1,3})(?:\s+(Stable|Dev|Beta))?\b",
         output,
         re.IGNORECASE,
     )
+    build_timestamp = normalize_xkeen_build_timestamp(output)
     return {
         "installed": True,
         "version": match.group(1) if match else "",
         "channel": match.group(2) if match and match.group(2) else "",
+        "buildTimestamp": build_timestamp,
         "output": output,
     }
 
@@ -1302,6 +1307,32 @@ def normalize_xkeen_channel(value):
     if channel in {"beta", "dev"}:
         return "beta"
     return ""
+
+
+def normalize_xkeen_build_timestamp(value):
+    match = re.search(
+        r"\b(20\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+MSK)\b",
+        str(value or ""),
+        re.IGNORECASE,
+    )
+    if not match:
+        return ""
+    timestamp = re.sub(r"\s+", " ", match.group(1).upper()).strip()
+    try:
+        datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S MSK")
+    except ValueError:
+        return ""
+    return timestamp
+
+
+def xkeen_beta_update_available(current_timestamp, latest_timestamp):
+    current = normalize_xkeen_build_timestamp(current_timestamp)
+    latest = normalize_xkeen_build_timestamp(latest_timestamp)
+    if not latest:
+        return False
+    if not current:
+        return True
+    return latest > current
 
 
 def read_mihomo_binary_version(app_dir):
@@ -1348,6 +1379,55 @@ def fetch_component_releases(repo, limit=10):
     return versions
 
 
+def parse_xkeen_beta_archive(body):
+    if not body or len(body) > XKEEN_BETA_ARCHIVE_MAX_BYTES:
+        raise ValueError("XKeen Beta archive has an invalid size")
+    try:
+        archive = tarfile.open(fileobj=io.BytesIO(body), mode="r:gz")
+    except tarfile.TarError as error:
+        raise ValueError("XKeen Beta archive is invalid") from error
+
+    with archive:
+        member = next(
+            (
+                item
+                for item in archive.getmembers()
+                if (item.name[2:] if item.name.startswith("./") else item.name)
+                == "_xkeen/01_info/01_info_variable.sh"
+            ),
+            None,
+        )
+        if not member or not member.isfile() or member.size > 64 * 1024:
+            raise ValueError("XKeen Beta build metadata is missing")
+        source = archive.extractfile(member)
+        if source is None:
+            raise ValueError("XKeen Beta build metadata is unreadable")
+        text = source.read(64 * 1024 + 1).decode("utf-8", "replace")
+
+    def assignment(name):
+        match = re.search(rf"^{re.escape(name)}=[\"']([^\"']*)[\"']\s*$", text, re.MULTILINE)
+        return match.group(1).strip() if match else ""
+
+    version = assignment("xkeen_current_version")
+    channel = normalize_xkeen_channel(assignment("xkeen_build"))
+    build_timestamp = normalize_xkeen_build_timestamp(assignment("build_timestamp"))
+    if not COMPONENT_VERSION_PATTERN.fullmatch(version) or channel != "beta" or not build_timestamp:
+        raise ValueError("XKeen Beta build metadata is invalid")
+    return {"version": version, "buildTimestamp": build_timestamp}
+
+
+def fetch_xkeen_beta_build(repo):
+    if not re.fullmatch(r"[0-9A-Za-z_.-]+/[0-9A-Za-z_.-]+", str(repo or "")):
+        raise ValueError("invalid XKeen GitHub repository")
+    request = urllib.request.Request(
+        f"https://raw.githubusercontent.com/{repo}/main/test/xkeen.tar.gz",
+        headers={"Accept": "application/octet-stream", "User-Agent": "MihUI"},
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        body = response.read(XKEEN_BETA_ARCHIVE_MAX_BYTES + 1)
+    return parse_xkeen_beta_archive(body)
+
+
 def get_component_release_catalog(app_dir, force=False):
     now = int(time.time())
     with component_release_cache_lock:
@@ -1361,16 +1441,34 @@ def get_component_release_catalog(app_dir, force=False):
         "mihomo": env.get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO),
     }
 
-    def load_component(item):
-        name, repo = item
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        release_futures = {
+            name: executor.submit(fetch_component_releases, repo)
+            for name, repo in repositories.items()
+        }
+        beta_future = executor.submit(fetch_xkeen_beta_build, repositories["xkeen"])
+        catalog = {}
+        for name, repo in repositories.items():
+            result = {"repo": repo, "versions": [], "latest": "", "error": ""}
+            try:
+                versions = release_futures[name].result()
+                result.update({"versions": versions, "latest": versions[0] if versions else ""})
+            except Exception as error:
+                result["error"] = str(error)
+            catalog[name] = result
         try:
-            versions = fetch_component_releases(repo)
-            return name, {"repo": repo, "versions": versions, "latest": versions[0] if versions else "", "error": ""}
+            beta = beta_future.result()
+            catalog["xkeen"].update(
+                {
+                    "betaVersion": beta["version"],
+                    "betaBuildTimestamp": beta["buildTimestamp"],
+                    "betaError": "",
+                }
+            )
         except Exception as error:
-            return name, {"repo": repo, "versions": [], "latest": "", "error": str(error)}
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        catalog = dict(executor.map(load_component, repositories.items()))
+            catalog["xkeen"].update(
+                {"betaVersion": "", "betaBuildTimestamp": "", "betaError": str(error)}
+            )
 
     with component_release_cache_lock:
         component_release_cache.update({"checkedAt": now, "catalog": catalog})
@@ -1389,11 +1487,22 @@ def get_components_status(app_dir, force=False):
     xkeen_release = catalog.get("xkeen") or {}
     mihomo_release = catalog.get("mihomo") or {}
     xkeen_channel = normalize_xkeen_channel(xkeen.get("channel"))
-    xkeen_update = bool(
-        xkeen.get("installed")
-        and xkeen_channel in {"", "stable"}
-        and component_update_available(xkeen.get("version"), xkeen_release.get("latest"))
-    )
+    if xkeen_channel == "beta":
+        xkeen_latest = xkeen_release.get("betaVersion") or ""
+        xkeen_latest_build = xkeen_release.get("betaBuildTimestamp") or ""
+        xkeen_error = xkeen_release.get("betaError") or ""
+        xkeen_update = bool(
+            xkeen.get("installed")
+            and xkeen_beta_update_available(xkeen.get("buildTimestamp"), xkeen_latest_build)
+        )
+    else:
+        xkeen_latest = xkeen_release.get("latest") or ""
+        xkeen_latest_build = ""
+        xkeen_error = xkeen_release.get("error") or ""
+        xkeen_update = bool(
+            xkeen.get("installed")
+            and component_update_available(xkeen.get("version"), xkeen_latest)
+        )
     mihomo_update = bool(
         mihomo.get("installed")
         and component_update_available(mihomo.get("version"), mihomo_release.get("latest"))
@@ -1403,10 +1512,12 @@ def get_components_status(app_dir, force=False):
             "installed": bool(xkeen.get("installed")),
             "current": xkeen.get("version") or "",
             "channel": "Beta" if xkeen_channel == "beta" else "Stable" if xkeen_channel == "stable" else xkeen.get("channel") or "",
-            "latest": (xkeen_release.get("latest") or "") if xkeen_channel != "beta" else "",
+            "latest": xkeen_latest,
+            "buildTimestamp": xkeen.get("buildTimestamp") or "",
+            "latestBuildTimestamp": xkeen_latest_build,
             "versions": xkeen_release.get("versions") or [],
             "updateAvailable": xkeen_update,
-            "error": "" if xkeen_channel == "beta" else xkeen_release.get("error") or "",
+            "error": xkeen_error,
         },
         "mihomo": {
             "installed": bool(mihomo.get("installed")),

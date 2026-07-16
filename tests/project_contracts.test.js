@@ -92,6 +92,9 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /'X-Mihui-Action': 'components'/);
     assert.match(source, /action: 'channel'/);
     assert.match(source, /\['restart', 'geo-update'\]/);
+    assert.match(source, /latestBuildTimestamp/);
+    assert.match(source, /Последняя сборка/);
+    assert.doesNotMatch(source, /Через XKeen/);
     assert.match(source, /Понизить Mihomo/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }

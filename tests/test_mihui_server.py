@@ -1,7 +1,9 @@
 import base64
+import io
 import json
 import os
 import sys
+import tarfile
 import tempfile
 import threading
 import unittest
@@ -845,6 +847,73 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(xkeen["latest"], "")
         self.assertEqual(xkeen["error"], "")
         self.assertFalse(xkeen["updateAvailable"])
+
+    def test_xkeen_version_info_reads_beta_build_timestamp(self):
+        output = "Версия XKeen 2.0.1 Beta (время сборки: 2026-07-16 18:16:57 MSK)\n"
+        completed = mihui_server.subprocess.CompletedProcess(["xkeen", "-v"], 0, stdout=output.encode("utf-8"))
+        with mock.patch.object(
+            mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+        ), mock.patch.object(mihui_server.subprocess, "run", return_value=completed):
+            result = mihui_server.get_xkeen_version_info(Path("."))
+
+        self.assertEqual(result["version"], "2.0.1")
+        self.assertEqual(result["channel"], "Beta")
+        self.assertEqual(result["buildTimestamp"], "2026-07-16 18:16:57 MSK")
+
+    def test_parse_xkeen_beta_archive_reads_embedded_build_metadata(self):
+        source = (
+            'xkeen_current_version="2.0.1"\n'
+            'xkeen_build="Beta"\n'
+            'build_timestamp="2026-07-16 20:45:12 MSK"\n'
+        ).encode("utf-8")
+        body = io.BytesIO()
+        with tarfile.open(fileobj=body, mode="w:gz") as archive:
+            member = tarfile.TarInfo("_xkeen/01_info/01_info_variable.sh")
+            member.size = len(source)
+            archive.addfile(member, io.BytesIO(source))
+
+        result = mihui_server.parse_xkeen_beta_archive(body.getvalue())
+
+        self.assertEqual(result["version"], "2.0.1")
+        self.assertEqual(result["buildTimestamp"], "2026-07-16 20:45:12 MSK")
+
+    def test_components_status_compares_beta_build_timestamps_with_same_version(self):
+        catalog = {
+            "xkeen": {
+                "latest": "v2.0.1",
+                "versions": ["v2.0.1"],
+                "error": "",
+                "betaVersion": "2.0.1",
+                "betaBuildTimestamp": "2026-07-16 20:45:12 MSK",
+                "betaError": "",
+            },
+            "mihomo": {"latest": "", "versions": [], "error": ""},
+        }
+        with mock.patch.object(
+            mihui_server, "get_component_release_catalog", return_value=(catalog, 123)
+        ), mock.patch.object(
+            mihui_server,
+            "get_xkeen_version_info",
+            return_value={
+                "installed": True,
+                "version": "2.0.1",
+                "channel": "Beta",
+                "buildTimestamp": "2026-07-16 18:16:57 MSK",
+            },
+        ), mock.patch.object(
+            mihui_server,
+            "read_mihomo_binary_version",
+            return_value={"installed": False, "version": "", "binary": ""},
+        ):
+            result = mihui_server.get_components_status(Path("."))
+
+        xkeen = result["components"]["xkeen"]
+        self.assertEqual(xkeen["current"], "2.0.1")
+        self.assertEqual(xkeen["latest"], "2.0.1")
+        self.assertEqual(xkeen["buildTimestamp"], "2026-07-16 18:16:57 MSK")
+        self.assertEqual(xkeen["latestBuildTimestamp"], "2026-07-16 20:45:12 MSK")
+        self.assertTrue(xkeen["updateAvailable"])
+        self.assertEqual(result["updateCount"], 1)
 
     def test_component_action_requires_custom_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
