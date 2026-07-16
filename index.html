@@ -764,8 +764,8 @@
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
         <div class="component-manager-body">
-          <p id="componentManagerNotice" class="component-manager-notice" aria-live="polite">Получаем версии компонентов...</p>
-          <div class="component-manager-list">
+          <p id="componentManagerNotice" class="component-manager-notice" data-component-updates-view aria-live="polite">Получаем версии компонентов...</p>
+          <div class="component-manager-list" data-component-updates-view>
             <article class="component-manager-item" data-component-card="xkeen">
               <header>
                 <div><strong>XKeen</strong><span data-component-channel="xkeen"></span></div>
@@ -775,20 +775,28 @@
                 <div><dt>Установлена</dt><dd data-component-current="xkeen">—</dd></div>
                 <div><dt data-component-latest-label="xkeen">Доступна</dt><dd data-component-latest="xkeen">—</dd></div>
               </dl>
-              <div class="xkeen-channel-setting">
-                <div class="xkeen-channel-copy">
-                  <strong>Канал обновлений</strong>
-                  <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
-                </div>
-                <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
-                  <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
-                  <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
-                </div>
-                <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
-              </div>
               <div class="component-manager-actions">
-                <button class="button primary compact" type="button" data-component-update="xkeen">Обновить XKeen</button>
-                <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
+                <details class="component-advanced">
+                  <summary>Дополнительные параметры</summary>
+                  <div class="component-advanced-body">
+                    <div class="xkeen-channel-setting">
+                      <div class="xkeen-channel-copy">
+                        <strong>Канал обновлений</strong>
+                        <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
+                      </div>
+                      <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
+                      </div>
+                      <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+                    </div>
+                    <div class="component-advanced-actions">
+                      <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
+                      <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                    </div>
+                  </div>
+                </details>
               </div>
             </article>
 
@@ -802,39 +810,42 @@
                 <div><dt data-component-latest-label="mihomo">Доступна</dt><dd data-component-latest="mihomo">—</dd></div>
               </dl>
               <div class="component-manager-actions">
-                <button class="button primary compact" type="button" data-component-update="mihomo">Обновить Mihomo</button>
-                <details class="component-version-picker">
-                  <summary>Другая версия…</summary>
-                  <div>
-                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
-                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
+                <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
+                <details class="component-advanced">
+                  <summary>Дополнительные параметры</summary>
+                  <div class="component-advanced-body">
+                    <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
+                    <div class="component-version-picker-controls">
+                      <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                      <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
+                    </div>
                   </div>
                 </details>
               </div>
             </article>
           </div>
-          <details id="componentMaintenance" class="component-maintenance">
-            <summary>
-              <span><strong>Обслуживание</strong><small>Перезапуск и принудительное обновление GEO-баз</small></span>
-              <span>4 действия</span>
-            </summary>
+          <section id="componentMaintenance" class="component-maintenance" aria-labelledby="componentMaintenanceTitle" hidden>
+            <header class="component-maintenance-head">
+              <strong id="componentMaintenanceTitle">Выберите компонент и действие</strong>
+              <span>Соединения могут кратковременно прерваться.</span>
+            </header>
             <div class="component-maintenance-body">
               <section class="component-maintenance-row">
-                <div><strong>XKeen</strong><span>Прокси-сервис и внешние GeoFile/GeoIPSET</span></div>
+                <div><strong>XKeen</strong><span>Прокси-сервис · внешние GeoFile/GeoIPSET</span></div>
                 <div class="component-maintenance-actions">
                   <button class="button compact" type="button" data-maintenance-component="xkeen" data-maintenance-action="restart">Перезапустить</button>
-                  <button class="button compact" type="button" data-maintenance-component="xkeen" data-maintenance-action="geo-update">Обновить GeoFile/GeoIPSET</button>
+                  <button class="button compact" type="button" data-maintenance-component="xkeen" data-maintenance-action="geo-update">Обновить геоданные</button>
                 </div>
               </section>
               <section class="component-maintenance-row">
-                <div><strong>Mihomo</strong><span>Ядро и его собственные GEO-базы</span></div>
+                <div><strong>Mihomo</strong><span>Ядро · встроенные GEO-базы</span></div>
                 <div class="component-maintenance-actions">
-                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="restart">Перезапустить ядро</button>
-                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="geo-update">Обновить GEO-базы</button>
+                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="restart">Перезапустить</button>
+                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="geo-update">Обновить геоданные</button>
                 </div>
               </section>
             </div>
-          </details>
+          </section>
           <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
             <strong id="componentJobTitle">Операция выполняется</strong>
             <span id="componentJobMessage"></span>
@@ -845,8 +856,12 @@
           </section>
         </div>
         <footer class="component-manager-footer">
-          <button id="checkComponentUpdatesButton" class="button compact" type="button">Проверить версии</button>
-          <span id="componentVersionsChecked"></span>
+          <button id="openComponentMaintenanceButton" class="button compact" type="button">Сервисные действия…</button>
+          <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
+          <div id="componentUpdateFooter" class="component-update-footer">
+            <span id="componentVersionsChecked"></span>
+            <button id="checkComponentUpdatesButton" class="button primary compact" type="button">Проверить обновления</button>
+          </div>
         </footer>
       </section>
     </dialog>

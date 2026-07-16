@@ -1542,6 +1542,20 @@ def validate_component_action(app_dir, payload):
     component = str((payload or {}).get("component") or "").strip().lower()
     action = str((payload or {}).get("action") or "").strip().lower()
     target = str((payload or {}).get("target") or "").strip()
+    if component == "all":
+        if action != "update" or target:
+            raise ValueError("unsupported all-components action")
+        status = get_components_status(app_dir, force=True)
+        updates = []
+        xkeen = status["components"]["xkeen"]
+        mihomo = status["components"]["mihomo"]
+        if xkeen.get("updateAvailable"):
+            updates.append({"component": "xkeen", "target": ""})
+        if mihomo.get("updateAvailable") and mihomo.get("latest"):
+            updates.append({"component": "mihomo", "target": mihomo["latest"]})
+        if not updates:
+            raise ValueError("no component updates available")
+        return {"component": component, "action": action, "target": "", "updates": updates}
     if component not in {"xkeen", "mihomo"}:
         raise ValueError("unsupported component")
     if component == "xkeen" and action not in {"update", "rollback", "channel", "restart", "geo-update"}:
@@ -1618,7 +1632,9 @@ def run_component_action(app_dir, request_data):
         try:
             component = request_data["component"]
             action = request_data["action"]
-            if component == "xkeen" and action in {"update", "rollback", "channel"}:
+            if component == "all":
+                run_all_component_updates(app_dir, request_data["updates"])
+            elif component == "xkeen" and action in {"update", "rollback", "channel"}:
                 run_xkeen_component_action(app_dir, action, request_data.get("target", ""))
             elif component == "xkeen":
                 run_xkeen_maintenance_action(app_dir, action)
@@ -1644,6 +1660,22 @@ def run_component_action(app_dir, request_data):
             )
         finally:
             invalidate_component_release_cache()
+
+
+def run_all_component_updates(app_dir, updates):
+    total = len(updates)
+    for index, item in enumerate(updates, start=1):
+        component = item["component"]
+        label = "XKeen" if component == "xkeen" else "Mihomo"
+        append_component_action_output(f"=== {label} ({index}/{total}) ===")
+        update_component_action_state(
+            phase="install",
+            message=f"Обновляем {label} ({index} из {total})",
+        )
+        if component == "xkeen":
+            run_xkeen_component_action(app_dir, "update")
+        else:
+            run_mihomo_component_update(app_dir, item["target"])
 
 
 def run_xkeen_component_action(app_dir, action, target=""):

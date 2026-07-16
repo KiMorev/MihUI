@@ -403,6 +403,7 @@ const state = {
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
+    view: 'updates',
   },
   overviewDiagnostics: [],
   lastUndo: null,
@@ -462,8 +463,11 @@ const els = {
   serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
   serviceUpdateMobileBadges: document.querySelectorAll('[data-service-update-mobile-badge]'),
   componentManagerDialog: document.querySelector('#componentManagerDialog'),
+  componentManagerTitle: document.querySelector('#componentManagerTitle'),
+  componentManagerDescription: document.querySelector('#componentManagerDescription'),
   closeComponentManagerButton: document.querySelector('#closeComponentManagerButton'),
   componentManagerNotice: document.querySelector('#componentManagerNotice'),
+  componentUpdatesViews: document.querySelectorAll('[data-component-updates-view]'),
   componentCards: document.querySelectorAll('[data-component-card]'),
   componentStates: document.querySelectorAll('[data-component-state]'),
   componentCurrentVersions: document.querySelectorAll('[data-component-current]'),
@@ -475,8 +479,12 @@ const els = {
   xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
   xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
   xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
+  reinstallXkeenButton: document.querySelector('#reinstallXkeenButton'),
   componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
   componentMaintenance: document.querySelector('#componentMaintenance'),
+  openComponentMaintenanceButton: document.querySelector('#openComponentMaintenanceButton'),
+  backToComponentUpdatesButton: document.querySelector('#backToComponentUpdatesButton'),
+  componentUpdateFooter: document.querySelector('#componentUpdateFooter'),
   mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
   installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
   checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
@@ -656,13 +664,16 @@ els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
-els.checkComponentUpdatesButton.addEventListener('click', checkComponentVersions);
+els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
+els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
+els.reinstallXkeenButton.addEventListener('click', reinstallXkeen);
+els.openComponentMaintenanceButton.addEventListener('click', openComponentMaintenance);
+els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates);
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
-els.componentMaintenance.addEventListener('toggle', revealComponentMaintenance);
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
 renderHappDecoderSettings();
@@ -1832,6 +1843,8 @@ async function loadComponents(options = {}) {
 }
 
 function openComponentManager() {
+  state.components.view = 'updates';
+  document.body.classList.add('component-manager-open');
   if (typeof els.componentManagerDialog.showModal === 'function') els.componentManagerDialog.showModal();
   else els.componentManagerDialog.setAttribute('open', '');
   renderComponentManager();
@@ -1842,14 +1855,26 @@ function openComponentManager() {
 function closeComponentManager() {
   if (typeof els.componentManagerDialog.close === 'function') els.componentManagerDialog.close();
   else els.componentManagerDialog.removeAttribute('open');
+  document.body.classList.remove('component-manager-open');
 }
 
-function revealComponentMaintenance() {
-  if (!els.componentMaintenance.open) return;
-  window.setTimeout(() => {
-    const lastRow = els.componentMaintenance.querySelector('.component-maintenance-row:last-child');
-    (lastRow || els.componentMaintenance).scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
-  }, 0);
+function handleComponentManagerClosed() {
+  document.body.classList.remove('component-manager-open');
+}
+
+function setComponentManagerView(view) {
+  state.components.view = view === 'maintenance' ? 'maintenance' : 'updates';
+  renderComponentManager();
+  const body = els.componentManagerDialog.querySelector('.component-manager-body');
+  if (body) body.scrollTop = 0;
+}
+
+function openComponentMaintenance() {
+  setComponentManagerView('maintenance');
+}
+
+function openComponentUpdates() {
+  setComponentManagerView('updates');
 }
 
 async function checkComponentVersions() {
@@ -1903,6 +1928,18 @@ function renderComponentManager() {
   const errors = Object.values(state.components.items).filter((item) => item.error).length;
   const xkeen = state.components.items.xkeen || normalizeComponentItem(null);
   const xkeenChannel = normalizeXkeenChannel(xkeen.channel);
+  const maintenanceView = state.components.view === 'maintenance';
+
+  els.componentManagerTitle.textContent = maintenanceView ? 'Сервисные действия' : 'Сервисы и версии';
+  els.componentManagerDescription.textContent = maintenanceView
+    ? 'Перезапуск компонентов и ручное обновление геоданных.'
+    : 'Проверка и установка обновлений основных компонентов.';
+  els.componentUpdatesViews.forEach((element) => { element.hidden = maintenanceView; });
+  els.componentMaintenance.hidden = !maintenanceView;
+  els.openComponentMaintenanceButton.hidden = maintenanceView;
+  els.backToComponentUpdatesButton.hidden = !maintenanceView;
+  els.componentUpdateFooter.hidden = maintenanceView;
+  els.openComponentMaintenanceButton.disabled = busy;
 
   if (state.components.loading) {
     els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
@@ -1973,9 +2010,9 @@ function renderComponentManager() {
     const name = button.dataset.componentUpdate;
     const item = state.components.items[name] || normalizeComponentItem(null);
     const betaUpdate = name === 'xkeen' && xkeenChannel === 'beta';
-    button.disabled = busy || !item.installed || (!item.updateAvailable && !betaUpdate);
-    button.textContent = betaUpdate
-      ? item.updateAvailable ? 'Обновить сборку' : 'Проверить обновление'
+    button.disabled = busy || !item.installed || !item.updateAvailable;
+    button.textContent = item.updateAvailable && betaUpdate
+      ? 'Обновить сборку'
       : item.updateAvailable && item.latest
       ? `Обновить до ${formatComponentVersion(item.latest)}`
       : item.error || !item.latest
@@ -2002,6 +2039,10 @@ function renderComponentManager() {
     : xkeenChannel === 'beta'
       ? 'Beta — свежие сборки из разработки'
       : 'Stable — проверенные релизы XKeen';
+  els.reinstallXkeenButton.disabled = busy || !xkeen.installed;
+  els.reinstallXkeenButton.textContent = xkeenChannel === 'beta'
+    ? 'Переустановить текущую Beta-сборку'
+    : 'Переустановить XKeen';
 
   els.componentMaintenanceButtons.forEach((button) => {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
@@ -2021,6 +2062,11 @@ function renderComponentManager() {
   els.mihomoVersionSelect.disabled = busy || mihomo.versions.length === 0;
   els.installMihomoVersionButton.disabled = busy || !els.mihomoVersionSelect.value;
   els.checkComponentUpdatesButton.disabled = busy;
+  els.checkComponentUpdatesButton.textContent = updateCount > 0
+    ? `Обновить всё (${updateCount})`
+    : state.components.loading
+      ? 'Проверяем обновления...'
+      : 'Проверить обновления';
   els.componentVersionsChecked.textContent = state.components.checkedAt
     ? `Проверено ${formatServiceHealthTime(state.components.checkedAt)}`
     : '';
@@ -2045,6 +2091,7 @@ function renderComponentJob() {
 }
 
 function getComponentActionLabel(job) {
+  if (job.component === 'all') return 'Обновление компонентов';
   const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
   if (job.action === 'restart') return `Перезапуск ${component}`;
   if (job.action === 'geo-update') return `Обновление GEO · ${component}`;
@@ -2064,9 +2111,31 @@ function getComponentUpdateSummary() {
 
 async function updateComponent(component) {
   const item = state.components.items[component];
-  const betaUpdate = component === 'xkeen' && normalizeXkeenChannel(item?.channel) === 'beta';
-  if (!item?.updateAvailable && !betaUpdate) return;
+  if (!item?.updateAvailable) return;
   await startComponentAction({ component, action: 'update', target: component === 'mihomo' ? item.latest : '' });
+}
+
+async function handleComponentPrimaryAction() {
+  if (state.components.updateCount > 0) {
+    await updateAllComponents();
+    return;
+  }
+  await checkComponentVersions();
+}
+
+async function updateAllComponents() {
+  const count = Number(state.components.updateCount) || 0;
+  if (!count || state.components.job.running) return;
+  if (!window.confirm(`Обновить все доступные компоненты (${count})? Соединения могут кратковременно прерваться.`)) return;
+  await startComponentAction({ component: 'all', action: 'update' });
+}
+
+async function reinstallXkeen() {
+  const xkeen = state.components.items.xkeen;
+  if (!xkeen?.installed || state.components.job.running) return;
+  const label = normalizeXkeenChannel(xkeen.channel) === 'beta' ? 'текущую Beta-сборку' : 'текущую версию';
+  if (!window.confirm(`Переустановить ${label} XKeen? Перед установкой будет создана резервная копия.`)) return;
+  await startComponentAction({ component: 'xkeen', action: 'update' });
 }
 
 function selectXkeenChannel(channel) {
@@ -2094,6 +2163,9 @@ async function startMaintenanceAction(component, action) {
   if (action === 'restart') {
     const label = component === 'xkeen' ? 'XKeen и активное прокси-ядро' : 'ядро Mihomo';
     if (!window.confirm(`Перезапустить ${label}? Соединения могут кратковременно прерваться.`)) return;
+  } else {
+    const label = component === 'xkeen' ? 'XKeen' : 'Mihomo';
+    if (!window.confirm(`Обновить геоданные ${label}?`)) return;
   }
   await startComponentAction({ component, action });
 }

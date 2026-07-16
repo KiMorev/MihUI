@@ -1494,6 +1494,7 @@ input[type='file'] {
 .component-manager-dialog {
   width: min(720px, calc(100vw - 32px));
   max-height: min(780px, calc(100vh - 32px));
+  overflow: hidden;
   padding: 0;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
@@ -1505,6 +1506,10 @@ input[type='file'] {
 .component-manager-dialog::backdrop {
   background: rgba(24, 34, 52, 0.38);
   backdrop-filter: blur(2px);
+}
+
+body.component-manager-open {
+  overflow: hidden;
 }
 
 .component-manager-surface {
@@ -1685,17 +1690,19 @@ input[type='file'] {
 }
 
 .component-manager-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 8px;
-  align-items: center;
+  align-items: start;
 }
 
-.component-version-picker {
+.component-advanced {
   position: relative;
+  min-width: 0;
 }
 
-.component-version-picker > summary {
+.component-advanced > summary {
+  width: max-content;
   min-height: 34px;
   padding: 7px 10px;
   border: 1px solid var(--line-strong);
@@ -1708,18 +1715,41 @@ input[type='file'] {
   list-style: none;
 }
 
-.component-version-picker > summary::-webkit-details-marker {
+.component-advanced > summary::-webkit-details-marker {
   display: none;
 }
 
-.component-version-picker > div {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
+.component-advanced[open] {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
-.component-version-picker select {
+.component-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fbfcfe;
+}
+
+.component-advanced-hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.component-advanced-actions,
+.component-version-picker-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.component-version-picker-controls select {
   min-width: 170px;
+  flex: 1 1 220px;
 }
 
 .component-maintenance {
@@ -1728,44 +1758,17 @@ input[type='file'] {
   background: #fff;
 }
 
-.component-maintenance > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
-  padding: 10px 12px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.component-maintenance > summary::-webkit-details-marker {
-  display: none;
-}
-
-.component-maintenance > summary > span:first-child {
+.component-maintenance-head {
   display: grid;
   gap: 2px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
 }
 
-.component-maintenance > summary small,
+.component-maintenance-head > span,
 .component-maintenance-row > div:first-child span {
   color: var(--muted);
   font-size: 11px;
-}
-
-.component-maintenance > summary > span:last-child {
-  flex: 0 0 auto;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 750;
-}
-
-.component-maintenance-body {
-  border-top: 1px solid var(--line);
 }
 
 .component-maintenance-row {
@@ -1837,9 +1840,18 @@ input[type='file'] {
 .component-manager-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--line);
+}
+
+.component-update-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .metric {
@@ -6514,16 +6526,38 @@ button.review-check-card:focus-visible {
     flex: 1 1 100%;
   }
 
+  .component-manager-actions {
+    grid-template-columns: 1fr;
+  }
+
   .component-manager-actions,
-  .component-version-picker,
-  .component-version-picker > div {
+  .component-advanced,
+  .component-advanced > summary,
+  .component-version-picker-controls {
     width: 100%;
   }
 
   .component-manager-actions > .button,
-  .component-version-picker select,
-  .component-version-picker .button {
+  .component-version-picker-controls select,
+  .component-version-picker-controls .button {
     flex: 1 1 auto;
+    width: 100%;
+  }
+
+  .component-manager-footer,
+  .component-update-footer {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .component-update-footer {
+    margin-left: 0;
+  }
+
+  .component-manager-footer > .button,
+  .component-update-footer .button {
+    width: 100%;
   }
 
   .overview-flow-steps {

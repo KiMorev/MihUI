@@ -970,6 +970,48 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(restart["action"], "restart")
         self.assertEqual(geo_update["action"], "geo-update")
 
+    def test_validate_all_component_update_uses_only_available_checked_versions(self):
+        status = {
+            "components": {
+                "xkeen": {"updateAvailable": True, "latest": "2.0.1"},
+                "mihomo": {"updateAvailable": True, "latest": "v1.19.29"},
+            }
+        }
+        with mock.patch.object(
+            mihui_server, "get_components_status", return_value=status
+        ) as get_status:
+            result = mihui_server.validate_component_action(
+                Path("."), {"component": "all", "action": "update"}
+            )
+
+        get_status.assert_called_once_with(Path("."), force=True)
+        self.assertEqual(
+            result["updates"],
+            [
+                {"component": "xkeen", "target": ""},
+                {"component": "mihomo", "target": "v1.19.29"},
+            ],
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported all-components action"):
+            mihui_server.validate_component_action(
+                Path("."), {"component": "all", "action": "restart"}
+            )
+
+    def test_run_all_component_updates_runs_checked_components_in_order(self):
+        updates = [
+            {"component": "xkeen", "target": ""},
+            {"component": "mihomo", "target": "v1.19.29"},
+        ]
+        with mock.patch.object(
+            mihui_server, "run_xkeen_component_action"
+        ) as xkeen_update, mock.patch.object(
+            mihui_server, "run_mihomo_component_update"
+        ) as mihomo_update:
+            mihui_server.run_all_component_updates(Path("."), updates)
+
+        xkeen_update.assert_called_once_with(Path("."), "update")
+        mihomo_update.assert_called_once_with(Path("."), "v1.19.29")
+
     def test_xkeen_channel_switch_uses_backup_and_fixed_interactive_commands(self):
         version_info = [
             {"installed": True, "version": "2.0.1", "channel": "Beta"},

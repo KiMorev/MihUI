@@ -52,6 +52,10 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
+    assert.equal((html.match(/<summary>Дополнительные параметры<\/summary>/g) || []).length, 2);
+    assert.match(html, /id="componentMaintenance"[^>]+hidden/);
+    assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Сервисные действия…<\/button>/);
+    assert.doesNotMatch(html, /4 действия|Проверить версии|Проверить обновление/);
     assert.match(html, /id="mihomoVersionSelect"/);
     assert.match(html, /id="overviewConfigSource"/);
     assert.match(html, /id="overviewConfigLoadedLabel"/);
@@ -91,11 +95,13 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /apiJson\('\/api\/components\/action'/);
     assert.match(source, /'X-Mihui-Action': 'components'/);
     assert.match(source, /action: 'channel'/);
+    assert.match(source, /component: 'all', action: 'update'/);
     assert.match(source, /\['restart', 'geo-update'\]/);
     assert.match(source, /latestBuildTimestamp/);
     assert.match(source, /Последняя сборка/);
     assert.doesNotMatch(source, /Через XKeen/);
     assert.match(source, /Понизить Mihomo/);
+    assert.match(source, /Переустановить текущую Beta-сборку/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
 
@@ -104,6 +110,8 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /\.service-health-head \.service-update-badge/);
     assert.match(source, /\.component-manager-dialog::backdrop/);
     assert.match(source, /\.component-manager-state\.is-update/);
+    assert.match(source, /body\.component-manager-open\s*{/);
+    assert.match(source, /\.component-advanced\[open\]\s*{/);
   }
 });
 
