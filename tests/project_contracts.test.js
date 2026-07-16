@@ -9,6 +9,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 test('main and standalone UI expose labels for audited controls', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
+    assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
     assert.match(html, /id="backupHistoryButton"[\s\S]+?История конфигурации…/);
     assert.match(html, /id="backupHistoryDialog"[^>]+aria-labelledby="backupHistoryTitle"[^>]+aria-describedby="backupHistoryDescription"/);
     assert.match(html, /id="backupHistoryList"[^>]+role="radiogroup"[^>]+aria-label="Версии конфигурации"/);
