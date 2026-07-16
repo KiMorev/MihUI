@@ -2324,6 +2324,8 @@ input[type='file'] {
 }
 
 .xkeen-file-editor {
+  width: auto;
+  min-width: 0;
   min-height: 220px;
   margin: 0 14px;
   padding: 11px 12px;

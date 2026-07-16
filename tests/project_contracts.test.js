@@ -122,6 +122,11 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
     assert.match(source, /'X-Mihui-Action': 'xkeen-network-files'/);
     assert.match(source, /Порты проксирования имеют приоритет/);
   }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.xkeen-file-editor\s*{[\s\S]+?width: auto;[\s\S]+?min-width: 0;/);
+  }
 });
 
 test('main and standalone expose the UI switcher in the brand block', () => {
