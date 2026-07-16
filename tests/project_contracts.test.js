@@ -44,7 +44,12 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.doesNotMatch(html, /Связи с группами|class="top-ui-links"/);
     assert.equal((html.match(/data-service-health="xkeen"/g) || []).length, 2);
     assert.equal((html.match(/data-service-health="mihomo"/g) || []).length, 2);
-    assert.match(html, /data-service-health-refresh[^>]+aria-label="Обновить статусы сервисов"/);
+    assert.match(html, /data-components-open[^>]+aria-label="Открыть состояние сервисов и версии"/);
+    assert.match(html, /data-service-update-badge[^>]+hidden>Обновления · 0/);
+    assert.match(html, /id="componentManagerDialog"[^>]+aria-labelledby="componentManagerTitle"/);
+    assert.match(html, /data-component-update="xkeen"/);
+    assert.match(html, /data-component-update="mihomo"/);
+    assert.match(html, /id="mihomoVersionSelect"/);
     assert.match(html, /id="overviewConfigSource"/);
     assert.match(html, /id="overviewConfigLoadedLabel"/);
     assert.doesNotMatch(html, /Состояние сервисов/);
@@ -72,6 +77,25 @@ test('main and standalone expose responsive service traffic lights', () => {
     assert.match(source, /\.service-health-item\.is-ok \.service-health-dot/);
     assert.match(source, /\.service-health-item\.is-error \.service-health-dot/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.service-health-mobile\s*{[\s\S]+?display: grid;/);
+  }
+});
+
+test('main and standalone expose component update markers and one manager flow', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /title: 'Доступны обновления компонентов'/);
+    assert.match(source, /element\.textContent = `Обновления · \$\{updateCount\}`/);
+    assert.match(source, /apiJson\('\/api\/components\/action'/);
+    assert.match(source, /'X-Mihui-Action': 'components'/);
+    assert.match(source, /Понизить Mihomo/);
+    assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.service-health-head \.service-update-badge/);
+    assert.match(source, /\.component-manager-dialog::backdrop/);
+    assert.match(source, /\.component-manager-state\.is-update/);
   }
 });
 

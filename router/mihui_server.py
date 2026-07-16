@@ -15,6 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +24,11 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
+DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
+DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
 XKEEN_STATUS_TIMEOUT = 8
+COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
+COMPONENT_ACTION_TIMEOUT = 10 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
 PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
@@ -85,6 +90,22 @@ update_state = {
     "finishedAt": None,
     "output": "",
 }
+component_action_lock = threading.Lock()
+component_state_lock = threading.Lock()
+component_action_state = {
+    "running": False,
+    "ok": None,
+    "component": "",
+    "action": "",
+    "target": "",
+    "phase": "idle",
+    "message": "",
+    "startedAt": None,
+    "finishedAt": None,
+    "output": "",
+}
+component_release_cache_lock = threading.Lock()
+component_release_cache = {"checkedAt": 0, "catalog": {}}
 UI_ASSET_NO_CACHE_PATHS = {"/", "/index.html", "/app.js", "/styles.css", "/mihomo-editor.html"}
 
 
@@ -120,6 +141,16 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/services/status":
             self.send_json(HTTPStatus.OK, get_services_status(self.app_dir))
             return
+        if route == "/api/components/status":
+            force = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("force", [""])[0]
+            self.send_json(
+                HTTPStatus.OK,
+                get_components_status(self.app_dir, force=str(force).lower() in {"1", "true", "yes"}),
+            )
+            return
+        if route == "/api/components/job":
+            self.send_json(HTTPStatus.OK, {"ok": True, "job": snapshot_component_action_state()})
+            return
         if route == "/api/providers/status":
             self.handle_providers_status()
             return
@@ -142,6 +173,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/update/start":
             self.handle_update_start()
+            return
+        if route == "/api/components/action":
+            self.handle_component_action()
             return
         if route == "/api/config/check":
             self.handle_config_check()
@@ -293,6 +327,45 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         thread = threading.Thread(target=run_update_script, args=(self.app_dir,), daemon=True)
         thread.start()
         self.send_json(HTTPStatus.ACCEPTED, snapshot_update_state())
+
+    def handle_component_action(self):
+        if self.headers.get("X-Mihui-Action") != "components":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        try:
+            payload = self.read_json_body()
+            request_data = validate_component_action(self.app_dir, payload)
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+
+        with component_state_lock:
+            if component_action_state["running"]:
+                self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "component action already running"})
+                return
+            component_action_state.update(
+                {
+                    "running": True,
+                    "ok": None,
+                    "component": request_data["component"],
+                    "action": request_data["action"],
+                    "target": request_data.get("target", ""),
+                    "phase": "starting",
+                    "message": "Подготовка операции",
+                    "startedAt": int(time.time()),
+                    "finishedAt": None,
+                    "output": "",
+                }
+            )
+
+        thread = threading.Thread(
+            target=run_component_action,
+            args=(self.app_dir, request_data),
+            daemon=True,
+        )
+        thread.start()
+        self.send_json(HTTPStatus.ACCEPTED, {"ok": True, "job": snapshot_component_action_state()})
 
     def handle_config_check(self):
         payload = self.read_json_body()
@@ -652,6 +725,7 @@ def find_mihomo_binary(app_dir):
     env = get_env(app_dir)
     candidates = [
         env.get("MIHUI_MIHOMO_BIN", ""),
+        "/opt/sbin/mihomo",
         "/opt/bin/mihomo",
         "/usr/bin/mihomo",
         shutil.which("mihomo") or "",
@@ -795,6 +869,369 @@ def get_xkeen_service_status(app_dir):
             "message": "Не удалось проверить XKeen",
             "detail": str(error),
         }
+
+
+COMPONENT_VERSION_PATTERN = re.compile(r"^v?\d+(?:\.\d+){1,3}(?:[-._][0-9A-Za-z.-]+)?$")
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def strip_ansi(value):
+    return ANSI_ESCAPE_PATTERN.sub("", str(value or ""))
+
+
+def component_version_key(value):
+    match = re.search(r"v?(\d+(?:\.\d+){1,3})", str(value or ""), re.IGNORECASE)
+    if not match:
+        return ()
+    parts = [int(item) for item in match.group(1).split(".")]
+    return tuple(parts + [0] * (4 - len(parts)))
+
+
+def component_update_available(current, latest):
+    current_key = component_version_key(current)
+    latest_key = component_version_key(latest)
+    return bool(current_key and latest_key and latest_key > current_key)
+
+
+def get_xkeen_version_info(app_dir):
+    binary = find_xkeen_binary(app_dir)
+    if not binary:
+        return {"installed": False, "version": "", "channel": "", "output": ""}
+    try:
+        result = subprocess.run(
+            [binary, "-v"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=XKEEN_STATUS_TIMEOUT,
+            check=False,
+        )
+        output = strip_ansi(result.stdout.decode("utf-8", "replace")).strip()
+    except Exception as error:
+        return {"installed": True, "version": "", "channel": "", "output": str(error)}
+
+    match = re.search(
+        r"\bXKeen\s+v?([0-9]+(?:\.[0-9]+){1,3})(?:\s+(Stable|Dev|Beta))?\b",
+        output,
+        re.IGNORECASE,
+    )
+    return {
+        "installed": True,
+        "version": match.group(1) if match else "",
+        "channel": match.group(2) if match and match.group(2) else "",
+        "output": output,
+    }
+
+
+def read_mihomo_binary_version(app_dir):
+    binary = find_mihomo_binary(app_dir)
+    if not binary:
+        return {"installed": False, "version": "", "binary": "", "output": ""}
+    try:
+        result = subprocess.run(
+            [binary, "-v"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=5,
+            check=False,
+        )
+        output = strip_ansi(result.stdout.decode("utf-8", "replace")).strip()
+    except Exception as error:
+        return {"installed": True, "version": "", "binary": binary, "output": str(error)}
+    match = re.search(r"\bv?(\d+(?:\.\d+){2,3})\b", output)
+    return {
+        "installed": True,
+        "version": match.group(1) if match else "",
+        "binary": binary,
+        "output": output,
+    }
+
+
+def fetch_component_releases(repo, limit=10):
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/releases?per_page={int(limit)}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        data = json.loads(response.read().decode("utf-8"))
+    versions = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
+            continue
+        tag = str(item.get("tag_name") or "").strip()
+        if not COMPONENT_VERSION_PATTERN.fullmatch(tag):
+            continue
+        versions.append(tag)
+        if len(versions) >= limit:
+            break
+    return versions
+
+
+def get_component_release_catalog(app_dir, force=False):
+    now = int(time.time())
+    with component_release_cache_lock:
+        checked_at = int(component_release_cache.get("checkedAt") or 0)
+        if not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL:
+            return dict(component_release_cache.get("catalog") or {}), checked_at
+
+    env = get_env(app_dir)
+    repositories = {
+        "xkeen": env.get("MIHUI_XKEEN_GITHUB_REPO", DEFAULT_XKEEN_GITHUB_REPO),
+        "mihomo": env.get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO),
+    }
+
+    def load_component(item):
+        name, repo = item
+        try:
+            versions = fetch_component_releases(repo)
+            return name, {"repo": repo, "versions": versions, "latest": versions[0] if versions else "", "error": ""}
+        except Exception as error:
+            return name, {"repo": repo, "versions": [], "latest": "", "error": str(error)}
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        catalog = dict(executor.map(load_component, repositories.items()))
+
+    with component_release_cache_lock:
+        component_release_cache.update({"checkedAt": now, "catalog": catalog})
+    return catalog, now
+
+
+def invalidate_component_release_cache():
+    with component_release_cache_lock:
+        component_release_cache.update({"checkedAt": 0, "catalog": {}})
+
+
+def get_components_status(app_dir, force=False):
+    catalog, checked_at = get_component_release_catalog(app_dir, force=force)
+    xkeen = get_xkeen_version_info(app_dir)
+    mihomo = read_mihomo_binary_version(app_dir)
+    xkeen_release = catalog.get("xkeen") or {}
+    mihomo_release = catalog.get("mihomo") or {}
+    xkeen_update = bool(
+        xkeen.get("installed")
+        and str(xkeen.get("channel") or "").lower() in {"", "stable"}
+        and component_update_available(xkeen.get("version"), xkeen_release.get("latest"))
+    )
+    mihomo_update = bool(
+        mihomo.get("installed")
+        and component_update_available(mihomo.get("version"), mihomo_release.get("latest"))
+    )
+    components = {
+        "xkeen": {
+            "installed": bool(xkeen.get("installed")),
+            "current": xkeen.get("version") or "",
+            "channel": xkeen.get("channel") or "",
+            "latest": xkeen_release.get("latest") or "",
+            "versions": xkeen_release.get("versions") or [],
+            "updateAvailable": xkeen_update,
+            "error": xkeen_release.get("error") or "",
+        },
+        "mihomo": {
+            "installed": bool(mihomo.get("installed")),
+            "current": mihomo.get("version") or "",
+            "channel": "",
+            "latest": mihomo_release.get("latest") or "",
+            "versions": mihomo_release.get("versions") or [],
+            "updateAvailable": mihomo_update,
+            "error": mihomo_release.get("error") or "",
+        },
+    }
+    return {
+        "ok": True,
+        "checkedAt": checked_at,
+        "components": components,
+        "updateCount": sum(1 for item in components.values() if item["updateAvailable"]),
+        "job": snapshot_component_action_state(),
+    }
+
+
+def validate_component_action(app_dir, payload):
+    component = str((payload or {}).get("component") or "").strip().lower()
+    action = str((payload or {}).get("action") or "").strip().lower()
+    target = str((payload or {}).get("target") or "").strip()
+    if component not in {"xkeen", "mihomo"}:
+        raise ValueError("unsupported component")
+    if component == "xkeen" and action not in {"update", "rollback"}:
+        raise ValueError("unsupported XKeen action")
+    if component == "mihomo" and action != "update":
+        raise ValueError("unsupported Mihomo action")
+    if component == "xkeen" and target:
+        raise ValueError("XKeen target version is not supported")
+    if component == "mihomo":
+        status = get_components_status(app_dir)
+        versions = status["components"]["mihomo"].get("versions") or []
+        if not target:
+            target = status["components"]["mihomo"].get("latest") or ""
+        if not COMPONENT_VERSION_PATTERN.fullmatch(target):
+            raise ValueError("invalid Mihomo version")
+        normalized_target = target.lstrip("v")
+        allowed = {str(version).lstrip("v") for version in versions}
+        if normalized_target not in allowed:
+            raise ValueError("Mihomo version is not in the checked release list")
+        target = f"v{normalized_target}"
+    return {"component": component, "action": action, "target": target}
+
+
+def snapshot_component_action_state():
+    with component_state_lock:
+        return dict(component_action_state)
+
+
+def update_component_action_state(**changes):
+    with component_state_lock:
+        component_action_state.update(changes)
+
+
+def append_component_action_output(output):
+    clean = strip_ansi(output).strip()
+    if not clean:
+        return
+    with component_state_lock:
+        current = str(component_action_state.get("output") or "")
+        combined = f"{current}\n{clean}".strip()
+        component_action_state["output"] = combined[-12000:]
+
+
+def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    result = subprocess.run(
+        command,
+        input=input_text.encode("utf-8") if input_text is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+    output = result.stdout.decode("utf-8", "replace")
+    append_component_action_output(output)
+    return result.returncode, output
+
+
+def require_component_command(command, message, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    returncode, output = run_component_command(command, input_text=input_text, timeout=timeout)
+    if returncode != 0:
+        detail = strip_ansi(output).strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else message)
+    return output
+
+
+def run_component_action(app_dir, request_data):
+    with component_action_lock:
+        try:
+            if request_data["component"] == "xkeen":
+                run_xkeen_component_action(app_dir, request_data["action"])
+            else:
+                run_mihomo_component_update(app_dir, request_data["target"])
+            update_component_action_state(
+                running=False,
+                ok=True,
+                phase="complete",
+                message="Операция завершена",
+                finishedAt=int(time.time()),
+            )
+        except Exception as error:
+            append_component_action_output(str(error))
+            update_component_action_state(
+                running=False,
+                ok=False,
+                phase="failed",
+                message=str(error),
+                finishedAt=int(time.time()),
+            )
+        finally:
+            invalidate_component_release_cache()
+
+
+def run_xkeen_component_action(app_dir, action):
+    binary = find_xkeen_binary(app_dir)
+    if not binary:
+        raise RuntimeError("XKeen не найден")
+    was_running = get_xkeen_service_status(app_dir).get("state") == "ok"
+
+    if action == "rollback":
+        update_component_action_state(phase="rollback", message="Восстанавливаем последнюю копию XKeen")
+        require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen")
+        run_component_command([binary, "-rrk"], timeout=180)
+        if was_running:
+            run_component_command([binary, "-start"], timeout=180)
+        if not get_xkeen_version_info(app_dir).get("version"):
+            raise RuntimeError("Не удалось проверить XKeen после восстановления")
+        return
+
+    update_component_action_state(phase="backup", message="Создаём резервную копию XKeen")
+    require_component_command([binary, "-kb"], "Не удалось создать резервную копию XKeen", timeout=180)
+    try:
+        update_component_action_state(phase="install", message="Обновляем XKeen")
+        require_component_command([binary, "-uk"], "Не удалось обновить XKeen")
+        update_component_action_state(phase="verify", message="Проверяем XKeen")
+        if not get_xkeen_version_info(app_dir).get("version"):
+            raise RuntimeError("Не удалось проверить версию XKeen")
+        if was_running and get_xkeen_service_status(app_dir).get("state") != "ok":
+            raise RuntimeError("XKeen не запустился после обновления")
+    except Exception as error:
+        update_component_action_state(phase="rollback", message="Обновление не удалось, восстанавливаем XKeen")
+        rollback_code, _ = run_component_command([binary, "-kbr"], timeout=180)
+        run_component_command([binary, "-rrk"], timeout=180)
+        if was_running:
+            run_component_command([binary, "-start"], timeout=180)
+        if rollback_code != 0:
+            raise RuntimeError(f"{error}; автоматическое восстановление XKeen не удалось") from error
+        raise
+
+
+def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running):
+    update_component_action_state(phase="rollback", message="Восстанавливаем предыдущую версию Mihomo")
+    run_component_command([xkeen_binary, "-stop"], timeout=180)
+    replacement = Path(f"{binary_path}.mihui-restore")
+    shutil.copy2(backup_path, replacement)
+    os.replace(replacement, binary_path)
+    run_component_command([xkeen_binary, "-rrm"], timeout=180)
+    if was_running:
+        run_component_command([xkeen_binary, "-start"], timeout=180)
+
+
+def run_mihomo_component_update(app_dir, target):
+    xkeen_binary = find_xkeen_binary(app_dir)
+    mihomo = read_mihomo_binary_version(app_dir)
+    binary_path = Path(mihomo.get("binary") or "")
+    if not xkeen_binary:
+        raise RuntimeError("XKeen не найден")
+    if not binary_path.is_file():
+        raise RuntimeError("Mihomo не найден")
+
+    was_running = get_mihomo_service_status(app_dir).get("state") == "ok"
+    Path(app_dir).mkdir(parents=True, exist_ok=True)
+    backup_dir = Path(tempfile.mkdtemp(prefix="mihui-mihomo-update-", dir=str(app_dir)))
+    backup_path = backup_dir / "mihomo"
+    shutil.copy2(binary_path, backup_path)
+
+    try:
+        update_component_action_state(phase="backup", message="Сохраняем текущую версию Mihomo")
+        update_component_action_state(phase="install", message=f"Устанавливаем Mihomo {target}")
+        returncode, output = run_component_command(
+            [xkeen_binary, "-um"],
+            input_text=f"9\n{target}\n",
+        )
+        if returncode != 0:
+            detail = strip_ansi(output).strip().splitlines()
+            raise RuntimeError(detail[-1] if detail else "Не удалось установить Mihomo")
+
+        update_component_action_state(phase="verify", message="Проверяем версию и запуск Mihomo")
+        installed = read_mihomo_binary_version(app_dir).get("version") or ""
+        if component_version_key(installed) != component_version_key(target):
+            raise RuntimeError(f"Установлена неожиданная версия Mihomo: {installed or 'не определена'}")
+        if was_running:
+            service_ok = False
+            for _ in range(10):
+                if get_mihomo_service_status(app_dir).get("state") == "ok":
+                    service_ok = True
+                    break
+                time.sleep(1)
+            if not service_ok:
+                raise RuntimeError("Mihomo не запустился после обновления")
+    except Exception:
+        restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running)
+        raise
+    finally:
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):

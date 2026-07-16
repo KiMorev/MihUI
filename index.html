@@ -65,10 +65,11 @@
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
-          <button class="service-health-card" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+          <button class="service-health-card" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
             <span class="service-health-head">
               <strong>Сервисы</strong>
               <span data-service-health-checked>Проверка...</span>
+              <span class="service-update-badge" data-service-update-badge hidden>Обновления · 0</span>
             </span>
             <span class="service-health-list">
               <span class="service-health-item is-loading" data-service-health="xkeen">
@@ -93,7 +94,7 @@
           <p id="fileMeta">Конфигурация не загружена</p>
           <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
         </div>
-        <button class="service-health-mobile" type="button" data-service-health-refresh aria-label="Обновить статусы сервисов">
+        <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
           <span class="service-health-item is-loading" data-service-health="xkeen">
             <span class="service-health-dot" aria-hidden="true"></span>
             <span class="service-health-name">XKeen</span>
@@ -104,6 +105,7 @@
             <span class="service-health-name">Mihomo</span>
             <strong class="service-health-status">Проверка...</strong>
           </span>
+          <span class="service-update-mobile-badge" data-service-update-mobile-badge hidden>0</span>
         </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
@@ -648,6 +650,70 @@
           </button>
         </footer>
       </form>
+    </dialog>
+
+    <dialog id="componentManagerDialog" class="component-manager-dialog" aria-labelledby="componentManagerTitle" aria-describedby="componentManagerDescription">
+      <section class="component-manager-surface">
+        <header class="component-manager-head">
+          <div>
+            <h2 id="componentManagerTitle">Сервисы и версии</h2>
+            <p id="componentManagerDescription">Обновления выполняются через XKeen и проверяются после установки.</p>
+          </div>
+          <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
+        </header>
+        <div class="component-manager-body">
+          <p id="componentManagerNotice" class="component-manager-notice" aria-live="polite">Получаем версии компонентов...</p>
+          <div class="component-manager-list">
+            <article class="component-manager-item" data-component-card="xkeen">
+              <header>
+                <div><strong>XKeen</strong><span data-component-channel="xkeen"></span></div>
+                <span class="component-manager-state" data-component-state="xkeen">Проверка...</span>
+              </header>
+              <dl class="component-version-grid">
+                <div><dt>Установлена</dt><dd data-component-current="xkeen">—</dd></div>
+                <div><dt>Доступна</dt><dd data-component-latest="xkeen">—</dd></div>
+              </dl>
+              <div class="component-manager-actions">
+                <button class="button primary compact" type="button" data-component-update="xkeen">Обновить XKeen</button>
+                <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+              </div>
+            </article>
+
+            <article class="component-manager-item" data-component-card="mihomo">
+              <header>
+                <div><strong>Mihomo</strong></div>
+                <span class="component-manager-state" data-component-state="mihomo">Проверка...</span>
+              </header>
+              <dl class="component-version-grid">
+                <div><dt>Установлена</dt><dd data-component-current="mihomo">—</dd></div>
+                <div><dt>Доступна</dt><dd data-component-latest="mihomo">—</dd></div>
+              </dl>
+              <div class="component-manager-actions">
+                <button class="button primary compact" type="button" data-component-update="mihomo">Обновить Mihomo</button>
+                <details class="component-version-picker">
+                  <summary>Другая версия…</summary>
+                  <div>
+                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
+                  </div>
+                </details>
+              </div>
+            </article>
+          </div>
+          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
+            <strong id="componentJobTitle">Операция выполняется</strong>
+            <span id="componentJobMessage"></span>
+            <details id="componentJobDetails" hidden>
+              <summary>Технические подробности</summary>
+              <pre id="componentJobOutput"></pre>
+            </details>
+          </section>
+        </div>
+        <footer class="component-manager-footer">
+          <button id="checkComponentUpdatesButton" class="button compact" type="button">Проверить версии</button>
+          <span id="componentVersionsChecked"></span>
+        </footer>
+      </section>
     </dialog>
 
     <template id="providerTemplate">

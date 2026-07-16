@@ -159,7 +159,10 @@ class ProviderAdapterTests(unittest.TestCase):
             with urllib.request.urlopen(request, timeout=3) as response:
                 return response.status, json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
-            return error.code, json.loads(error.read().decode("utf-8"))
+            try:
+                return error.code, json.loads(error.read().decode("utf-8"))
+            finally:
+                error.close()
 
     def get_json(self, server, path):
         with urllib.request.urlopen(
@@ -715,6 +718,114 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(result, payload)
+
+    def test_components_status_marks_newer_versions(self):
+        catalog = {
+            "xkeen": {"latest": "v2.1", "versions": ["v2.1", "v2.0"], "error": ""},
+            "mihomo": {"latest": "v1.19.28", "versions": ["v1.19.28", "v1.19.27"], "error": ""},
+        }
+        with mock.patch.object(
+            mihui_server, "get_component_release_catalog", return_value=(catalog, 123)
+        ), mock.patch.object(
+            mihui_server,
+            "get_xkeen_version_info",
+            return_value={"installed": True, "version": "2.0", "channel": "Stable"},
+        ), mock.patch.object(
+            mihui_server,
+            "read_mihomo_binary_version",
+            return_value={"installed": True, "version": "1.19.27", "binary": "/opt/sbin/mihomo"},
+        ):
+            result = mihui_server.get_components_status(Path("."))
+
+        self.assertEqual(result["updateCount"], 2)
+        self.assertTrue(result["components"]["xkeen"]["updateAvailable"])
+        self.assertTrue(result["components"]["mihomo"]["updateAvailable"])
+
+    def test_component_action_requires_custom_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(
+                    server,
+                    "/api/components/action",
+                    {"component": "xkeen", "action": "update"},
+                )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
+    def test_validate_mihomo_action_accepts_only_checked_release(self):
+        status = {
+            "components": {
+                "mihomo": {"latest": "v1.19.28", "versions": ["v1.19.28", "v1.19.27"]}
+            }
+        }
+        with mock.patch.object(mihui_server, "get_components_status", return_value=status):
+            result = mihui_server.validate_component_action(
+                Path("."), {"component": "mihomo", "action": "update", "target": "1.19.27"}
+            )
+            with self.assertRaisesRegex(ValueError, "checked release list"):
+                mihui_server.validate_component_action(
+                    Path("."), {"component": "mihomo", "action": "update", "target": "1.18.0"}
+                )
+
+        self.assertEqual(result["target"], "v1.19.27")
+
+    def test_mihomo_update_uses_fixed_xkeen_command_and_version_input(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            binary = app_dir / "mihomo"
+            binary.write_bytes(b"current-binary")
+            versions = [
+                {"installed": True, "version": "1.19.27", "binary": str(binary)},
+                {"installed": True, "version": "1.19.28", "binary": str(binary)},
+            ]
+            with mock.patch.object(
+                mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+            ), mock.patch.object(
+                mihui_server, "read_mihomo_binary_version", side_effect=versions
+            ), mock.patch.object(
+                mihui_server,
+                "get_mihomo_service_status",
+                return_value={"state": "error"},
+            ), mock.patch.object(
+                mihui_server, "run_component_command", return_value=(0, "installed")
+            ) as run:
+                mihui_server.run_mihomo_component_update(app_dir, "v1.19.28")
+
+        run.assert_called_once_with(
+            ["/opt/bin/xkeen", "-um"],
+            input_text="9\nv1.19.28\n",
+        )
+
+    def test_xkeen_update_rolls_back_when_health_check_fails(self):
+        service_states = [{"state": "ok"}, {"state": "error"}]
+        with mock.patch.object(
+            mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+        ), mock.patch.object(
+            mihui_server, "get_xkeen_service_status", side_effect=service_states
+        ), mock.patch.object(
+            mihui_server,
+            "get_xkeen_version_info",
+            return_value={"installed": True, "version": "2.1", "channel": "Stable"},
+        ), mock.patch.object(
+            mihui_server, "run_component_command", return_value=(0, "ok")
+        ) as run:
+            with self.assertRaisesRegex(RuntimeError, "не запустился"):
+                mihui_server.run_xkeen_component_action(Path("."), "update")
+
+        self.assertEqual(
+            run.call_args_list,
+            [
+                mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
+                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
+                mock.call(["/opt/bin/xkeen", "-kbr"], timeout=180),
+                mock.call(["/opt/bin/xkeen", "-rrk"], timeout=180),
+                mock.call(["/opt/bin/xkeen", "-start"], timeout=180),
+            ],
+        )
 
     def test_save_checked_config_rejects_invalid_config_without_writing(self):
         with tempfile.TemporaryDirectory() as temp_dir:

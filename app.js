@@ -378,6 +378,18 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  components: {
+    loading: false,
+    loaded: false,
+    checkedAt: 0,
+    updateCount: 0,
+    items: {
+      xkeen: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
+      mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
+    },
+    job: { running: false, ok: null, component: '', action: '', target: '', phase: 'idle', message: '', output: '' },
+    pollTimer: 0,
+  },
   overviewDiagnostics: [],
   lastUndo: null,
 };
@@ -430,9 +442,30 @@ const els = {
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
   topbarValidation: document.querySelector('#topbarValidation'),
-  serviceHealthButtons: document.querySelectorAll('[data-service-health-refresh]'),
+  componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
+  serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
+  serviceUpdateMobileBadges: document.querySelectorAll('[data-service-update-mobile-badge]'),
+  componentManagerDialog: document.querySelector('#componentManagerDialog'),
+  closeComponentManagerButton: document.querySelector('#closeComponentManagerButton'),
+  componentManagerNotice: document.querySelector('#componentManagerNotice'),
+  componentCards: document.querySelectorAll('[data-component-card]'),
+  componentStates: document.querySelectorAll('[data-component-state]'),
+  componentCurrentVersions: document.querySelectorAll('[data-component-current]'),
+  componentLatestVersions: document.querySelectorAll('[data-component-latest]'),
+  componentChannels: document.querySelectorAll('[data-component-channel]'),
+  componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
+  componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
+  mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
+  installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
+  checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
+  componentVersionsChecked: document.querySelector('#componentVersionsChecked'),
+  componentJobPanel: document.querySelector('#componentJobPanel'),
+  componentJobTitle: document.querySelector('#componentJobTitle'),
+  componentJobMessage: document.querySelector('#componentJobMessage'),
+  componentJobDetails: document.querySelector('#componentJobDetails'),
+  componentJobOutput: document.querySelector('#componentJobOutput'),
   providerCount: document.querySelector('#providerCount'),
   groupCount: document.querySelector('#groupCount'),
   rulesMetric: document.querySelector('#rulesMetric'),
@@ -585,10 +618,16 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
-els.serviceHealthButtons.forEach((button) => button.addEventListener('click', () => loadServiceHealth({ silent: false })));
+els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
+els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
+els.checkComponentUpdatesButton.addEventListener('click', checkComponentVersions);
+els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
+els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
+els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
 renderHappDecoderSettings();
 renderServiceHealth();
+renderComponentManager();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -740,6 +779,7 @@ function initRouterMode() {
   loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
   loadServiceHealth({ silent: true });
+  loadComponents({ silent: true });
   startServiceHealthPolling();
   checkMihuiUpdate();
 }
@@ -1443,24 +1483,38 @@ function formatServiceStatusLabel(service, loading = false) {
 function renderServiceHealth() {
   const { loading, checkedAt, services } = state.serviceHealth;
   els.serviceHealthItems.forEach((item) => {
-    const service = services[item.dataset.serviceHealth] || normalizeServiceStatus(null);
+    const serviceName = item.dataset.serviceHealth;
+    const service = services[serviceName] || normalizeServiceStatus(null);
+    const componentBusy = state.components.job.running && state.components.job.component === serviceName;
     item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
-    item.classList.add(loading ? 'is-loading' : `is-${service.state}`);
+    item.classList.add(loading || componentBusy ? 'is-loading' : `is-${service.state}`);
     const status = item.querySelector('.service-health-status');
-    if (status) status.textContent = formatServiceStatusLabel(service, loading);
+    if (status) status.textContent = componentBusy ? 'Обновление...' : formatServiceStatusLabel(service, loading);
     const details = [service.message, service.detail].filter(Boolean).join(' · ');
     item.title = details;
   });
 
+  const updateCount = Number(state.components.updateCount) || 0;
   const checkedLabel = loading
     ? 'Проверка...'
     : checkedAt
       ? `Проверено ${formatServiceHealthTime(checkedAt)}`
       : 'Нажмите для проверки';
-  els.serviceHealthChecked.forEach((element) => { element.textContent = checkedLabel; });
-  els.serviceHealthButtons.forEach((button) => {
-    button.disabled = loading;
-    button.setAttribute('aria-busy', String(loading));
+  els.serviceHealthChecked.forEach((element) => {
+    element.textContent = checkedLabel;
+    element.hidden = updateCount > 0;
+  });
+  els.serviceUpdateBadges.forEach((element) => {
+    element.hidden = updateCount === 0;
+    element.textContent = `Обновления · ${updateCount}`;
+  });
+  els.serviceUpdateMobileBadges.forEach((element) => {
+    element.hidden = updateCount === 0;
+    element.textContent = String(updateCount);
+  });
+  els.componentOpenButtons.forEach((button) => {
+    button.setAttribute('aria-busy', String(loading || state.components.loading));
+    button.classList.toggle('has-updates', updateCount > 0);
   });
   renderOverviewHealth();
 }
@@ -1480,6 +1534,285 @@ function startServiceHealthPolling() {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) loadServiceHealth({ silent: true });
     });
+  }
+}
+
+function normalizeComponentItem(item) {
+  return {
+    installed: Boolean(item?.installed),
+    current: String(item?.current || ''),
+    channel: String(item?.channel || ''),
+    latest: String(item?.latest || ''),
+    versions: Array.isArray(item?.versions) ? item.versions.map((value) => String(value || '')).filter(Boolean) : [],
+    updateAvailable: Boolean(item?.updateAvailable),
+    error: String(item?.error || ''),
+  };
+}
+
+function normalizeComponentJob(job) {
+  return {
+    running: Boolean(job?.running),
+    ok: job?.ok === true ? true : job?.ok === false ? false : null,
+    component: String(job?.component || ''),
+    action: String(job?.action || ''),
+    target: String(job?.target || ''),
+    phase: String(job?.phase || 'idle'),
+    message: String(job?.message || ''),
+    output: String(job?.output || ''),
+  };
+}
+
+async function loadComponents(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderComponentManager();
+    return;
+  }
+
+  state.components.loading = true;
+  renderComponentManager();
+  renderServiceHealth();
+  try {
+    const suffix = options.force ? '?force=1' : '';
+    const data = await apiJson(`/api/components/status${suffix}`);
+    state.components.loaded = true;
+    state.components.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
+    state.components.items = {
+      xkeen: normalizeComponentItem(data.components?.xkeen),
+      mihomo: normalizeComponentItem(data.components?.mihomo),
+    };
+    state.components.updateCount = Number(data.updateCount) || 0;
+    state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) pollComponentJob();
+  } catch (error) {
+    if (!options.silent) showMessage('Не удалось проверить версии компонентов.', { severity: 'warning', details: error?.message || String(error) });
+  } finally {
+    state.components.loading = false;
+    renderComponentManager();
+    renderServiceHealth();
+    render();
+  }
+}
+
+function openComponentManager() {
+  if (typeof els.componentManagerDialog.showModal === 'function') els.componentManagerDialog.showModal();
+  else els.componentManagerDialog.setAttribute('open', '');
+  renderComponentManager();
+  loadServiceHealth({ silent: true });
+  if (!state.components.loaded) loadComponents({ silent: true });
+}
+
+function closeComponentManager() {
+  if (typeof els.componentManagerDialog.close === 'function') els.componentManagerDialog.close();
+  else els.componentManagerDialog.removeAttribute('open');
+}
+
+async function checkComponentVersions() {
+  await Promise.all([
+    loadServiceHealth({ silent: true }),
+    loadComponents({ force: true, silent: false }),
+  ]);
+}
+
+function formatComponentVersion(value) {
+  const version = String(value || '').trim();
+  if (!version) return '—';
+  return version.startsWith('v') ? version : `v${version}`;
+}
+
+function componentVersionKey(value) {
+  const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})/i);
+  if (!match) return [];
+  const parts = match[1].split('.').map(Number);
+  while (parts.length < 4) parts.push(0);
+  return parts;
+}
+
+function compareComponentVersions(left, right) {
+  const a = componentVersionKey(left);
+  const b = componentVersionKey(right);
+  if (!a.length || !b.length) return 0;
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] || 0) !== (b[index] || 0)) return (a[index] || 0) > (b[index] || 0) ? 1 : -1;
+  }
+  return 0;
+}
+
+function getComponentServiceState(name) {
+  return state.serviceHealth.services?.[name] || normalizeServiceStatus(null);
+}
+
+function renderComponentManager() {
+  const busy = state.components.loading || state.components.job.running;
+  const updateCount = Number(state.components.updateCount) || 0;
+  const errors = Object.values(state.components.items).filter((item) => item.error).length;
+
+  if (state.components.loading) {
+    els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
+  } else if (!state.components.loaded) {
+    els.componentManagerNotice.textContent = 'Проверка версий доступна в MihUI на роутере.';
+  } else if (updateCount > 0) {
+    els.componentManagerNotice.textContent = `Доступно ${formatRouteCount(updateCount, 'обновление', 'обновления', 'обновлений')}. Работающие сервисы останутся отмечены зелёным.`;
+  } else if (errors > 0) {
+    els.componentManagerNotice.textContent = 'Установленные версии получены, но GitHub не ответил на проверку обновлений.';
+  } else {
+    els.componentManagerNotice.textContent = 'Установлены актуальные версии компонентов.';
+  }
+
+  els.componentCards.forEach((card) => {
+    const name = card.dataset.componentCard;
+    const item = state.components.items[name] || normalizeComponentItem(null);
+    card.classList.toggle('is-update-available', item.updateAvailable);
+  });
+  els.componentStates.forEach((element) => {
+    const name = element.dataset.componentState;
+    const item = state.components.items[name] || normalizeComponentItem(null);
+    const service = getComponentServiceState(name);
+    element.className = 'component-manager-state';
+    if (!item.installed) {
+      element.textContent = 'Не найден';
+      element.classList.add('is-error');
+    } else if (item.updateAvailable) {
+      element.textContent = 'Есть обновление';
+      element.classList.add('is-update');
+    } else if (item.error || !item.latest) {
+      element.textContent = 'Проверка недоступна';
+      element.classList.add('is-error');
+    } else if (service.state === 'error') {
+      element.textContent = 'Ошибка запуска';
+      element.classList.add('is-error');
+    } else {
+      element.textContent = service.state === 'ok' ? 'Работает · актуально' : 'Актуально';
+      element.classList.add('is-ok');
+    }
+  });
+  els.componentCurrentVersions.forEach((element) => {
+    const item = state.components.items[element.dataset.componentCurrent] || normalizeComponentItem(null);
+    element.textContent = formatComponentVersion(item.current);
+  });
+  els.componentLatestVersions.forEach((element) => {
+    const item = state.components.items[element.dataset.componentLatest] || normalizeComponentItem(null);
+    element.textContent = formatComponentVersion(item.latest);
+  });
+  els.componentChannels.forEach((element) => {
+    const item = state.components.items[element.dataset.componentChannel] || normalizeComponentItem(null);
+    element.textContent = item.channel || '';
+  });
+  els.componentUpdateButtons.forEach((button) => {
+    const name = button.dataset.componentUpdate;
+    const item = state.components.items[name] || normalizeComponentItem(null);
+    button.disabled = busy || !item.installed || !item.updateAvailable;
+    button.textContent = item.updateAvailable && item.latest
+      ? `Обновить до ${formatComponentVersion(item.latest)}`
+      : item.error || !item.latest
+        ? 'Недоступно'
+        : 'Актуально';
+  });
+  els.componentRollbackButtons.forEach((button) => {
+    const item = state.components.items[button.dataset.componentRollback] || normalizeComponentItem(null);
+    button.disabled = busy || !item.installed;
+  });
+
+  const mihomo = state.components.items.mihomo;
+  const selectedVersion = els.mihomoVersionSelect.value;
+  els.mihomoVersionSelect.textContent = '';
+  mihomo.versions.forEach((version) => {
+    const option = document.createElement('option');
+    option.value = version;
+    option.textContent = `${formatComponentVersion(version)}${compareComponentVersions(version, mihomo.current) < 0 ? ' · понижение' : compareComponentVersions(version, mihomo.current) === 0 ? ' · текущая' : ''}`;
+    els.mihomoVersionSelect.append(option);
+  });
+  if (mihomo.versions.includes(selectedVersion)) els.mihomoVersionSelect.value = selectedVersion;
+  els.mihomoVersionSelect.disabled = busy || mihomo.versions.length === 0;
+  els.installMihomoVersionButton.disabled = busy || !els.mihomoVersionSelect.value;
+  els.checkComponentUpdatesButton.disabled = busy;
+  els.componentVersionsChecked.textContent = state.components.checkedAt
+    ? `Проверено ${formatServiceHealthTime(state.components.checkedAt)}`
+    : '';
+
+  renderComponentJob();
+}
+
+function renderComponentJob() {
+  const job = state.components.job;
+  const visible = job.running || job.ok !== null;
+  els.componentJobPanel.hidden = !visible;
+  if (!visible) return;
+  els.componentJobPanel.classList.toggle('is-error', job.ok === false);
+  els.componentJobTitle.textContent = job.running
+    ? 'Операция выполняется'
+    : job.ok
+      ? 'Операция завершена'
+      : 'Операция не выполнена';
+  els.componentJobMessage.textContent = job.message || '';
+  els.componentJobOutput.textContent = job.output || '';
+  els.componentJobDetails.hidden = !job.output;
+}
+
+function getComponentUpdateSummary() {
+  return Object.entries(state.components.items)
+    .filter(([, item]) => item.updateAvailable)
+    .map(([name, item]) => `${name === 'xkeen' ? 'XKeen' : 'Mihomo'} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
+    .join(' · ');
+}
+
+async function updateComponent(component) {
+  const item = state.components.items[component];
+  if (!item?.updateAvailable) return;
+  await startComponentAction({ component, action: 'update', target: component === 'mihomo' ? item.latest : '' });
+}
+
+async function rollbackComponent(component) {
+  if (component !== 'xkeen') return;
+  if (!window.confirm('Восстановить последнюю резервную копию XKeen?')) return;
+  await startComponentAction({ component, action: 'rollback' });
+}
+
+async function installSelectedMihomoVersion() {
+  const target = els.mihomoVersionSelect.value;
+  if (!target) return;
+  const current = state.components.items.mihomo.current;
+  if (compareComponentVersions(target, current) < 0) {
+    if (!window.confirm(`Понизить Mihomo ${formatComponentVersion(current)} → ${formatComponentVersion(target)}?`)) return;
+  } else if (compareComponentVersions(target, current) === 0) {
+    if (!window.confirm(`Переустановить Mihomo ${formatComponentVersion(current)}?`)) return;
+  }
+  await startComponentAction({ component: 'mihomo', action: 'update', target });
+}
+
+async function startComponentAction(payload) {
+  try {
+    const data = await apiJson('/api/components/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'components' },
+      body: JSON.stringify(payload),
+    });
+    state.components.job = normalizeComponentJob(data.job);
+    renderComponentManager();
+    pollComponentJob();
+  } catch (error) {
+    showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+  }
+}
+
+async function pollComponentJob() {
+  if (state.components.pollTimer) {
+    window.clearTimeout(state.components.pollTimer);
+    state.components.pollTimer = 0;
+  }
+  try {
+    const data = await apiJson('/api/components/job');
+    state.components.job = normalizeComponentJob(data.job);
+    renderComponentManager();
+    if (state.components.job.running) {
+      state.components.pollTimer = window.setTimeout(pollComponentJob, 1500);
+      return;
+    }
+    await Promise.all([
+      loadServiceHealth({ silent: true }),
+      loadComponents({ force: true, silent: true }),
+    ]);
+  } catch (error) {
+    state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
   }
 }
 
@@ -1956,6 +2289,14 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
   els.overviewConfigChanges.classList.toggle('metric-warning', changeCount > 0);
   els.overviewConfigLoadedLabel.textContent = state.routerMode ? 'Получена с роутера' : 'Открыта в редакторе';
   els.overviewConfigLoadedAt.textContent = state.configLoadedAt ? formatOverviewLoadedAt(state.configLoadedAt) : '—';
+
+  if (state.components.updateCount > 0) {
+    attentionItems.push({
+      title: 'Доступны обновления компонентов',
+      text: getComponentUpdateSummary(),
+      onClick: openComponentManager,
+    });
+  }
 
   if (!state.originalText) {
     attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });

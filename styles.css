@@ -165,6 +165,14 @@ textarea {
   white-space: nowrap;
 }
 
+.service-health-head .service-update-badge {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #fff1c7;
+  color: #946200;
+  font-weight: 750;
+}
+
 .service-health-list {
   display: grid;
   gap: 7px;
@@ -225,7 +233,24 @@ textarea {
 }
 
 .service-health-mobile {
+  position: relative;
   display: none;
+}
+
+.service-update-mobile-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  padding: 2px 5px;
+  border: 2px solid var(--panel);
+  border-radius: 999px;
+  background: #c78300;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .topbar {
@@ -1462,6 +1487,229 @@ input[type='file'] {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.component-manager-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(780px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 18px 60px rgba(24, 34, 52, 0.22);
+}
+
+.component-manager-dialog::backdrop {
+  background: rgba(24, 34, 52, 0.38);
+  backdrop-filter: blur(2px);
+}
+
+.component-manager-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(780px, calc(100vh - 32px));
+}
+
+.component-manager-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.component-manager-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.component-manager-head p,
+.component-manager-notice,
+.component-manager-footer span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.component-manager-body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.component-manager-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.component-manager-list {
+  display: grid;
+  gap: 10px;
+}
+
+.component-manager-item {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.component-manager-item > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.component-manager-item > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.component-manager-item [data-component-channel] {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.component-manager-state {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.component-manager-state.is-ok {
+  color: var(--success);
+}
+
+.component-manager-state.is-update {
+  color: #946200;
+}
+
+.component-manager-state.is-error {
+  color: var(--danger);
+}
+
+.component-version-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.component-version-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+}
+
+.component-version-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.component-version-grid dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.component-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.component-version-picker {
+  position: relative;
+}
+
+.component-version-picker > summary {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.component-version-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.component-version-picker > div {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.component-version-picker select {
+  min-width: 170px;
+}
+
+.component-job-panel {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid rgba(8, 124, 128, 0.32);
+  border-radius: 8px;
+  background: #f1f8f8;
+}
+
+.component-job-panel.is-error {
+  border-color: rgba(194, 51, 42, 0.35);
+  background: #fff4f2;
+}
+
+.component-job-panel > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.component-job-panel details {
+  margin-top: 4px;
+}
+
+.component-job-panel summary {
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.component-job-panel pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #17202f;
+  color: #e8edf5;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.component-manager-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--line);
 }
@@ -5863,20 +6111,25 @@ button.review-check-card:focus-visible {
   }
 
   .backup-history-dialog,
-  .backup-history-surface {
+  .backup-history-surface,
+  .component-manager-dialog,
+  .component-manager-surface {
     max-height: calc(100vh - 20px);
   }
 
-  .backup-history-dialog {
+  .backup-history-dialog,
+  .component-manager-dialog {
     width: calc(100vw - 20px);
   }
 
-  .backup-history-head {
+  .backup-history-head,
+  .component-manager-head {
     gap: 10px;
     padding: 14px;
   }
 
-  .backup-history-body {
+  .backup-history-body,
+  .component-manager-body {
     padding: 14px;
   }
 
@@ -5888,6 +6141,22 @@ button.review-check-card:focus-visible {
 
   .backup-history-actions .button {
     width: 100%;
+  }
+
+  .component-version-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .component-manager-actions,
+  .component-version-picker,
+  .component-version-picker > div {
+    width: 100%;
+  }
+
+  .component-manager-actions > .button,
+  .component-version-picker select,
+  .component-version-picker .button {
+    flex: 1 1 auto;
   }
 
   .overview-flow-steps {
