@@ -401,6 +401,8 @@ const state = {
     },
     job: { running: false, ok: null, component: '', action: '', target: '', phase: 'idle', message: '', output: '' },
     pollTimer: 0,
+    xkeenChannelCurrent: '',
+    xkeenChannelSelection: '',
   },
   overviewDiagnostics: [],
   lastUndo: null,
@@ -466,9 +468,15 @@ const els = {
   componentStates: document.querySelectorAll('[data-component-state]'),
   componentCurrentVersions: document.querySelectorAll('[data-component-current]'),
   componentLatestVersions: document.querySelectorAll('[data-component-latest]'),
+  componentLatestLabels: document.querySelectorAll('[data-component-latest-label]'),
   componentChannels: document.querySelectorAll('[data-component-channel]'),
   componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
   componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
+  xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
+  xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
+  xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
+  componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
+  componentMaintenance: document.querySelector('#componentMaintenance'),
   mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
   installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
   checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
@@ -651,6 +659,10 @@ els.closeComponentManagerButton.addEventListener('click', closeComponentManager)
 els.checkComponentUpdatesButton.addEventListener('click', checkComponentVersions);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
+els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
+els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
+els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
+els.componentMaintenance.addEventListener('toggle', revealComponentMaintenance);
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
 renderHappDecoderSettings();
@@ -1761,6 +1773,13 @@ function normalizeComponentItem(item) {
   };
 }
 
+function normalizeXkeenChannel(value) {
+  const channel = String(value || '').trim().toLowerCase();
+  if (channel === 'stable') return 'stable';
+  if (channel === 'beta' || channel === 'dev') return 'beta';
+  return '';
+}
+
 function normalizeComponentJob(job) {
   return {
     running: Boolean(job?.running),
@@ -1792,6 +1811,11 @@ async function loadComponents(options = {}) {
       xkeen: normalizeComponentItem(data.components?.xkeen),
       mihomo: normalizeComponentItem(data.components?.mihomo),
     };
+    const xkeenChannel = normalizeXkeenChannel(state.components.items.xkeen.channel);
+    if (!state.components.xkeenChannelSelection || state.components.xkeenChannelCurrent !== xkeenChannel) {
+      state.components.xkeenChannelSelection = xkeenChannel;
+    }
+    state.components.xkeenChannelCurrent = xkeenChannel;
     state.components.updateCount = Number(data.updateCount) || 0;
     state.components.job = normalizeComponentJob(data.job);
     if (state.components.job.running) pollComponentJob();
@@ -1816,6 +1840,14 @@ function openComponentManager() {
 function closeComponentManager() {
   if (typeof els.componentManagerDialog.close === 'function') els.componentManagerDialog.close();
   else els.componentManagerDialog.removeAttribute('open');
+}
+
+function revealComponentMaintenance() {
+  if (!els.componentMaintenance.open) return;
+  window.setTimeout(() => {
+    const lastRow = els.componentMaintenance.querySelector('.component-maintenance-row:last-child');
+    (lastRow || els.componentMaintenance).scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+  }, 0);
 }
 
 async function checkComponentVersions() {
@@ -1857,6 +1889,8 @@ function renderComponentManager() {
   const busy = state.components.loading || state.components.job.running;
   const updateCount = Number(state.components.updateCount) || 0;
   const errors = Object.values(state.components.items).filter((item) => item.error).length;
+  const xkeen = state.components.items.xkeen || normalizeComponentItem(null);
+  const xkeenChannel = normalizeXkeenChannel(xkeen.channel);
 
   if (state.components.loading) {
     els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
@@ -1886,11 +1920,14 @@ function renderComponentManager() {
     } else if (item.updateAvailable) {
       element.textContent = 'Есть обновление';
       element.classList.add('is-update');
-    } else if (item.error || !item.latest) {
-      element.textContent = 'Проверка недоступна';
-      element.classList.add('is-error');
     } else if (service.state === 'error') {
       element.textContent = 'Ошибка запуска';
+      element.classList.add('is-error');
+    } else if (name === 'xkeen' && xkeenChannel === 'beta') {
+      element.textContent = service.state === 'ok' ? 'Работает · Beta' : 'Канал Beta';
+      if (service.state === 'ok') element.classList.add('is-ok');
+    } else if (item.error || !item.latest) {
+      element.textContent = 'Проверка недоступна';
       element.classList.add('is-error');
     } else {
       element.textContent = service.state === 'ok' ? 'Работает · актуально' : 'Актуально';
@@ -1902,8 +1939,16 @@ function renderComponentManager() {
     element.textContent = formatComponentVersion(item.current);
   });
   els.componentLatestVersions.forEach((element) => {
-    const item = state.components.items[element.dataset.componentLatest] || normalizeComponentItem(null);
-    element.textContent = formatComponentVersion(item.latest);
+    const name = element.dataset.componentLatest;
+    const item = state.components.items[name] || normalizeComponentItem(null);
+    element.textContent = name === 'xkeen' && xkeenChannel === 'beta'
+      ? 'Через XKeen'
+      : formatComponentVersion(item.latest);
+  });
+  els.componentLatestLabels.forEach((element) => {
+    element.textContent = element.dataset.componentLatestLabel === 'xkeen' && xkeenChannel === 'beta'
+      ? 'Обновление'
+      : 'Доступна';
   });
   els.componentChannels.forEach((element) => {
     const item = state.components.items[element.dataset.componentChannel] || normalizeComponentItem(null);
@@ -1912,8 +1957,11 @@ function renderComponentManager() {
   els.componentUpdateButtons.forEach((button) => {
     const name = button.dataset.componentUpdate;
     const item = state.components.items[name] || normalizeComponentItem(null);
-    button.disabled = busy || !item.installed || !item.updateAvailable;
-    button.textContent = item.updateAvailable && item.latest
+    const betaUpdate = name === 'xkeen' && xkeenChannel === 'beta';
+    button.disabled = busy || !item.installed || (!item.updateAvailable && !betaUpdate);
+    button.textContent = betaUpdate
+      ? 'Проверить обновление'
+      : item.updateAvailable && item.latest
       ? `Обновить до ${formatComponentVersion(item.latest)}`
       : item.error || !item.latest
         ? 'Недоступно'
@@ -1921,6 +1969,27 @@ function renderComponentManager() {
   });
   els.componentRollbackButtons.forEach((button) => {
     const item = state.components.items[button.dataset.componentRollback] || normalizeComponentItem(null);
+    button.disabled = busy || !item.installed;
+  });
+
+  const selectedChannel = state.components.xkeenChannelSelection || xkeenChannel;
+  els.xkeenChannelOptions.forEach((button) => {
+    const selected = button.dataset.xkeenChannel === selectedChannel;
+    button.setAttribute('aria-pressed', String(selected));
+    button.disabled = busy || !xkeen.installed;
+  });
+  els.xkeenChannelApplyButton.disabled = busy || !xkeen.installed || !selectedChannel || selectedChannel === xkeenChannel;
+  els.xkeenChannelApplyButton.textContent = selectedChannel && selectedChannel !== xkeenChannel
+    ? `Переключить на ${selectedChannel === 'stable' ? 'Stable' : 'Beta'}`
+    : 'Канал выбран';
+  els.xkeenChannelHint.textContent = selectedChannel && selectedChannel !== xkeenChannel
+    ? 'Будет создана копия, затем установлена версия выбранного канала'
+    : xkeenChannel === 'beta'
+      ? 'Beta — свежие сборки из разработки'
+      : 'Stable — проверенные релизы XKeen';
+
+  els.componentMaintenanceButtons.forEach((button) => {
+    const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
 
@@ -1951,13 +2020,22 @@ function renderComponentJob() {
   if (!visible) return;
   els.componentJobPanel.classList.toggle('is-error', job.ok === false);
   els.componentJobTitle.textContent = job.running
-    ? 'Операция выполняется'
+    ? getComponentActionLabel(job)
     : job.ok
       ? 'Операция завершена'
       : 'Операция не выполнена';
   els.componentJobMessage.textContent = job.message || '';
   els.componentJobOutput.textContent = job.output || '';
   els.componentJobDetails.hidden = !job.output;
+}
+
+function getComponentActionLabel(job) {
+  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  if (job.action === 'restart') return `Перезапуск ${component}`;
+  if (job.action === 'geo-update') return `Обновление GEO · ${component}`;
+  if (job.action === 'channel') return `Переключение канала XKeen`;
+  if (job.action === 'rollback') return 'Восстановление XKeen';
+  return `Обновление ${component}`;
 }
 
 function getComponentUpdateSummary() {
@@ -1969,8 +2047,38 @@ function getComponentUpdateSummary() {
 
 async function updateComponent(component) {
   const item = state.components.items[component];
-  if (!item?.updateAvailable) return;
+  const betaUpdate = component === 'xkeen' && normalizeXkeenChannel(item?.channel) === 'beta';
+  if (!item?.updateAvailable && !betaUpdate) return;
   await startComponentAction({ component, action: 'update', target: component === 'mihomo' ? item.latest : '' });
+}
+
+function selectXkeenChannel(channel) {
+  if (!['stable', 'beta'].includes(channel)) return;
+  state.components.xkeenChannelSelection = channel;
+  renderComponentManager();
+}
+
+async function applyXkeenChannel() {
+  const target = state.components.xkeenChannelSelection;
+  const current = normalizeXkeenChannel(state.components.items.xkeen?.channel);
+  if (!target || target === current) return;
+  const label = target === 'stable' ? 'Stable' : 'Beta';
+  const warning = target === 'beta'
+    ? 'Переключить XKeen на Beta и установить последнюю тестовую сборку?'
+    : 'Переключить XKeen на Stable и установить версию стабильного канала?';
+  if (!window.confirm(warning)) return;
+  await startComponentAction({ component: 'xkeen', action: 'channel', target });
+  state.components.xkeenChannelSelection = target;
+  els.xkeenChannelApplyButton.textContent = `Переключение на ${label}...`;
+}
+
+async function startMaintenanceAction(component, action) {
+  if (!['xkeen', 'mihomo'].includes(component) || !['restart', 'geo-update'].includes(action)) return;
+  if (action === 'restart') {
+    const label = component === 'xkeen' ? 'XKeen и активное прокси-ядро' : 'ядро Mihomo';
+    if (!window.confirm(`Перезапустить ${label}? Соединения могут кратковременно прерваться.`)) return;
+  }
+  await startComponentAction({ component, action });
 }
 
 async function rollbackComponent(component) {

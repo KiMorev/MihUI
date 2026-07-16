@@ -759,7 +759,7 @@
         <header class="component-manager-head">
           <div>
             <h2 id="componentManagerTitle">Сервисы и версии</h2>
-            <p id="componentManagerDescription">Обновления выполняются через XKeen и проверяются после установки.</p>
+            <p id="componentManagerDescription">Состояние, версии и обслуживание основных компонентов.</p>
           </div>
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
@@ -773,8 +773,19 @@
               </header>
               <dl class="component-version-grid">
                 <div><dt>Установлена</dt><dd data-component-current="xkeen">—</dd></div>
-                <div><dt>Доступна</dt><dd data-component-latest="xkeen">—</dd></div>
+                <div><dt data-component-latest-label="xkeen">Доступна</dt><dd data-component-latest="xkeen">—</dd></div>
               </dl>
+              <div class="xkeen-channel-setting">
+                <div class="xkeen-channel-copy">
+                  <strong>Канал обновлений</strong>
+                  <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
+                </div>
+                <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                  <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                  <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
+                </div>
+                <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+              </div>
               <div class="component-manager-actions">
                 <button class="button primary compact" type="button" data-component-update="xkeen">Обновить XKeen</button>
                 <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
@@ -788,7 +799,7 @@
               </header>
               <dl class="component-version-grid">
                 <div><dt>Установлена</dt><dd data-component-current="mihomo">—</dd></div>
-                <div><dt>Доступна</dt><dd data-component-latest="mihomo">—</dd></div>
+                <div><dt data-component-latest-label="mihomo">Доступна</dt><dd data-component-latest="mihomo">—</dd></div>
               </dl>
               <div class="component-manager-actions">
                 <button class="button primary compact" type="button" data-component-update="mihomo">Обновить Mihomo</button>
@@ -802,6 +813,28 @@
               </div>
             </article>
           </div>
+          <details id="componentMaintenance" class="component-maintenance">
+            <summary>
+              <span><strong>Обслуживание</strong><small>Перезапуск и принудительное обновление GEO-баз</small></span>
+              <span>4 действия</span>
+            </summary>
+            <div class="component-maintenance-body">
+              <section class="component-maintenance-row">
+                <div><strong>XKeen</strong><span>Прокси-сервис и внешние GeoFile/GeoIPSET</span></div>
+                <div class="component-maintenance-actions">
+                  <button class="button compact" type="button" data-maintenance-component="xkeen" data-maintenance-action="restart">Перезапустить</button>
+                  <button class="button compact" type="button" data-maintenance-component="xkeen" data-maintenance-action="geo-update">Обновить GeoFile/GeoIPSET</button>
+                </div>
+              </section>
+              <section class="component-maintenance-row">
+                <div><strong>Mihomo</strong><span>Ядро и его собственные GEO-базы</span></div>
+                <div class="component-maintenance-actions">
+                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="restart">Перезапустить ядро</button>
+                  <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="geo-update">Обновить GEO-базы</button>
+                </div>
+              </section>
+            </div>
+          </details>
           <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
             <strong id="componentJobTitle">Операция выполняется</strong>
             <span id="componentJobMessage"></span>

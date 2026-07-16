@@ -822,6 +822,30 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(result["components"]["xkeen"]["updateAvailable"])
         self.assertTrue(result["components"]["mihomo"]["updateAvailable"])
 
+    def test_components_status_does_not_compare_beta_xkeen_with_stable_release(self):
+        catalog = {
+            "xkeen": {"latest": "v2.1", "versions": ["v2.1"], "error": "stable unavailable"},
+            "mihomo": {"latest": "", "versions": [], "error": ""},
+        }
+        with mock.patch.object(
+            mihui_server, "get_component_release_catalog", return_value=(catalog, 123)
+        ), mock.patch.object(
+            mihui_server,
+            "get_xkeen_version_info",
+            return_value={"installed": True, "version": "2.0.1", "channel": "Beta"},
+        ), mock.patch.object(
+            mihui_server,
+            "read_mihomo_binary_version",
+            return_value={"installed": False, "version": "", "binary": ""},
+        ):
+            result = mihui_server.get_components_status(Path("."))
+
+        xkeen = result["components"]["xkeen"]
+        self.assertEqual(xkeen["channel"], "Beta")
+        self.assertEqual(xkeen["latest"], "")
+        self.assertEqual(xkeen["error"], "")
+        self.assertFalse(xkeen["updateAvailable"])
+
     def test_component_action_requires_custom_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             server, thread = self.start_mihui_server(Path(temp_dir))
@@ -853,6 +877,95 @@ class ProviderAdapterTests(unittest.TestCase):
                 )
 
         self.assertEqual(result["target"], "v1.19.27")
+
+    def test_validate_component_action_accepts_only_fixed_channel_and_maintenance_actions(self):
+        channel = mihui_server.validate_component_action(
+            Path("."), {"component": "xkeen", "action": "channel", "target": "Beta"}
+        )
+        restart = mihui_server.validate_component_action(
+            Path("."), {"component": "mihomo", "action": "restart"}
+        )
+        geo_update = mihui_server.validate_component_action(
+            Path("."), {"component": "xkeen", "action": "geo-update"}
+        )
+        with self.assertRaisesRegex(ValueError, "invalid XKeen channel"):
+            mihui_server.validate_component_action(
+                Path("."), {"component": "xkeen", "action": "channel", "target": "nightly"}
+            )
+        with self.assertRaisesRegex(ValueError, "target is not supported"):
+            mihui_server.validate_component_action(
+                Path("."), {"component": "mihomo", "action": "restart", "target": "shell"}
+            )
+
+        self.assertEqual(channel["target"], "beta")
+        self.assertEqual(restart["action"], "restart")
+        self.assertEqual(geo_update["action"], "geo-update")
+
+    def test_xkeen_channel_switch_uses_backup_and_fixed_interactive_commands(self):
+        version_info = [
+            {"installed": True, "version": "2.0.1", "channel": "Beta"},
+            {"installed": True, "version": "2.0", "channel": "Stable"},
+        ]
+        with mock.patch.object(
+            mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+        ), mock.patch.object(
+            mihui_server, "get_xkeen_service_status", return_value={"state": "ok"}
+        ), mock.patch.object(
+            mihui_server, "get_xkeen_version_info", side_effect=version_info
+        ), mock.patch.object(
+            mihui_server, "run_component_command", return_value=(0, "ok")
+        ) as run:
+            mihui_server.run_xkeen_component_action(Path("."), "channel", "stable")
+
+        self.assertEqual(
+            run.call_args_list,
+            [
+                mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
+                mock.call(["/opt/bin/xkeen", "-channel"], input_text="1\n", timeout=180),
+                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
+            ],
+        )
+
+    def test_xkeen_maintenance_uses_only_restart_and_geo_commands(self):
+        with mock.patch.object(
+            mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"
+        ), mock.patch.object(
+            mihui_server, "get_xkeen_service_status", return_value={"state": "ok"}
+        ), mock.patch.object(
+            mihui_server, "run_component_command", return_value=(0, "ok")
+        ) as run:
+            mihui_server.run_xkeen_maintenance_action(Path("."), "restart")
+            mihui_server.run_xkeen_maintenance_action(Path("."), "geo-update")
+
+        self.assertEqual(
+            run.call_args_list,
+            [
+                mock.call(["/opt/bin/xkeen", "-restart"], input_text=None, timeout=180),
+                mock.call(["/opt/bin/xkeen", "-ug"], input_text=None, timeout=600),
+            ],
+        )
+
+    def test_mihomo_maintenance_uses_native_restart_and_geo_fallback(self):
+        not_found = urllib.error.HTTPError("http://mihomo/upgrade/geo", 404, "not found", {}, None)
+        with mock.patch.object(
+            mihui_server, "find_mihomo_binary", return_value="/opt/sbin/mihomo"
+        ), mock.patch.object(
+            mihui_server, "get_mihomo_service_status", return_value={"state": "ok"}
+        ), mock.patch.object(
+            mihui_server, "mihomo_api_request", side_effect=[{}, not_found, {}]
+        ) as request:
+            mihui_server.run_mihomo_maintenance_action(Path("."), "restart")
+            mihui_server.run_mihomo_maintenance_action(Path("."), "geo-update")
+
+        payload = {"path": "", "payload": ""}
+        self.assertEqual(
+            request.call_args_list,
+            [
+                mock.call(Path("."), "/restart", method="POST", payload=payload, timeout=30),
+                mock.call(Path("."), "/upgrade/geo", method="POST", payload=payload, timeout=180),
+                mock.call(Path("."), "/configs/geo", method="POST", payload=payload, timeout=180),
+            ],
+        )
 
     def test_mihomo_update_uses_fixed_xkeen_command_and_version_input(self):
         with tempfile.TemporaryDirectory() as temp_dir:

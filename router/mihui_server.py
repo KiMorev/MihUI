@@ -1295,6 +1295,15 @@ def get_xkeen_version_info(app_dir):
     }
 
 
+def normalize_xkeen_channel(value):
+    channel = str(value or "").strip().lower()
+    if channel == "stable":
+        return "stable"
+    if channel in {"beta", "dev"}:
+        return "beta"
+    return ""
+
+
 def read_mihomo_binary_version(app_dir):
     binary = find_mihomo_binary(app_dir)
     if not binary:
@@ -1379,9 +1388,10 @@ def get_components_status(app_dir, force=False):
     mihomo = read_mihomo_binary_version(app_dir)
     xkeen_release = catalog.get("xkeen") or {}
     mihomo_release = catalog.get("mihomo") or {}
+    xkeen_channel = normalize_xkeen_channel(xkeen.get("channel"))
     xkeen_update = bool(
         xkeen.get("installed")
-        and str(xkeen.get("channel") or "").lower() in {"", "stable"}
+        and xkeen_channel in {"", "stable"}
         and component_update_available(xkeen.get("version"), xkeen_release.get("latest"))
     )
     mihomo_update = bool(
@@ -1392,11 +1402,11 @@ def get_components_status(app_dir, force=False):
         "xkeen": {
             "installed": bool(xkeen.get("installed")),
             "current": xkeen.get("version") or "",
-            "channel": xkeen.get("channel") or "",
-            "latest": xkeen_release.get("latest") or "",
+            "channel": "Beta" if xkeen_channel == "beta" else "Stable" if xkeen_channel == "stable" else xkeen.get("channel") or "",
+            "latest": (xkeen_release.get("latest") or "") if xkeen_channel != "beta" else "",
             "versions": xkeen_release.get("versions") or [],
             "updateAvailable": xkeen_update,
-            "error": xkeen_release.get("error") or "",
+            "error": "" if xkeen_channel == "beta" else xkeen_release.get("error") or "",
         },
         "mihomo": {
             "installed": bool(mihomo.get("installed")),
@@ -1423,13 +1433,19 @@ def validate_component_action(app_dir, payload):
     target = str((payload or {}).get("target") or "").strip()
     if component not in {"xkeen", "mihomo"}:
         raise ValueError("unsupported component")
-    if component == "xkeen" and action not in {"update", "rollback"}:
+    if component == "xkeen" and action not in {"update", "rollback", "channel", "restart", "geo-update"}:
         raise ValueError("unsupported XKeen action")
-    if component == "mihomo" and action != "update":
+    if component == "mihomo" and action not in {"update", "restart", "geo-update"}:
         raise ValueError("unsupported Mihomo action")
-    if component == "xkeen" and target:
+    if component == "xkeen" and action == "channel":
+        target = target.lower()
+        if target not in {"stable", "beta"}:
+            raise ValueError("invalid XKeen channel")
+    elif component == "xkeen" and target:
         raise ValueError("XKeen target version is not supported")
-    if component == "mihomo":
+    if component == "mihomo" and action != "update" and target:
+        raise ValueError("Mihomo target is not supported for this action")
+    if component == "mihomo" and action == "update":
         status = get_components_status(app_dir)
         versions = status["components"]["mihomo"].get("versions") or []
         if not target:
@@ -1489,10 +1505,16 @@ def require_component_command(command, message, input_text=None, timeout=COMPONE
 def run_component_action(app_dir, request_data):
     with component_action_lock:
         try:
-            if request_data["component"] == "xkeen":
-                run_xkeen_component_action(app_dir, request_data["action"])
-            else:
+            component = request_data["component"]
+            action = request_data["action"]
+            if component == "xkeen" and action in {"update", "rollback", "channel"}:
+                run_xkeen_component_action(app_dir, action, request_data.get("target", ""))
+            elif component == "xkeen":
+                run_xkeen_maintenance_action(app_dir, action)
+            elif action == "update":
                 run_mihomo_component_update(app_dir, request_data["target"])
+            else:
+                run_mihomo_maintenance_action(app_dir, action)
             update_component_action_state(
                 running=False,
                 ok=True,
@@ -1513,7 +1535,7 @@ def run_component_action(app_dir, request_data):
             invalidate_component_release_cache()
 
 
-def run_xkeen_component_action(app_dir, action):
+def run_xkeen_component_action(app_dir, action, target=""):
     binary = find_xkeen_binary(app_dir)
     if not binary:
         raise RuntimeError("XKeen не найден")
@@ -1529,14 +1551,30 @@ def run_xkeen_component_action(app_dir, action):
             raise RuntimeError("Не удалось проверить XKeen после восстановления")
         return
 
+    current_channel = normalize_xkeen_channel(get_xkeen_version_info(app_dir).get("channel"))
+    if action == "channel" and target == current_channel:
+        raise RuntimeError("Выбранный канал XKeen уже активен")
+
     update_component_action_state(phase="backup", message="Создаём резервную копию XKeen")
     require_component_command([binary, "-kb"], "Не удалось создать резервную копию XKeen", timeout=180)
     try:
+        if action == "channel":
+            channel_label = "Stable" if target == "stable" else "Beta"
+            update_component_action_state(phase="channel", message=f"Переключаем XKeen на канал {channel_label}")
+            require_component_command(
+                [binary, "-channel"],
+                "Не удалось переключить канал XKeen",
+                input_text="1\n",
+                timeout=180,
+            )
         update_component_action_state(phase="install", message="Обновляем XKeen")
         require_component_command([binary, "-uk"], "Не удалось обновить XKeen")
         update_component_action_state(phase="verify", message="Проверяем XKeen")
-        if not get_xkeen_version_info(app_dir).get("version"):
+        version_info = get_xkeen_version_info(app_dir)
+        if not version_info.get("version"):
             raise RuntimeError("Не удалось проверить версию XKeen")
+        if action == "channel" and normalize_xkeen_channel(version_info.get("channel")) != target:
+            raise RuntimeError("XKeen не переключился на выбранный канал")
         if was_running and get_xkeen_service_status(app_dir).get("state") != "ok":
             raise RuntimeError("XKeen не запустился после обновления")
     except Exception as error:
@@ -1548,6 +1586,58 @@ def run_xkeen_component_action(app_dir, action):
         if rollback_code != 0:
             raise RuntimeError(f"{error}; автоматическое восстановление XKeen не удалось") from error
         raise
+
+
+def run_xkeen_maintenance_action(app_dir, action):
+    binary = find_xkeen_binary(app_dir)
+    if not binary:
+        raise RuntimeError("XKeen не найден")
+    was_running = get_xkeen_service_status(app_dir).get("state") == "ok"
+    if action == "restart":
+        update_component_action_state(phase="restart", message="Перезапускаем XKeen")
+        require_component_command([binary, "-restart"], "Не удалось перезапустить XKeen", timeout=180)
+    elif action == "geo-update":
+        update_component_action_state(phase="geo-update", message="Обновляем GeoFile/GeoIPSET XKeen")
+        require_component_command([binary, "-ug"], "Не удалось обновить GeoFile/GeoIPSET", timeout=600)
+    else:
+        raise RuntimeError("Неподдерживаемая операция XKeen")
+    if was_running and get_xkeen_service_status(app_dir).get("state") != "ok":
+        raise RuntimeError("XKeen не работает после операции")
+
+
+def wait_for_mihomo_service(app_dir, attempts=10):
+    for attempt in range(attempts):
+        if get_mihomo_service_status(app_dir).get("state") == "ok":
+            return True
+        if attempt + 1 < attempts:
+            time.sleep(1)
+    return False
+
+
+def run_mihomo_maintenance_action(app_dir, action):
+    if not find_mihomo_binary(app_dir):
+        raise RuntimeError("Mihomo не найден")
+    payload = {"path": "", "payload": ""}
+    if action == "restart":
+        update_component_action_state(phase="restart", message="Перезапускаем ядро Mihomo")
+        mihomo_api_request(app_dir, "/restart", method="POST", payload=payload, timeout=30)
+        if not wait_for_mihomo_service(app_dir):
+            raise RuntimeError("Mihomo не запустился после перезапуска")
+        return
+    if action == "geo-update":
+        update_component_action_state(phase="geo-update", message="Обновляем GEO-базы Mihomo")
+        try:
+            mihomo_api_request(app_dir, "/upgrade/geo", method="POST", payload=payload, timeout=180)
+        except urllib.error.HTTPError as error:
+            status = error.code
+            error.close()
+            if status != HTTPStatus.NOT_FOUND:
+                raise
+            mihomo_api_request(app_dir, "/configs/geo", method="POST", payload=payload, timeout=180)
+        if get_mihomo_service_status(app_dir).get("state") != "ok":
+            raise RuntimeError("Mihomo не отвечает после обновления GEO-баз")
+        return
+    raise RuntimeError("Неподдерживаемая операция Mihomo")
 
 
 def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running):

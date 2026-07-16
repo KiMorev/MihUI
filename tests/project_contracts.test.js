@@ -49,6 +49,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="componentManagerDialog"[^>]+aria-labelledby="componentManagerTitle"/);
     assert.match(html, /data-component-update="xkeen"/);
     assert.match(html, /data-component-update="mihomo"/);
+    assert.match(html, /data-xkeen-channel="stable"/);
+    assert.match(html, /data-xkeen-channel="beta"/);
+    assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
     assert.match(html, /id="mihomoVersionSelect"/);
     assert.match(html, /id="overviewConfigSource"/);
     assert.match(html, /id="overviewConfigLoadedLabel"/);
@@ -87,6 +90,8 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /element\.textContent = `Обновления · \$\{updateCount\}`/);
     assert.match(source, /apiJson\('\/api\/components\/action'/);
     assert.match(source, /'X-Mihui-Action': 'components'/);
+    assert.match(source, /action: 'channel'/);
+    assert.match(source, /\['restart', 'geo-update'\]/);
     assert.match(source, /Понизить Mihomo/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
