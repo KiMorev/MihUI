@@ -23,6 +23,9 @@
       <symbol id="icon-routing" viewBox="0 0 24 24">
         <path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" />
       </symbol>
+      <symbol id="icon-ports" viewBox="0 0 24 24">
+        <path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M5 6h.01" /><path d="M5 12h.01" /><path d="M5 18h.01" />
+      </symbol>
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
@@ -60,6 +63,7 @@
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
@@ -407,6 +411,104 @@
 
           <section id="diagnosticsPanel" class="panel diagnostics-panel hidden" data-routing-view-panel="rules" aria-live="polite"></section>
         </section>
+      </section>
+
+      <section class="app-section xkeen-files-section" data-section-panel="xkeen-files" hidden>
+        <header class="xkeen-files-page-head">
+          <div>
+            <h2>Порты и исключения</h2>
+            <p>Файлы XKeen из каталога <code id="xkeenFilesDirectory">/opt/etc/xkeen</code></p>
+          </div>
+          <button id="xkeenFilesRefreshButton" class="button compact" type="button" disabled>
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+            <span>Перезагрузить</span>
+          </button>
+        </header>
+
+        <aside id="xkeenFilesNotice" class="xkeen-files-notice" aria-live="polite" hidden></aside>
+
+        <div class="xkeen-files-grid">
+          <article class="panel xkeen-file-card" data-xkeen-file-card="portProxying">
+            <header class="xkeen-file-card-head">
+              <div>
+                <h3>Проксируемые порты</h3>
+                <code>port_proxying.lst</code>
+              </div>
+              <span class="xkeen-file-count" data-xkeen-file-count="portProxying">0 записей</span>
+            </header>
+            <p class="xkeen-file-description">Порты и диапазоны, которые XKeen направляет через прокси.</p>
+            <textarea id="xkeenPortProxyingEditor" class="xkeen-file-editor" data-xkeen-file="portProxying" spellcheck="false" aria-label="Проксируемые порты" disabled></textarea>
+            <footer class="xkeen-file-meta">
+              <span data-xkeen-file-path="portProxying">port_proxying.lst</span>
+              <strong data-xkeen-file-error="portProxying" hidden></strong>
+            </footer>
+          </article>
+
+          <article class="panel xkeen-file-card" data-xkeen-file-card="portExclude">
+            <header class="xkeen-file-card-head">
+              <div>
+                <h3>Исключённые порты</h3>
+                <code>port_exclude.lst</code>
+              </div>
+              <span class="xkeen-file-count" data-xkeen-file-count="portExclude">0 записей</span>
+            </header>
+            <p class="xkeen-file-description">Порты, которые нужно исключить из проксирования.</p>
+            <textarea id="xkeenPortExcludeEditor" class="xkeen-file-editor" data-xkeen-file="portExclude" spellcheck="false" aria-label="Исключённые порты" disabled></textarea>
+            <footer class="xkeen-file-meta">
+              <span data-xkeen-file-path="portExclude">port_exclude.lst</span>
+              <strong data-xkeen-file-error="portExclude" hidden></strong>
+            </footer>
+          </article>
+
+          <article class="panel xkeen-file-card" data-xkeen-file-card="ipExclude">
+            <header class="xkeen-file-card-head">
+              <div>
+                <h3>Исключённые адреса</h3>
+                <code>ip_exclude.lst</code>
+              </div>
+              <span class="xkeen-file-count" data-xkeen-file-count="ipExclude">0 записей</span>
+            </header>
+            <p class="xkeen-file-description">IPv4/IPv6 адреса и подсети, которые должны идти напрямую.</p>
+            <textarea id="xkeenIpExcludeEditor" class="xkeen-file-editor" data-xkeen-file="ipExclude" spellcheck="false" aria-label="Исключённые IP-адреса и подсети" disabled></textarea>
+            <footer class="xkeen-file-meta">
+              <span data-xkeen-file-path="ipExclude">ip_exclude.lst</span>
+              <strong data-xkeen-file-error="ipExclude" hidden></strong>
+            </footer>
+          </article>
+
+          <article class="panel xkeen-file-card" data-xkeen-file-card="xkeenConfig">
+            <header class="xkeen-file-card-head">
+              <div>
+                <h3>Политики устройств</h3>
+                <code>xkeen.json</code>
+              </div>
+              <span class="xkeen-file-count" data-xkeen-file-count="xkeenConfig">JSONC</span>
+            </header>
+            <p class="xkeen-file-description">Пользовательские политики маршрутизации XKeen в формате JSON с комментариями.</p>
+            <textarea id="xkeenConfigEditor" class="xkeen-file-editor" data-xkeen-file="xkeenConfig" spellcheck="false" aria-label="Конфигурация xkeen.json" disabled></textarea>
+            <footer class="xkeen-file-meta">
+              <span data-xkeen-file-path="xkeenConfig">xkeen.json</span>
+              <strong data-xkeen-file-error="xkeenConfig" hidden></strong>
+            </footer>
+          </article>
+        </div>
+
+        <footer class="panel xkeen-files-actions">
+          <div class="xkeen-files-action-copy">
+            <strong id="xkeenFilesChangeStatus">Изменений нет</strong>
+            <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+          </div>
+          <label class="xkeen-restart-option">
+            <input id="xkeenRestartAfterSave" type="checkbox" checked disabled />
+            <span>
+              <strong>Перезапустить XKeen</strong>
+              <small>Иначе изменения применятся при следующем запуске</small>
+            </span>
+          </label>
+          <button id="xkeenFilesSaveButton" class="button primary" type="button" disabled>
+            <span>Сохранить и применить</span>
+          </button>
+        </footer>
       </section>
 
       <section class="app-section" data-section-panel="nodes" hidden>

@@ -2,6 +2,7 @@
 import argparse
 import base64
 import html
+import ipaddress
 import json
 import os
 import re
@@ -26,7 +27,9 @@ DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
+DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
 XKEEN_STATUS_TIMEOUT = 8
+XKEEN_FILES_MAX_BYTES = 512 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
 COMPONENT_ACTION_TIMEOUT = 10 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
@@ -106,6 +109,7 @@ component_action_state = {
 }
 component_release_cache_lock = threading.Lock()
 component_release_cache = {"checkedAt": 0, "catalog": {}}
+xkeen_files_lock = threading.Lock()
 UI_ASSET_NO_CACHE_PATHS = {"/", "/index.html", "/app.js", "/styles.css", "/mihomo-editor.html"}
 
 
@@ -151,6 +155,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/components/job":
             self.send_json(HTTPStatus.OK, {"ok": True, "job": snapshot_component_action_state()})
             return
+        if route == "/api/xkeen/network-files":
+            self.handle_xkeen_network_files_get()
+            return
         if route == "/api/providers/status":
             self.handle_providers_status()
             return
@@ -176,6 +183,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/components/action":
             self.handle_component_action()
+            return
+        if route == "/api/xkeen/network-files":
+            self.handle_xkeen_network_files_save()
             return
         if route == "/api/config/check":
             self.handle_config_check()
@@ -376,6 +386,36 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         result = check_mihomo_config(self.app_dir, text)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.UNPROCESSABLE_ENTITY, result)
+
+    def handle_xkeen_network_files_get(self):
+        try:
+            result = get_xkeen_network_files(self.app_dir)
+        except Exception as error:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "message": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, result)
+
+    def handle_xkeen_network_files_save(self):
+        if self.headers.get("X-Mihui-Action") != "xkeen-network-files":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        try:
+            payload = self.read_json_body()
+            changes, restart = validate_xkeen_network_files_request(payload)
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+
+        with xkeen_files_lock:
+            result = save_xkeen_network_files(self.app_dir, changes, restart=restart)
+        if result["ok"]:
+            status = HTTPStatus.OK
+        elif result.get("errors"):
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_GATEWAY
+        self.send_json(status, result)
 
     def handle_providers_status(self):
         result = get_proxy_provider_statuses(self.app_dir)
@@ -658,6 +698,339 @@ def write_text_atomic(path, text):
     tmp = path.with_name(f".{path.name}.mihui.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(str(tmp), str(path))
+
+
+XKEEN_NETWORK_FILE_DEFS = {
+    "portProxying": {
+        "name": "port_proxying.lst",
+        "env": "XKEEN_PORT_PROXYING_FILE",
+        "default": "",
+    },
+    "portExclude": {
+        "name": "port_exclude.lst",
+        "env": "XKEEN_PORT_EXCLUDE_FILE",
+        "default": "",
+    },
+    "ipExclude": {
+        "name": "ip_exclude.lst",
+        "env": "XKEEN_IP_EXCLUDE_FILE",
+        "default": "",
+    },
+    "xkeenConfig": {
+        "name": "xkeen.json",
+        "env": "XKEEN_CONFIG_FILE",
+        "default": "{}\n",
+    },
+}
+
+
+def get_xkeen_network_file_paths(app_dir):
+    env = get_env(app_dir)
+    base_dir = Path(env.get("MIHUI_XKEEN_DIR", DEFAULT_XKEEN_DIR))
+    paths = {}
+    for key, definition in XKEEN_NETWORK_FILE_DEFS.items():
+        configured = env.get(definition["env"], "")
+        paths[key] = Path(configured) if configured else base_dir / definition["name"]
+
+    if base_dir == Path(DEFAULT_XKEEN_DIR) and not env.get(XKEEN_NETWORK_FILE_DEFS["ipExclude"]["env"]):
+        current = paths["ipExclude"]
+        legacy = Path("/opt/etc/xkeen_exclude.lst")
+        if not current.exists() and legacy.exists():
+            paths["ipExclude"] = legacy
+    return paths
+
+
+def read_xkeen_network_file(path, default=""):
+    if not path.is_file():
+        return default, False
+    if path.stat().st_size > XKEEN_FILES_MAX_BYTES:
+        raise ValueError(f"{path.name} is too large")
+    return path.read_text(encoding="utf-8", errors="replace"), True
+
+
+def get_xkeen_network_files(app_dir):
+    paths = get_xkeen_network_file_paths(app_dir)
+    contents = {}
+    files = {}
+    for key, definition in XKEEN_NETWORK_FILE_DEFS.items():
+        text, exists = read_xkeen_network_file(paths[key], definition["default"])
+        contents[key] = text
+        files[key] = {
+            "name": definition["name"],
+            "path": str(paths[key]),
+            "text": text,
+            "exists": exists,
+        }
+
+    validation = validate_xkeen_network_files(contents)
+    return {
+        "ok": True,
+        "available": bool(find_xkeen_binary(app_dir)),
+        "directory": str(paths["portProxying"].parent),
+        "files": files,
+        "validation": validation,
+    }
+
+
+def validate_xkeen_network_files_request(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("JSON object is required")
+    files = payload.get("files")
+    if not isinstance(files, dict) or not files:
+        raise ValueError("files are required")
+    unknown = set(files) - set(XKEEN_NETWORK_FILE_DEFS)
+    if unknown:
+        raise ValueError("unknown file key")
+
+    changes = {}
+    for key, text in files.items():
+        if not isinstance(text, str):
+            raise ValueError(f"{key} text is required")
+        if len(text.encode("utf-8")) > XKEEN_FILES_MAX_BYTES:
+            raise ValueError(f"{XKEEN_NETWORK_FILE_DEFS[key]['name']} is too large")
+        changes[key] = text
+
+    restart = payload.get("restart", True)
+    if not isinstance(restart, bool):
+        raise ValueError("restart must be boolean")
+    return changes, restart
+
+
+def active_xkeen_lines(text):
+    return [line.strip() for line in str(text or "").splitlines() if line.strip() and not line.lstrip().startswith("#")]
+
+
+def validate_xkeen_port_file(key, text):
+    errors = []
+    active_count = 0
+    for line_number, raw in enumerate(str(text or "").splitlines(), start=1):
+        value = raw.strip()
+        if not value or value.startswith("#"):
+            continue
+        active_count += 1
+        match = re.fullmatch(r"(\d+)(?:\s*[:-]\s*(\d+))?", value)
+        if not match:
+            errors.append({"file": key, "line": line_number, "message": "Ожидается порт или диапазон портов"})
+            continue
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        if start < 1 or start > 65535 or end < 1 or end > 65535:
+            errors.append({"file": key, "line": line_number, "message": "Порт должен быть в диапазоне 1–65535"})
+        elif start > end:
+            errors.append({"file": key, "line": line_number, "message": "Начало диапазона больше конца"})
+    return errors, active_count
+
+
+def validate_xkeen_ip_file(text):
+    errors = []
+    active_count = 0
+    for line_number, raw in enumerate(str(text or "").splitlines(), start=1):
+        value = raw.strip()
+        if not value or value.startswith("#"):
+            continue
+        active_count += 1
+        try:
+            ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            errors.append({"file": "ipExclude", "line": line_number, "message": "Ожидается IPv4/IPv6 адрес или подсеть"})
+    return errors, active_count
+
+
+def strip_json_comments(text):
+    result = []
+    index = 0
+    in_string = False
+    escaped = False
+    source = str(text or "")
+    while index < len(source):
+        char = source[index]
+        next_char = source[index + 1] if index + 1 < len(source) else ""
+        if in_string:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            result.append(char)
+            index += 1
+            continue
+        if char == "/" and next_char == "/":
+            result.extend("  ")
+            index += 2
+            while index < len(source) and source[index] not in "\r\n":
+                result.append(" ")
+                index += 1
+            continue
+        if char == "/" and next_char == "*":
+            result.extend("  ")
+            index += 2
+            while index < len(source):
+                if source[index] == "*" and index + 1 < len(source) and source[index + 1] == "/":
+                    result.extend("  ")
+                    index += 2
+                    break
+                result.append("\n" if source[index] == "\n" else " ")
+                index += 1
+            continue
+        result.append(char)
+        index += 1
+    return "".join(result)
+
+
+def validate_xkeen_json(text):
+    errors = []
+    policy_count = 0
+    try:
+        data = json.loads(strip_json_comments(text))
+    except json.JSONDecodeError as error:
+        return ([{"file": "xkeenConfig", "line": error.lineno, "message": f"Некорректный JSON: {error.msg}"}], policy_count)
+    if not isinstance(data, dict):
+        return ([{"file": "xkeenConfig", "line": 1, "message": "Корнем xkeen.json должен быть объект"}], policy_count)
+
+    xkeen = data.get("xkeen")
+    if xkeen is not None and not isinstance(xkeen, dict):
+        errors.append({"file": "xkeenConfig", "line": 1, "message": "Поле xkeen должно быть объектом"})
+        return errors, policy_count
+    policies = xkeen.get("policy") if isinstance(xkeen, dict) else None
+    if policies is not None and not isinstance(policies, list):
+        errors.append({"file": "xkeenConfig", "line": 1, "message": "Поле xkeen.policy должно быть массивом"})
+        return errors, policy_count
+    if isinstance(policies, list):
+        policy_count = len(policies)
+        for index, policy in enumerate(policies, start=1):
+            if not isinstance(policy, dict) or not str(policy.get("name") or "").strip():
+                errors.append({"file": "xkeenConfig", "line": 1, "message": f"У политики {index} отсутствует имя"})
+    return errors, policy_count
+
+
+def validate_xkeen_network_files(contents):
+    errors = []
+    counts = {}
+    for key in ("portProxying", "portExclude"):
+        file_errors, counts[key] = validate_xkeen_port_file(key, contents.get(key, ""))
+        errors.extend(file_errors)
+    file_errors, counts["ipExclude"] = validate_xkeen_ip_file(contents.get("ipExclude", ""))
+    errors.extend(file_errors)
+    file_errors, counts["xkeenConfig"] = validate_xkeen_json(contents.get("xkeenConfig", ""))
+    errors.extend(file_errors)
+
+    warnings = []
+    if active_xkeen_lines(contents.get("portProxying", "")) and active_xkeen_lines(contents.get("portExclude", "")):
+        warnings.append({
+            "code": "port-priority",
+            "message": "Порты проксирования имеют приоритет: список исключений не будет применён.",
+        })
+    return {"ok": not errors, "errors": errors, "warnings": warnings, "counts": counts}
+
+
+def run_xkeen_restart(app_dir, binary):
+    try:
+        result = subprocess.run(
+            [binary, "-restart"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=180,
+            check=False,
+        )
+        output = result.stdout.decode("utf-8", "replace").strip()
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "message": "Перезапуск XKeen превысил время ожидания", "output": ""}
+    except Exception as error:
+        return {"ok": False, "message": str(error), "output": ""}
+    if result.returncode != 0:
+        return {"ok": False, "message": output or "Не удалось перезапустить XKeen", "output": output}
+    health = get_xkeen_service_status(app_dir)
+    return {
+        "ok": health.get("state") == "ok",
+        "message": health.get("message") or ("XKeen перезапущен" if health.get("state") == "ok" else "XKeen не запустился"),
+        "output": output,
+        "health": health,
+    }
+
+
+def restore_xkeen_network_files(originals):
+    errors = []
+    for original in originals.values():
+        path = original["path"]
+        try:
+            if original["exists"]:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                write_text_atomic(path, original["text"])
+            else:
+                path.unlink(missing_ok=True)
+        except Exception as error:
+            errors.append(str(error))
+    return errors
+
+
+def save_xkeen_network_files(app_dir, changes, restart=True):
+    current = get_xkeen_network_files(app_dir)
+    if not current["available"]:
+        return {"ok": False, "message": "XKeen не найден"}
+
+    contents = {key: item["text"] for key, item in current["files"].items()}
+    contents.update(changes)
+    validation = validate_xkeen_network_files(contents)
+    if not validation["ok"]:
+        return {
+            "ok": False,
+            "message": "Исправьте ошибки перед сохранением",
+            "errors": validation["errors"],
+            "warnings": validation["warnings"],
+        }
+
+    changed_keys = [key for key in changes if changes[key] != current["files"][key]["text"]]
+    if not changed_keys:
+        return {"ok": True, "changed": [], "restarted": False, "validation": validation}
+
+    paths = get_xkeen_network_file_paths(app_dir)
+    originals = {
+        key: {
+            "path": paths[key],
+            "text": current["files"][key]["text"],
+            "exists": current["files"][key]["exists"],
+        }
+        for key in changed_keys
+    }
+    try:
+        for key in changed_keys:
+            paths[key].parent.mkdir(parents=True, exist_ok=True)
+            write_text_atomic(paths[key], changes[key])
+    except Exception as error:
+        restore_xkeen_network_files(originals)
+        return {"ok": False, "message": f"Не удалось сохранить файлы: {error}"}
+
+    restart_result = None
+    if restart:
+        binary = find_xkeen_binary(app_dir)
+        restart_result = run_xkeen_restart(app_dir, binary)
+        if not restart_result["ok"]:
+            rollback_errors = restore_xkeen_network_files(originals)
+            rollback_restart = run_xkeen_restart(app_dir, binary)
+            details = [restart_result.get("message", "Не удалось перезапустить XKeen")]
+            details.extend(rollback_errors)
+            if not rollback_restart["ok"]:
+                details.append("Исходная конфигурация восстановлена, но повторный запуск XKeen не удался")
+            return {
+                "ok": False,
+                "message": "Изменения отменены: " + "; ".join(filter(None, details)),
+                "rolledBack": not rollback_errors,
+                "restart": restart_result,
+            }
+
+    return {
+        "ok": True,
+        "changed": changed_keys,
+        "restarted": bool(restart),
+        "restart": restart_result,
+        "validation": validation,
+    }
 
 
 def save_checked_config(app_dir, text):

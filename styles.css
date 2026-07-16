@@ -2081,6 +2081,225 @@ input[type='file'] {
   gap: 16px;
 }
 
+.xkeen-files-section {
+  display: grid;
+  gap: 16px;
+}
+
+.xkeen-files-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px 0;
+}
+
+.xkeen-files-page-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.xkeen-files-page-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.xkeen-files-page-head code,
+.xkeen-file-card-head code,
+.xkeen-file-meta {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
+.xkeen-files-page-head code {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.xkeen-files-notice {
+  padding: 12px 14px;
+  border: 1px solid #e8bb6d;
+  border-radius: 7px;
+  background: #fff9ee;
+  color: var(--warning);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.xkeen-files-notice.is-error {
+  border-color: #efb4ae;
+  background: #fff5f5;
+  color: var(--danger);
+}
+
+.xkeen-files-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.xkeen-file-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(220px, 1fr) auto;
+  min-width: 0;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.xkeen-file-card.is-changed {
+  border-color: rgba(8, 123, 128, 0.55);
+  box-shadow: 0 0 0 1px rgba(8, 123, 128, 0.08);
+}
+
+.xkeen-file-card.has-error {
+  border-color: rgba(180, 35, 24, 0.55);
+}
+
+.xkeen-file-card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 14px 9px;
+}
+
+.xkeen-file-card-head h3 {
+  margin: 0 0 2px;
+  font-size: 15px;
+}
+
+.xkeen-file-card-head code {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.xkeen-file-count {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.xkeen-file-card.is-changed .xkeen-file-count {
+  background: #e8f6f6;
+  color: var(--accent-dark);
+}
+
+.xkeen-file-description {
+  min-height: 38px;
+  margin: 0;
+  padding: 0 14px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.xkeen-file-editor {
+  min-height: 220px;
+  margin: 0 14px;
+  padding: 11px 12px;
+  resize: vertical;
+  border-radius: 6px;
+  background: #fbfcfe;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.xkeen-file-editor:disabled {
+  background: #f1f4f6;
+  color: var(--muted);
+}
+
+.xkeen-file-editor.is-invalid {
+  border-color: var(--danger);
+  background: #fffafa;
+}
+
+.xkeen-file-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 39px;
+  padding: 9px 14px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.xkeen-file-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xkeen-file-meta strong {
+  color: var(--danger);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-weight: 650;
+  text-align: right;
+}
+
+.xkeen-files-actions {
+  position: sticky;
+  bottom: 12px;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(280px, auto) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 30px rgba(24, 34, 52, 0.12);
+}
+
+.xkeen-files-action-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.xkeen-files-action-copy strong {
+  font-size: 13px;
+}
+
+.xkeen-files-action-copy span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.xkeen-restart-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.xkeen-restart-option input {
+  flex: 0 0 auto;
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
+.xkeen-restart-option > span {
+  display: grid;
+  gap: 1px;
+}
+
+.xkeen-restart-option strong {
+  font-size: 12px;
+}
+
+.xkeen-restart-option small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .nodes-page-head {
   display: flex;
   align-items: end;
@@ -6497,4 +6716,55 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
+}
+
+@media (max-width: 980px) {
+  .xkeen-files-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .xkeen-files-actions {
+    position: static;
+    grid-template-columns: 1fr auto;
+  }
+
+  .xkeen-files-action-copy {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .xkeen-files-page-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .xkeen-files-page-head .button {
+    width: 100%;
+  }
+
+  .xkeen-files-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .xkeen-files-action-copy {
+    grid-column: auto;
+  }
+
+  .xkeen-files-actions .button {
+    width: 100%;
+  }
+
+  .xkeen-file-editor {
+    margin-inline: 10px;
+  }
+
+  .xkeen-file-meta {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .xkeen-file-meta strong {
+    text-align: left;
+  }
 }

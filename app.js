@@ -6,7 +6,8 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
@@ -339,6 +340,17 @@ const state = {
   routerApiAvailable: false,
   routerConfigPath: '',
   routerBusy: false,
+  xkeenFiles: {
+    loaded: false,
+    loading: false,
+    saving: false,
+    available: false,
+    directory: '/opt/etc/xkeen',
+    files: {},
+    originals: {},
+    paths: {},
+    errors: [],
+  },
   backups: [],
   selectedBackupName: '',
   happDecoderSettings: {
@@ -475,6 +487,18 @@ const els = {
   sectionTabs: document.querySelectorAll('.section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
+  xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
+  xkeenFileCards: document.querySelectorAll('[data-xkeen-file-card]'),
+  xkeenFileCounts: document.querySelectorAll('[data-xkeen-file-count]'),
+  xkeenFilePaths: document.querySelectorAll('[data-xkeen-file-path]'),
+  xkeenFileErrors: document.querySelectorAll('[data-xkeen-file-error]'),
+  xkeenFilesDirectory: document.querySelector('#xkeenFilesDirectory'),
+  xkeenFilesNotice: document.querySelector('#xkeenFilesNotice'),
+  xkeenFilesRefreshButton: document.querySelector('#xkeenFilesRefreshButton'),
+  xkeenFilesSaveButton: document.querySelector('#xkeenFilesSaveButton'),
+  xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
+  xkeenFilesChangeStatus: document.querySelector('#xkeenFilesChangeStatus'),
+  xkeenFilesStatus: document.querySelector('#xkeenFilesStatus'),
   overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
   overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
   overviewNodesStatus: document.querySelector('#overviewNodesStatus'),
@@ -607,6 +631,10 @@ els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
+els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
+els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
 els.providerViewTabs.forEach((button) => {
   button.addEventListener('click', () => setProviderView(button.dataset.providerView));
   button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.providerViewTabs, 'providerView', setProviderView));
@@ -628,6 +656,7 @@ renderInterfaceSettings();
 renderHappDecoderSettings();
 renderServiceHealth();
 renderComponentManager();
+renderXkeenNetworkFiles();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -677,6 +706,7 @@ function renderSectionTabs() {
 
   renderProviderView();
   renderRoutingView();
+  renderXkeenNetworkFiles();
   els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
 }
 
@@ -778,6 +808,7 @@ function initRouterMode() {
   loadRouterMetadata();
   loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
+  loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   startServiceHealthPolling();
@@ -1430,9 +1461,190 @@ async function apiJson(url, options = {}) {
     }
   }
   if (!response.ok || data.ok === false) {
-    throw new Error(data.message || `HTTP ${response.status}`);
+    const error = new Error(data.message || `HTTP ${response.status}`);
+    error.data = data;
+    error.status = response.status;
+    throw error;
   }
   return data;
+}
+
+function getChangedXkeenNetworkFileKeys() {
+  return XKEEN_NETWORK_FILE_KEYS.filter((key) => String(state.xkeenFiles.files[key] ?? '') !== String(state.xkeenFiles.originals[key] ?? ''));
+}
+
+function getActiveXkeenNetworkFileLines(key) {
+  return String(state.xkeenFiles.files[key] || '')
+    .split(/\r?\n/)
+    .filter((line) => line.trim() && !line.trimStart().startsWith('#'));
+}
+
+function formatXkeenEntryCount(count) {
+  const value = Number(count) || 0;
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} запись`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${value} записи`;
+  return `${value} записей`;
+}
+
+function handleXkeenNetworkFileInput(event) {
+  const key = event.currentTarget.dataset.xkeenFile;
+  if (!XKEEN_NETWORK_FILE_KEYS.includes(key)) return;
+  state.xkeenFiles.files[key] = event.currentTarget.value;
+  state.xkeenFiles.errors = state.xkeenFiles.errors.filter((error) => error.file !== key);
+  renderXkeenNetworkFiles();
+}
+
+function renderXkeenNetworkFiles() {
+  const editorState = state.xkeenFiles;
+  const changedKeys = getChangedXkeenNetworkFileKeys();
+  const disabled = !editorState.loaded || !editorState.available || editorState.loading || editorState.saving;
+  const errorsByFile = new Map();
+  editorState.errors.forEach((error) => {
+    const items = errorsByFile.get(error.file) || [];
+    items.push(error);
+    errorsByFile.set(error.file, items);
+  });
+
+  els.xkeenFilesDirectory.textContent = editorState.directory || '/opt/etc/xkeen';
+  els.xkeenFileEditors.forEach((editor) => {
+    const key = editor.dataset.xkeenFile;
+    const value = String(editorState.files[key] ?? '');
+    if (editor.value !== value) editor.value = value;
+    editor.disabled = disabled;
+    editor.classList.toggle('is-invalid', errorsByFile.has(key));
+  });
+  els.xkeenFileCards.forEach((card) => {
+    const key = card.dataset.xkeenFileCard;
+    card.classList.toggle('is-changed', changedKeys.includes(key));
+    card.classList.toggle('has-error', errorsByFile.has(key));
+  });
+  els.xkeenFileCounts.forEach((element) => {
+    const key = element.dataset.xkeenFileCount;
+    element.textContent = key === 'xkeenConfig' ? 'JSONC' : formatXkeenEntryCount(getActiveXkeenNetworkFileLines(key).length);
+  });
+  els.xkeenFilePaths.forEach((element) => {
+    const key = element.dataset.xkeenFilePath;
+    element.textContent = editorState.paths[key] || element.textContent;
+    element.title = editorState.paths[key] || '';
+  });
+  els.xkeenFileErrors.forEach((element) => {
+    const items = errorsByFile.get(element.dataset.xkeenFileError) || [];
+    element.hidden = items.length === 0;
+    if (items.length) {
+      const first = items[0];
+      element.textContent = `${first.line ? `Строка ${first.line}: ` : ''}${first.message}${items.length > 1 ? ` · ещё ${items.length - 1}` : ''}`;
+    } else {
+      element.textContent = '';
+    }
+  });
+
+  const hasPortConflict = getActiveXkeenNetworkFileLines('portProxying').length > 0
+    && getActiveXkeenNetworkFileLines('portExclude').length > 0;
+  const hasErrors = editorState.errors.length > 0;
+  els.xkeenFilesNotice.hidden = !hasPortConflict && !hasErrors;
+  els.xkeenFilesNotice.classList.toggle('is-error', hasErrors);
+  if (hasErrors) {
+    els.xkeenFilesNotice.textContent = 'Исправьте отмеченные ошибки: файлы не были сохранены.';
+  } else if (hasPortConflict) {
+    els.xkeenFilesNotice.textContent = 'Порты проксирования имеют приоритет: список исключений не будет применён.';
+  }
+
+  const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
+  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || !canRequest;
+  els.xkeenRestartAfterSave.disabled = disabled || changedKeys.length === 0;
+  els.xkeenFilesSaveButton.disabled = disabled || changedKeys.length === 0 || hasErrors;
+  els.xkeenFilesSaveButton.classList.toggle('is-loading', editorState.saving);
+  els.xkeenFilesSaveButton.querySelector('span').textContent = editorState.saving
+    ? 'Сохранение...'
+    : els.xkeenRestartAfterSave.checked
+      ? 'Сохранить и применить'
+      : 'Сохранить';
+  els.xkeenFilesChangeStatus.textContent = changedKeys.length ? `Изменено файлов: ${changedKeys.length}` : 'Изменений нет';
+  if (editorState.loading) {
+    els.xkeenFilesStatus.textContent = 'Загрузка файлов с роутера...';
+  } else if (editorState.saving) {
+    els.xkeenFilesStatus.textContent = els.xkeenRestartAfterSave.checked ? 'Сохранение и перезапуск XKeen...' : 'Сохранение файлов...';
+  } else if (!editorState.loaded) {
+    els.xkeenFilesStatus.textContent = 'Доступно только в MihUI на роутере';
+  } else if (!editorState.available) {
+    els.xkeenFilesStatus.textContent = 'XKeen не найден — редактирование недоступно';
+  } else if (changedKeys.length) {
+    els.xkeenFilesStatus.textContent = 'Все изменённые файлы будут сохранены одной операцией';
+  } else {
+    els.xkeenFilesStatus.textContent = 'Файлы загружены с роутера';
+  }
+}
+
+async function loadXkeenNetworkFiles(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderXkeenNetworkFiles();
+    return;
+  }
+  state.xkeenFiles.loading = true;
+  renderXkeenNetworkFiles();
+  try {
+    const data = await apiJson('/api/xkeen/network-files');
+    const files = {};
+    const paths = {};
+    XKEEN_NETWORK_FILE_KEYS.forEach((key) => {
+      files[key] = String(data.files?.[key]?.text ?? '');
+      paths[key] = String(data.files?.[key]?.path || data.files?.[key]?.name || '');
+    });
+    state.xkeenFiles.loaded = true;
+    state.xkeenFiles.available = Boolean(data.available);
+    state.xkeenFiles.directory = String(data.directory || '/opt/etc/xkeen');
+    state.xkeenFiles.files = files;
+    state.xkeenFiles.originals = { ...files };
+    state.xkeenFiles.paths = paths;
+    state.xkeenFiles.errors = Array.isArray(data.validation?.errors) ? data.validation.errors : [];
+  } catch (error) {
+    state.xkeenFiles.loaded = false;
+    state.xkeenFiles.available = false;
+    if (!options.silent) showMessage(`Не удалось загрузить файлы XKeen: ${error?.message || error}`, { severity: 'error' });
+  } finally {
+    state.xkeenFiles.loading = false;
+    renderXkeenNetworkFiles();
+  }
+}
+
+async function reloadXkeenNetworkFiles() {
+  if (getChangedXkeenNetworkFileKeys().length > 0) {
+    const confirmed = window.confirm('Несохранённые изменения файлов XKeen будут потеряны. Продолжить?');
+    if (!confirmed) return;
+  }
+  await loadXkeenNetworkFiles({ silent: false });
+}
+
+async function saveXkeenNetworkFiles() {
+  const changedKeys = getChangedXkeenNetworkFileKeys();
+  if (!changedKeys.length || state.xkeenFiles.saving) return;
+  const files = Object.fromEntries(changedKeys.map((key) => [key, state.xkeenFiles.files[key]]));
+  state.xkeenFiles.saving = true;
+  state.xkeenFiles.errors = [];
+  renderXkeenNetworkFiles();
+  try {
+    const data = await apiJson('/api/xkeen/network-files', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-network-files',
+      },
+      body: JSON.stringify({ files, restart: els.xkeenRestartAfterSave.checked }),
+    });
+    changedKeys.forEach((key) => {
+      state.xkeenFiles.originals[key] = state.xkeenFiles.files[key];
+    });
+    showMessage(data.restarted ? 'Файлы сохранены, XKeen перезапущен.' : 'Файлы сохранены. Изменения применятся при следующем запуске XKeen.', { severity: 'success' });
+    if (data.restarted) await loadServiceHealth({ silent: true });
+  } catch (error) {
+    state.xkeenFiles.errors = Array.isArray(error?.data?.errors) ? error.data.errors : [];
+    showMessage(`Не удалось сохранить файлы XKeen: ${error?.message || error}`, { severity: 'error' });
+  } finally {
+    state.xkeenFiles.saving = false;
+    renderXkeenNetworkFiles();
+  }
 }
 
 async function loadServiceHealth(options = {}) {

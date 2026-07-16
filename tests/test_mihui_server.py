@@ -148,11 +148,13 @@ class ProviderAdapterTests(unittest.TestCase):
         thread.start()
         return server, thread
 
-    def post_json(self, server, path, payload):
+    def post_json(self, server, path, payload, headers=None):
+        request_headers = {"Content-Type": "application/json"}
+        request_headers.update(headers or {})
         request = urllib.request.Request(
             f"http://127.0.0.1:{server.server_address[1]}{path}",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=request_headers,
             method="POST",
         )
         try:
@@ -697,6 +699,85 @@ class ProviderAdapterTests(unittest.TestCase):
             timeout=mihui_server.XKEEN_STATUS_TIMEOUT,
             check=False,
         )
+
+    def test_xkeen_network_validation_reports_invalid_lines_and_port_priority(self):
+        result = mihui_server.validate_xkeen_network_files(
+            {
+                "portProxying": "80\n70000\n",
+                "portExclude": "443\n",
+                "ipExclude": "not-an-ip\n",
+                "xkeenConfig": '{\n  // comment\n  "xkeen": {"policy": [{}]}\n}\n',
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual({error["file"] for error in result["errors"]}, {"portProxying", "ipExclude", "xkeenConfig"})
+        self.assertEqual(result["warnings"][0]["code"], "port-priority")
+
+    def test_save_xkeen_network_files_restarts_once_after_atomic_write(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            xkeen_dir = app_dir / "xkeen"
+            xkeen_dir.mkdir()
+            proxying = xkeen_dir / "port_proxying.lst"
+            proxying.write_text("80\n", encoding="utf-8")
+            (xkeen_dir / "port_exclude.lst").write_text("", encoding="utf-8")
+            (xkeen_dir / "ip_exclude.lst").write_text("", encoding="utf-8")
+            (xkeen_dir / "xkeen.json").write_text("{}\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(f'MIHUI_XKEEN_DIR="{xkeen_dir}"\n', encoding="utf-8")
+            with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"), mock.patch.object(
+                mihui_server,
+                "run_xkeen_restart",
+                return_value={"ok": True, "message": "XKeen перезапущен"},
+            ) as restart:
+                result = mihui_server.save_xkeen_network_files(app_dir, {"portProxying": "80\n443\n"})
+                invalid = mihui_server.save_xkeen_network_files(app_dir, {"portProxying": "70000\n"})
+
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["restarted"])
+            self.assertFalse(invalid["ok"])
+            self.assertEqual(proxying.read_text(encoding="utf-8"), "80\n443\n")
+            restart.assert_called_once_with(app_dir, "/opt/bin/xkeen")
+
+    def test_save_xkeen_network_files_restores_originals_after_restart_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            xkeen_dir = app_dir / "xkeen"
+            xkeen_dir.mkdir()
+            proxying = xkeen_dir / "port_proxying.lst"
+            proxying.write_text("80\n", encoding="utf-8")
+            (xkeen_dir / "port_exclude.lst").write_text("", encoding="utf-8")
+            (xkeen_dir / "ip_exclude.lst").write_text("", encoding="utf-8")
+            (xkeen_dir / "xkeen.json").write_text("{}\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(f'MIHUI_XKEEN_DIR="{xkeen_dir}"\n', encoding="utf-8")
+            restarts = [
+                {"ok": False, "message": "restart failed"},
+                {"ok": True, "message": "restored"},
+            ]
+            with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"), mock.patch.object(
+                mihui_server, "run_xkeen_restart", side_effect=restarts
+            ) as restart:
+                result = mihui_server.save_xkeen_network_files(app_dir, {"portProxying": "443\n"})
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rolledBack"])
+            self.assertEqual(proxying.read_text(encoding="utf-8"), "80\n")
+            self.assertEqual(restart.call_count, 2)
+
+    def test_xkeen_network_files_endpoint_requires_fixed_action_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(
+                    server,
+                    "/api/xkeen/network-files",
+                    {"files": {"portProxying": "80\n"}},
+                )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
 
     def test_services_status_endpoint_is_read_only_and_returns_both_services(self):
         with tempfile.TemporaryDirectory() as temp_dir:

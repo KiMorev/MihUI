@@ -99,6 +99,23 @@ test('main and standalone expose component update markers and one manager flow',
   }
 });
 
+test('main and standalone expose one safe XKeen network-files flow', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /data-section="xkeen-files"[\s\S]+?Порты и исключения/);
+    assert.equal((source.match(/data-xkeen-file="/g) || []).length, 4);
+    assert.match(source, /id="xkeenRestartAfterSave" type="checkbox" checked/);
+    assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и применить/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /apiJson\('\/api\/xkeen\/network-files'/);
+    assert.match(source, /'X-Mihui-Action': 'xkeen-network-files'/);
+    assert.match(source, /Порты проксирования имеют приоритет/);
+  }
+});
+
 test('main and standalone expose the UI switcher in the brand block', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
