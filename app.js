@@ -345,6 +345,7 @@ const state = {
     loaded: false,
     loading: false,
     saving: false,
+    restartRequested: false,
     available: false,
     directory: '/opt/etc/xkeen',
     files: {},
@@ -461,6 +462,7 @@ const els = {
   appSidebar: document.querySelector('.app-sidebar'),
   primarySectionTabs: document.querySelector('.section-tabs'),
   topbar: document.querySelector('.topbar'),
+  mobileTopbarMeta: document.querySelector('.mobile-topbar-meta'),
   mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
@@ -515,6 +517,7 @@ const els = {
   xkeenFileErrors: document.querySelectorAll('[data-xkeen-file-error]'),
   xkeenFilesDirectory: document.querySelector('#xkeenFilesDirectory'),
   xkeenFilesNotice: document.querySelector('#xkeenFilesNotice'),
+  xkeenRestartButton: document.querySelector('#xkeenRestartButton'),
   xkeenFilesRefreshButton: document.querySelector('#xkeenFilesRefreshButton'),
   xkeenFilesSaveButton: document.querySelector('#xkeenFilesSaveButton'),
   xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
@@ -656,6 +659,7 @@ window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 els.mobileSectionTabs?.addEventListener('scroll', updateMobileSectionTabsOverflowHint, { passive: true });
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
 els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
@@ -693,9 +697,10 @@ initRouterMode();
 
 function readProviderUrlMaskingPreference() {
   try {
-    return window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY) === 'true';
+    const stored = window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY);
+    return stored === null || stored === undefined ? true : stored === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -718,6 +723,13 @@ function getMobileSectionTabsHeight() {
   return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 0;
 }
 
+function getStickyTopbarHeight() {
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  if (!isMobile) return els.topbar?.offsetHeight || 0;
+  const tabsHeight = els.mobileSectionTabs?.hidden ? 0 : getMobileSectionTabsHeight();
+  return tabsHeight + (els.mobileTopbarMeta?.offsetHeight || 0);
+}
+
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
@@ -733,7 +745,7 @@ function setActiveSection(section, options = {}) {
 
   panel.style.removeProperty('scroll-margin-top');
   const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
-  const stickyTopbarMargin = (els.topbar?.offsetHeight || 0) + 12;
+  const stickyTopbarMargin = getStickyTopbarHeight() + 12;
   panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -1599,6 +1611,10 @@ function handleXkeenNetworkFileInput(event) {
 function renderXkeenNetworkFiles() {
   const editorState = state.xkeenFiles;
   const changedKeys = getChangedXkeenNetworkFileKeys();
+  const componentBusy = state.components.job.running;
+  const restartBusy = componentBusy
+    && state.components.job.component === 'xkeen'
+    && state.components.job.action === 'restart';
   const disabled = !editorState.loaded || !editorState.available || editorState.loading || editorState.saving;
   const errorsByFile = new Map();
   editorState.errors.forEach((error) => {
@@ -1652,7 +1668,11 @@ function renderXkeenNetworkFiles() {
   }
 
   const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
-  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || !canRequest;
+  els.xkeenRestartButton.disabled = disabled || componentBusy || !canRequest;
+  els.xkeenRestartButton.setAttribute('aria-busy', String(restartBusy));
+  els.xkeenRestartButton.querySelector('span').textContent = restartBusy ? 'Перезапускаем...' : 'Перезапустить XKeen';
+  els.xkeenFilesRefreshButton.hidden = !editorState.loaded || !editorState.available;
+  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || componentBusy || !canRequest;
   els.xkeenRestartAfterSave.disabled = disabled || changedKeys.length === 0;
   els.xkeenFilesSaveButton.disabled = disabled || changedKeys.length === 0 || hasErrors;
   els.xkeenFilesSaveButton.classList.toggle('is-loading', editorState.saving);
@@ -1662,7 +1682,9 @@ function renderXkeenNetworkFiles() {
       ? 'Сохранить и применить'
       : 'Сохранить';
   els.xkeenFilesChangeStatus.textContent = changedKeys.length ? `Изменено файлов: ${changedKeys.length}` : 'Изменений нет';
-  if (editorState.loading) {
+  if (restartBusy) {
+    els.xkeenFilesStatus.textContent = 'XKeen и активное прокси-ядро перезапускаются...';
+  } else if (editorState.loading) {
     els.xkeenFilesStatus.textContent = 'Загрузка файлов с роутера...';
   } else if (editorState.saving) {
     els.xkeenFilesStatus.textContent = els.xkeenRestartAfterSave.checked ? 'Сохранение и перезапуск XKeen...' : 'Сохранение файлов...';
@@ -1717,6 +1739,18 @@ async function reloadXkeenNetworkFiles() {
   await loadXkeenNetworkFiles({ silent: false });
 }
 
+async function restartXkeenFromFiles() {
+  if (state.components.job.running || !state.xkeenFiles.available) return;
+  const hasUnsavedChanges = getChangedXkeenNetworkFileKeys().length > 0;
+  const warning = hasUnsavedChanges
+    ? 'Есть несохранённые изменения. Они останутся в редакторе, но перезапуск применит только файлы, уже сохранённые на роутере. Продолжить?'
+    : 'Перезапустить XKeen и активное прокси-ядро? Соединения могут кратковременно прерваться.';
+  if (!window.confirm(warning)) return;
+  const started = await startComponentAction({ component: 'xkeen', action: 'restart' });
+  state.xkeenFiles.restartRequested = started;
+  renderXkeenNetworkFiles();
+}
+
 async function saveXkeenNetworkFiles() {
   const changedKeys = getChangedXkeenNetworkFileKeys();
   if (!changedKeys.length || state.xkeenFiles.saving) return;
@@ -1764,11 +1798,13 @@ async function loadServiceHealth(options = {}) {
     state.serviceHealth.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
   } catch (error) {
     const detail = error?.message || String(error);
-    state.serviceHealth.services = {
-      xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
-      mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
-    };
-    state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    if (!state.serviceHealth.checkedAt) {
+      state.serviceHealth.services = {
+        xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
+        mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
+      };
+      state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    }
     if (!options.silent) showMessage('Не удалось обновить статусы сервисов.', { severity: 'warning', details: detail });
   } finally {
     state.serviceHealth.loading = false;
@@ -1794,14 +1830,20 @@ function formatServiceStatusLabel(service, loading = false) {
 
 function renderServiceHealth() {
   const { loading, checkedAt, services } = state.serviceHealth;
+  const initialLoading = loading && !checkedAt;
   els.serviceHealthItems.forEach((item) => {
     const serviceName = item.dataset.serviceHealth;
     const service = services[serviceName] || normalizeServiceStatus(null);
     const componentBusy = state.components.job.running && state.components.job.component === serviceName;
-    item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
-    item.classList.add(loading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.remove('is-loading', 'is-refreshing', 'is-ok', 'is-error', 'is-unavailable');
+    item.classList.add(initialLoading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.toggle('is-refreshing', loading && !initialLoading && !componentBusy);
     const status = item.querySelector('.service-health-status');
-    if (status) status.textContent = componentBusy ? 'Обновление...' : formatServiceStatusLabel(service, loading);
+    if (status) {
+      status.textContent = componentBusy
+        ? state.components.job.action === 'restart' ? 'Перезапуск...' : 'Обновление...'
+        : formatServiceStatusLabel(service, initialLoading);
+    }
     const updateMarker = item.querySelector('[data-service-update-marker]');
     if (updateMarker) updateMarker.hidden = !state.components.items[serviceName]?.updateAvailable;
     const details = [service.message, service.detail].filter(Boolean).join(' · ');
@@ -1810,7 +1852,7 @@ function renderServiceHealth() {
 
   const updateCount = Number(state.components.updateCount) || 0;
   const checkedLabel = loading
-    ? 'Проверка...'
+    ? checkedAt ? 'Обновляем...' : 'Проверка...'
     : checkedAt
       ? `Проверено ${formatServiceHealthTime(checkedAt)}`
       : 'Нажмите для проверки';
@@ -2272,9 +2314,12 @@ async function startComponentAction(payload) {
     });
     state.components.job = normalizeComponentJob(data.job);
     renderComponentManager();
+    renderXkeenNetworkFiles();
     pollComponentJob();
+    return true;
   } catch (error) {
     showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+    return false;
   }
 }
 
@@ -2287,14 +2332,25 @@ async function pollComponentJob() {
     const data = await apiJson('/api/components/job');
     state.components.job = normalizeComponentJob(data.job);
     renderComponentManager();
+    renderXkeenNetworkFiles();
     if (state.components.job.running) {
       state.components.pollTimer = window.setTimeout(pollComponentJob, 1500);
       return;
+    }
+    if (state.xkeenFiles.restartRequested
+      && state.components.job.component === 'xkeen'
+      && state.components.job.action === 'restart') {
+      showMessage(
+        state.components.job.ok ? 'XKeen успешно перезапущен.' : `Не удалось перезапустить XKeen: ${state.components.job.message || 'операция не выполнена'}`,
+        { severity: state.components.job.ok ? 'success' : 'error' },
+      );
+      state.xkeenFiles.restartRequested = false;
     }
     await Promise.all([
       loadServiceHealth({ silent: true }),
       loadComponents({ force: true, silent: true }),
     ]);
+    renderXkeenNetworkFiles();
   } catch (error) {
     state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
   }
@@ -2672,21 +2728,26 @@ function renderShellStatus(diagnostics) {
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   let validation = 'Проверка недоступна';
   let variant = '';
+  let shortLabel = '—';
 
   if (state.originalText) {
     if (hasStructuralError || errorCount > 0) {
       validation = hasStructuralError ? 'Локальная проверка: ошибка структуры' : `Локальная проверка: ${formatErrorCount(errorCount)}`;
       variant = 'is-danger';
+      shortLabel = 'Ошибка';
     } else if (warningCount > 0) {
       validation = `Локальная проверка: ${formatWarningCount(warningCount)}`;
       variant = 'is-warning';
+      shortLabel = String(warningCount);
     } else {
       validation = 'Локальная проверка: OK';
       variant = 'is-ok';
+      shortLabel = 'OK';
     }
   }
 
   els.topbarValidation.textContent = validation;
+  els.topbarValidation.dataset.shortLabel = shortLabel;
   els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
 
@@ -2847,7 +2908,7 @@ function renderOverviewHealth() {
   const warningCount = diagnostics.length - errorCount;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const services = Object.values(state.serviceHealth.services || {});
-  const serviceProblem = state.routerApiAvailable && !state.serviceHealth.loading
+  const serviceProblem = state.routerApiAvailable && state.serviceHealth.checkedAt > 0
     && services.some((service) => service.state === 'error' || service.state === 'unavailable');
   const nodesProblem = state.routerApiAvailable && !state.nodeInventoryLoading
     && (Boolean(state.nodeInventoryError) || state.mihomoNodes.length === 0);
@@ -2866,7 +2927,9 @@ function renderOverviewHealth() {
     summaryParts.push(hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount));
   } else {
     if (state.routerApiAvailable) {
-      summaryParts.push(state.serviceHealth.loading ? 'Проверяем сервисы' : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
+      summaryParts.push(state.serviceHealth.loading && !state.serviceHealth.checkedAt
+        ? 'Проверяем сервисы'
+        : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
     } else {
       summaryParts.push('Структура проверена');
     }
@@ -4455,7 +4518,7 @@ function createProviderInspector(provider) {
   content.className = 'provider-inspector-content';
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
-    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? 'Ссылка скрыта' : provider.url || 'Не указан'], 'value'),
+    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
     createProviderInspectorSection('Фильтрация нод', [
       provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
       provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
@@ -4564,27 +4627,39 @@ function formatProviderListMeta(provider) {
 
 function bindProviderUrl(root, provider) {
   const input = root.querySelector('.provider-url');
-  const showFullValue = () => {
-    input.type = 'url';
-    input.value = provider.url || '';
-    input.classList.remove('is-masked');
-  };
-  const showMaskedValue = () => {
-    const masked = state.hideProviderUrls ? maskSensitiveUrl(provider.url) : provider.url || '';
-    input.type = state.hideProviderUrls ? 'text' : 'url';
-    input.value = masked;
-    input.classList.toggle('is-masked', state.hideProviderUrls && masked !== provider.url);
+  const revealButton = root.querySelector('.provider-url-reveal-button');
+  let revealed = !state.hideProviderUrls || !provider.url || provider.isNew;
+  const renderValue = () => {
+    const shouldMask = state.hideProviderUrls && Boolean(provider.url) && !revealed;
+    input.type = shouldMask ? 'text' : 'url';
+    input.value = shouldMask ? maskSensitiveUrl(provider.url) : provider.url || '';
+    input.readOnly = shouldMask;
+    input.classList.toggle('is-masked', shouldMask);
+    revealButton.hidden = !state.hideProviderUrls || !provider.url;
+    revealButton.setAttribute('aria-pressed', String(revealed));
+    revealButton.querySelector('span').textContent = revealed ? 'Скрыть' : 'Показать';
   };
 
-  input.type = 'text';
-  showMaskedValue();
-  input.addEventListener('focus', showFullValue);
+  renderValue();
   input.addEventListener('input', () => updateProvider(provider, 'url', input.value));
-  input.addEventListener('blur', showMaskedValue);
+  revealButton.addEventListener('click', () => {
+    revealed = !revealed;
+    renderValue();
+    if (revealed) input.focus();
+  });
 }
 
 function maskSensitiveUrl(value) {
-  return String(value || '').trim() ? '••••' : '';
+  const source = String(value || '').trim();
+  if (!source) return '';
+  try {
+    const url = new URL(source);
+    const segments = url.pathname.split('/').filter(Boolean);
+    const visiblePrefix = segments.length > 1 && segments[0].length <= 3 ? `/${segments[0]}` : '';
+    return `${url.protocol}//${url.host}${visiblePrefix}/••••••`;
+  } catch {
+    return '••••••';
+  }
 }
 
 function formatProviderListBadge(provider) {

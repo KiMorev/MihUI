@@ -103,23 +103,25 @@
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
-        <div class="topbar-main">
-          <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
-          <p id="fileMeta">Конфигурация не загружена</p>
-          <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
+        <div class="mobile-topbar-meta">
+          <div class="topbar-main">
+            <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
+            <p id="fileMeta">Конфигурация не загружена</p>
+            <span id="topbarValidation" class="topbar-validation" data-short-label="—">Проверка недоступна</span>
+          </div>
+          <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
+            <span class="service-health-item is-loading" data-service-health="xkeen">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+            <span class="service-health-item is-loading" data-service-health="mihomo">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+          </button>
         </div>
-        <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
-          <span class="service-health-item is-loading" data-service-health="xkeen">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-          <span class="service-health-item is-loading" data-service-health="mihomo">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-        </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
@@ -428,9 +430,9 @@
             <h2>Порты и исключения</h2>
             <p>Файлы XKeen из каталога <code id="xkeenFilesDirectory">/opt/etc/xkeen</code></p>
           </div>
-          <button id="xkeenFilesRefreshButton" class="button compact" type="button" disabled>
+          <button id="xkeenRestartButton" class="button compact" type="button" disabled>
             <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-            <span>Перезагрузить</span>
+            <span>Перезапустить XKeen</span>
           </button>
         </header>
 
@@ -505,7 +507,10 @@
         <footer class="panel xkeen-files-actions">
           <div class="xkeen-files-action-copy">
             <strong id="xkeenFilesChangeStatus">Изменений нет</strong>
-            <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+            <div class="xkeen-files-status-row">
+              <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+              <button id="xkeenFilesRefreshButton" class="link-button xkeen-files-refresh-button" type="button" disabled>Обновить с роутера</button>
+            </div>
           </div>
           <label class="xkeen-restart-option">
             <input id="xkeenRestartAfterSave" type="checkbox" checked disabled />
@@ -910,9 +915,14 @@
               <span title="url">Ссылка подписки</span>
               <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
             </label>
-            <button class="button compact happ-decode-button" type="button" hidden>
-              <span>Расшифровать Happ</span>
-            </button>
+            <div class="provider-url-actions">
+              <button class="button compact provider-url-reveal-button" type="button" hidden aria-pressed="false">
+                <span>Показать</span>
+              </button>
+              <button class="button compact happ-decode-button" type="button" hidden>
+                <span>Расшифровать Happ</span>
+              </button>
+            </div>
           </div>
         </div>
 

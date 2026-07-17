@@ -12,6 +12,7 @@ function createElement() {
   const classes = new Set();
   return {
     children: [],
+    dataset: {},
     classList: {
       add(...items) {
         items.forEach((item) => classes.add(item));
@@ -63,8 +64,8 @@ function readSource(source) {
   return scripts[0][1];
 }
 
-function loadApp(source) {
-  const storage = new Map();
+function loadApp(source, initialStorage = {}) {
+  const storage = new Map(Object.entries(initialStorage));
   const runTimer = (callback) => {
     callback();
     return 0;
@@ -1606,13 +1607,14 @@ proxy-providers:
     assert.equal(app.els.checkConfigButton.disabled, true);
   });
 
-  test(`${source.name}: hides subscription URLs only when the setting is enabled`, () => {
+  test(`${source.name}: hides subscription URLs by default and preserves an explicit choice`, () => {
     const app = loadApp(source);
 
-    assert.equal(app.state.hideProviderUrls, false);
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), '••••');
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub#secret'), '••••');
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub'), '••••');
+    assert.equal(app.state.hideProviderUrls, true);
+    assert.equal(loadApp(source, { 'webmihomo.hideProviderUrls': 'false' }).state.hideProviderUrls, false);
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), 'https://example.test/••••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub#secret'), 'https://example.test/••••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/s/private-token'), 'https://example.test/s/••••••');
     const yaml = `external-url: https://outside.example/path?keep=true
 proxy-providers:
   secure:
@@ -1649,13 +1651,13 @@ proxy-groups:
     assert.doesNotMatch(maskedYaml, /private-token|block-secret|escaped-secret|quoted-secret|indent-secret|flow-secret/);
     assert.match(maskedYaml, /  flow: \{type: http, url: "••••"\}/);
     assert.match(maskedYaml, /    url: "••••"\n      ••••/);
-    assert.equal(app.getOutputPreviewText(yaml), yaml);
-    app.setProviderUrlMasking(true);
-    assert.equal(app.els.hideProviderUrlsSetting.checked, true);
     assert.equal(app.getOutputPreviewText(yaml), maskedYaml);
     app.setProviderUrlMasking(false);
     assert.equal(app.els.hideProviderUrlsSetting.checked, false);
     assert.equal(app.getOutputPreviewText(yaml), yaml);
+    app.setProviderUrlMasking(true);
+    assert.equal(app.els.hideProviderUrlsSetting.checked, true);
+    assert.equal(app.getOutputPreviewText(yaml), maskedYaml);
     const topLevelFlow = 'proxy-providers: {secure: {type: http, url: "https://top.example/sub?token=top-secret"}}\nproxy-groups: []';
     const maskedTopLevelFlow = app.maskProviderUrlsInYaml(topLevelFlow);
     assert.doesNotMatch(maskedTopLevelFlow, /top-secret/);
@@ -1671,7 +1673,7 @@ proxy-groups: []`;
     const maskedMultilineFlow = app.maskProviderUrlsInYaml(multilineFlow);
     assert.doesNotMatch(maskedMultilineFlow, /multi-secret|nested-secret/);
     assert.match(maskedMultilineFlow, /inline: \{type: http, url: "••••"\},/);
-    assert.match(maskedMultilineFlow, /url: "••••",/);
+    assert.match(maskedMultilineFlow, /url: "https:\/\/nested\.example\/••••••",/);
     assert.deepEqual([...app.splitRoutePattern('RU\\|EU|NL|DE|FR')], ['RU\\|EU', 'NL', 'DE', 'FR']);
     assert.equal(app.summarizeRoutePattern('RU\\|EU|NL|DE|FR'), 'RU\\|EU · NL · DE · еще 1');
     assert.equal(app.formatNodeInventoryError('HTTP 404'), 'Список нод недоступен в текущем сервисе MihUI.');

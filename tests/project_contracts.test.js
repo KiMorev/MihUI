@@ -19,6 +19,7 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
     assert.match(html, /id="hideProviderUrlsSetting" type="checkbox"/);
+    assert.match(html, /class="button compact provider-url-reveal-button"[\s\S]+?Показать/);
     assert.match(html, /id="nodeInventoryStatus"/);
     assert.match(html, /id="nodeResetFiltersButton"/);
     assert.match(html, /id="happDecoderApiKey" type="password" autocomplete="off"/);
@@ -141,6 +142,8 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
     const source = read(name);
     assert.match(source, /data-section="xkeen-files"[\s\S]+?Порты и исключения/);
     assert.equal((source.match(/data-xkeen-file="/g) || []).length, 4);
+    assert.match(source, /id="xkeenRestartButton"[\s\S]+?Перезапустить XKeen/);
+    assert.match(source, /id="xkeenFilesRefreshButton"[\s\S]+?Обновить с роутера/);
     assert.match(source, /id="xkeenRestartAfterSave" type="checkbox" checked/);
     assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и применить/);
   }
@@ -148,6 +151,7 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /apiJson\('\/api\/xkeen\/network-files'/);
+    assert.match(source, /startComponentAction\(\{ component: 'xkeen', action: 'restart' \}\)/);
     assert.match(source, /'X-Mihui-Action': 'xkeen-network-files'/);
     assert.match(source, /Порты проксирования имеют приоритет/);
   }
@@ -227,8 +231,9 @@ test('main and standalone expose a lightweight mobile section strip', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /--mobile-section-tabs-height: 40px/);
-    assert.match(source, /\.topbar\.has-mobile-section-tabs\s*{\s*padding-top: 0;/);
-    assert.match(source, /\.topbar\.has-mobile-section-tabs\.has-mobile-section-tabs-overflow-right::after/);
+    assert.match(source, /\.mobile-topbar-meta\s*{[\s\S]+?height: 48px;/);
+    assert.match(source, /\.topbar\.has-mobile-section-tabs \.mobile-topbar-meta\s*{[\s\S]+?top: var\(--mobile-section-tabs-height\);/);
+    assert.match(source, /\.topbar\.has-mobile-section-tabs-overflow-right \.mobile-section-tabs/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-x: auto;/);
     assert.match(source, /\.mobile-section-tab\.is-active\s*{[\s\S]+?border-bottom-color: var\(--accent\);/);
   }
@@ -246,7 +251,7 @@ test('main and standalone expose a lightweight mobile section strip', () => {
 test('main and standalone keep section starts below the sticky topbar', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /stickyTopbarMargin = \(els\.topbar\?\.offsetHeight \|\| 0\) \+ 12/);
+    assert.match(source, /stickyTopbarMargin = getStickyTopbarHeight\(\) \+ 12/);
     assert.match(source, /panel\.style\.scrollMarginTop = `\$\{Math\.max\(configuredMargin, stickyTopbarMargin\)\}px`/);
   }
 });

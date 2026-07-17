@@ -212,6 +212,16 @@ textarea {
   background: #fff;
 }
 
+.service-health-item.is-refreshing .service-health-dot {
+  animation: service-health-refresh 1.1s ease-in-out infinite;
+}
+
+@keyframes service-health-refresh {
+  50% {
+    box-shadow: 0 0 0 4px rgba(0, 139, 145, 0.16);
+  }
+}
+
 .service-health-name {
   display: flex;
   align-items: center;
@@ -256,6 +266,10 @@ textarea {
 
 .service-health-mobile {
   display: none;
+}
+
+.mobile-topbar-meta {
+  display: contents;
 }
 
 .topbar {
@@ -2411,16 +2425,31 @@ body.component-manager-open {
   min-width: 0;
 }
 
+.xkeen-files-status-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
 .xkeen-files-action-copy strong {
   font-size: 13px;
 }
 
-.xkeen-files-action-copy span {
+.xkeen-files-action-copy > span,
+.xkeen-files-status-row > span {
   overflow: hidden;
   color: var(--muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.xkeen-files-refresh-button {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0;
+  font-size: 12px;
 }
 
 .xkeen-restart-option {
@@ -3766,6 +3795,12 @@ body.component-manager-open {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
+}
+
+.provider-url-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 label {
@@ -6433,6 +6468,89 @@ button.review-check-card:focus-visible {
     display: none;
   }
 
+  .topbar {
+    position: static;
+    display: contents;
+  }
+
+  .mobile-topbar-meta {
+    position: sticky;
+    top: 0;
+    z-index: 29;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    min-height: 48px;
+    padding: 4px 2px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 250, 251, 0.98);
+    backdrop-filter: blur(10px);
+  }
+
+  .topbar.has-mobile-section-tabs .mobile-topbar-meta {
+    top: var(--mobile-section-tabs-height);
+  }
+
+  .mobile-topbar-meta .topbar-main {
+    gap: 6px;
+    min-width: 0;
+    height: 40px;
+    overflow: hidden;
+  }
+
+  .mobile-topbar-meta .topbar-file-icon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .mobile-topbar-meta #fileMeta {
+    max-width: 88px;
+    font-size: 12px;
+  }
+
+  .mobile-topbar-meta .topbar-validation {
+    gap: 5px;
+    padding-left: 7px;
+    font-size: 0;
+  }
+
+  .mobile-topbar-meta .topbar-validation::after {
+    content: attr(data-short-label);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .mobile-topbar-meta .service-health-mobile {
+    grid-template-columns: repeat(2, auto);
+    gap: 8px;
+    width: auto;
+    min-height: 40px;
+    padding: 6px 8px;
+  }
+
+  .mobile-topbar-meta .service-health-item {
+    grid-template-columns: 9px auto;
+    gap: 5px;
+  }
+
+  .mobile-topbar-meta .service-health-item + .service-health-item {
+    padding-left: 8px;
+  }
+
+  .mobile-topbar-meta .service-health-status {
+    display: none;
+  }
+
+  .mobile-topbar-meta .service-health-name {
+    font-size: 11px;
+  }
+
+  .topbar > .actions {
+    margin: 8px 0 12px;
+  }
+
   .app-shell {
     width: 100%;
     padding: 0;
@@ -6912,23 +7030,14 @@ button.review-check-card:focus-visible {
     padding-inline: 8px;
   }
 
-  .topbar.has-mobile-section-tabs {
-    padding-top: 0;
-  }
-
-  .topbar.has-mobile-section-tabs.has-mobile-section-tabs-overflow-right::after {
-    content: '';
-    position: absolute;
-    z-index: 2;
-    top: 0;
-    right: 0;
-    width: 24px;
-    height: var(--mobile-section-tabs-height);
-    background: linear-gradient(90deg, rgba(248, 250, 251, 0), rgba(248, 250, 251, 0.98));
-    pointer-events: none;
+  .topbar.has-mobile-section-tabs-overflow-right .mobile-section-tabs {
+    mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
   }
 
   .mobile-section-tabs:not([hidden]) {
+    position: sticky;
+    top: 0;
+    z-index: 30;
     display: flex;
     align-items: stretch;
     gap: 16px;
@@ -6937,6 +7046,8 @@ button.review-check-card:focus-visible {
     min-height: var(--mobile-section-tabs-height);
     margin-top: 0;
     padding: 0 2px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 250, 251, 0.98);
     overflow-x: auto;
     overscroll-behavior-x: contain;
     scrollbar-width: none;
@@ -7140,7 +7251,8 @@ button.review-check-card:focus-visible {
   }
 
   .xkeen-files-page-head .button {
-    width: 100%;
+    align-self: flex-end;
+    width: auto;
   }
 
   .xkeen-files-actions {
@@ -7149,6 +7261,12 @@ button.review-check-card:focus-visible {
 
   .xkeen-files-action-copy {
     grid-column: auto;
+  }
+
+  .xkeen-files-status-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .xkeen-files-actions .button {
