@@ -6916,6 +6916,18 @@ button.review-check-card:focus-visible {
     padding-top: 0;
   }
 
+  .topbar.has-mobile-section-tabs.has-mobile-section-tabs-overflow-right::after {
+    content: '';
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    width: 24px;
+    height: var(--mobile-section-tabs-height);
+    background: linear-gradient(90deg, rgba(248, 250, 251, 0), rgba(248, 250, 251, 0.98));
+    pointer-events: none;
+  }
+
   .mobile-section-tabs:not([hidden]) {
     display: flex;
     align-items: stretch;

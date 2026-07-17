@@ -228,6 +228,7 @@ test('main and standalone expose a lightweight mobile section strip', () => {
     const source = read(name);
     assert.match(source, /--mobile-section-tabs-height: 40px/);
     assert.match(source, /\.topbar\.has-mobile-section-tabs\s*{\s*padding-top: 0;/);
+    assert.match(source, /\.topbar\.has-mobile-section-tabs\.has-mobile-section-tabs-overflow-right::after/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-x: auto;/);
     assert.match(source, /\.mobile-section-tab\.is-active\s*{[\s\S]+?border-bottom-color: var\(--accent\);/);
   }
@@ -235,7 +236,10 @@ test('main and standalone expose a lightweight mobile section strip', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /sidebarBottom <= mobileTabsHeight \+ 1/);
+    assert.match(source, /mobileSectionTabsForced = shouldScroll && Boolean/);
     assert.match(source, /centerActiveMobileSectionTab\(\)/);
+    assert.match(source, /primarySectionTabs\.inert = primaryTabsHidden/);
+    assert.match(source, /has-mobile-section-tabs-overflow-right/);
   }
 });
 

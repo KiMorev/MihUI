@@ -411,6 +411,7 @@ const state = {
 };
 
 let happBrowserDecryptorPromise = null;
+let mobileSectionTabsForced = false;
 
 const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
@@ -458,6 +459,7 @@ const els = {
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
   appSidebar: document.querySelector('.app-sidebar'),
+  primarySectionTabs: document.querySelector('.section-tabs'),
   topbar: document.querySelector('.topbar'),
   mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
@@ -652,6 +654,7 @@ els.sectionTabs.forEach((button) => button.addEventListener('click', () => setAc
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
+els.mobileSectionTabs?.addEventListener('scroll', updateMobileSectionTabsOverflowHint, { passive: true });
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
@@ -718,9 +721,12 @@ function getMobileSectionTabsHeight() {
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
+  const shouldScroll = options.scroll !== false;
+  mobileSectionTabsForced = shouldScroll && Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
   state.activeSection = section;
   renderSectionTabs();
-  if (options.scroll === false) return;
+  updateMobileSectionTabsVisibility();
+  if (!shouldScroll) return;
 
   const panel = document.querySelector(`[data-section-panel="${section}"]`);
   if (!panel?.scrollIntoView) return;
@@ -737,11 +743,37 @@ function updateMobileSectionTabsVisibility() {
   const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
   const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
   const mobileTabsHeight = getMobileSectionTabsHeight();
-  const shouldShow = isMobile && sidebarBottom <= mobileTabsHeight + 1;
+  const sidebarHasLeftViewport = sidebarBottom <= mobileTabsHeight + 1;
+  if (sidebarHasLeftViewport) mobileSectionTabsForced = false;
+  const shouldShow = isMobile && (mobileSectionTabsForced || sidebarHasLeftViewport);
   const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
   els.mobileSectionTabs.hidden = !shouldShow;
+  if (shouldShow && sidebarHasLeftViewport) {
+    els.mobileSectionTabs.removeAttribute('aria-hidden');
+  } else {
+    els.mobileSectionTabs.setAttribute('aria-hidden', 'true');
+  }
+  if (els.primarySectionTabs) {
+    const primaryTabsHidden = isMobile && sidebarHasLeftViewport;
+    els.primarySectionTabs.inert = primaryTabsHidden;
+    if (primaryTabsHidden) {
+      els.primarySectionTabs.setAttribute?.('aria-hidden', 'true');
+    } else {
+      els.primarySectionTabs.removeAttribute?.('aria-hidden');
+    }
+  }
   els.topbar?.classList.toggle('has-mobile-section-tabs', shouldShow);
   if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
+  updateMobileSectionTabsOverflowHint();
+}
+
+function updateMobileSectionTabsOverflowHint() {
+  if (!els.mobileSectionTabs || !els.topbar || els.mobileSectionTabs.hidden) {
+    els.topbar?.classList.remove('has-mobile-section-tabs-overflow-right');
+    return;
+  }
+  const hasOverflowRight = els.mobileSectionTabs.scrollLeft + els.mobileSectionTabs.clientWidth < els.mobileSectionTabs.scrollWidth - 2;
+  els.topbar.classList.toggle('has-mobile-section-tabs-overflow-right', hasOverflowRight);
 }
 
 function centerActiveMobileSectionTab() {
@@ -750,6 +782,7 @@ function centerActiveMobileSectionTab() {
   if (!activeTab) return;
   const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
   els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
+  updateMobileSectionTabsOverflowHint();
 }
 
 function renderSectionTabs() {
