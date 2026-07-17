@@ -114,6 +114,16 @@ textarea {
   gap: 3px;
 }
 
+.app-brand-home {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-brand-home:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .app-main {
   min-width: 0;
   padding: 0 22px 28px;
@@ -7375,7 +7385,7 @@ button.review-check-card:focus-visible {
           <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
           <div class="app-brand-copy">
             <div class="app-brand-title-row">
-              <h1>WebMihomo</h1>
+              <h1><a class="app-brand-home" href="" aria-label="Перейти на стартовую страницу и обновить WebMihomo">WebMihomo</a></h1>
               <div id="uiLinks" class="brand-ui-links" aria-live="polite"></div>
             </div>
             <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
