@@ -341,6 +341,7 @@ const state = {
   routerMode: false,
   routerApiAvailable: false,
   routerConfigPath: '',
+  routerConfigRevision: '',
   routerBusy: false,
   xkeenFiles: {
     loaded: false,
@@ -658,6 +659,7 @@ els.sectionTabs.forEach((button) => button.addEventListener('click', () => setAc
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
+window.addEventListener?.('beforeunload', handleBeforeUnload);
 els.mobileSectionTabs?.addEventListener('scroll', updateMobileSectionTabsOverflowHint, { passive: true });
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
@@ -932,6 +934,7 @@ async function loadRouterConfig(options = {}) {
     state.routerApiAvailable = true;
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
+    state.routerConfigRevision = String(data.revision || '');
     state.fileName = state.routerConfigPath || 'router config';
     state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
@@ -1011,16 +1014,22 @@ async function saveRouterConfig() {
     }
   }
 
+  if (!confirmHighRiskSave()) return;
+
   setRouterBusy(true, 'Сохранение...');
 
   try {
     const data = await apiJson('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: state.outputText }),
+      body: JSON.stringify({
+        text: state.outputText,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     state.routerMode = true;
     state.routerConfigPath = data.path || state.routerConfigPath;
+    state.routerConfigRevision = String(data.revision || state.routerConfigRevision);
     state.fileName = state.routerConfigPath;
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
@@ -1035,9 +1044,21 @@ async function saveRouterConfig() {
     showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
   } catch (error) {
     const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      showMessage('Конфиг на роутере изменился после открытия этой вкладки. Черновик не записан.', {
+        severity: 'warning',
+        actions: [
+          { label: 'Скачать черновик', onClick: downloadYaml },
+          { label: 'Перезагрузить с роутера', onClick: reloadRouterConfig },
+        ],
+      });
+      focusReviewSummary();
+      return;
+    }
     if (result.saved && result.uncertain) {
       state.routerMode = true;
       state.routerConfigPath = result.path || state.routerConfigPath;
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
       state.fileName = state.routerConfigPath;
       state.configLoadedAt = Date.now();
       state.originalText = state.outputText;
@@ -1054,6 +1075,7 @@ async function saveRouterConfig() {
       return;
     }
     if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
       await loadBackups();
       showMessage('Mihomo не применил конфиг. Предыдущая версия восстановлена, локальные изменения оставлены для повторной попытки.', {
         severity: 'warning',
@@ -1080,7 +1102,10 @@ async function restoreSelectedBackup() {
     const data = await apiJson('/api/backups/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     await loadRouterConfig({ silent: true });
     els.backupHistoryDialog.close();
@@ -1088,6 +1113,26 @@ async function restoreSelectedBackup() {
       severity: data.reload?.ok ? 'success' : 'warning',
     });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      setBackupHistoryStatus('Конфиг на роутере изменился. Закройте историю и перезагрузите конфиг с роутера.', 'error');
+      return;
+    }
+    if (result.restored && result.uncertain) {
+      await loadRouterConfig({ silent: true });
+      els.backupHistoryDialog.close();
+      showMessage('Версия записана, но Mihomo не подтвердил применение.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      await loadBackups();
+      setBackupHistoryStatus('Mihomo не применил версию. Текущий конфиг восстановлен.', 'error');
+      return;
+    }
     setBackupHistoryStatus(`Не удалось восстановить версию: ${error?.message || error}`, 'error');
   } finally {
     setRouterBusy(false, 'Перезагрузить с роутера');
@@ -1372,6 +1417,53 @@ function getRouterSaveState() {
 
 function hasUnsavedRouterChanges() {
   return Boolean(state.outputText && state.originalText && state.outputText !== state.originalText);
+}
+
+function hasUnsavedWorkspaceChanges() {
+  const rawDraftChanged = state.isEditingConfiguration
+    && String(els.outputPreview?.value || '') !== String(state.outputText || '');
+  return hasUnsavedRouterChanges() || rawDraftChanged;
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedWorkspaceChanges()) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+function getHighRiskSaveSummaries() {
+  const summaries = [];
+  const deletedProviders = state.providers.filter((provider) => provider.deleted).map((provider) => provider.name);
+  if (deletedProviders.length > 0) {
+    summaries.push(`Удаляются подписки: ${deletedProviders.join(', ')}.`);
+  }
+
+  const ruleChanges = collectRuleChanges();
+  if (ruleChanges.length > 0) {
+    summaries.push(`Изменены правила маршрутизации (${ruleChanges.length}).`);
+  }
+
+  const originalMain = state.originalGroups.find((group) => normalizeLookupName(group.name) === 'proxy');
+  const currentMain = state.groups.find((group) => normalizeLookupName(group.originalName || group.name) === 'proxy');
+  if (originalMain && (!currentMain || !groupSnapshotsAreEqual(snapshotGroup(currentMain), originalMain))) {
+    summaries.push('Изменена основная группа PROXY.');
+  }
+
+  return summaries;
+}
+
+function groupSnapshotsAreEqual(left, right) {
+  return left.name === right.name
+    && left.type === right.type
+    && left.proxies.join('\n') === right.proxies.join('\n')
+    && left.use.join('\n') === right.use.join('\n');
+}
+
+function confirmHighRiskSave() {
+  const summaries = getHighRiskSaveSummaries();
+  if (summaries.length === 0) return true;
+  const details = summaries.map((summary) => `• ${summary}`).join('\n');
+  return window.confirm(`Применить рискованные изменения?\n\n${details}\n\nMihomo проверит YAML, но не может проверить намерение пользователя.`);
 }
 
 function isCurrentConfigKernelChecked() {
@@ -6325,6 +6417,9 @@ function addRule() {
 }
 
 function removeRule(rule) {
+  const confirmed = window.confirm(`Удалить правило ${formatRuleSummary(rule)}? Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'rule',
     rule,
@@ -8155,6 +8250,11 @@ function replaceProviderUse(previousName, nextName) {
 }
 
 function removeProvider(provider) {
+  const usedBy = state.groups.filter((group) => group.use.includes(provider.name)).map((group) => group.name);
+  const usageDetail = usedBy.length > 0 ? ` Она будет отключена от групп: ${usedBy.join(', ')}.` : '';
+  const confirmed = window.confirm(`Удалить подписку ${provider.name}?${usageDetail} Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'provider',
     provider,

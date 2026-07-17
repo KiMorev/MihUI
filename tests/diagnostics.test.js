@@ -64,7 +64,7 @@ function readSource(source) {
   return scripts[0][1];
 }
 
-function loadApp(source, initialStorage = {}) {
+function loadApp(source, initialStorage = {}, options = {}) {
   const storage = new Map(Object.entries(initialStorage));
   const runTimer = (callback) => {
     callback();
@@ -89,7 +89,7 @@ function loadApp(source, initialStorage = {}) {
     },
     setTimeout: runTimer,
     window: {
-      confirm: () => true,
+      confirm: options.confirm || (() => true),
       localStorage: {
         getItem: (key) => storage.get(key) ?? null,
         removeItem: (key) => storage.delete(key),
@@ -129,6 +129,10 @@ globalThis.__app = {
   getOutputPreviewText,
   getRouterSaveState,
   getReviewPrimaryActionState,
+  getHighRiskSaveSummaries,
+  confirmHighRiskSave,
+  hasUnsavedWorkspaceChanges,
+  handleBeforeUnload,
   shouldShowRecommendations,
   maskProviderUrlsInYaml,
   maskSensitiveUrl,
@@ -1767,5 +1771,97 @@ rules:
 
     assert.equal(provider.deleted, false);
     assert.deepEqual([...app.state.groups[0].use], ['one', 'two', 'later-change']);
+  });
+
+  test(`${source.name}: warns before leaving with generated or raw draft changes`, () => {
+    const app = loadApp(source);
+    const yaml = `proxy-groups:\n  - name: Proxy\n    type: select\n    proxies:\n      - DIRECT\nrules:\n  - MATCH,Proxy\n`;
+    hydrate(app, yaml);
+    app.state.outputText = yaml;
+
+    let prevented = false;
+    const unchangedEvent = {
+      preventDefault() { prevented = true; },
+      returnValue: null,
+    };
+    app.handleBeforeUnload(unchangedEvent);
+    assert.equal(prevented, false);
+
+    app.state.outputText = `${yaml}# draft\n`;
+    const changedEvent = {
+      preventDefault() { prevented = true; },
+      returnValue: null,
+    };
+    app.handleBeforeUnload(changedEvent);
+    assert.equal(prevented, true);
+    assert.equal(changedEvent.returnValue, '');
+
+    app.state.outputText = yaml;
+    app.state.isEditingConfiguration = true;
+    app.els.outputPreview.value = `${yaml}# raw draft\n`;
+    assert.equal(app.hasUnsavedWorkspaceChanges(), true);
+  });
+
+  test(`${source.name}: confirms only high-risk save changes`, () => {
+    let confirmation = '';
+    const app = loadApp(source, {}, {
+      confirm: (message) => {
+        confirmation = message;
+        return false;
+      },
+    });
+    hydrate(app, `
+proxy-providers:
+  one:
+    type: http
+    url: https://one.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+    use:
+      - one
+rules:
+  - MATCH,Proxy
+`);
+
+    assert.deepEqual([...app.getHighRiskSaveSummaries()], []);
+    app.state.providers[0].deleted = true;
+    app.state.groups[0].proxies.push('REJECT');
+    app.state.rules[0].target = 'DIRECT';
+
+    const summaries = [...app.getHighRiskSaveSummaries()];
+    assert.equal(summaries.length, 3);
+    assert.equal(app.confirmHighRiskSave(), false);
+    assert.match(confirmation, /Удаляются подписки: one/);
+    assert.match(confirmation, /правила маршрутизации/);
+    assert.match(confirmation, /группа PROXY/);
+  });
+
+  test(`${source.name}: canceled provider and rule deletion leaves the draft unchanged`, () => {
+    const app = loadApp(source, {}, { confirm: () => false });
+    hydrate(app, `
+proxy-providers:
+  one:
+    type: http
+    url: https://one.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - one
+rules:
+  - MATCH,Proxy
+`);
+    const provider = app.state.providers[0];
+    const rule = app.state.rules[0];
+
+    app.removeProvider(provider);
+    app.removeRule(rule);
+
+    assert.equal(provider.deleted, false);
+    assert.equal(rule.deleted, false);
+    assert.deepEqual([...app.state.groups[0].use], ['one']);
   });
 }

@@ -1151,6 +1151,27 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
             self.assertFalse((app_dir / "backups").exists())
 
+    def test_save_checked_config_rejects_stale_revision_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                result = mihui_server.save_checked_config(
+                    app_dir,
+                    "updated\n",
+                    expected_revision=mihui_server.config_revision("older\n"),
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            self.assertFalse((app_dir / "backups").exists())
+            check.assert_not_called()
+
     def test_mihomo_config_check_uses_writable_home_directory(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
@@ -1318,6 +1339,36 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
 
+    def test_config_endpoint_returns_revision_and_rejects_stale_save(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, loaded = self.get_json(server, "/api/config")
+                with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                    save_status, result = self.post_json(
+                        server,
+                        "/api/config/save",
+                        {
+                            "text": "updated\n",
+                            "expectedRevision": mihui_server.config_revision("older\n"),
+                        },
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+            self.assertEqual(status, 200)
+            self.assertEqual(loaded["revision"], mihui_server.config_revision("current\n"))
+            self.assertEqual(save_status, 409)
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            check.assert_not_called()
+
     def test_backup_restore_rejects_invalid_backup_without_writing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
@@ -1346,6 +1397,83 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(status, 422)
             self.assertFalse(result["ok"])
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+
+    def test_restore_checked_backup_rolls_back_after_confirmed_reload_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            backup_dir = app_dir / "backups"
+            backup_dir.mkdir()
+            selected_backup = backup_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\nMIHUI_BACKUP_DIR="{backup_dir}"\n',
+                encoding="utf-8",
+            )
+            reloads = [
+                {"ok": False, "uncertain": False, "stage": "apply", "message": "rejected"},
+                {"ok": True, "verified": True},
+            ]
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(mihui_server, "reload_mihomo", side_effect=reloads) as reload_mihomo:
+                result = mihui_server.restore_checked_backup(app_dir, selected_backup)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rolledBack"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            self.assertEqual(result["revision"], mihui_server.config_revision("current\n"))
+            self.assertEqual(reload_mihomo.call_count, 2)
+
+    def test_restore_checked_backup_rejects_stale_revision_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            selected_backup = app_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                result = mihui_server.restore_checked_backup(
+                    app_dir,
+                    selected_backup,
+                    expected_revision=mihui_server.config_revision("older\n"),
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            check.assert_not_called()
+
+    def test_restore_checked_backup_keeps_file_when_reload_is_uncertain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            backup_dir = app_dir / "backups"
+            backup_dir.mkdir()
+            selected_backup = backup_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\nMIHUI_BACKUP_DIR="{backup_dir}"\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(
+                mihui_server,
+                "reload_mihomo",
+                return_value={"ok": False, "uncertain": True, "stage": "verify", "message": "timeout"},
+            ):
+                result = mihui_server.restore_checked_backup(app_dir, selected_backup)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["restored"])
+            self.assertTrue(result["uncertain"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "restored\n")
 
     def test_is_loopback_address(self):
         self.assertTrue(mihui_server.is_loopback_address("127.0.0.1"))

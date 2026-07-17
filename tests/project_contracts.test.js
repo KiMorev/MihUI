@@ -206,6 +206,19 @@ test('main and standalone require an explicit backup selection before restore', 
   }
 });
 
+test('main and standalone guard destructive and stale config changes', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /addEventListener\?\.\('beforeunload', handleBeforeUnload\)/);
+    assert.match(source, /expectedRevision: state\.routerConfigRevision \|\| undefined/);
+    assert.match(source, /result\.stage === 'conflict'/);
+    assert.match(source, /Применить рискованные изменения\?/);
+    assert.match(source, /Удалить подписку \$\{provider\.name\}\?/);
+    assert.match(source, /Удалить правило \$\{formatRuleSummary\(rule\)\}\?/);
+    assert.match(source, /Mihomo не применил версию\. Текущий конфиг восстановлен/);
+  }
+});
+
 test('main and standalone styles expose mobile flow actions and touch targets', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);

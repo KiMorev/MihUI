@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import hashlib
 import html
 import io
 import ipaddress
@@ -88,6 +89,7 @@ HAPP_DECRYPTOR_TEMPLATE_TOKENS = (
 
 
 update_lock = threading.Lock()
+config_write_lock = threading.Lock()
 update_state = {
     "running": False,
     "ok": None,
@@ -221,18 +223,30 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         text = config_path.read_text(encoding="utf-8", errors="replace")
-        self.send_json(HTTPStatus.OK, {"ok": True, "path": str(config_path), "text": text})
+        self.send_json(
+            HTTPStatus.OK,
+            {"ok": True, "path": str(config_path), "text": text, "revision": config_revision(text)},
+        )
 
     def handle_config_save(self):
         payload = self.read_json_body()
         text = payload.get("text")
+        expected_revision = payload.get("expectedRevision")
         if not isinstance(text, str):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
             return
+        if expected_revision is not None and not isinstance(expected_revision, str):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            return
 
-        result = save_checked_config(self.app_dir, text)
+        result = save_checked_config(self.app_dir, text, expected_revision=expected_revision)
         if not result["ok"]:
-            status = HTTPStatus.UNPROCESSABLE_ENTITY if result.get("stage") == "check" else HTTPStatus.BAD_GATEWAY
+            if result.get("stage") == "conflict":
+                status = HTTPStatus.CONFLICT
+            elif result.get("stage") == "check":
+                status = HTTPStatus.UNPROCESSABLE_ENTITY
+            else:
+                status = HTTPStatus.BAD_GATEWAY
             self.send_json(status, result)
             return
 
@@ -247,34 +261,25 @@ class MihuiHandler(SimpleHTTPRequestHandler):
     def handle_backup_restore(self):
         payload = self.read_json_body()
         name = str(payload.get("name") or "")
+        expected_revision = payload.get("expectedRevision")
+        if expected_revision is not None and not isinstance(expected_revision, str):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            return
         backup = backup_path_by_name(self.app_dir, name)
         if not backup:
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "backup not found"})
             return
 
-        config_path = get_config_path(self.app_dir)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        check = check_mihomo_config(self.app_dir, backup.read_text(encoding="utf-8", errors="replace"))
-        if not check["ok"]:
-            self.send_json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "message": check.get("message", "backup config check failed"), "check": check},
-            )
-            return
-        current_backup = create_backup(self.app_dir, config_path)
-        shutil.copyfile(str(backup), str(config_path))
-        prune_backups(self.app_dir)
-        reload_result = reload_mihomo(self.app_dir, config_path)
-        self.send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "path": str(config_path),
-                "restored": backup.name,
-                "backup": current_backup.name if current_backup else None,
-                "reload": reload_result,
-            },
-        )
+        result = restore_checked_backup(self.app_dir, backup, expected_revision=expected_revision)
+        if result["ok"]:
+            status = HTTPStatus.OK
+        elif result.get("stage") == "conflict":
+            status = HTTPStatus.CONFLICT
+        elif result.get("stage") == "check":
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_GATEWAY
+        self.send_json(status, result)
 
     def handle_router_uis_get(self):
         self.send_json(HTTPStatus.OK, {"ok": True, "items": detect_router_uis(self.app_dir, self.headers.get("Host", ""))})
@@ -669,6 +674,16 @@ def get_config_path(app_dir):
     return Path(get_env(app_dir).get("MIHUI_CONFIG_PATH", DEFAULT_CONFIG_PATH))
 
 
+def config_revision(text):
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def read_config_text(config_path):
+    if not config_path.is_file():
+        return ""
+    return config_path.read_text(encoding="utf-8", errors="replace")
+
+
 def get_backup_dir(app_dir):
     return Path(get_env(app_dir).get("MIHUI_BACKUP_DIR", str(app_dir / "backups")))
 
@@ -1056,66 +1071,168 @@ def save_xkeen_network_files(app_dir, changes, restart=True):
     }
 
 
-def save_checked_config(app_dir, text):
-    check = check_mihomo_config(app_dir, text)
-    if not check["ok"]:
-        return {
-            "ok": False,
-            "stage": "check",
-            "message": check.get("message", "config check failed"),
-            "check": check,
-        }
+def save_checked_config(app_dir, text, expected_revision=None):
+    with config_write_lock:
+        config_path = get_config_path(app_dir)
+        current_revision = config_revision(read_config_text(config_path))
+        if expected_revision is not None and expected_revision != current_revision:
+            return {
+                "ok": False,
+                "saved": False,
+                "stage": "conflict",
+                "path": str(config_path),
+                "currentRevision": current_revision,
+                "message": "config changed on disk after it was loaded",
+            }
 
-    config_path = get_config_path(app_dir)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    backup = create_backup(app_dir, config_path)
-    write_text_atomic(config_path, text)
-    reload_result = reload_mihomo(app_dir, config_path)
-    if reload_result["ok"]:
+        check = check_mihomo_config(app_dir, text)
+        if not check["ok"]:
+            return {
+                "ok": False,
+                "stage": "check",
+                "message": check.get("message", "config check failed"),
+                "check": check,
+            }
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        backup = create_backup(app_dir, config_path)
+        write_text_atomic(config_path, text)
+        next_revision = config_revision(text)
+        reload_result = reload_mihomo(app_dir, config_path)
+        if reload_result["ok"]:
+            prune_backups(app_dir)
+            return {
+                "ok": True,
+                "saved": True,
+                "applied": True,
+                "path": str(config_path),
+                "revision": next_revision,
+                "backup": backup.name if backup else None,
+                "check": check,
+                "reload": reload_result,
+            }
+
+        if reload_result.get("uncertain"):
+            prune_backups(app_dir)
+            return {
+                "ok": False,
+                "saved": True,
+                "applied": False,
+                "uncertain": True,
+                "path": str(config_path),
+                "revision": next_revision,
+                "backup": backup.name if backup else None,
+                "check": check,
+                "reload": reload_result,
+                "message": "config saved, but Mihomo apply status could not be confirmed",
+            }
+
+        rollback = restore_config_backup(config_path, backup)
+        rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and backup else None
+        restored_revision = config_revision(read_config_text(config_path))
         prune_backups(app_dir)
         return {
-            "ok": True,
-            "saved": True,
-            "applied": True,
-            "path": str(config_path),
-            "backup": backup.name if backup else None,
-            "check": check,
-            "reload": reload_result,
-        }
-
-    if reload_result.get("uncertain"):
-        prune_backups(app_dir)
-        return {
             "ok": False,
-            "saved": True,
+            "saved": False,
             "applied": False,
-            "uncertain": True,
+            "rolledBack": rollback["ok"],
             "path": str(config_path),
+            "revision": restored_revision,
             "backup": backup.name if backup else None,
             "check": check,
             "reload": reload_result,
-            "message": "config saved, but Mihomo apply status could not be confirmed",
+            "rollback": {**rollback, "reload": rollback_reload},
+            "message": (
+                "Mihomo did not apply the config; previous config restored"
+                if rollback["ok"]
+                else "Mihomo did not apply the config and rollback failed"
+            ),
         }
 
-    rollback = restore_config_backup(config_path, backup)
-    rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and backup else None
-    prune_backups(app_dir)
-    return {
-        "ok": False,
-        "saved": False,
-        "applied": False,
-        "rolledBack": rollback["ok"],
-        "path": str(config_path),
-        "backup": backup.name if backup else None,
-        "check": check,
-        "reload": reload_result,
-        "rollback": {**rollback, "reload": rollback_reload},
-        "message": (
-            "Mihomo did not apply the config; previous config restored"
-            if rollback["ok"]
-            else "Mihomo did not apply the config and rollback failed"
-        ),
-    }
+
+def restore_checked_backup(app_dir, backup, expected_revision=None):
+    with config_write_lock:
+        config_path = get_config_path(app_dir)
+        current_revision = config_revision(read_config_text(config_path))
+        if expected_revision is not None and expected_revision != current_revision:
+            return {
+                "ok": False,
+                "restored": False,
+                "stage": "conflict",
+                "path": str(config_path),
+                "currentRevision": current_revision,
+                "message": "config changed on disk after it was loaded",
+            }
+
+        backup_text = backup.read_text(encoding="utf-8", errors="replace")
+        check = check_mihomo_config(app_dir, backup_text)
+        if not check["ok"]:
+            return {
+                "ok": False,
+                "restored": False,
+                "stage": "check",
+                "message": check.get("message", "backup config check failed"),
+                "check": check,
+            }
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        current_backup = create_backup(app_dir, config_path)
+        write_text_atomic(config_path, backup_text)
+        restored_revision = config_revision(backup_text)
+        reload_result = reload_mihomo(app_dir, config_path)
+        if reload_result["ok"]:
+            prune_backups(app_dir)
+            return {
+                "ok": True,
+                "restored": True,
+                "applied": True,
+                "path": str(config_path),
+                "revision": restored_revision,
+                "restoredBackup": backup.name,
+                "backup": current_backup.name if current_backup else None,
+                "check": check,
+                "reload": reload_result,
+            }
+
+        if reload_result.get("uncertain"):
+            prune_backups(app_dir)
+            return {
+                "ok": False,
+                "restored": True,
+                "applied": False,
+                "uncertain": True,
+                "path": str(config_path),
+                "revision": restored_revision,
+                "restoredBackup": backup.name,
+                "backup": current_backup.name if current_backup else None,
+                "check": check,
+                "reload": reload_result,
+                "message": "backup restored, but Mihomo apply status could not be confirmed",
+            }
+
+        rollback = restore_config_backup(config_path, current_backup)
+        rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and current_backup else None
+        rollback_revision = config_revision(read_config_text(config_path))
+        prune_backups(app_dir)
+        return {
+            "ok": False,
+            "restored": False,
+            "applied": False,
+            "rolledBack": rollback["ok"],
+            "stage": "apply",
+            "path": str(config_path),
+            "revision": rollback_revision,
+            "restoredBackup": backup.name,
+            "backup": current_backup.name if current_backup else None,
+            "check": check,
+            "reload": reload_result,
+            "rollback": {**rollback, "reload": rollback_reload},
+            "message": (
+                "Mihomo did not apply the backup; previous config restored"
+                if rollback["ok"]
+                else "Mihomo did not apply the backup and rollback failed"
+            ),
+        }
 
 
 def restore_config_backup(config_path, backup):
