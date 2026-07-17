@@ -1151,6 +1151,36 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
             self.assertFalse((app_dir / "backups").exists())
 
+    def test_mihomo_config_check_uses_writable_home_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{app_dir / "config.yaml"}"\n', encoding="utf-8"
+            )
+            completed = mihui_server.subprocess.CompletedProcess([], 0, stdout=b"")
+            with mock.patch.object(
+                mihui_server, "find_mihomo_binary", return_value="/opt/sbin/mihomo"
+            ), mock.patch.object(
+                mihui_server.subprocess, "run", return_value=completed
+            ) as run:
+                result = mihui_server.check_mihomo_config(app_dir, "mixed-port: 7890\n")
+
+        self.assertTrue(result["ok"])
+        run.assert_called_once_with(
+            [
+                "/opt/sbin/mihomo",
+                "-t",
+                "-d",
+                str(app_dir),
+                "-f",
+                mock.ANY,
+            ],
+            stdout=mihui_server.subprocess.PIPE,
+            stderr=mihui_server.subprocess.STDOUT,
+            timeout=45,
+            check=False,
+        )
+
     def test_save_checked_config_writes_when_check_is_unavailable(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

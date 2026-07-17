@@ -1589,7 +1589,17 @@ proxy-providers:
     app.state.lastConfigCheckText = app.state.outputText;
     app.state.lastConfigCheckOk = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить и применить', tone: 'primary' });
-    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить повторно' });
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, {
+      disabled: false,
+      label: 'Проверка пройдена · Проверить повторно',
+      tone: 'success',
+    });
+    app.state.lastConfigCheckOk = false;
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, {
+      disabled: false,
+      label: 'Проверка не пройдена · Проверить повторно',
+      tone: 'danger',
+    });
     app.state.hasGroupsSection = false;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Исправить ошибки', tone: 'danger' });
     app.renderConfigurationEditorControls();

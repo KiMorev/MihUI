@@ -1293,17 +1293,21 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) return { disabled: false, label: 'Проверить повторно' };
-  return {
-    disabled: false,
-    label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
-  };
+  if (isCurrentConfigKernelChecked()) {
+    return { disabled: false, label: 'Проверка пройдена · Проверить повторно', tone: 'success' };
+  }
+  if (state.lastConfigCheckText === state.outputText) {
+    return { disabled: false, label: 'Проверка не пройдена · Проверить повторно', tone: 'danger' };
+  }
+  return { disabled: false, label: 'Проверить YAML в Mihomo' };
 }
 
 function renderReviewPrimaryActionButton() {
   const action = getReviewPrimaryActionState();
   els.checkConfigButton.disabled = action.disabled;
   els.checkConfigButton.title = action.label;
+  els.checkConfigButton.classList.toggle('is-ok', action.tone === 'success');
+  els.checkConfigButton.classList.toggle('danger', action.tone === 'danger');
   const label = els.checkConfigButton.querySelector('.button-label');
   if (label) label.textContent = action.label;
 }

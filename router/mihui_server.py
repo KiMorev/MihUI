@@ -1072,7 +1072,7 @@ def check_mihomo_config(app_dir, text):
     try:
         tmp_path = write_temp_config_for_check(app_dir, text)
         result = subprocess.run(
-            [binary, "-t", "-f", str(tmp_path)],
+            [binary, "-t", "-d", str(tmp_path.parent), "-f", str(tmp_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=45,

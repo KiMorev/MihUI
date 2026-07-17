@@ -5813,6 +5813,17 @@ button.review-check-card:focus-visible {
   width: 100%;
 }
 
+.review-repeat-button.is-ok {
+  border-color: #8bcbb3;
+  background: #edf8f3;
+  color: var(--success);
+}
+
+.review-repeat-button.is-ok:hover {
+  border-color: var(--success);
+  background: #e2f4ec;
+}
+
 .changes-panel {
   margin: 0;
   border: 0;
