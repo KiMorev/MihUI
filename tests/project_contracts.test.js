@@ -102,6 +102,7 @@ test('main and standalone expose component update markers and one manager flow',
     const source = read(name);
     assert.match(source, /title: 'Доступны обновления компонентов'/);
     assert.match(source, /element\.textContent = `Обновления · \$\{updateCount\}`/);
+    assert.match(source, /updateMarker\.hidden = !state\.components\.items\[serviceName\]\?\.updateAvailable/);
     assert.match(source, /apiJson\('\/api\/components\/action'/);
     assert.match(source, /'X-Mihui-Action': 'components'/);
     assert.match(source, /action: 'channel'/);
@@ -118,10 +119,17 @@ test('main and standalone expose component update markers and one manager flow',
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.service-health-head \.service-update-badge/);
+    assert.match(source, /\.service-update-marker\s*{[\s\S]+?background: #fff1c7;[\s\S]+?color: #946200;/);
     assert.match(source, /\.component-manager-dialog::backdrop/);
     assert.match(source, /\.component-manager-state\.is-update/);
     assert.match(source, /body\.component-manager-open\s*{/);
     assert.match(source, /\.component-advanced\[open\]\s*{/);
+  }
+
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.equal((source.match(/data-service-update-marker hidden/g) || []).length, 4);
+    assert.doesNotMatch(source, /service-update-mobile-badge/);
   }
 });
 
@@ -202,6 +210,21 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.download-warning,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.check-cell input\s*{[\s\S]+?width: 44px;/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?#routerSaveButton\s*{\s*display: none;/);
+  }
+});
+
+test('main and standalone keep section starts below the sticky topbar', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /stickyTopbarMargin = \(els\.topbar\?\.offsetHeight \|\| 0\) \+ 12/);
+    assert.match(source, /panel\.style\.scrollMarginTop = `\$\{Math\.max\(configuredMargin, stickyTopbarMargin\)\}px`/);
+  }
+});
+
+test('main and standalone visually separate the mobile menu from content', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.app-sidebar\s*{[\s\S]+?border-bottom-color: var\(--line-strong\);[\s\S]+?box-shadow:/);
   }
 });
 

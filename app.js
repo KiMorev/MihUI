@@ -456,12 +456,12 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  topbar: document.querySelector('.topbar'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
-  serviceUpdateMobileBadges: document.querySelectorAll('[data-service-update-mobile-badge]'),
   componentManagerDialog: document.querySelector('#componentManagerDialog'),
   componentManagerTitle: document.querySelector('#componentManagerTitle'),
   componentManagerDescription: document.querySelector('#componentManagerDescription'),
@@ -711,7 +711,14 @@ function setActiveSection(section, options = {}) {
   renderSectionTabs();
   if (options.scroll === false) return;
 
-  document.querySelector(`[data-section-panel="${section}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  const panel = document.querySelector(`[data-section-panel="${section}"]`);
+  if (!panel?.scrollIntoView) return;
+
+  panel.style.removeProperty('scroll-margin-top');
+  const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
+  const stickyTopbarMargin = (els.topbar?.offsetHeight || 0) + 12;
+  panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderSectionTabs() {
@@ -1730,6 +1737,8 @@ function renderServiceHealth() {
     item.classList.add(loading || componentBusy ? 'is-loading' : `is-${service.state}`);
     const status = item.querySelector('.service-health-status');
     if (status) status.textContent = componentBusy ? 'Обновление...' : formatServiceStatusLabel(service, loading);
+    const updateMarker = item.querySelector('[data-service-update-marker]');
+    if (updateMarker) updateMarker.hidden = !state.components.items[serviceName]?.updateAvailable;
     const details = [service.message, service.detail].filter(Boolean).join(' · ');
     item.title = details;
   });
@@ -1747,10 +1756,6 @@ function renderServiceHealth() {
   els.serviceUpdateBadges.forEach((element) => {
     element.hidden = updateCount === 0;
     element.textContent = `Обновления · ${updateCount}`;
-  });
-  els.serviceUpdateMobileBadges.forEach((element) => {
-    element.hidden = updateCount === 0;
-    element.textContent = String(updateCount);
   });
   els.componentOpenButtons.forEach((button) => {
     button.setAttribute('aria-busy', String(loading || state.components.loading));

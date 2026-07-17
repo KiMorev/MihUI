@@ -212,9 +212,30 @@ textarea {
 }
 
 .service-health-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   font-size: 12px;
   font-weight: 700;
+}
+
+.service-update-marker {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff1c7;
+  color: #946200;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.service-update-marker[hidden] {
+  display: none;
 }
 
 .service-health-status {
@@ -233,24 +254,7 @@ textarea {
 }
 
 .service-health-mobile {
-  position: relative;
   display: none;
-}
-
-.service-update-mobile-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  padding: 2px 5px;
-  border: 2px solid var(--panel);
-  border-radius: 999px;
-  background: #c78300;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
 }
 
 .topbar {
@@ -6434,6 +6438,8 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
     gap: 10px;
     padding: 12px 10px 10px;
+    border-bottom-color: var(--line-strong);
+    box-shadow: 0 6px 14px rgba(24, 34, 52, 0.08);
   }
 
   .app-main {
