@@ -1975,7 +1975,7 @@ function renderComponentManager() {
   els.componentManagerTitle.textContent = maintenanceView ? 'Сервисные действия' : 'Сервисы и версии';
   els.componentManagerDescription.textContent = maintenanceView
     ? 'Перезапуск компонентов и ручное обновление геоданных.'
-    : 'Проверка и установка обновлений основных компонентов.';
+    : 'Проверка и обновление компонентов.';
   els.componentUpdatesViews.forEach((element) => { element.hidden = maintenanceView; });
   els.componentMaintenance.hidden = !maintenanceView;
   els.openComponentMaintenanceButton.hidden = maintenanceView;
@@ -1984,15 +1984,15 @@ function renderComponentManager() {
   els.openComponentMaintenanceButton.disabled = busy;
 
   if (state.components.loading) {
-    els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
+    els.componentManagerNotice.textContent = 'Проверяем версии...';
   } else if (!state.components.loaded) {
     els.componentManagerNotice.textContent = 'Проверка версий доступна в MihUI на роутере.';
   } else if (updateCount > 0) {
-    els.componentManagerNotice.textContent = `Доступно ${formatRouteCount(updateCount, 'обновление', 'обновления', 'обновлений')}. Работающие сервисы останутся отмечены зелёным.`;
+    els.componentManagerNotice.textContent = `Доступно обновлений: ${updateCount}.`;
   } else if (errors > 0) {
     els.componentManagerNotice.textContent = 'Установленные версии получены, но GitHub не ответил на проверку обновлений.';
   } else {
-    els.componentManagerNotice.textContent = 'Установлены актуальные версии компонентов.';
+    els.componentManagerNotice.textContent = 'Установлены актуальные версии.';
   }
 
   els.componentCards.forEach((card) => {

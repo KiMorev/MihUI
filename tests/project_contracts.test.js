@@ -53,9 +53,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
-    assert.equal((html.match(/<summary>Дополнительные параметры<\/summary>/g) || []).length, 2);
+    assert.equal((html.match(/<summary>Параметры<\/summary>/g) || []).length, 2);
     assert.match(html, /id="componentMaintenance"[^>]+hidden/);
-    assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Сервисные действия…<\/button>/);
+    assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Обслуживание<\/button>/);
     assert.doesNotMatch(html, /4 действия|Проверить версии|Проверить обновление/);
     assert.match(html, /id="mihomoVersionSelect"/);
     assert.match(html, /id="overviewConfigSource"/);
@@ -124,6 +124,9 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /\.component-manager-state\.is-update/);
     assert.match(source, /body\.component-manager-open\s*{/);
     assert.match(source, /\.component-advanced\[open\]\s*{/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?max-height: calc\(100dvh - 16px\);/);
+    assert.match(source, /\.component-manager-item:not\(\.is-update-available\) \[data-component-update\][\s\S]+?display: none;/);
+    assert.match(source, /@media \(max-width: 560px\) and \(max-height: 600px\)/);
   }
 
   for (const name of ['index.html', 'mihomo-editor.html']) {
@@ -218,11 +221,13 @@ test('main and standalone expose a lightweight mobile section strip', () => {
     const source = read(name);
     assert.match(source, /id="mobileSectionTabs"[^>]+hidden/);
     assert.equal((source.match(/class="mobile-section-tab(?: is-active)?"/g) || []).length, 7);
+    assert.ok(source.indexOf('id="mobileSectionTabs"') < source.indexOf('class="topbar-main"'));
   }
 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /--mobile-section-tabs-height: 40px/);
+    assert.match(source, /\.topbar\.has-mobile-section-tabs\s*{\s*padding-top: 0;/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-x: auto;/);
     assert.match(source, /\.mobile-section-tab\.is-active\s*{[\s\S]+?border-bottom-color: var\(--accent\);/);
   }

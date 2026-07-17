@@ -6590,6 +6590,119 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
+
+  .component-manager-dialog,
+  .component-manager-surface {
+    max-height: calc(100dvh - 16px);
+  }
+
+  .component-manager-dialog {
+    width: calc(100vw - 16px);
+  }
+
+  .component-manager-head {
+    align-items: center;
+    padding: 10px 12px;
+  }
+
+  .component-manager-head > div {
+    gap: 2px;
+  }
+
+  .component-manager-head h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .component-manager-head p {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .component-manager-body {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .component-manager-notice {
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .component-manager-list {
+    gap: 8px;
+  }
+
+  .component-manager-item {
+    gap: 8px;
+    padding: 10px 11px;
+  }
+
+  .component-version-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .component-version-grid > div {
+    gap: 2px;
+    padding: 6px 8px;
+  }
+
+  .component-version-grid dt {
+    font-size: 10px;
+  }
+
+  .component-version-grid dd {
+    font-size: 12px;
+  }
+
+  .component-manager-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .component-manager-actions,
+  .component-advanced,
+  .component-advanced > summary {
+    width: auto;
+  }
+
+  .component-manager-actions > .button {
+    width: 100%;
+  }
+
+  .component-advanced > summary {
+    min-height: 44px;
+    padding: 9px 10px;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-version-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-version-grid > div:last-child,
+  .component-manager-item:not(.is-update-available) [data-component-update] {
+    display: none;
+  }
+
+  .component-manager-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    align-items: end;
+    gap: 8px;
+    padding: 8px 12px 12px;
+  }
+
+  .component-update-footer {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: end;
+    gap: 4px;
+  }
+
+  .component-update-footer span {
+    text-align: right;
+  }
   .overview-flow-steps {
     grid-template-columns: 1fr;
   }
@@ -6808,7 +6921,7 @@ button.review-check-card:focus-visible {
   }
 
   .topbar.has-mobile-section-tabs {
-    padding-bottom: 0;
+    padding-top: 0;
   }
 
   .mobile-section-tabs:not([hidden]) {
@@ -6818,7 +6931,7 @@ button.review-check-card:focus-visible {
     width: 100%;
     height: var(--mobile-section-tabs-height);
     min-height: var(--mobile-section-tabs-height);
-    margin-top: -2px;
+    margin-top: 0;
     padding: 0 2px;
     overflow-x: auto;
     overscroll-behavior-x: contain;
@@ -6979,6 +7092,28 @@ button.review-check-card:focus-visible {
 
 }
 
+@media (max-width: 560px) and (max-height: 600px) {
+  .component-manager-head p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .component-manager-body {
+    padding-block: 8px;
+  }
+
+  .component-manager-notice {
+    padding-block: 5px;
+  }
+}
+
 @media (max-width: 980px) {
   .xkeen-files-grid {
     grid-template-columns: 1fr;
@@ -7119,6 +7254,15 @@ button.review-check-card:focus-visible {
 
       <div class="app-main">
       <header class="topbar">
+        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" hidden>
+          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
         <div class="topbar-main">
           <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
           <p id="fileMeta">Конфигурация не загружена</p>
@@ -7170,15 +7314,6 @@ button.review-check-card:focus-visible {
           </button>
           <button id="downloadWarning" class="download-warning" type="button" hidden></button>
         </div>
-        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" hidden>
-          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
-          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
-          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
-          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
-          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
-          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
-        </nav>
       </header>
 
       <nav id="mobileFlowActions" class="mobile-flow-actions" aria-label="Быстрые действия" hidden>
@@ -7793,7 +7928,7 @@ button.review-check-card:focus-visible {
         <header class="component-manager-head">
           <div>
             <h2 id="componentManagerTitle">Сервисы и версии</h2>
-            <p id="componentManagerDescription">Состояние, версии и обслуживание основных компонентов.</p>
+            <p id="componentManagerDescription">Проверка и обновление компонентов.</p>
           </div>
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
@@ -7812,7 +7947,7 @@ button.review-check-card:focus-visible {
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
                 <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
+                  <summary>Параметры</summary>
                   <div class="component-advanced-body">
                     <div class="xkeen-channel-setting">
                       <div class="xkeen-channel-copy">
@@ -7846,7 +7981,7 @@ button.review-check-card:focus-visible {
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
                 <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
+                  <summary>Параметры</summary>
                   <div class="component-advanced-body">
                     <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
                     <div class="component-version-picker-controls">
@@ -7890,7 +8025,7 @@ button.review-check-card:focus-visible {
           </section>
         </div>
         <footer class="component-manager-footer">
-          <button id="openComponentMaintenanceButton" class="button compact" type="button">Сервисные действия…</button>
+          <button id="openComponentMaintenanceButton" class="button compact" type="button">Обслуживание</button>
           <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
           <div id="componentUpdateFooter" class="component-update-footer">
             <span id="componentVersionsChecked"></span>
@@ -10012,7 +10147,7 @@ function renderComponentManager() {
   els.componentManagerTitle.textContent = maintenanceView ? 'Сервисные действия' : 'Сервисы и версии';
   els.componentManagerDescription.textContent = maintenanceView
     ? 'Перезапуск компонентов и ручное обновление геоданных.'
-    : 'Проверка и установка обновлений основных компонентов.';
+    : 'Проверка и обновление компонентов.';
   els.componentUpdatesViews.forEach((element) => { element.hidden = maintenanceView; });
   els.componentMaintenance.hidden = !maintenanceView;
   els.openComponentMaintenanceButton.hidden = maintenanceView;
@@ -10021,15 +10156,15 @@ function renderComponentManager() {
   els.openComponentMaintenanceButton.disabled = busy;
 
   if (state.components.loading) {
-    els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
+    els.componentManagerNotice.textContent = 'Проверяем версии...';
   } else if (!state.components.loaded) {
     els.componentManagerNotice.textContent = 'Проверка версий доступна в MihUI на роутере.';
   } else if (updateCount > 0) {
-    els.componentManagerNotice.textContent = `Доступно ${formatRouteCount(updateCount, 'обновление', 'обновления', 'обновлений')}. Работающие сервисы останутся отмечены зелёным.`;
+    els.componentManagerNotice.textContent = `Доступно обновлений: ${updateCount}.`;
   } else if (errors > 0) {
     els.componentManagerNotice.textContent = 'Установленные версии получены, но GitHub не ответил на проверку обновлений.';
   } else {
-    els.componentManagerNotice.textContent = 'Установлены актуальные версии компонентов.';
+    els.componentManagerNotice.textContent = 'Установлены актуальные версии.';
   }
 
   els.componentCards.forEach((card) => {

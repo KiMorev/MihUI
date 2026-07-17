@@ -94,6 +94,15 @@
 
       <div class="app-main">
       <header class="topbar">
+        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" hidden>
+          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
         <div class="topbar-main">
           <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
           <p id="fileMeta">Конфигурация не загружена</p>
@@ -145,15 +154,6 @@
           </button>
           <button id="downloadWarning" class="download-warning" type="button" hidden></button>
         </div>
-        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" hidden>
-          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
-          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
-          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
-          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
-          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
-          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
-        </nav>
       </header>
 
       <nav id="mobileFlowActions" class="mobile-flow-actions" aria-label="Быстрые действия" hidden>
@@ -768,7 +768,7 @@
         <header class="component-manager-head">
           <div>
             <h2 id="componentManagerTitle">Сервисы и версии</h2>
-            <p id="componentManagerDescription">Состояние, версии и обслуживание основных компонентов.</p>
+            <p id="componentManagerDescription">Проверка и обновление компонентов.</p>
           </div>
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
@@ -787,7 +787,7 @@
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
                 <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
+                  <summary>Параметры</summary>
                   <div class="component-advanced-body">
                     <div class="xkeen-channel-setting">
                       <div class="xkeen-channel-copy">
@@ -821,7 +821,7 @@
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
                 <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
+                  <summary>Параметры</summary>
                   <div class="component-advanced-body">
                     <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
                     <div class="component-version-picker-controls">
@@ -865,7 +865,7 @@
           </section>
         </div>
         <footer class="component-manager-footer">
-          <button id="openComponentMaintenanceButton" class="button compact" type="button">Сервисные действия…</button>
+          <button id="openComponentMaintenanceButton" class="button compact" type="button">Обслуживание</button>
           <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
           <div id="componentUpdateFooter" class="component-update-footer">
             <span id="componentVersionsChecked"></span>
