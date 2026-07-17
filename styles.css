@@ -2685,6 +2685,37 @@ body.component-manager-open {
   font-weight: 750;
 }
 
+.node-group-selection-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.node-group-selection-choice {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.node-group-selection-choice > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.node-group-selection-choice select {
+  width: 100%;
+  min-width: 0;
+}
+
+.node-group-selection-actions .button {
+  white-space: nowrap;
+}
+
 .node-inventory-list {
   display: grid;
   align-items: start;

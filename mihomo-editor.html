@@ -2693,6 +2693,37 @@ body.component-manager-open {
   font-weight: 750;
 }
 
+.node-group-selection-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.node-group-selection-choice {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.node-group-selection-choice > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.node-group-selection-choice select {
+  width: 100%;
+  min-width: 0;
+}
+
+.node-group-selection-actions .button {
+  white-space: nowrap;
+}
+
 .node-inventory-list {
   display: grid;
   align-items: start;
@@ -8638,6 +8669,7 @@ const state = {
   nodeInventoryError: '',
   nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
+  nodeGroupSelectingName: '',
   nodeInventoryUpdatedAt: 0,
   nodeFilters: {
     search: '',
@@ -9342,13 +9374,37 @@ async function saveRouterConfig() {
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
 
-    if (data.reload?.ok) {
-      const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      showMessage(`Конфиг сохранен, Mihomo перезагружен. Применено в ${appliedAt}.`, { severity: 'success' });
-    } else {
-      showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
-    }
+    const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.saved && result.uncertain) {
+      state.routerMode = true;
+      state.routerConfigPath = result.path || state.routerConfigPath;
+      state.fileName = state.routerConfigPath;
+      state.configLoadedAt = Date.now();
+      state.originalText = state.outputText;
+      state.lastConfigCheckText = state.outputText;
+      state.lastConfigCheckOk = true;
+      parseAndRender();
+      await loadBackups();
+      await loadProviderStatuses({ silent: true });
+      await loadNodeInventory({ silent: true });
+      showMessage('Конфиг сохранен, но Mihomo не подтвердил применение. Проверьте состояние сервиса перед следующим изменением.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      await loadBackups();
+      showMessage('Mihomo не применил конфиг. Предыдущая версия восстановлена, локальные изменения оставлены для повторной попытки.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      focusReviewSummary();
+      return;
+    }
     showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
     focusReviewSummary();
   } finally {
@@ -13213,6 +13269,7 @@ function getNodeGroupSelectionItems(nodes) {
       statusText: formatNodeStatus(selectedStatusSource),
       delay: selectedDelay,
       optionCount: Array.isArray(selection?.all) ? selection.all.length : null,
+      options: Array.isArray(selection?.all) ? selection.all.map((name) => String(name || '')).filter(Boolean) : [],
       isKnown: Boolean(selection),
     };
   });
@@ -13274,7 +13331,71 @@ function createNodeGroupSelectionCard(item) {
   titleRow.append(title, meta);
   current.append(label, name);
   card.append(titleRow, current, badges);
+  if (isSelectableNodeGroup(item)) {
+    const actions = document.createElement('div');
+    const choiceLabel = document.createElement('label');
+    const choiceText = document.createElement('span');
+    const select = document.createElement('select');
+    const button = document.createElement('button');
+    const isBusy = state.nodeGroupSelectingName === item.groupName;
+
+    actions.className = 'node-group-selection-actions';
+    choiceLabel.className = 'node-group-selection-choice';
+    choiceText.textContent = 'Активный вариант';
+    select.setAttribute('aria-label', `Активный вариант группы ${item.groupName}`);
+    item.options.forEach((optionName) => {
+      const option = document.createElement('option');
+      option.value = optionName;
+      option.textContent = stripNodeFlagEmoji(optionName) || optionName;
+      select.append(option);
+    });
+    select.value = item.selectedName;
+    select.disabled = isBusy;
+    button.className = 'button compact';
+    button.type = 'button';
+    button.textContent = isBusy ? 'Переключение…' : 'Сменить';
+    const syncButton = () => {
+      button.disabled = isBusy || !select.value || select.value === item.selectedName;
+    };
+    select.addEventListener('change', syncButton);
+    button.addEventListener('click', () => selectNodeGroup(item.groupName, select.value));
+    syncButton();
+    choiceLabel.append(choiceText, select);
+    actions.append(choiceLabel, button);
+    card.append(actions);
+  }
   return card;
+}
+
+function isSelectableNodeGroup(item) {
+  const type = String(item?.groupType || '').trim().toLowerCase();
+  return item?.isKnown && ['select', 'selector'].includes(type) && Array.isArray(item.options) && item.options.length > 0;
+}
+
+async function selectNodeGroup(groupName, proxyName) {
+  if (!groupName || !proxyName || state.nodeGroupSelectingName) return;
+  state.nodeGroupSelectingName = groupName;
+  renderNodeInventory();
+  try {
+    const data = await apiJson('/api/groups/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: groupName, name: proxyName }),
+    });
+    await loadNodeInventory({ silent: true });
+    showMessage(`Группа ${groupName}: активен ${data.now || proxyName}.`, { severity: 'success' });
+  } catch (error) {
+    await loadNodeInventory({ silent: true });
+    showMessage(
+      error?.data?.uncertain
+        ? `Mihomo не подтвердил переключение группы ${groupName}.`
+        : `Не удалось переключить группу ${groupName}.`,
+      { severity: 'error', details: error?.message || String(error) },
+    );
+  } finally {
+    state.nodeGroupSelectingName = '';
+    renderNodeInventory();
+  }
 }
 
 function formatNodeGroupSelectionMeta(item) {

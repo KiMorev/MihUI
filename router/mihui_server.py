@@ -196,6 +196,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/providers/update":
             self.handle_provider_update()
             return
+        if route == "/api/groups/select":
+            self.handle_group_select()
+            return
         if route == "/api/happ/decode":
             self.handle_happ_decode()
             return
@@ -229,7 +232,8 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         result = save_checked_config(self.app_dir, text)
         if not result["ok"]:
-            self.send_json(HTTPStatus.UNPROCESSABLE_ENTITY, result)
+            status = HTTPStatus.UNPROCESSABLE_ENTITY if result.get("stage") == "check" else HTTPStatus.BAD_GATEWAY
+            self.send_json(status, result)
             return
 
         self.send_json(
@@ -437,6 +441,23 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         result = update_proxy_provider(self.app_dir, name)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+
+    def handle_group_select(self):
+        payload = self.read_json_body()
+        group = str(payload.get("group") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if not group or not name:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "group and name are required"})
+            return
+
+        result = select_proxy_group(self.app_dir, group, name)
+        if result["ok"]:
+            status = HTTPStatus.OK
+        elif result.get("unavailable") or result.get("uncertain"):
+            status = HTTPStatus.BAD_GATEWAY
+        else:
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        self.send_json(status, result)
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
@@ -1040,6 +1061,7 @@ def save_checked_config(app_dir, text):
     if not check["ok"]:
         return {
             "ok": False,
+            "stage": "check",
             "message": check.get("message", "config check failed"),
             "check": check,
         }
@@ -1048,14 +1070,63 @@ def save_checked_config(app_dir, text):
     config_path.parent.mkdir(parents=True, exist_ok=True)
     backup = create_backup(app_dir, config_path)
     write_text_atomic(config_path, text)
+    reload_result = reload_mihomo(app_dir, config_path)
+    if reload_result["ok"]:
+        prune_backups(app_dir)
+        return {
+            "ok": True,
+            "saved": True,
+            "applied": True,
+            "path": str(config_path),
+            "backup": backup.name if backup else None,
+            "check": check,
+            "reload": reload_result,
+        }
+
+    if reload_result.get("uncertain"):
+        prune_backups(app_dir)
+        return {
+            "ok": False,
+            "saved": True,
+            "applied": False,
+            "uncertain": True,
+            "path": str(config_path),
+            "backup": backup.name if backup else None,
+            "check": check,
+            "reload": reload_result,
+            "message": "config saved, but Mihomo apply status could not be confirmed",
+        }
+
+    rollback = restore_config_backup(config_path, backup)
+    rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and backup else None
     prune_backups(app_dir)
     return {
-        "ok": True,
+        "ok": False,
+        "saved": False,
+        "applied": False,
+        "rolledBack": rollback["ok"],
         "path": str(config_path),
         "backup": backup.name if backup else None,
         "check": check,
-        "reload": reload_mihomo(app_dir, config_path),
+        "reload": reload_result,
+        "rollback": {**rollback, "reload": rollback_reload},
+        "message": (
+            "Mihomo did not apply the config; previous config restored"
+            if rollback["ok"]
+            else "Mihomo did not apply the config and rollback failed"
+        ),
     }
+
+
+def restore_config_backup(config_path, backup):
+    try:
+        if backup:
+            write_text_atomic(config_path, backup.read_text(encoding="utf-8", errors="replace"))
+        else:
+            config_path.unlink(missing_ok=True)
+        return {"ok": True}
+    except Exception as error:
+        return {"ok": False, "message": str(error)}
 
 
 def check_mihomo_config(app_dir, text):
@@ -2619,6 +2690,43 @@ def update_proxy_provider(app_dir, name):
         return {"ok": False, "message": str(error)}
 
 
+def select_proxy_group(app_dir, group, name):
+    encoded_group = urllib.parse.quote(group, safe="")
+    path = f"/proxies/{encoded_group}"
+    try:
+        current = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "unavailable": True, "message": str(error)}
+
+    group_type = str(current.get("type") or "").strip().casefold() if isinstance(current, dict) else ""
+    if group_type not in {"select", "selector"}:
+        return {"ok": False, "message": "group is not selectable"}
+
+    options = current.get("all") if isinstance(current, dict) else None
+    if not isinstance(options, list) or name not in options:
+        return {"ok": False, "message": "proxy is not available in this group"}
+
+    if str(current.get("now") or "") == name:
+        return {"ok": True, "changed": False, "group": group, "now": name}
+
+    try:
+        mihomo_api_request(app_dir, path, method="PUT", payload={"name": name})
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "message": str(error)}
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+
+    try:
+        confirmed = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+
+    confirmed_name = str(confirmed.get("now") or "") if isinstance(confirmed, dict) else ""
+    if confirmed_name != name:
+        return {"ok": False, "uncertain": True, "message": "Mihomo did not confirm the selected proxy"}
+    return {"ok": True, "changed": True, "group": group, "now": confirmed_name}
+
+
 def get_current_nodes(app_dir):
     try:
         data = mihomo_api_request(app_dir, "/providers/proxies")
@@ -2804,27 +2912,88 @@ def normalize_provider_status(name, item):
 
 
 def reload_mihomo(app_dir, config_path):
-    env = get_env(app_dir)
-    api = env.get("MIHUI_MIHOMO_API", "http://127.0.0.1:9090").rstrip("/")
-    secret = env.get("MIHUI_MIHOMO_SECRET", "")
-    headers = {"Content-Type": "application/json"}
-    if secret:
-        headers["Authorization"] = f"Bearer {secret}"
+    target_path = str(config_path)
+    try:
+        current = mihomo_api_request(app_dir, "/configs", timeout=5)
+    except Exception as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "prepare",
+            "uncertain": False,
+            "message": str(error),
+        }
+
+    current_path = str(current.get("path") or "") if isinstance(current, dict) else ""
+    if current_path and not same_config_path(current_path, target_path):
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "prepare",
+            "uncertain": False,
+            "path": current_path,
+            "message": f"Mihomo uses a different config path: {current_path}",
+        }
 
     try:
-        current_path = str(config_path)
-        get_req = urllib.request.Request(f"{api}/configs", headers=headers, method="GET")
-        with urllib.request.urlopen(get_req, timeout=5) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            current_path = data.get("path") or current_path
-
-        body = json.dumps({"path": current_path}).encode("utf-8")
-        put_req = urllib.request.Request(f"{api}/configs?force=true", data=body, headers=headers, method="PUT")
-        with urllib.request.urlopen(put_req, timeout=10) as response:
-            response.read()
-        return {"ok": True, "method": "mihomo-api", "path": current_path}
+        mihomo_api_request(
+            app_dir,
+            "/configs?force=true",
+            method="PUT",
+            payload={"path": target_path},
+            timeout=10,
+        )
+    except urllib.error.HTTPError as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "apply",
+            "uncertain": False,
+            "message": str(error),
+        }
     except Exception as error:
-        return {"ok": False, "method": "mihomo-api", "message": str(error)}
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "apply",
+            "uncertain": True,
+            "message": str(error),
+        }
+
+    try:
+        version = mihomo_api_request(app_dir, "/version", timeout=5)
+        confirmed = mihomo_api_request(app_dir, "/configs", timeout=5)
+    except Exception as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "verify",
+            "uncertain": True,
+            "message": str(error),
+        }
+
+    confirmed_path = str(confirmed.get("path") or "") if isinstance(confirmed, dict) else ""
+    if not confirmed_path or not same_config_path(confirmed_path, target_path):
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "verify",
+            "uncertain": True,
+            "path": confirmed_path,
+            "message": "Mihomo did not confirm the applied config path",
+        }
+
+    return {
+        "ok": True,
+        "verified": True,
+        "method": "mihomo-api",
+        "path": confirmed_path,
+        "version": str(version.get("version") or "") if isinstance(version, dict) else "",
+    }
+
+
+def same_config_path(left, right):
+    return os.path.normcase(os.path.normpath(str(left))) == os.path.normcase(os.path.normpath(str(right)))
 
 
 def detect_router_uis(app_dir, host):

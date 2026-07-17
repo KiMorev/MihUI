@@ -273,6 +273,32 @@ test('main and standalone consolidate node inventory errors', () => {
   }
 });
 
+test('main and standalone allow confirmed runtime selection in select groups', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /apiJson\('\/api\/groups\/select'/);
+    assert.match(source, /\['select', 'selector'\]\.includes\(type\)/);
+    assert.match(source, /Активный вариант группы/);
+    assert.match(source, /Mihomo не подтвердил переключение группы/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.node-group-selection-actions\s*{/);
+    assert.match(source, /\.node-group-selection-choice select\s*{/);
+  }
+});
+
+test('main and standalone distinguish applied, rolled back and uncertain config saves', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /Конфиг сохранен и подтвержден Mihomo/);
+    assert.match(source, /result\.saved && result\.uncertain/);
+    assert.match(source, /result\.rolledBack/);
+    assert.match(source, /Предыдущая версия восстановлена, локальные изменения оставлены/);
+  }
+});
+
 test('main and standalone expose the editorial shell and routing workbench', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);

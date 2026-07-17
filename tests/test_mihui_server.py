@@ -1196,9 +1196,104 @@ class ProviderAdapterTests(unittest.TestCase):
                 result = mihui_server.save_checked_config(app_dir, "updated\n")
 
             self.assertTrue(result["ok"])
+            self.assertTrue(result["applied"])
             self.assertEqual(result["check"], check)
             self.assertEqual(config_path.read_text(encoding="utf-8"), "updated\n")
             self.assertEqual(len(list((app_dir / "backups").glob("config-*.yaml"))), 1)
+
+    def test_save_checked_config_restores_previous_file_after_confirmed_reload_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            reloads = [
+                {"ok": False, "uncertain": False, "stage": "apply", "message": "rejected"},
+                {"ok": True, "verified": True},
+            ]
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(mihui_server, "reload_mihomo", side_effect=reloads) as reload_mihomo:
+                result = mihui_server.save_checked_config(app_dir, "updated\n")
+
+            self.assertFalse(result["ok"])
+            self.assertFalse(result["saved"])
+            self.assertTrue(result["rolledBack"])
+            self.assertTrue(result["rollback"]["reload"]["ok"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+            self.assertEqual(reload_mihomo.call_count, 2)
+
+    def test_save_checked_config_keeps_saved_file_when_reload_result_is_uncertain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(
+                mihui_server,
+                "reload_mihomo",
+                return_value={"ok": False, "uncertain": True, "stage": "verify", "message": "timeout"},
+            ) as reload_mihomo:
+                result = mihui_server.save_checked_config(app_dir, "updated\n")
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["saved"])
+            self.assertTrue(result["uncertain"])
+            self.assertFalse(result.get("rolledBack", False))
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "updated\n")
+            reload_mihomo.assert_called_once_with(app_dir, config_path)
+
+    def test_reload_mihomo_confirms_service_and_config_path(self):
+        config_path = Path("/opt/etc/mihomo/config.yaml")
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {"path": str(config_path)},
+                {},
+                {"version": "1.19.12"},
+                {"path": str(config_path)},
+            ],
+        ) as request:
+            result = mihui_server.reload_mihomo(Path("."), config_path)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["version"], "1.19.12")
+        self.assertEqual(
+            request.call_args_list,
+            [
+                mock.call(Path("."), "/configs", timeout=5),
+                mock.call(
+                    Path("."),
+                    "/configs?force=true",
+                    method="PUT",
+                    payload={"path": str(config_path)},
+                    timeout=10,
+                ),
+                mock.call(Path("."), "/version", timeout=5),
+                mock.call(Path("."), "/configs", timeout=5),
+            ],
+        )
+
+    def test_reload_mihomo_rejects_different_active_config_before_put(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"path": "/opt/etc/mihomo/other.yaml"},
+        ) as request:
+            result = mihui_server.reload_mihomo(Path("."), Path("/opt/etc/mihomo/config.yaml"))
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["uncertain"])
+        self.assertEqual(result["stage"], "prepare")
+        request.assert_called_once_with(Path("."), "/configs", timeout=5)
 
     def test_config_save_endpoint_rejects_invalid_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1279,6 +1374,50 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(groups[0]["selected"]["type"], "Vmess")
         self.assertTrue(groups[0]["selected"]["alive"])
         self.assertEqual(groups[0]["selected"]["delay"], 97)
+
+    def test_select_proxy_group_checks_option_and_confirms_selection(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {"name": "Proxy", "type": "Selector", "now": "node-a", "all": ["node-a", "node-b"]},
+                {},
+                {"name": "Proxy", "type": "Selector", "now": "node-b", "all": ["node-a", "node-b"]},
+            ],
+        ) as request:
+            result = mihui_server.select_proxy_group(Path("."), "Proxy", "node-b")
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["now"], "node-b")
+        self.assertEqual(
+            request.call_args_list,
+            [
+                mock.call(Path("."), "/proxies/Proxy"),
+                mock.call(Path("."), "/proxies/Proxy", method="PUT", payload={"name": "node-b"}),
+                mock.call(Path("."), "/proxies/Proxy"),
+            ],
+        )
+
+    def test_group_select_endpoint_rejects_non_select_group(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "mihomo_api_request",
+                    return_value={"name": "Auto", "type": "URLTest", "now": "node-a", "all": ["node-a"]},
+                ):
+                    status, result = self.post_json(
+                        server, "/api/groups/select", {"group": "Auto", "name": "node-a"}
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 422)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "group is not selectable")
 
 
 if __name__ == "__main__":

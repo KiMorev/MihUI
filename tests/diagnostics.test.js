@@ -125,6 +125,7 @@ globalThis.__app = {
   getExportFileName,
   getDisplayFileName,
   getMissingConnectionSettings,
+  getNodeGroupSelectionItems,
   getOutputPreviewText,
   getRouterSaveState,
   getReviewPrimaryActionState,
@@ -134,6 +135,7 @@ globalThis.__app = {
   formatNodeInventoryError,
   formatServiceStatusLabel,
   summarizeRoutePattern,
+  isSelectableNodeGroup,
   splitRoutePattern,
   matchesRuleFilters,
   ruleRequiresValue,
@@ -1274,6 +1276,35 @@ proxy-groups:
       'FASTEST',
       'FALLBACK',
     ]);
+  });
+
+  test(`${source.name}: enables runtime selection only for live select groups`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - node-a
+      - node-b
+  - name: AUTO
+    type: url-test
+    proxies:
+      - node-a
+      - node-b
+`);
+    app.state.mihomoGroupSelections = [
+      { name: 'PROXY', type: 'Selector', now: 'node-a', all: ['node-a', 'node-b'] },
+      { name: 'AUTO', type: 'URLTest', now: 'node-b', all: ['node-a', 'node-b'] },
+    ];
+
+    const items = app.getNodeGroupSelectionItems([]);
+    const proxy = items.find((item) => item.groupName === 'PROXY');
+    const auto = items.find((item) => item.groupName === 'AUTO');
+
+    assert.deepEqual([...proxy.options], ['node-a', 'node-b']);
+    assert.equal(app.isSelectableNodeGroup(proxy), true);
+    assert.equal(app.isSelectableNodeGroup(auto), false);
   });
 
   test(`${source.name}: renames existing group references`, () => {
