@@ -617,7 +617,7 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertIn('MIHUI_HAPP_DECODER_API_URL="https://new.example/decrypt"', text)
         self.assertIn('MIHUI_HAPP_DECRYPTOR_REMOTE_URL="https://new.example/p/%LINK_ENCODED%"', text)
 
-    def test_get_happ_decoder_settings_returns_visible_key(self):
+    def test_get_happ_decoder_settings_does_not_expose_key(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / "mihui.env"
             env_file.write_text(
@@ -628,7 +628,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
             settings = mihui_server.get_happ_decoder_settings(Path(temp_dir))
 
-        self.assertEqual(settings["apiKey"], "visible-key")
+        self.assertNotIn("apiKey", settings)
         self.assertTrue(settings["hasApiKey"])
         self.assertEqual(settings["apiUrl"], "https://decoder.example/decrypt")
         self.assertEqual(settings["decryptorTimeout"], "45")

@@ -7635,7 +7635,7 @@ button.review-check-card:focus-visible {
                 <div class="settings-field">
                   <label class="settings-field-label" for="happDecoderApiKey"><strong>API-ключ</strong><small>MIHUI_HAPP_DECODER_API_KEY</small></label>
                   <span class="settings-secret-control">
-                    <input id="happDecoderApiKey" type="password" autocomplete="new-password" placeholder="Ключ не задан" />
+                    <input id="happDecoderApiKey" type="password" autocomplete="off" placeholder="Ключ не задан" />
                     <button id="toggleHappDecoderApiKeyButton" class="button ghost compact" type="button" aria-pressed="false">Показать</button>
                   </span>
                 </div>
@@ -9030,7 +9030,7 @@ async function loadHappDecoderSettings(options = {}) {
   try {
     const data = await apiJson('/api/settings/happ-decoder');
     state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || '';
+    state.happDecoderSettings.apiKey = '';
     state.happDecoderSettings.apiUrl = data.apiUrl || '';
     state.happDecoderSettings.decryptorCmd = data.decryptorCmd || '';
     state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || '45';
@@ -9039,7 +9039,7 @@ async function loadHappDecoderSettings(options = {}) {
     state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
     state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
     if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    if (els.happDecoderApiKey) els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
+    if (els.happDecoderApiKey) els.happDecoderApiKey.value = '';
     if (els.happDecryptorCmd) els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
     if (els.happDecryptorTimeout) els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
     if (els.happDecryptorRemoteUrl) els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
@@ -9073,7 +9073,7 @@ async function saveHappDecoderSettings(event) {
       body: JSON.stringify(payload),
     });
     state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || apiKey;
+    state.happDecoderSettings.apiKey = '';
     state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
     state.happDecoderSettings.decryptorCmd = data.decryptorCmd || decryptorCmd;
     state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || decryptorTimeout || '45';
@@ -9082,7 +9082,7 @@ async function saveHappDecoderSettings(event) {
     state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
     state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
     els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
+    els.happDecoderApiKey.value = '';
     els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
     els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
     els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
@@ -9101,6 +9101,7 @@ function renderHappDecoderSettings() {
   const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
   const dirty = isHappDecoderSettingsDirty();
   els.happDecoderApiKey.disabled = unavailable || busy;
+  els.happDecoderApiKey.placeholder = state.happDecoderSettings.hasApiKey ? 'Ключ уже задан' : 'Ключ не задан';
   els.happDecoderApiUrl.disabled = unavailable || busy;
   els.happDecryptorCmd.disabled = unavailable || busy;
   els.happDecryptorTimeout.disabled = unavailable || busy;

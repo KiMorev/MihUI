@@ -560,7 +560,6 @@ def get_happ_decoder_settings(app_dir):
     )
     return {
         "ok": True,
-        "apiKey": api_key,
         "apiUrl": api_url,
         "decryptorCmd": decryptor_cmd,
         "decryptorTimeout": decryptor_timeout,
