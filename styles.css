@@ -13,6 +13,7 @@
   --warning: #a66300;
   --shadow: 0 8px 24px rgba(24, 34, 52, 0.045);
   --sidebar-width: 220px;
+  --mobile-section-tabs-height: 40px;
 }
 
 * {
@@ -821,6 +822,10 @@ h2 {
 }
 
 .mobile-flow-actions {
+  display: none;
+}
+
+.mobile-section-tabs {
   display: none;
 }
 
@@ -6792,6 +6797,55 @@ button.review-check-card:focus-visible {
   .rules-table-head,
   .rule-registry-row {
     padding-inline: 8px;
+  }
+
+  .topbar.has-mobile-section-tabs {
+    padding-bottom: 0;
+  }
+
+  .mobile-section-tabs:not([hidden]) {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    width: 100%;
+    height: var(--mobile-section-tabs-height);
+    min-height: var(--mobile-section-tabs-height);
+    margin-top: -2px;
+    padding: 0 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .mobile-section-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-section-tab {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 1px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mobile-section-tab .nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-section-tab.is-active {
+    border-bottom-color: var(--accent);
+    color: var(--accent-dark);
   }
 
   .rule-target-pill {

@@ -213,6 +213,27 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
+test('main and standalone expose a lightweight mobile section strip', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /id="mobileSectionTabs"[^>]+hidden/);
+    assert.equal((source.match(/class="mobile-section-tab(?: is-active)?"/g) || []).length, 7);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /--mobile-section-tabs-height: 40px/);
+    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-x: auto;/);
+    assert.match(source, /\.mobile-section-tab\.is-active\s*{[\s\S]+?border-bottom-color: var\(--accent\);/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /sidebarBottom <= mobileTabsHeight \+ 1/);
+    assert.match(source, /centerActiveMobileSectionTab\(\)/);
+  }
+});
+
 test('main and standalone keep section starts below the sticky topbar', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
