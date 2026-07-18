@@ -271,6 +271,7 @@ test('main and standalone show mobile section tabs only after the primary menu s
     const source = read(name);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.mobile-topbar-meta\s*{[\s\S]+?position: static;/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?position: fixed;[\s\S]+?top: 0;/);
+    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-y: hidden;[\s\S]+?overscroll-behavior-y: none;[\s\S]+?touch-action: pan-x;/);
   }
 
   for (const name of ['app.js', 'mihomo-editor.html']) {
