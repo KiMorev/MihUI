@@ -293,7 +293,7 @@ rules:
 
     const diagnostics = app.collectDiagnostics(activeProviders);
 
-    assert(diagnostics.includes('Подписка happ: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.'));
+    assert(diagnostics.includes('Подписка happ: happ://crypt* не является прямой подпиской Mihomo; расшифруйте ссылку кнопкой в редакторе.'));
     assert(diagnostics.includes('Подписка incy: incy://import не является прямой подпиской Mihomo; нужен helper или локальный adapter.'));
     assert(diagnostics.includes('Подписка node: vless:// — это ссылка узла, а не URL proxy-provider; нужен локальный adapter или добавление в proxies.'));
     assert.equal(diagnostics.some((item) => item.includes('Подписка good:')), false);

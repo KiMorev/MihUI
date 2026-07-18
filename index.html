@@ -647,7 +647,7 @@
       <section class="app-section" data-section-panel="settings" hidden>
         <header class="settings-page-head">
           <h2>Настройки</h2>
-          <p>Параметры интерфейса и подключенных к MihUI интеграций.</p>
+          <p>Параметры интерфейса WebMihomo.</p>
         </header>
 
         <section class="panel settings-panel">
@@ -665,74 +665,6 @@
           </div>
         </section>
 
-        <section class="panel settings-panel">
-          <div class="panel-head">
-            <div class="settings-panel-title">
-              <h2>Интеграция Happ Decoder</h2>
-              <p>Способы расшифровки ссылок формата <code>happ://</code>.</p>
-            </div>
-            <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
-          </div>
-          <form id="happDecoderSettingsForm" class="settings-form settings-integration-form">
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Облачный API</h3>
-                <p>Запрос к совместимому сервису декодирования.</p>
-              </div>
-              <div class="settings-grid">
-                <div class="settings-field">
-                  <label class="settings-field-label" for="happDecoderApiKey"><strong>API-ключ</strong><small>MIHUI_HAPP_DECODER_API_KEY</small></label>
-                  <span class="settings-secret-control">
-                    <input id="happDecoderApiKey" type="password" autocomplete="off" placeholder="Ключ не задан" />
-                    <button id="toggleHappDecoderApiKeyButton" class="button ghost compact" type="button" aria-pressed="false">Показать</button>
-                  </span>
-                </div>
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Адрес API</strong><small>MIHUI_HAPP_DECODER_API_URL</small></span>
-                  <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Локальный декодер</h3>
-                <p>Команда, которая запускается непосредственно на роутере.</p>
-              </div>
-              <div class="settings-grid settings-grid-local">
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Локальная команда</strong><small>MIHUI_HAPP_DECRYPTOR_CMD</small></span>
-                  <input id="happDecryptorCmd" type="text" autocomplete="off" placeholder="/opt/bin/node /opt/etc/mihui/bin/happ-decrypt-universal %LINK%" />
-                </label>
-                <label class="settings-field settings-timeout-field">
-                  <span class="settings-field-label"><strong>Тайм-аут, секунд</strong><small>MIHUI_HAPP_DECRYPTOR_TIMEOUT</small></span>
-                  <input id="happDecryptorTimeout" type="number" min="1" max="120" step="1" autocomplete="off" placeholder="45" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Удаленный резерв</h3>
-                <p>Используется, если локальный способ недоступен.</p>
-              </div>
-              <label class="settings-field settings-field-wide">
-                <span class="settings-field-label"><strong>Резервный URL</strong><small>MIHUI_HAPP_DECRYPTOR_REMOTE_URL</small></span>
-                <input id="happDecryptorRemoteUrl" type="url" autocomplete="off" placeholder="https://decoder.example/decrypt?url=%LINK_ENCODED%" />
-              </label>
-            </section>
-
-            <div class="settings-actions">
-              <span id="happDecoderFormState" class="settings-form-state">Изменений нет</span>
-              <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
-                <span>Перечитать</span>
-              </button>
-              <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
-                <span>Сохранить</span>
-              </button>
-            </div>
-          </form>
-        </section>
       </section>
       </div>
     </main>

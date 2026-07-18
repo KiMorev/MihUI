@@ -8,10 +8,8 @@ import ipaddress
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import threading
@@ -46,46 +44,7 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "transfer-encoding",
     "accept-encoding",
 }
-HAPP_DECRYPTOR_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_CMD"
-HAPP_DECRYPTOR_TIMEOUT_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_TIMEOUT"
-HAPP_DECRYPTOR_CANDIDATES = [
-    "happ_decryptor.py",
-    "happ-decryptor.py",
-    "happ_decrypt_universal.py",
-    "happ-decrypt-universal.py",
-    "happwner.py",
-    "Happwner.py",
-    "happ_decryptor",
-    "happ-decryptor",
-    "happ-decrypt-universal",
-    "happ_decrypt_universal",
-    "happwner",
-    "happ-decryptor-aarch64",
-]
-HAPP_DECODER_API_KEY_ENV_KEY = "MIHUI_HAPP_DECODER_API_KEY"
-HAPP_DECODER_API_URL_ENV_KEY = "MIHUI_HAPP_DECODER_API_URL"
-HAPP_DECODER_TIMEOUT_ENV_KEY = "MIHUI_HAPP_DECODER_TIMEOUT"
-HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_REMOTE_URL"
-DEFAULT_HAPP_DECODER_API_URL = "https://happy-decoder.cc/api/v1/decrypt"
-DEFAULT_HAPP_DECODER_TIMEOUT = 30
-DEFAULT_HAPP_DECRYPTOR_TIMEOUT = 45
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
-DECODED_PROVIDER_VERIFY_BYTES = 512 * 1024
-HAPP_DECRYPTOR_NODE_SUFFIXES = {".js", ".mjs", ".cjs"}
-HAPP_DECRYPTOR_TEMPLATE_TOKENS = (
-    "%LINK%",
-    "%URL%",
-    "%INPUT%",
-    "{link}",
-    "{url}",
-    "{input}",
-    "%LINK_ENCODED%",
-    "%URL_ENCODED%",
-    "%INPUT_ENCODED%",
-    "{link_encoded}",
-    "{url_encoded}",
-    "{input_encoded}",
-)
 
 
 update_lock = threading.Lock()
@@ -137,9 +96,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/router/uis":
             self.handle_router_uis_get()
-            return
-        if route == "/api/settings/happ-decoder":
-            self.handle_happ_decoder_settings_get()
             return
         if route == "/api/update/check":
             self.handle_update_check()
@@ -200,12 +156,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/groups/select":
             self.handle_group_select()
-            return
-        if route == "/api/happ/decode":
-            self.handle_happ_decode()
-            return
-        if route == "/api/settings/happ-decoder":
-            self.handle_happ_decoder_settings_save()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -283,38 +233,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_router_uis_get(self):
         self.send_json(HTTPStatus.OK, {"ok": True, "items": detect_router_uis(self.app_dir, self.headers.get("Host", ""))})
-
-    def handle_happ_decoder_settings_get(self):
-        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
-
-    def handle_happ_decoder_settings_save(self):
-        payload = self.read_json_body()
-        api_url = str(payload.get("apiUrl") or "").strip() or DEFAULT_HAPP_DECODER_API_URL
-        api_key = payload.get("apiKey")
-        decryptor_cmd = str(payload.get("decryptorCmd") or "").strip()
-        decryptor_timeout = str(payload.get("decryptorTimeout") or "").strip()
-        remote_url = str(payload.get("remoteUrl") or "").strip()
-        try:
-            api_url = normalize_happ_decoder_api_url(api_url)
-            if remote_url:
-                remote_url = normalize_happ_decryptor_remote_url(remote_url)
-            updates = {
-                HAPP_DECODER_API_URL_ENV_KEY: api_url,
-                HAPP_DECRYPTOR_ENV_KEY: decryptor_cmd,
-                HAPP_DECRYPTOR_TIMEOUT_ENV_KEY: normalize_happ_decryptor_timeout_value(decryptor_timeout),
-                HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY: remote_url,
-            }
-            if isinstance(api_key, str) and api_key.strip():
-                updates[HAPP_DECODER_API_KEY_ENV_KEY] = api_key.strip()
-            write_env_values(self.app_dir, updates)
-        except ValueError as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
-            return
-        except Exception as error:
-            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "message": str(error)})
-            return
-
-        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
 
     def handle_update_check(self):
         version = read_version(self.app_dir)
@@ -487,21 +405,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         self.send_provider_payload(body, content_type)
 
-    def handle_happ_decode(self):
-        payload = self.read_json_body()
-        source_url = str(payload.get("url") or "").strip()
-        headers = normalize_provider_headers(payload.get("headers"))
-        try:
-            result = decode_happ_with_happy_decoder(self.app_dir, source_url, headers)
-        except ValueError as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
-            return
-        except Exception as error:
-            self.send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "message": str(error)})
-            return
-
-        self.send_json(HTTPStatus.OK, result)
-
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
         if returncode != 0 and status == HTTPStatus.OK:
@@ -568,106 +471,8 @@ def get_env(app_dir):
     return env
 
 
-def get_happ_decoder_settings(app_dir):
-    env = get_env(app_dir)
-    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
-    api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
-        HAPP_DECODER_API_URL_ENV_KEY,
-        DEFAULT_HAPP_DECODER_API_URL,
-    )
-    decryptor_cmd = env.get(HAPP_DECRYPTOR_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_ENV_KEY, "")
-    decryptor_timeout = env.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY) or os.environ.get(
-        HAPP_DECRYPTOR_TIMEOUT_ENV_KEY,
-        str(DEFAULT_HAPP_DECRYPTOR_TIMEOUT),
-    )
-    remote_url = env.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY) or os.environ.get(
-        HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY,
-        "",
-    )
-    return {
-        "ok": True,
-        "apiUrl": api_url,
-        "decryptorCmd": decryptor_cmd,
-        "decryptorTimeout": decryptor_timeout,
-        "remoteUrl": remote_url,
-        "hasApiKey": bool(api_key),
-        "hasDecryptor": bool(find_happ_decryptor_command(app_dir)),
-        "hasRemoteUrl": bool(remote_url),
-    }
-
-
 def get_env_path(app_dir):
     return Path(app_dir) / "mihui.env"
-
-
-def write_env_values(app_dir, updates):
-    clean_updates = {}
-    for key, value in (updates or {}).items():
-        key = str(key or "").strip()
-        value = str(value or "").strip()
-        if not re.fullmatch(r"[A-Z0-9_]+", key):
-            raise ValueError("invalid env key")
-        if "\n" in value or "\r" in value or "\x00" in value:
-            raise ValueError(f"{key} contains an invalid character")
-        clean_updates[key] = value
-
-    env_file = get_env_path(app_dir)
-    lines = env_file.read_text(encoding="utf-8", errors="replace").splitlines() if env_file.is_file() else []
-    seen = set()
-    next_lines = []
-    for line in lines:
-        match = re.match(r"^([A-Z0-9_]+)=", line)
-        if match and match.group(1) in clean_updates:
-            key = match.group(1)
-            next_lines.append(f"{key}={quote_env_value(clean_updates[key])}")
-            seen.add(key)
-        else:
-            next_lines.append(line)
-
-    for key, value in clean_updates.items():
-        if key not in seen:
-            next_lines.append(f"{key}={quote_env_value(value)}")
-
-    env_file.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(env_file, "\n".join(next_lines).rstrip() + "\n")
-
-
-def quote_env_value(value):
-    text = str(value or "")
-    text = text.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-    return f'"{text}"'
-
-
-def normalize_happ_decoder_api_url(value):
-    url = str(value or "").strip()
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("MIHUI_HAPP_DECODER_API_URL must be an http/https URL")
-    return urllib.parse.urlunsplit(parsed)
-
-
-def normalize_happ_decryptor_remote_url(value):
-    url = str(value or "").strip()
-    if not any(token in url for token in HAPP_DECRYPTOR_TEMPLATE_TOKENS):
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} must contain a Happ URL placeholder")
-    expanded = build_happ_decryptor_template_url(url, "happ://crypt/example")
-    parsed = urllib.parse.urlsplit(expanded)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} must be an http/https URL template")
-    return url
-
-
-def normalize_happ_decryptor_timeout_value(value):
-    text = str(value or "").strip()
-    if not text:
-        return str(DEFAULT_HAPP_DECRYPTOR_TIMEOUT)
-    try:
-        timeout = int(text)
-    except ValueError as error:
-        raise ValueError(f"{HAPP_DECRYPTOR_TIMEOUT_ENV_KEY} must be an integer") from error
-    if timeout < 1 or timeout > 120:
-        raise ValueError(f"{HAPP_DECRYPTOR_TIMEOUT_ENV_KEY} must be between 1 and 120")
-    return str(timeout)
 
 
 def get_config_path(app_dir):
@@ -2052,21 +1857,8 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
             app_dir=app_dir,
         )
 
-    if is_happ_crypt_url(source_url):
-        kind, value, _source = resolve_happ_provider(source_url, app_dir, timeout)
-        if kind == "url":
-            return fetch_provider_payload(
-                value,
-                headers,
-                timeout,
-                append_hwid=append_hwid,
-                depth=depth + 1,
-                app_dir=app_dir,
-            )
-        return value, "text/yaml; charset=utf-8"
-
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError("provider adapter supports only http/https, incy://import, and configured happ://crypt URLs")
+        raise ValueError("provider adapter supports only http/https and incy://import URLs")
     if not parsed.netloc:
         raise ValueError("provider URL host is required")
 
@@ -2171,188 +1963,7 @@ def fetch_happ_landing_provider_payload(source_url, body, content_type, headers,
     return None
 
 
-def decrypt_happ_provider(source_url, app_dir, timeout):
-    command = find_happ_decryptor_command(app_dir)
-    if not command:
-        raise ValueError(f"happ://crypt requires an external decryptor; set {HAPP_DECRYPTOR_ENV_KEY}")
-
-    args = build_happ_decryptor_args(command, source_url)
-    env = get_env(Path(app_dir)) if app_dir else {}
-    try:
-        result = subprocess.run(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=read_happ_decryptor_timeout(env, timeout),
-            check=False,
-        )
-    except FileNotFoundError as error:
-        raise ValueError(f"happ decryptor missing: {error}") from error
-    except subprocess.TimeoutExpired as error:
-        raise ValueError("happ decryptor timed out") from error
-    except Exception as error:
-        raise ValueError(f"happ decryptor failed: {error}") from error
-    if result.returncode != 0:
-        error = result.stderr.decode("utf-8", "replace").strip()
-        raise ValueError(f"happ decryptor failed: {error or result.returncode}")
-    return parse_happ_decryptor_output(result.stdout)
-
-
-def resolve_happ_provider(source_url, app_dir, timeout=None):
-    fallback_errors = []
-    if find_happ_decryptor_command(app_dir):
-        try:
-            kind, value = decrypt_happ_provider(source_url, app_dir, timeout)
-            return kind, value, "local-decryptor"
-        except ValueError as error:
-            fallback_errors.append(str(error))
-
-    env = get_env(Path(app_dir)) if app_dir else {}
-    remote_url = env.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, "")
-    if remote_url:
-        try:
-            kind, value = request_happ_decryptor_remote_url(
-                remote_url,
-                source_url,
-                timeout=read_happ_decoder_timeout(env),
-            )
-            return kind, value, "remote-decryptor"
-        except ValueError as error:
-            fallback_errors.append(f"remote Happ decryptor failed: {error}")
-
-    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
-    if api_key:
-        api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
-            HAPP_DECODER_API_URL_ENV_KEY,
-            DEFAULT_HAPP_DECODER_API_URL,
-        )
-        try:
-            decrypted_url = request_happy_decoder(
-                api_url,
-                api_key,
-                source_url,
-                timeout=read_happ_decoder_timeout(env),
-            )
-            return "url", decrypted_url, "happy-decoder"
-        except ValueError as error:
-            fallback_errors.append(f"Happy Decoder fallback failed: {error}")
-
-    if fallback_errors:
-        raise ValueError("; ".join(fallback_errors))
-    raise ValueError(
-        f"happ://crypt requires an external decryptor; set {HAPP_DECRYPTOR_ENV_KEY} "
-        f"or {HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} or {HAPP_DECODER_API_KEY_ENV_KEY}"
-    )
-
-
-def find_happ_decryptor_command(app_dir):
-    env = get_env(Path(app_dir)) if app_dir else {}
-    command = env.get(HAPP_DECRYPTOR_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_ENV_KEY, "")
-    if command:
-        return command
-
-    if not app_dir:
-        return ""
-
-    app_path = Path(app_dir)
-    for directory in (app_path / "bin", app_path):
-        for name in HAPP_DECRYPTOR_CANDIDATES:
-            candidate = directory / name
-            if candidate.is_file():
-                return command_from_decryptor_path(candidate)
-    return ""
-
-
-def command_from_decryptor_path(path):
-    candidate = Path(path)
-    if candidate.suffix.lower() == ".py":
-        python = sys.executable or shutil.which("python3") or shutil.which("python") or ""
-        if python:
-            return format_command_parts([python, str(candidate)])
-    if candidate.suffix.lower() in HAPP_DECRYPTOR_NODE_SUFFIXES or has_node_shebang(candidate):
-        node = shutil.which("node") or ("/opt/bin/node" if Path("/opt/bin/node").is_file() else "")
-        if node:
-            return format_command_parts([node, str(candidate)])
-    return str(candidate)
-
-
-def has_node_shebang(path):
-    try:
-        with Path(path).open("rb") as file:
-            first_line = file.readline(256).decode("utf-8", "ignore").lower()
-    except OSError:
-        return False
-    return first_line.startswith("#!") and "node" in first_line
-
-
-def format_command_parts(parts):
-    normalized = []
-    for part in parts:
-        value = str(part)
-        if os.name == "nt":
-            value = value.replace("\\", "/")
-        normalized.append(value)
-    try:
-        return shlex.join(normalized)
-    except Exception:
-        return " ".join(normalized)
-
-
-def build_happ_decryptor_args(command, source_url):
-    parts = shlex.split(str(command or ""))
-    args = []
-    replaced = False
-    replacements = build_happ_decryptor_template_replacements(source_url)
-    for part in parts:
-        value = part
-        for token, replacement in replacements.items():
-            if token in value:
-                value = value.replace(token, replacement)
-                replaced = True
-        args.append(value)
-    if not replaced:
-        args.append(source_url)
-    return args
-
-
-def build_happ_decryptor_template_replacements(source_url):
-    encoded = urllib.parse.quote(str(source_url or ""), safe="")
-    raw = str(source_url or "")
-    return {
-        "%LINK%": raw,
-        "%URL%": raw,
-        "%INPUT%": raw,
-        "{link}": raw,
-        "{url}": raw,
-        "{input}": raw,
-        "%LINK_ENCODED%": encoded,
-        "%URL_ENCODED%": encoded,
-        "%INPUT_ENCODED%": encoded,
-        "{link_encoded}": encoded,
-        "{url_encoded}": encoded,
-        "{input_encoded}": encoded,
-    }
-
-
-def build_happ_decryptor_template_url(template, source_url):
-    url = str(template or "")
-    for token, replacement in build_happ_decryptor_template_replacements(source_url).items():
-        url = url.replace(token, replacement)
-    return url
-
-
-def parse_happ_decryptor_output(raw):
-    text = raw.decode("utf-8", "replace").strip()
-    if not text:
-        raise ValueError("happ decryptor returned empty output")
-
-    parsed = normalize_happ_decryptor_output(text)
-    if parsed:
-        return parsed
-    return "body", (text + "\n").encode("utf-8")
-
-
-def normalize_happ_decryptor_output(text):
+def normalize_happ_transport_result(text):
     raw = str(text or "").strip()
     if not raw:
         return None
@@ -2370,18 +1981,18 @@ def normalize_happ_decryptor_output(text):
         for key in ("payload", "content", "yaml", "data", "text", "body", "result", "output", "decrypted"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
-                nested = normalize_happ_decryptor_output(value)
+                nested = normalize_happ_transport_result(value)
                 if nested:
                     return nested
                 return "body", value.encode("utf-8")
     elif isinstance(data, str) and data.strip():
-        nested = normalize_happ_decryptor_output(data)
+        nested = normalize_happ_transport_result(data)
         if nested:
             return nested
 
-    result_block = extract_happ_result_block(raw)
+    result_block = extract_happ_transport_result_block(raw)
     if result_block and result_block != raw:
-        nested = normalize_happ_decryptor_output(result_block)
+        nested = normalize_happ_transport_result(result_block)
         if nested:
             return nested
 
@@ -2396,7 +2007,7 @@ def normalize_happ_decryptor_output(text):
     return None
 
 
-def extract_happ_result_block(text):
+def extract_happ_transport_result_block(text):
     lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for index, line in enumerate(lines):
         if not re.match(r"(?i)^result\s*:?\s*$", line.strip()):
@@ -2413,162 +2024,6 @@ def extract_happ_result_block(text):
         if collected:
             return "\n".join(collected).strip()
     return ""
-
-
-def decode_happ_with_happy_decoder(app_dir, source_url, provider_headers=None):
-    if not is_happ_crypt_url(source_url):
-        raise ValueError("happ://crypt URL is required")
-
-    env = get_env(Path(app_dir)) if app_dir else {}
-    timeout = max(read_happ_decoder_timeout(env), read_happ_decryptor_timeout(env, DEFAULT_HAPP_DECODER_TIMEOUT))
-    kind, value, source = resolve_happ_provider(source_url, app_dir, timeout)
-    if kind != "url":
-        raise ValueError("Happ decryptor returned provider payload, not a direct URL")
-
-    decrypted_url = value
-    verify = verify_decoded_provider_url(decrypted_url, provider_headers or {}, timeout=timeout)
-    if not verify["ok"]:
-        raise ValueError(f"decoded URL is not a direct provider: {verify['message']}")
-
-    return {
-        "ok": True,
-        "decryptedUrl": decrypted_url,
-        "source": source,
-        "verified": True,
-        "contentType": verify.get("contentType", ""),
-    }
-
-
-def request_happ_decryptor_remote_url(remote_url, source_url, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    target_url = build_happ_decryptor_template_url(remote_url, source_url)
-    parsed = urllib.parse.urlsplit(target_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} produced an invalid URL")
-    request = urllib.request.Request(
-        target_url,
-        headers={
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": "MihUI",
-        },
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", "replace")
-        raise ValueError(f"HTTP {error.code}: {extract_error_message(raw)}")
-    except urllib.error.URLError as error:
-        raise ValueError(format_urlopen_error(error))
-    except TimeoutError as error:
-        raise ValueError(f"timed out: {error}")
-    return parse_happ_decryptor_output(raw)
-
-
-def request_happy_decoder(api_url, api_key, source_url, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    body = json.dumps({"url": source_url}).encode("utf-8")
-    request = urllib.request.Request(
-        api_url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "MihUI",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", "replace")
-        raise ValueError(f"Happy Decoder returned HTTP {error.code}: {extract_error_message(raw)}")
-    except urllib.error.URLError as error:
-        raise ValueError(f"Happy Decoder API request failed: {format_urlopen_error(error)}")
-    except TimeoutError as error:
-        raise ValueError(f"Happy Decoder API request timed out: {error}")
-
-    data = json.loads(raw)
-    decrypted_url = str(data.get("decryptedUrl") or data.get("url") or "").strip()
-    if not normalize_landing_url(decrypted_url, "") or not is_http_url(decrypted_url):
-        raise ValueError("Happy Decoder response does not contain a direct http/https URL")
-    return decrypted_url
-
-
-def verify_decoded_provider_url(source_url, headers=None, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    if not is_http_url(source_url):
-        return {"ok": False, "message": "decoded URL is not http/https"}
-
-    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(DECODED_PROVIDER_VERIFY_BYTES)
-            content_type = response.headers.get("Content-Type") or ""
-    except Exception as error:
-        return {"ok": False, "message": f"decoded URL fetch failed: {format_urlopen_error(error)}"}
-
-    if not body.strip():
-        return {"ok": False, "message": "decoded provider returned empty payload"}
-    if looks_like_landing_page(body[:262144].decode("utf-8", "replace"), content_type):
-        return {"ok": False, "message": "decoded provider returned landing page"}
-    return {"ok": True, "contentType": content_type}
-
-
-def normalize_provider_headers(value):
-    if not isinstance(value, dict):
-        return {}
-    headers = {}
-    for name, header_value in value.items():
-        name = str(name or "").strip()
-        if not name:
-            continue
-        lower_name = name.lower()
-        if lower_name in PROVIDER_ADAPTER_BLOCKED_HEADERS or lower_name.startswith("proxy-"):
-            continue
-        headers[name] = str(header_value or "")
-    return headers
-
-
-def extract_error_message(text):
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return text.strip() or "empty response"
-    return str(data.get("message") or data.get("error") or text).strip()
-
-
-def read_happ_decoder_timeout(env):
-    value = env.get(HAPP_DECODER_TIMEOUT_ENV_KEY) or os.environ.get(HAPP_DECODER_TIMEOUT_ENV_KEY, "")
-    if not value:
-        return DEFAULT_HAPP_DECODER_TIMEOUT
-    try:
-        timeout = int(value)
-    except ValueError:
-        return DEFAULT_HAPP_DECODER_TIMEOUT
-    return min(max(timeout, 5), 120)
-
-
-def read_happ_decryptor_timeout(env, fallback=None):
-    value = env.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY, "")
-    if not value:
-        return max(DEFAULT_HAPP_DECRYPTOR_TIMEOUT, int(fallback or 0))
-    try:
-        timeout = int(value)
-    except ValueError:
-        return max(DEFAULT_HAPP_DECRYPTOR_TIMEOUT, int(fallback or 0))
-    return min(max(timeout, 1), 120)
-
-
-def format_urlopen_error(error):
-    reason = getattr(error, "reason", None)
-    if reason:
-        return str(reason)
-    return str(error)
-
-
-def is_http_url(value):
-    return urllib.parse.urlsplit(str(value or "").strip()).scheme in {"http", "https"}
 
 
 def append_hwid_query(source_url, headers):
@@ -2648,7 +2103,7 @@ def normalize_happ_transport_payload(body, content_type, base_url):
 
 def normalize_happ_transport_text(text, base_url):
     for candidate in build_happ_transport_candidates(text):
-        parsed = normalize_happ_decryptor_output(candidate)
+        parsed = normalize_happ_transport_result(candidate)
         if parsed:
             return parsed
 

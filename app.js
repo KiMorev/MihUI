@@ -357,18 +357,6 @@ const state = {
   },
   backups: [],
   selectedBackupName: '',
-  happDecoderSettings: {
-    apiKey: '',
-    apiUrl: '',
-    decryptorCmd: '',
-    decryptorTimeout: '45',
-    remoteUrl: '',
-    hasApiKey: false,
-    hasDecryptor: false,
-    hasRemoteUrl: false,
-    loading: false,
-    saving: false,
-  },
   updatePollTimer: 0,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
@@ -566,17 +554,6 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
-  happDecoderSettingsForm: document.querySelector('#happDecoderSettingsForm'),
-  happDecoderApiKey: document.querySelector('#happDecoderApiKey'),
-  happDecoderApiUrl: document.querySelector('#happDecoderApiUrl'),
-  happDecryptorCmd: document.querySelector('#happDecryptorCmd'),
-  happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
-  happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
-  happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
-  happDecoderFormState: document.querySelector('#happDecoderFormState'),
-  toggleHappDecoderApiKeyButton: document.querySelector('#toggleHappDecoderApiKeyButton'),
-  saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
-  reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -649,10 +626,6 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
-els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
-els.happDecoderSettingsForm.addEventListener('input', renderHappDecoderSettings);
-els.toggleHappDecoderApiKeyButton.addEventListener('click', toggleHappDecoderApiKeyVisibility);
-els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
@@ -691,7 +664,6 @@ els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates)
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
-renderHappDecoderSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
@@ -916,7 +888,6 @@ function initRouterMode() {
   }
 
   loadRouterMetadata();
-  loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
   loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
@@ -1202,137 +1173,6 @@ async function loadRouterMetadata() {
   } catch (error) {
     renderUiLinks([]);
   }
-}
-
-async function loadHappDecoderSettings(options = {}) {
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
-    renderHappDecoderSettings();
-    return;
-  }
-
-  state.happDecoderSettings.loading = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder');
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = '';
-    state.happDecoderSettings.apiUrl = data.apiUrl || '';
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || '';
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || '';
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    if (els.happDecoderApiKey) els.happDecoderApiKey.value = '';
-    if (els.happDecryptorCmd) els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    if (els.happDecryptorTimeout) els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    if (els.happDecryptorRemoteUrl) els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
-  } catch (error) {
-    if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.loading = false;
-    renderHappDecoderSettings();
-  }
-}
-
-async function saveHappDecoderSettings(event) {
-  event.preventDefault();
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') return;
-
-  const apiUrl = String(els.happDecoderApiUrl.value || '').trim();
-  const apiKey = String(els.happDecoderApiKey.value || '').trim();
-  const decryptorCmd = String(els.happDecryptorCmd.value || '').trim();
-  const decryptorTimeout = String(els.happDecryptorTimeout.value || '').trim();
-  const remoteUrl = String(els.happDecryptorRemoteUrl.value || '').trim();
-  const payload = { apiUrl, decryptorCmd, decryptorTimeout, remoteUrl };
-  if (apiKey) payload.apiKey = apiKey;
-
-  state.happDecoderSettings.saving = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = '';
-    state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || decryptorCmd;
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || remoteUrl;
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    els.happDecoderApiKey.value = '';
-    els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    showMessage('Настройки Happ Decoder сохранены.');
-  } catch (error) {
-    showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.saving = false;
-    renderHappDecoderSettings();
-  }
-}
-
-function renderHappDecoderSettings() {
-  if (!els.happDecoderSettingsForm) return;
-  const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
-  const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
-  const dirty = isHappDecoderSettingsDirty();
-  els.happDecoderApiKey.disabled = unavailable || busy;
-  els.happDecoderApiKey.placeholder = state.happDecoderSettings.hasApiKey ? 'Ключ уже задан' : 'Ключ не задан';
-  els.happDecoderApiUrl.disabled = unavailable || busy;
-  els.happDecryptorCmd.disabled = unavailable || busy;
-  els.happDecryptorTimeout.disabled = unavailable || busy;
-  els.happDecryptorRemoteUrl.disabled = unavailable || busy;
-  els.saveHappDecoderSettingsButton.disabled = unavailable || busy || !dirty;
-  els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
-
-  const label = els.saveHappDecoderSettingsButton.querySelector('span');
-  if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
-  const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
-  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать';
-
-  els.happDecoderFormState.textContent = dirty ? 'Есть несохраненные изменения' : 'Изменений нет';
-  els.happDecoderFormState.classList.toggle('is-dirty', dirty);
-
-  els.happDecoderSettingsStatus.classList.remove('is-success', 'is-muted');
-  if (unavailable) {
-    els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else if (state.happDecoderSettings.loading) {
-    els.happDecoderSettingsStatus.textContent = 'Загрузка...';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else {
-    const modes = [];
-    if (state.happDecoderSettings.hasApiKey) modes.push('API');
-    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('локально');
-    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('резерв');
-    els.happDecoderSettingsStatus.textContent = modes.length ? `Настроено · ${modes.join(' · ')}` : 'Не настроено';
-    els.happDecoderSettingsStatus.classList.add(modes.length ? 'is-success' : 'is-muted');
-  }
-}
-
-function isHappDecoderSettingsDirty() {
-  if (!els.happDecoderSettingsForm) return false;
-  return String(els.happDecoderApiKey.value || '').trim() !== String(state.happDecoderSettings.apiKey || '').trim()
-    || String(els.happDecoderApiUrl.value || '').trim() !== String(state.happDecoderSettings.apiUrl || '').trim()
-    || String(els.happDecryptorCmd.value || '').trim() !== String(state.happDecoderSettings.decryptorCmd || '').trim()
-    || String(els.happDecryptorTimeout.value || '').trim() !== String(state.happDecoderSettings.decryptorTimeout || '').trim()
-    || String(els.happDecryptorRemoteUrl.value || '').trim() !== String(state.happDecoderSettings.remoteUrl || '').trim();
-}
-
-function toggleHappDecoderApiKeyVisibility() {
-  const isVisible = els.happDecoderApiKey.type === 'text';
-  els.happDecoderApiKey.type = isVisible ? 'password' : 'text';
-  els.toggleHappDecoderApiKeyButton.textContent = isVisible ? 'Показать' : 'Скрыть';
-  els.toggleHappDecoderApiKeyButton.setAttribute('aria-pressed', String(!isVisible));
 }
 
 async function checkMihuiUpdate() {
@@ -2663,8 +2503,7 @@ async function decodeHappProvider(provider) {
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
     generateOutput();
     render();
-    const sourceLabel = data.source === 'browser-decryptor' ? 'локально в браузере' : 'через серверный fallback';
-    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована ${sourceLabel} и заменена на прямой URL.`);
+    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована локально в браузере и заменена на прямой URL.`);
   } catch (error) {
     showMessage(
       `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
@@ -2677,28 +2516,8 @@ async function decodeHappProvider(provider) {
 }
 
 async function decodeHappProviderUrl(provider) {
-  const errors = [];
-  if (canUseBrowserHappDecryptor()) {
-    try {
-      return await decodeHappProviderUrlInBrowser(provider.url);
-    } catch (error) {
-      errors.push(`browser decryptor: ${error?.message || error}`);
-    }
-  }
-
-  if (state.routerApiAvailable) {
-    try {
-      return await apiJson('/api/happ/decode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
-      });
-    } catch (error) {
-      errors.push(`server fallback: ${error?.message || error}`);
-    }
-  }
-
-  throw new Error(errors.join('; ') || 'no Happ decryptor is available');
+  if (!canUseBrowserHappDecryptor()) throw new Error('browser Happ decryptor is unavailable');
+  return decodeHappProviderUrlInBrowser(provider.url);
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
@@ -2735,16 +2554,6 @@ function normalizeBrowserDecodedHappUrl(value) {
     return decodeURIComponent(text.slice(addPrefix.length)).trim();
   }
   return text;
-}
-
-function getProviderRequestHeaders(provider) {
-  const headers = {};
-  if (String(provider.userAgent || '').trim()) headers['User-Agent'] = provider.userAgent.trim();
-  if (String(provider.xHwid || '').trim()) headers['x-hwid'] = provider.xHwid.trim();
-  parseCustomHeaderText(provider.customHeaders).forEach((entry) => {
-    if (entry.key) headers[entry.key] = entry.value;
-  });
-  return headers;
 }
 
 function parseAndRender() {
@@ -3740,7 +3549,7 @@ function collectProviderUrlDiagnostics(activeProviders) {
 
     const scheme = getUrlScheme(url);
     if (isHappDeepLink(url)) {
-      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.`);
+      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; расшифруйте ссылку кнопкой в редакторе.`);
       return;
     }
 
@@ -4834,7 +4643,7 @@ function bindHappDecodeButton(root, provider) {
   const label = button.querySelector('span');
   const isVisible = isHappDeepLink(provider.url);
   const isDecoding = state.happDecodeProviderName === provider.name;
-  const canDecode = canUseBrowserHappDecryptor() || state.routerApiAvailable;
+  const canDecode = canUseBrowserHappDecryptor();
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !canDecode || isDecoding;
@@ -4842,7 +4651,7 @@ function bindHappDecodeButton(root, provider) {
   button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = canUseBrowserHappDecryptor()
     ? 'Расшифровать локально в браузере и заменить URL провайдера'
-    : 'Доступно через браузерный decryptor или MihUI на роутере с Happ decryptor/Happy Decoder API';
+    : 'Браузерный decryptor недоступен';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
   button.addEventListener('click', () => decodeHappProvider(provider));
 }

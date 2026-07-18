@@ -23,7 +23,7 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /class="button compact provider-url-reveal-button"[\s\S]+?Показать/);
     assert.match(html, /id="nodeInventoryStatus"/);
     assert.match(html, /id="nodeResetFiltersButton"/);
-    assert.match(html, /id="happDecoderApiKey" type="password" autocomplete="off"/);
+    assert.doesNotMatch(html, /happDecoder|happDecryptor|Интеграция Happ Decoder/);
     assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML с исходными ссылками"/);
     assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML с исходными ссылками"/);
     assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
@@ -81,13 +81,15 @@ test('main and standalone expose one review-to-save flow', () => {
   }
 });
 
-test('main and standalone do not expose the stored Happ Decoder key', () => {
+test('main and standalone use only the browser Happ decryptor', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.doesNotMatch(source, /data\.apiKey/);
-    assert.match(source, /happDecoderApiKey\.value = ''/);
-    assert.match(source, /hasApiKey \? 'Ключ уже задан' : 'Ключ не задан'/);
+    assert.match(source, /decodeHappProviderUrlInBrowser/);
+    assert.doesNotMatch(source, /\/api\/happ\/decode|settings\/happ-decoder|Happy Decoder API|server fallback/);
   }
+
+  const server = read('router/mihui_server.py');
+  assert.doesNotMatch(server, /HAPP_DECRYPTOR|HAPP_DECODER|happy-decoder|\/api\/happ\/decode|settings\/happ-decoder/);
 });
 
 test('main and standalone expose responsive service traffic lights', () => {
