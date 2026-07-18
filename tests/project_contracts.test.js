@@ -258,29 +258,32 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
-test('main and standalone avoid a duplicate floating mobile section strip', () => {
+test('main and standalone show mobile section tabs only after the primary menu scrolls away', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.doesNotMatch(source, /mobileSectionTabs|mobile-section-tab/);
+    assert.match(source, /id="mobileSectionTabs" class="mobile-section-tabs"[^>]+aria-hidden="true" hidden/);
+    assert.match(source, /class="mobile-section-tab[^>]+data-section="settings"/);
   }
 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.mobile-topbar-meta\s*{[\s\S]+?position: static;/);
-    assert.doesNotMatch(source, /mobile-section-tabs|has-mobile-section-tabs/);
+    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?position: fixed;[\s\S]+?top: 0;/);
   }
 
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /MOBILE_STATIC_TOPBAR_MEDIA = '\(max-width: 560px\)'/);
-    assert.doesNotMatch(source, /mobileSectionTabs|mobile-section-tab|updateMobileSectionTabsVisibility/);
+    assert.match(source, /MOBILE_SECTION_TABS_MEDIA = '\(max-width: 560px\)'/);
+    assert.match(source, /const shouldShow = isMobile && sidebarBottom <= 0/);
+    assert.match(source, /window\.addEventListener\?\.\('scroll', updateMobileSectionTabsVisibility, \{ passive: true \}\)/);
+    assert.doesNotMatch(source, /mobileSectionTabsForced/);
   }
 });
 
 test('main and standalone keep section starts below the sticky topbar', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /return isStaticMobileTopbar \? 0 : els\.topbar\?\.offsetHeight \|\| 0/);
+    assert.match(source, /return isMobile \? getMobileSectionTabsHeight\(\) : els\.topbar\?\.offsetHeight \|\| 0/);
     assert.match(source, /stickyTopbarMargin = getStickyTopbarHeight\(\) \+ 12/);
     assert.match(source, /panel\.style\.scrollMarginTop = `\$\{Math\.max\(configuredMargin, stickyTopbarMargin\)\}px`/);
   }

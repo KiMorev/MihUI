@@ -13,6 +13,7 @@
   --warning: #a66300;
   --shadow: 0 8px 24px rgba(24, 34, 52, 0.045);
   --sidebar-width: 220px;
+  --mobile-section-tabs-height: 44px;
 }
 
 * {
@@ -845,6 +846,10 @@ h2 {
 }
 
 .mobile-flow-actions {
+  display: none;
+}
+
+.mobile-section-tabs {
   display: none;
 }
 
@@ -7059,6 +7064,64 @@ button.review-check-card:focus-visible {
   .rules-table-head,
   .rule-registry-row {
     padding-inline: 8px;
+  }
+
+  .mobile-section-tabs:not([hidden]) {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 40;
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    width: 100%;
+    height: var(--mobile-section-tabs-height);
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line-strong);
+    background: rgba(248, 250, 251, 0.98);
+    box-shadow: 0 4px 12px rgba(24, 34, 52, 0.08);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-section-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-section-tab {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 1px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mobile-section-tab .nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-section-tab.is-active {
+    border-bottom-color: var(--accent);
+    color: var(--accent-dark);
+  }
+
+  .mobile-section-tab:focus-visible {
+    outline: 2px solid rgba(8, 124, 128, 0.28);
+    outline-offset: -3px;
   }
 
   .rule-target-pill {

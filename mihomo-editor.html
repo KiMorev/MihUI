@@ -21,6 +21,7 @@
   --warning: #a66300;
   --shadow: 0 8px 24px rgba(24, 34, 52, 0.045);
   --sidebar-width: 220px;
+  --mobile-section-tabs-height: 44px;
 }
 
 * {
@@ -853,6 +854,10 @@ h2 {
 }
 
 .mobile-flow-actions {
+  display: none;
+}
+
+.mobile-section-tabs {
   display: none;
 }
 
@@ -7069,6 +7074,64 @@ button.review-check-card:focus-visible {
     padding-inline: 8px;
   }
 
+  .mobile-section-tabs:not([hidden]) {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 40;
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    width: 100%;
+    height: var(--mobile-section-tabs-height);
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line-strong);
+    background: rgba(248, 250, 251, 0.98);
+    box-shadow: 0 4px 12px rgba(24, 34, 52, 0.08);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-section-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-section-tab {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 1px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mobile-section-tab .nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-section-tab.is-active {
+    border-bottom-color: var(--accent);
+    color: var(--accent-dark);
+  }
+
+  .mobile-section-tab:focus-visible {
+    outline: 2px solid rgba(8, 124, 128, 0.28);
+    outline-offset: -3px;
+  }
+
   .rule-target-pill {
     max-width: 70px;
     overflow: hidden;
@@ -7361,6 +7424,15 @@ button.review-check-card:focus-visible {
 
       <div class="app-main">
       <header class="topbar">
+        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
+          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
         <div class="mobile-topbar-meta">
           <div class="topbar-main">
             <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
@@ -8220,7 +8292,7 @@ const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
-const MOBILE_STATIC_TOPBAR_MEDIA = '(max-width: 560px)';
+const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
@@ -8662,7 +8734,10 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  appSidebar: document.querySelector('.app-sidebar'),
+  primarySectionTabs: document.querySelector('.section-tabs'),
   topbar: document.querySelector('.topbar'),
+  mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
@@ -8706,7 +8781,7 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
-  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionTabs: document.querySelectorAll('.section-tab, .mobile-section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
@@ -8839,6 +8914,8 @@ els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
+window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
@@ -8873,6 +8950,7 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+updateMobileSectionTabsVisibility();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -8898,9 +8976,14 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
+function getMobileSectionTabsHeight() {
+  if (typeof window.getComputedStyle !== 'function') return 44;
+  return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 44;
+}
+
 function getStickyTopbarHeight() {
-  const isStaticMobileTopbar = Boolean(window.matchMedia?.(MOBILE_STATIC_TOPBAR_MEDIA).matches);
-  return isStaticMobileTopbar ? 0 : els.topbar?.offsetHeight || 0;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  return isMobile ? getMobileSectionTabsHeight() : els.topbar?.offsetHeight || 0;
 }
 
 function setActiveSection(section, options = {}) {
@@ -8909,6 +8992,8 @@ function setActiveSection(section, options = {}) {
   const shouldScroll = options.scroll !== false;
   state.activeSection = section;
   renderSectionTabs();
+  updateMobileSectionTabsVisibility();
+  centerActiveMobileSectionTab();
   if (!shouldScroll) return;
 
   const panel = document.querySelector(`[data-section-panel="${section}"]`);
@@ -8919,6 +9004,32 @@ function setActiveSection(section, options = {}) {
   const stickyTopbarMargin = getStickyTopbarHeight() + 12;
   panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateMobileSectionTabsVisibility() {
+  if (!els.mobileSectionTabs || !els.appSidebar) return;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
+  const shouldShow = isMobile && sidebarBottom <= 0;
+  const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
+
+  els.mobileSectionTabs.hidden = !shouldShow;
+  els.mobileSectionTabs.setAttribute('aria-hidden', String(!shouldShow));
+
+  if (els.primarySectionTabs) {
+    els.primarySectionTabs.inert = shouldShow;
+    els.primarySectionTabs.setAttribute('aria-hidden', String(shouldShow));
+  }
+
+  if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
+}
+
+function centerActiveMobileSectionTab() {
+  if (!els.mobileSectionTabs || els.mobileSectionTabs.hidden) return;
+  const activeTab = els.mobileSectionTabs.querySelector(`[data-section="${state.activeSection}"]`);
+  if (!activeTab) return;
+  const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
+  els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
 function renderSectionTabs() {

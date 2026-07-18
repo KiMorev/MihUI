@@ -7,7 +7,7 @@ const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
-const MOBILE_STATIC_TOPBAR_MEDIA = '(max-width: 560px)';
+const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
@@ -449,7 +449,10 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  appSidebar: document.querySelector('.app-sidebar'),
+  primarySectionTabs: document.querySelector('.section-tabs'),
   topbar: document.querySelector('.topbar'),
+  mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
@@ -493,7 +496,7 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
-  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionTabs: document.querySelectorAll('.section-tab, .mobile-section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
@@ -626,6 +629,8 @@ els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
+window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
@@ -660,6 +665,7 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+updateMobileSectionTabsVisibility();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -685,9 +691,14 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
+function getMobileSectionTabsHeight() {
+  if (typeof window.getComputedStyle !== 'function') return 44;
+  return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 44;
+}
+
 function getStickyTopbarHeight() {
-  const isStaticMobileTopbar = Boolean(window.matchMedia?.(MOBILE_STATIC_TOPBAR_MEDIA).matches);
-  return isStaticMobileTopbar ? 0 : els.topbar?.offsetHeight || 0;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  return isMobile ? getMobileSectionTabsHeight() : els.topbar?.offsetHeight || 0;
 }
 
 function setActiveSection(section, options = {}) {
@@ -696,6 +707,8 @@ function setActiveSection(section, options = {}) {
   const shouldScroll = options.scroll !== false;
   state.activeSection = section;
   renderSectionTabs();
+  updateMobileSectionTabsVisibility();
+  centerActiveMobileSectionTab();
   if (!shouldScroll) return;
 
   const panel = document.querySelector(`[data-section-panel="${section}"]`);
@@ -706,6 +719,32 @@ function setActiveSection(section, options = {}) {
   const stickyTopbarMargin = getStickyTopbarHeight() + 12;
   panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateMobileSectionTabsVisibility() {
+  if (!els.mobileSectionTabs || !els.appSidebar) return;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
+  const shouldShow = isMobile && sidebarBottom <= 0;
+  const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
+
+  els.mobileSectionTabs.hidden = !shouldShow;
+  els.mobileSectionTabs.setAttribute('aria-hidden', String(!shouldShow));
+
+  if (els.primarySectionTabs) {
+    els.primarySectionTabs.inert = shouldShow;
+    els.primarySectionTabs.setAttribute('aria-hidden', String(shouldShow));
+  }
+
+  if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
+}
+
+function centerActiveMobileSectionTab() {
+  if (!els.mobileSectionTabs || els.mobileSectionTabs.hidden) return;
+  const activeTab = els.mobileSectionTabs.querySelector(`[data-section="${state.activeSection}"]`);
+  if (!activeTab) return;
+  const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
+  els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
 function renderSectionTabs() {
