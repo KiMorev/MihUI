@@ -179,6 +179,13 @@ test('main and standalone expose the UI switcher in the brand block', () => {
   }
 });
 
+test('main and standalone keep provider filter text size stable on iOS', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.provider-inspector-list\s*{[\s\S]+?-webkit-text-size-adjust: 100%;[\s\S]+?text-size-adjust: 100%;/);
+  }
+});
+
 test('main and standalone expose a flat configuration menu', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
