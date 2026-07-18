@@ -188,6 +188,21 @@ test('main and standalone keep provider filter text size stable on iOS', () => {
   }
 });
 
+test('main and standalone present provider filters as compact disclosures', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /createProviderFilterInspectorSection\(provider\)/);
+    assert.match(source, /section\.open = window\.matchMedia\('\(min-width: 981px\)'\)\.matches/);
+    assert.match(source, /show\.textContent = 'Полностью'/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.provider-inspector-filter-head,[\s\S]+?min-height: 44px;/);
+    assert.match(source, /\.provider-inspector-filter-preview\s*{[\s\S]+?-webkit-line-clamp: 2;/);
+  }
+});
+
 test('main and standalone expose a flat configuration menu', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
@@ -243,39 +258,51 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
-test('main and standalone expose a lightweight mobile section strip', () => {
+test('main and standalone avoid a duplicate floating mobile section strip', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /id="mobileSectionTabs"[^>]+hidden/);
-    assert.equal((source.match(/class="mobile-section-tab(?: is-active)?"/g) || []).length, 7);
-    assert.ok(source.indexOf('id="mobileSectionTabs"') < source.indexOf('class="topbar-main"'));
+    assert.doesNotMatch(source, /mobileSectionTabs|mobile-section-tab/);
   }
 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /--mobile-section-tabs-height: 40px/);
-    assert.match(source, /\.mobile-topbar-meta\s*{[\s\S]+?height: 48px;/);
-    assert.match(source, /\.topbar\.has-mobile-section-tabs \.mobile-topbar-meta\s*{[\s\S]+?top: var\(--mobile-section-tabs-height\);/);
-    assert.match(source, /\.topbar\.has-mobile-section-tabs-overflow-right \.mobile-section-tabs/);
-    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-x: auto;/);
-    assert.match(source, /\.mobile-section-tab\.is-active\s*{[\s\S]+?border-bottom-color: var\(--accent\);/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.mobile-topbar-meta\s*{[\s\S]+?position: static;/);
+    assert.doesNotMatch(source, /mobile-section-tabs|has-mobile-section-tabs/);
   }
 
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /sidebarBottom <= mobileTabsHeight \+ 1/);
-    assert.match(source, /mobileSectionTabsForced = shouldScroll && Boolean/);
-    assert.match(source, /centerActiveMobileSectionTab\(\)/);
-    assert.match(source, /primarySectionTabs\.inert = primaryTabsHidden/);
-    assert.match(source, /has-mobile-section-tabs-overflow-right/);
+    assert.match(source, /MOBILE_STATIC_TOPBAR_MEDIA = '\(max-width: 560px\)'/);
+    assert.doesNotMatch(source, /mobileSectionTabs|mobile-section-tab|updateMobileSectionTabsVisibility/);
   }
 });
 
 test('main and standalone keep section starts below the sticky topbar', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
+    assert.match(source, /return isStaticMobileTopbar \? 0 : els\.topbar\?\.offsetHeight \|\| 0/);
     assert.match(source, /stickyTopbarMargin = getStickyTopbarHeight\(\) \+ 12/);
     assert.match(source, /panel\.style\.scrollMarginTop = `\$\{Math\.max\(configuredMargin, stickyTopbarMargin\)\}px`/);
+  }
+});
+
+test('main and standalone keep provider creation and Happ feedback local on mobile', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /class="provider-url-status" aria-live="polite" hidden/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /Happ-ссылка расшифрована\. Прямой URL подставлен\./);
+    assert.match(source, /querySelector\('\.provider-detail\.is-editing'\)/);
+    assert.match(source, /scrollIntoView\?\.\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-toolbar\s*{[\s\S]+?display: grid;/);
+    assert.match(source, /\.provider-card-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   }
 });
 

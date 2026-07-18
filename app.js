@@ -7,7 +7,7 @@ const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
 const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
-const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
+const MOBILE_STATIC_TOPBAR_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
@@ -320,6 +320,7 @@ const state = {
   providerStatusLoading: false,
   providerUpdatingName: '',
   happDecodeProviderName: '',
+  happDecodeFeedback: null,
   mihomoNodes: [],
   mihomoGroupSelections: [],
   nodeInventoryLoading: false,
@@ -402,7 +403,6 @@ const state = {
 };
 
 let happBrowserDecryptorPromise = null;
-let mobileSectionTabsForced = false;
 
 const els = {
   routerLoadButton: document.querySelector('#routerLoadButton'),
@@ -449,11 +449,7 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
-  appSidebar: document.querySelector('.app-sidebar'),
-  primarySectionTabs: document.querySelector('.section-tabs'),
   topbar: document.querySelector('.topbar'),
-  mobileTopbarMeta: document.querySelector('.mobile-topbar-meta'),
-  mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
@@ -497,7 +493,7 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
-  sectionTabs: document.querySelectorAll('.section-tab, .mobile-section-tab'),
+  sectionTabs: document.querySelectorAll('.section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
@@ -630,10 +626,7 @@ els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
-window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
-window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
-els.mobileSectionTabs?.addEventListener('scroll', updateMobileSectionTabsOverflowHint, { passive: true });
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
@@ -667,7 +660,6 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
-updateMobileSectionTabsVisibility();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
@@ -693,26 +685,17 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
-function getMobileSectionTabsHeight() {
-  if (typeof window.getComputedStyle !== 'function') return 40;
-  return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 0;
-}
-
 function getStickyTopbarHeight() {
-  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
-  if (!isMobile) return els.topbar?.offsetHeight || 0;
-  const tabsHeight = els.mobileSectionTabs?.hidden ? 0 : getMobileSectionTabsHeight();
-  return tabsHeight + (els.mobileTopbarMeta?.offsetHeight || 0);
+  const isStaticMobileTopbar = Boolean(window.matchMedia?.(MOBILE_STATIC_TOPBAR_MEDIA).matches);
+  return isStaticMobileTopbar ? 0 : els.topbar?.offsetHeight || 0;
 }
 
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
   const shouldScroll = options.scroll !== false;
-  mobileSectionTabsForced = shouldScroll && Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
   state.activeSection = section;
   renderSectionTabs();
-  updateMobileSectionTabsVisibility();
   if (!shouldScroll) return;
 
   const panel = document.querySelector(`[data-section-panel="${section}"]`);
@@ -723,53 +706,6 @@ function setActiveSection(section, options = {}) {
   const stickyTopbarMargin = getStickyTopbarHeight() + 12;
   panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function updateMobileSectionTabsVisibility() {
-  if (!els.mobileSectionTabs || !els.appSidebar) return;
-  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
-  const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
-  const mobileTabsHeight = getMobileSectionTabsHeight();
-  const sidebarHasLeftViewport = sidebarBottom <= mobileTabsHeight + 1;
-  if (sidebarHasLeftViewport) mobileSectionTabsForced = false;
-  const shouldShow = isMobile && (mobileSectionTabsForced || sidebarHasLeftViewport);
-  const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
-  els.mobileSectionTabs.hidden = !shouldShow;
-  if (shouldShow && sidebarHasLeftViewport) {
-    els.mobileSectionTabs.removeAttribute('aria-hidden');
-  } else {
-    els.mobileSectionTabs.setAttribute('aria-hidden', 'true');
-  }
-  if (els.primarySectionTabs) {
-    const primaryTabsHidden = isMobile && sidebarHasLeftViewport;
-    els.primarySectionTabs.inert = primaryTabsHidden;
-    if (primaryTabsHidden) {
-      els.primarySectionTabs.setAttribute?.('aria-hidden', 'true');
-    } else {
-      els.primarySectionTabs.removeAttribute?.('aria-hidden');
-    }
-  }
-  els.topbar?.classList.toggle('has-mobile-section-tabs', shouldShow);
-  if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
-  updateMobileSectionTabsOverflowHint();
-}
-
-function updateMobileSectionTabsOverflowHint() {
-  if (!els.mobileSectionTabs || !els.topbar || els.mobileSectionTabs.hidden) {
-    els.topbar?.classList.remove('has-mobile-section-tabs-overflow-right');
-    return;
-  }
-  const hasOverflowRight = els.mobileSectionTabs.scrollLeft + els.mobileSectionTabs.clientWidth < els.mobileSectionTabs.scrollWidth - 2;
-  els.topbar.classList.toggle('has-mobile-section-tabs-overflow-right', hasOverflowRight);
-}
-
-function centerActiveMobileSectionTab() {
-  if (!els.mobileSectionTabs || els.mobileSectionTabs.hidden) return;
-  const activeTab = els.mobileSectionTabs.querySelector(`[data-section="${state.activeSection}"]`);
-  if (!activeTab) return;
-  const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
-  els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
-  updateMobileSectionTabsOverflowHint();
 }
 
 function renderSectionTabs() {
@@ -789,7 +725,6 @@ function renderSectionTabs() {
   renderRoutingView();
   renderXkeenNetworkFiles();
   els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
-  centerActiveMobileSectionTab();
 }
 
 function setProviderView(view) {
@@ -2493,6 +2428,7 @@ async function updateProviderNow(provider) {
 async function decodeHappProvider(provider) {
   if (!provider?.url || typeof fetch !== 'function') return;
   state.happDecodeProviderName = provider.name;
+  state.happDecodeFeedback = null;
   render();
 
   try {
@@ -2501,10 +2437,19 @@ async function decodeHappProvider(provider) {
     provider.url = data.decryptedUrl || provider.url;
     provider.hasUrl = true;
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'success',
+      message: 'Happ-ссылка расшифрована. Прямой URL подставлен.',
+    };
     generateOutput();
     render();
-    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована локально в браузере и заменена на прямой URL.`);
   } catch (error) {
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'error',
+      message: `Не удалось расшифровать Happ-ссылку: ${error?.message || error}`,
+    };
     showMessage(
       `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
       { href: 'https://leeeet.dev/happ-decryptor/', label: 'Happ decryptor' },
@@ -4445,10 +4390,7 @@ function createProviderInspector(provider) {
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
     createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
-    createProviderInspectorSection('Фильтрация нод', [
-      provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
-      provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
-    ], 'list'),
+    createProviderFilterInspectorSection(provider),
     createProviderInspectorSection('Обновление', [
       provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
       status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
@@ -4492,6 +4434,71 @@ function createProviderInspectorSection(label, values, variant) {
   });
   section.append(title, body);
   return section;
+}
+
+function createProviderFilterInspectorSection(provider) {
+  const rules = [
+    { label: 'Включать', value: String(provider.filter || '').trim() },
+    { label: 'Исключать', value: String(provider.excludeFilter || '').trim() },
+  ].filter((rule) => rule.value);
+
+  if (!rules.length) {
+    return createProviderInspectorSection('Фильтрация нод', ['Не настроено'], 'list');
+  }
+
+  const section = document.createElement('details');
+  const summary = document.createElement('summary');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const count = document.createElement('span');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  const body = document.createElement('div');
+
+  section.className = 'provider-inspector-section provider-inspector-filters';
+  section.open = window.matchMedia('(min-width: 981px)').matches;
+  summary.className = 'provider-inspector-filter-head';
+  title.textContent = 'Фильтрация нод';
+  count.textContent = `${rules.length} ${rules.length === 1 ? 'правило' : 'правила'}`;
+  icon.classList.add('provider-disclosure-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', '#icon-chevron-down');
+  icon.append(iconUse);
+  meta.append(count, icon);
+  summary.append(title, meta);
+  body.className = 'provider-inspector-filter-rules';
+  rules.forEach((rule) => body.append(createProviderFilterRule(rule)));
+  section.append(summary, body);
+  return section;
+}
+
+function createProviderFilterRule(rule) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  const preview = document.createElement('code');
+  const toggle = document.createElement('span');
+  const show = document.createElement('span');
+  const hide = document.createElement('span');
+  const full = document.createElement('code');
+
+  details.className = 'provider-inspector-filter-rule';
+  summary.className = 'provider-inspector-filter-rule-head';
+  label.className = 'provider-inspector-filter-label';
+  label.textContent = rule.label;
+  preview.className = 'provider-inspector-filter-preview';
+  preview.textContent = rule.value;
+  toggle.className = 'provider-inspector-filter-toggle';
+  show.className = 'provider-inspector-filter-toggle-show';
+  show.textContent = 'Полностью';
+  hide.className = 'provider-inspector-filter-toggle-hide';
+  hide.textContent = 'Свернуть';
+  toggle.append(show, hide);
+  summary.append(label, preview, toggle);
+  full.className = 'provider-inspector-filter-full';
+  full.textContent = rule.value;
+  details.append(summary, full);
+  return details;
 }
 
 function formatDuration(value) {
@@ -4554,6 +4561,7 @@ function formatProviderListMeta(provider) {
 function bindProviderUrl(root, provider) {
   const input = root.querySelector('.provider-url');
   const revealButton = root.querySelector('.provider-url-reveal-button');
+  const decodeStatus = root.querySelector('.provider-url-status');
   let revealed = !state.hideProviderUrls || !provider.url || provider.isNew;
   const renderValue = () => {
     const shouldMask = state.hideProviderUrls && Boolean(provider.url) && !revealed;
@@ -4567,7 +4575,13 @@ function bindProviderUrl(root, provider) {
   };
 
   renderValue();
-  input.addEventListener('input', () => updateProvider(provider, 'url', input.value));
+  input.addEventListener('input', () => {
+    if (state.happDecodeFeedback?.provider === provider) {
+      state.happDecodeFeedback = null;
+      decodeStatus.hidden = true;
+    }
+    updateProvider(provider, 'url', input.value);
+  });
   revealButton.addEventListener('click', () => {
     revealed = !revealed;
     renderValue();
@@ -4641,9 +4655,11 @@ function bindProviderUpdateButton(root, provider) {
 function bindHappDecodeButton(root, provider) {
   const button = root.querySelector('.happ-decode-button');
   const label = button.querySelector('span');
+  const status = root.querySelector('.provider-url-status');
   const isVisible = isHappDeepLink(provider.url);
   const isDecoding = state.happDecodeProviderName === provider.name;
   const canDecode = canUseBrowserHappDecryptor();
+  const feedback = state.happDecodeFeedback?.provider === provider ? state.happDecodeFeedback : null;
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !canDecode || isDecoding;
@@ -4653,6 +4669,10 @@ function bindHappDecodeButton(root, provider) {
     ? 'Расшифровать локально в браузере и заменить URL провайдера'
     : 'Браузерный decryptor недоступен';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
+  status.hidden = !feedback;
+  status.className = `provider-url-status${feedback ? ` is-${feedback.severity}` : ''}`;
+  status.textContent = feedback?.message || '';
+  status.setAttribute('role', feedback?.severity === 'error' ? 'alert' : 'status');
   button.addEventListener('click', () => decodeHappProvider(provider));
 }
 
@@ -8183,6 +8203,12 @@ function addProvider() {
   connectProviderToUseGroups(provider.name);
   generateOutput();
   render();
+
+  window.setTimeout(() => {
+    const editor = els.providersList.querySelector('.provider-detail.is-editing');
+    if (editor?.style) editor.style.scrollMarginTop = `${getStickyTopbarHeight() + 12}px`;
+    editor?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, 0);
 
   window.setTimeout(() => {
     provider.highlight = false;
