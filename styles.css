@@ -6804,8 +6804,14 @@ button.review-check-card:focus-visible {
   }
 
   .component-advanced > summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     min-height: 44px;
     padding: 9px 10px;
+    font: inherit;
+    font-weight: 650;
+    text-align: center;
   }
 
   .component-manager-item:not(.is-update-available) .component-version-grid {
