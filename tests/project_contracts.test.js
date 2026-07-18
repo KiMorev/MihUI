@@ -248,6 +248,7 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
+    assert.doesNotMatch(source, /\.mobile-flow-actions:not\(\[hidden\]\)\s*{[^}]*position:\s*sticky/);
     assert.match(source, /\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: minmax\(330px, 0\.72fr\) minmax\(0, 1\.28fr\);/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: 1fr;/);
     assert.doesNotMatch(source, /review-support-column/);
