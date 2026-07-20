@@ -843,6 +843,7 @@ function handleSubsectionTabKeydown(event, tabs, dataKey, setView) {
 function handleFileSelect(event) {
   const [file] = event.target.files;
   if (!file) return;
+  els.fileTools.open = false;
 
   const reader = new FileReader();
   reader.onload = () => {
