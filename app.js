@@ -393,6 +393,7 @@ const state = {
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
     },
     job: { running: false, ok: null, component: '', action: '', target: '', phase: 'idle', message: '', output: '' },
+    jobVisible: false,
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
@@ -488,6 +489,7 @@ const els = {
   componentJobPanel: document.querySelector('#componentJobPanel'),
   componentJobTitle: document.querySelector('#componentJobTitle'),
   componentJobMessage: document.querySelector('#componentJobMessage'),
+  dismissComponentJobButton: document.querySelector('#dismissComponentJobButton'),
   componentJobDetails: document.querySelector('#componentJobDetails'),
   componentJobOutput: document.querySelector('#componentJobOutput'),
   providerCount: document.querySelector('#providerCount'),
@@ -651,6 +653,7 @@ els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
+els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
 els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
@@ -1879,6 +1882,7 @@ async function loadComponents(options = {}) {
     state.components.xkeenChannelCurrent = xkeenChannel;
     state.components.updateCount = Number(data.updateCount) || 0;
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
   } catch (error) {
     if (!options.silent) showMessage('Не удалось проверить версии компонентов.', { severity: 'warning', details: error?.message || String(error) });
@@ -1908,6 +1912,14 @@ function closeComponentManager() {
 
 function handleComponentManagerClosed() {
   document.body.classList.remove('component-manager-open');
+  if (!state.components.job.running) dismissComponentJob();
+}
+
+function dismissComponentJob() {
+  if (state.components.job.running) return;
+  state.components.jobVisible = false;
+  els.componentJobDetails.open = false;
+  renderComponentJob();
 }
 
 function setComponentManagerView(view) {
@@ -2124,16 +2136,19 @@ function renderComponentManager() {
 
 function renderComponentJob() {
   const job = state.components.job;
-  const visible = job.running || job.ok !== null;
+  const visible = job.running || (state.components.jobVisible && job.ok !== null);
   els.componentJobPanel.hidden = !visible;
   if (!visible) return;
   els.componentJobPanel.classList.toggle('is-error', job.ok === false);
+  els.dismissComponentJobButton.hidden = job.running;
   els.componentJobTitle.textContent = job.running
     ? getComponentActionLabel(job)
     : job.ok
-      ? 'Операция завершена'
+      ? getComponentActionSuccessLabel(job)
       : 'Операция не выполнена';
-  els.componentJobMessage.textContent = job.message || '';
+  const message = job.ok === true && job.message === 'Операция завершена' ? '' : job.message;
+  els.componentJobMessage.textContent = message || '';
+  els.componentJobMessage.hidden = !message;
   els.componentJobOutput.textContent = job.output || '';
   els.componentJobDetails.hidden = !job.output;
 }
@@ -2146,6 +2161,16 @@ function getComponentActionLabel(job) {
   if (job.action === 'channel') return `Переключение канала XKeen`;
   if (job.action === 'rollback') return 'Восстановление XKeen';
   return `Обновление ${component}`;
+}
+
+function getComponentActionSuccessLabel(job) {
+  if (job.component === 'all') return 'Компоненты обновлены';
+  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  if (job.action === 'restart') return `${component} перезапущен`;
+  if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
+  if (job.action === 'channel') return 'Канал XKeen переключён';
+  if (job.action === 'rollback') return 'XKeen восстановлен';
+  return `${component} обновлён`;
 }
 
 function getComponentUpdateSummary() {
@@ -2244,6 +2269,8 @@ async function startComponentAction(payload) {
       body: JSON.stringify(payload),
     });
     state.components.job = normalizeComponentJob(data.job);
+    state.components.jobVisible = true;
+    els.componentJobDetails.open = false;
     renderComponentManager();
     renderXkeenNetworkFiles();
     pollComponentJob();
@@ -2260,8 +2287,11 @@ async function pollComponentJob() {
     state.components.pollTimer = 0;
   }
   try {
+    const wasRunning = state.components.job.running;
     const data = await apiJson('/api/components/job');
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
+    if (wasRunning && !state.components.job.running) els.componentJobDetails.open = false;
     renderComponentManager();
     renderXkeenNetworkFiles();
     if (state.components.job.running) {

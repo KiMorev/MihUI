@@ -711,6 +711,19 @@
         </header>
         <div class="component-manager-body">
           <p id="componentManagerNotice" class="component-manager-notice" data-component-updates-view aria-live="polite">Получаем версии компонентов...</p>
+          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
+            <div class="component-job-head">
+              <div class="component-job-copy">
+                <strong id="componentJobTitle">Операция выполняется</strong>
+                <span id="componentJobMessage"></span>
+              </div>
+              <button id="dismissComponentJobButton" class="button compact" type="button" hidden>Скрыть</button>
+            </div>
+            <details id="componentJobDetails" hidden>
+              <summary>Журнал операции</summary>
+              <pre id="componentJobOutput"></pre>
+            </details>
+          </section>
           <div class="component-manager-list" data-component-updates-view>
             <article class="component-manager-item" data-component-card="xkeen">
               <header>
@@ -791,14 +804,6 @@
                 </div>
               </section>
             </div>
-          </section>
-          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
-            <strong id="componentJobTitle">Операция выполняется</strong>
-            <span id="componentJobMessage"></span>
-            <details id="componentJobDetails" hidden>
-              <summary>Технические подробности</summary>
-              <pre id="componentJobOutput"></pre>
-            </details>
           </section>
         </div>
         <footer class="component-manager-footer">

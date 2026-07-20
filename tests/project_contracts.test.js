@@ -117,6 +117,9 @@ test('main and standalone expose component update markers and one manager flow',
     assert.doesNotMatch(source, /Через XKeen/);
     assert.match(source, /Понизить Mihomo/);
     assert.match(source, /Переустановить текущую Beta-сборку/);
+    assert.match(source, /state\.components\.jobVisible = true/);
+    assert.match(source, /state\.components\.jobVisible && job\.ok !== null/);
+    assert.match(source, /getComponentActionSuccessLabel\(job\)/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
 
@@ -131,12 +134,16 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?max-height: calc\(100dvh - 16px\);/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-advanced > summary\s*{[\s\S]+?display: flex;[\s\S]+?justify-content: center;[\s\S]+?font: inherit;[\s\S]+?text-align: center;/);
     assert.match(source, /\.component-manager-item:not\(\.is-update-available\) \[data-component-update\][\s\S]+?display: none;/);
+    assert.match(source, /\.component-job-panel pre\s*{[\s\S]+?max-width: 100%;[\s\S]+?max-height: min\(180px, 30vh\);/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-job-panel pre\s*{[\s\S]+?overflow-wrap: anywhere;/);
     assert.match(source, /@media \(max-width: 560px\) and \(max-height: 600px\)/);
   }
 
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
     assert.equal((source.match(/data-service-update-marker hidden/g) || []).length, 4);
+    assert.match(source, /id="dismissComponentJobButton"[^>]*hidden>Скрыть<\/button>/);
+    assert.match(source, /<summary>Журнал операции<\/summary>/);
     assert.doesNotMatch(source, /service-update-mobile-badge/);
   }
 });

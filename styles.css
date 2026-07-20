@@ -1830,7 +1830,8 @@ body.component-manager-open {
 
 .component-job-panel {
   display: grid;
-  gap: 5px;
+  gap: 8px;
+  min-width: 0;
   padding: 11px 12px;
   border: 1px solid rgba(8, 124, 128, 0.32);
   border-radius: 8px;
@@ -1842,13 +1843,27 @@ body.component-manager-open {
   background: #fff4f2;
 }
 
-.component-job-panel > span {
+.component-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.component-job-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.component-job-copy > span {
   color: var(--muted);
   font-size: 13px;
 }
 
 .component-job-panel details {
-  margin-top: 4px;
+  min-width: 0;
 }
 
 .component-job-panel summary {
@@ -1859,7 +1874,11 @@ body.component-manager-open {
 }
 
 .component-job-panel pre {
-  max-height: 180px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(180px, 30vh);
   margin: 8px 0 0;
   padding: 10px;
   overflow: auto;
@@ -6821,6 +6840,26 @@ button.review-check-card:focus-visible {
   .component-manager-item:not(.is-update-available) .component-version-grid > div:last-child,
   .component-manager-item:not(.is-update-available) [data-component-update] {
     display: none;
+  }
+
+  .component-job-panel {
+    padding: 9px 10px;
+  }
+
+  .component-job-panel summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .component-job-head > .button {
+    min-height: 44px;
+  }
+
+  .component-job-panel pre {
+    max-height: min(150px, 24dvh);
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .component-manager-footer {
