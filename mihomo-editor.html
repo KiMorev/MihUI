@@ -1743,17 +1743,21 @@ body.component-manager-open {
 }
 
 .component-advanced > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: max-content;
   min-height: 34px;
-  padding: 7px 10px;
+  padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: #fff;
   color: var(--text);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
+  font: inherit;
+  font-weight: 650;
   list-style: none;
+  text-align: center;
 }
 
 .component-advanced > summary::-webkit-details-marker {
@@ -1763,6 +1767,13 @@ body.component-manager-open {
 .component-advanced[open] {
   grid-column: 1 / -1;
   width: 100%;
+}
+
+@media (min-width: 561px) {
+  .component-advanced[open] {
+    grid-column: 2;
+    width: auto;
+  }
 }
 
 .component-advanced-body {
@@ -6463,6 +6474,7 @@ button.review-check-card:focus-visible {
 
   .button,
   .button.compact,
+  .component-advanced > summary,
   .link-button,
   .download-warning,
   .message-action,

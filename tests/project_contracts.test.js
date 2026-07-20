@@ -131,6 +131,9 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /\.component-manager-state\.is-update/);
     assert.match(source, /body\.component-manager-open\s*{/);
     assert.match(source, /\.component-advanced\[open\]\s*{/);
+    assert.match(source, /\.component-advanced > summary\s*{[\s\S]+?display: inline-flex;[\s\S]+?align-items: center;[\s\S]+?justify-content: center;[\s\S]+?font: inherit;[\s\S]+?font-weight: 650;/);
+    assert.match(source, /@media \(min-width: 561px\)[\s\S]+?\.component-advanced\[open\]\s*{[\s\S]+?grid-column: 2;[\s\S]+?width: auto;/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.button\.compact,[\s\S]+?\.component-advanced > summary,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?max-height: calc\(100dvh - 16px\);/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-advanced > summary\s*{[\s\S]+?display: flex;[\s\S]+?justify-content: center;[\s\S]+?font: inherit;[\s\S]+?text-align: center;/);
     assert.match(source, /\.component-manager-item:not\(\.is-update-available\) \[data-component-update\][\s\S]+?display: none;/);
