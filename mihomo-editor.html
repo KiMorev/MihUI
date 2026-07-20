@@ -1737,46 +1737,12 @@ body.component-manager-open {
   align-items: start;
 }
 
-.component-advanced {
-  position: relative;
-  min-width: 0;
-}
-
-.component-advanced > summary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: max-content;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 650;
-  list-style: none;
-  text-align: center;
-}
-
-.component-advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-.component-advanced[open] {
-  grid-column: 1 / -1;
-  width: 100%;
-}
-
-@media (min-width: 561px) {
-  .component-advanced[open] {
-    grid-column: 2;
-    width: auto;
-  }
+.component-advanced-toggle {
+  justify-self: start;
 }
 
 .component-advanced-body {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -6474,7 +6440,6 @@ button.review-check-card:focus-visible {
 
   .button,
   .button.compact,
-  .component-advanced > summary,
   .link-button,
   .download-warning,
   .message-action,
@@ -6732,8 +6697,6 @@ button.review-check-card:focus-visible {
   }
 
   .component-manager-actions,
-  .component-advanced,
-  .component-advanced > summary,
   .component-version-picker-controls {
     width: 100%;
   }
@@ -6832,9 +6795,7 @@ button.review-check-card:focus-visible {
     gap: 6px;
   }
 
-  .component-manager-actions,
-  .component-advanced,
-  .component-advanced > summary {
+  .component-manager-actions {
     width: auto;
   }
 
@@ -6842,19 +6803,12 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
-  .component-advanced > summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    padding: 9px 10px;
-    font: inherit;
-    font-weight: 650;
-    text-align: center;
-  }
-
   .component-manager-item:not(.is-update-available) .component-version-grid {
     grid-template-columns: 1fr;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-advanced-toggle {
+    grid-column: 1 / -1;
   }
 
   .component-manager-item:not(.is-update-available) .component-version-grid > div:last-child,
@@ -8124,26 +8078,24 @@ button.review-check-card:focus-visible {
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Параметры</summary>
-                  <div class="component-advanced-body">
-                    <div class="xkeen-channel-setting">
-                      <div class="xkeen-channel-copy">
-                        <strong>Канал обновлений</strong>
-                        <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
-                      </div>
-                      <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
-                      </div>
-                      <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="xkeenAdvancedPanel">Параметры</button>
+                <div id="xkeenAdvancedPanel" class="component-advanced-body" hidden>
+                  <div class="xkeen-channel-setting">
+                    <div class="xkeen-channel-copy">
+                      <strong>Канал обновлений</strong>
+                      <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
                     </div>
-                    <div class="component-advanced-actions">
-                      <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
-                      <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                    <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
                     </div>
+                    <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
                   </div>
-                </details>
+                  <div class="component-advanced-actions">
+                    <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
+                    <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                  </div>
+                </div>
               </div>
             </article>
 
@@ -8158,16 +8110,14 @@ button.review-check-card:focus-visible {
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Параметры</summary>
-                  <div class="component-advanced-body">
-                    <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
-                    <div class="component-version-picker-controls">
-                      <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
-                      <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
-                    </div>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="mihomoAdvancedPanel">Параметры</button>
+                <div id="mihomoAdvancedPanel" class="component-advanced-body" hidden>
+                  <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
+                  <div class="component-version-picker-controls">
+                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
                   </div>
-                </details>
+                </div>
               </div>
             </article>
           </div>
@@ -8820,6 +8770,7 @@ const els = {
   componentLatestLabels: document.querySelectorAll('[data-component-latest-label]'),
   componentChannels: document.querySelectorAll('[data-component-channel]'),
   componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
+  componentAdvancedButtons: document.querySelectorAll('[data-component-advanced-toggle]'),
   componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
   xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
   xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
@@ -9004,6 +8955,12 @@ els.componentManagerDialog.addEventListener('close', handleComponentManagerClose
 els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
 els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
+els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
+  const panel = document.getElementById(button.getAttribute('aria-controls'));
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', String(!expanded));
+  if (panel) panel.hidden = expanded;
+}));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);

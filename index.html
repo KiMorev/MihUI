@@ -736,26 +736,24 @@
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Параметры</summary>
-                  <div class="component-advanced-body">
-                    <div class="xkeen-channel-setting">
-                      <div class="xkeen-channel-copy">
-                        <strong>Канал обновлений</strong>
-                        <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
-                      </div>
-                      <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
-                      </div>
-                      <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="xkeenAdvancedPanel">Параметры</button>
+                <div id="xkeenAdvancedPanel" class="component-advanced-body" hidden>
+                  <div class="xkeen-channel-setting">
+                    <div class="xkeen-channel-copy">
+                      <strong>Канал обновлений</strong>
+                      <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
                     </div>
-                    <div class="component-advanced-actions">
-                      <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
-                      <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                    <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
                     </div>
+                    <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
                   </div>
-                </details>
+                  <div class="component-advanced-actions">
+                    <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
+                    <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                  </div>
+                </div>
               </div>
             </article>
 
@@ -770,16 +768,14 @@
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Параметры</summary>
-                  <div class="component-advanced-body">
-                    <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
-                    <div class="component-version-picker-controls">
-                      <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
-                      <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
-                    </div>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="mihomoAdvancedPanel">Параметры</button>
+                <div id="mihomoAdvancedPanel" class="component-advanced-body" hidden>
+                  <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
+                  <div class="component-version-picker-controls">
+                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
                   </div>
-                </details>
+                </div>
               </div>
             </article>
           </div>

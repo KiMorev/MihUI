@@ -472,6 +472,7 @@ const els = {
   componentLatestLabels: document.querySelectorAll('[data-component-latest-label]'),
   componentChannels: document.querySelectorAll('[data-component-channel]'),
   componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
+  componentAdvancedButtons: document.querySelectorAll('[data-component-advanced-toggle]'),
   componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
   xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
   xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
@@ -656,6 +657,12 @@ els.componentManagerDialog.addEventListener('close', handleComponentManagerClose
 els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
 els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
+els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
+  const panel = document.getElementById(button.getAttribute('aria-controls'));
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', String(!expanded));
+  if (panel) panel.hidden = expanded;
+}));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);

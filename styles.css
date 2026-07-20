@@ -1729,46 +1729,12 @@ body.component-manager-open {
   align-items: start;
 }
 
-.component-advanced {
-  position: relative;
-  min-width: 0;
-}
-
-.component-advanced > summary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: max-content;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 650;
-  list-style: none;
-  text-align: center;
-}
-
-.component-advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-.component-advanced[open] {
-  grid-column: 1 / -1;
-  width: 100%;
-}
-
-@media (min-width: 561px) {
-  .component-advanced[open] {
-    grid-column: 2;
-    width: auto;
-  }
+.component-advanced-toggle {
+  justify-self: start;
 }
 
 .component-advanced-body {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -6466,7 +6432,6 @@ button.review-check-card:focus-visible {
 
   .button,
   .button.compact,
-  .component-advanced > summary,
   .link-button,
   .download-warning,
   .message-action,
@@ -6724,8 +6689,6 @@ button.review-check-card:focus-visible {
   }
 
   .component-manager-actions,
-  .component-advanced,
-  .component-advanced > summary,
   .component-version-picker-controls {
     width: 100%;
   }
@@ -6824,9 +6787,7 @@ button.review-check-card:focus-visible {
     gap: 6px;
   }
 
-  .component-manager-actions,
-  .component-advanced,
-  .component-advanced > summary {
+  .component-manager-actions {
     width: auto;
   }
 
@@ -6834,19 +6795,12 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
-  .component-advanced > summary {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44px;
-    padding: 9px 10px;
-    font: inherit;
-    font-weight: 650;
-    text-align: center;
-  }
-
   .component-manager-item:not(.is-update-available) .component-version-grid {
     grid-template-columns: 1fr;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-advanced-toggle {
+    grid-column: 1 / -1;
   }
 
   .component-manager-item:not(.is-update-available) .component-version-grid > div:last-child,

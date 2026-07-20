@@ -55,7 +55,7 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
-    assert.equal((html.match(/<summary>Параметры<\/summary>/g) || []).length, 2);
+    assert.equal((html.match(/<button[^>]+data-component-advanced-toggle/g) || []).length, 2);
     assert.match(html, /id="componentMaintenance"[^>]+hidden/);
     assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Обслуживание<\/button>/);
     assert.doesNotMatch(html, /4 действия|Проверить версии|Проверить обновление/);
@@ -120,6 +120,7 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /state\.components\.jobVisible = true/);
     assert.match(source, /state\.components\.jobVisible && job\.ok !== null/);
     assert.match(source, /getComponentActionSuccessLabel\(job\)/);
+    assert.match(source, /componentAdvancedButtons[\s\S]+?aria-controls[\s\S]+?aria-expanded[\s\S]+?panel\.hidden = expanded/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
 
@@ -130,12 +131,10 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /\.component-manager-dialog::backdrop/);
     assert.match(source, /\.component-manager-state\.is-update/);
     assert.match(source, /body\.component-manager-open\s*{/);
-    assert.match(source, /\.component-advanced\[open\]\s*{/);
-    assert.match(source, /\.component-advanced > summary\s*{[\s\S]+?display: inline-flex;[\s\S]+?align-items: center;[\s\S]+?justify-content: center;[\s\S]+?font: inherit;[\s\S]+?font-weight: 650;/);
-    assert.match(source, /@media \(min-width: 561px\)[\s\S]+?\.component-advanced\[open\]\s*{[\s\S]+?grid-column: 2;[\s\S]+?width: auto;/);
-    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.button\.compact,[\s\S]+?\.component-advanced > summary,[\s\S]+?min-height: 44px;/);
+    assert.match(source, /\.component-advanced-toggle\s*{[\s\S]+?justify-self: start;/);
+    assert.match(source, /\.component-advanced-body\s*{[\s\S]+?grid-column: 1 \/ -1;[\s\S]+?display: flex;/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?max-height: calc\(100dvh - 16px\);/);
-    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-advanced > summary\s*{[\s\S]+?display: flex;[\s\S]+?justify-content: center;[\s\S]+?font: inherit;[\s\S]+?text-align: center;/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-manager-item:not\(\.is-update-available\) \.component-advanced-toggle\s*{[\s\S]+?grid-column: 1 \/ -1;/);
     assert.match(source, /\.component-manager-item:not\(\.is-update-available\) \[data-component-update\][\s\S]+?display: none;/);
     assert.match(source, /\.component-job-panel pre\s*{[\s\S]+?max-width: 100%;[\s\S]+?max-height: min\(180px, 30vh\);/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-job-panel pre\s*{[\s\S]+?overflow-wrap: anywhere;/);
@@ -144,6 +143,8 @@ test('main and standalone expose component update markers and one manager flow',
 
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
+    assert.equal((source.match(/class="button compact component-advanced-toggle"[^>]+data-component-advanced-toggle[^>]+aria-expanded="false"/g) || []).length, 2);
+    assert.equal((source.match(/class="component-advanced-body" hidden/g) || []).length, 2);
     assert.equal((source.match(/data-service-update-marker hidden/g) || []).length, 4);
     assert.match(source, /id="dismissComponentJobButton"[^>]*hidden>Скрыть<\/button>/);
     assert.match(source, /<summary>Журнал операции<\/summary>/);
