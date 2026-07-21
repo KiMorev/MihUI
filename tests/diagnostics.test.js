@@ -1506,6 +1506,33 @@ rules:
     assert.equal(app.state.isEditingConfiguration, false);
   });
 
+  test(`${source.name}: keeps edited router yaml pending until it is saved`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+rules:
+  - MATCH,DIRECT
+`);
+    const savedText = app.state.originalText;
+    app.state.routerMode = true;
+    app.state.routerSavedText = savedText;
+    app.beginConfigurationEdit();
+    app.els.outputPreview.value = savedText.replace('MATCH,DIRECT', 'MATCH,Proxy');
+
+    assert.equal(app.applyConfigurationEdit(), true);
+    assert.equal(app.state.routerSavedText, savedText);
+    assert.equal(app.els.reviewChangeStatus.textContent, 'YAML изменён вручную');
+    assert.deepEqual({ ...app.getRouterSaveState() }, {
+      disabled: false,
+      label: 'Проверить и сохранить',
+      tone: 'primary',
+    });
+  });
+
   test(`${source.name}: applies pasted configuration without loading a file`, () => {
     const app = loadApp(source);
 
@@ -1612,6 +1639,7 @@ proxy-providers:
     app.state.isEditingConfiguration = false;
 
     app.state.routerMode = true;
+    app.state.routerSavedText = 'same';
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: true, label: 'Нет изменений' });
     app.state.outputText = 'changed';
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Проверить и сохранить', tone: 'primary' });

@@ -898,6 +898,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertTrue(result["verified"])
+        self.assertTrue(result["pathConfirmed"])
         self.assertEqual(result["version"], "1.19.12")
         self.assertEqual(
             request.call_args_list,
@@ -914,6 +915,44 @@ class ProviderAdapterTests(unittest.TestCase):
                 mock.call(Path("."), "/configs", timeout=5),
             ],
         )
+
+    def test_reload_mihomo_accepts_healthy_config_response_without_path(self):
+        config_path = Path("/opt/etc/mihomo/config.yaml")
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {"mode": "rule"},
+                {},
+                {"version": "1.19.29"},
+                {"mode": "rule"},
+            ],
+        ):
+            result = mihui_server.reload_mihomo(Path("."), config_path)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["verified"])
+        self.assertFalse(result["pathConfirmed"])
+        self.assertEqual(result["path"], str(config_path))
+        self.assertEqual(result["version"], "1.19.29")
+
+    def test_reload_mihomo_rejects_different_confirmed_path_after_put(self):
+        config_path = Path("/opt/etc/mihomo/config.yaml")
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {},
+                {},
+                {"version": "1.19.29"},
+                {"path": "/opt/etc/mihomo/other.yaml"},
+            ],
+        ):
+            result = mihui_server.reload_mihomo(Path("."), config_path)
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["uncertain"])
+        self.assertEqual(result["stage"], "verify")
 
     def test_reload_mihomo_rejects_different_active_config_before_put(self):
         with mock.patch.object(

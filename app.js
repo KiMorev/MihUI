@@ -343,6 +343,7 @@ const state = {
   routerApiAvailable: false,
   routerConfigPath: '',
   routerConfigRevision: '',
+  routerSavedText: '',
   routerBusy: false,
   xkeenFiles: {
     loaded: false,
@@ -849,6 +850,7 @@ function handleFileSelect(event) {
   reader.onload = () => {
     state.routerMode = false;
     state.routerConfigPath = '';
+    state.routerSavedText = '';
     state.providerStatuses = {};
     state.mihomoNodes = [];
     state.mihomoGroupSelections = [];
@@ -894,6 +896,7 @@ async function loadRouterConfig(options = {}) {
     state.fileName = state.routerConfigPath || 'router config';
     state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
+    state.routerSavedText = state.originalText;
     state.isEditingConfiguration = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
@@ -989,6 +992,7 @@ async function saveRouterConfig() {
     state.fileName = state.routerConfigPath;
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
+    state.routerSavedText = state.outputText;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
     parseAndRender();
@@ -1018,6 +1022,7 @@ async function saveRouterConfig() {
       state.fileName = state.routerConfigPath;
       state.configLoadedAt = Date.now();
       state.originalText = state.outputText;
+      state.routerSavedText = state.outputText;
       state.lastConfigCheckText = state.outputText;
       state.lastConfigCheckOk = true;
       parseAndRender();
@@ -1241,7 +1246,8 @@ function getRouterSaveState() {
 }
 
 function hasUnsavedRouterChanges() {
-  return Boolean(state.outputText && state.originalText && state.outputText !== state.originalText);
+  const savedText = state.routerMode ? state.routerSavedText : state.originalText;
+  return Boolean(state.outputText && savedText && state.outputText !== savedText);
 }
 
 function hasUnsavedWorkspaceChanges() {
@@ -2882,7 +2888,9 @@ function renderOverviewHealth() {
       summaryParts.push('Структура проверена');
     }
     summaryParts.push(warningCount > 0 ? formatWarningCount(warningCount) : 'ошибок нет');
-    summaryParts.push(state.changeCount > 0 ? formatChangeCount(state.changeCount) : 'изменений нет');
+    summaryParts.push(state.changeCount > 0
+      ? formatChangeCount(state.changeCount)
+      : hasUnsavedRouterChanges() ? 'YAML изменён вручную' : 'изменений нет');
     if (nodesProblem) summaryParts.push(state.nodeInventoryError ? 'ноды недоступны' : 'ноды не получены');
     if (recommendationCount > 0) summaryParts.push(formatRouteCount(recommendationCount, 'рекомендация', 'рекомендации', 'рекомендаций'));
     if (serviceProblem || nodesProblem) {
@@ -2981,7 +2989,9 @@ function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount,
   const recommendationsSummary = missingConnectionCount > 0
     ? formatRouteCount(missingConnectionCount, 'рекомендация', 'рекомендации', 'рекомендаций')
     : 'рекомендаций нет';
-  const changesSummary = changeCount > 0 ? formatChangeCount(changeCount) : 'изменений нет';
+  const changesSummary = changeCount > 0
+    ? formatChangeCount(changeCount)
+    : hasUnsavedRouterChanges() ? 'YAML изменён вручную' : 'изменений нет';
   return `${diagnosticsSummary} · ${recommendationsSummary} · ${changesSummary}`;
 }
 
@@ -2989,13 +2999,14 @@ function renderReviewYamlSummary(changeCount) {
   const text = state.outputText || '';
   const lineCount = text ? text.split(/\r?\n/).length : 0;
   const size = getUtf8ByteLength(text);
+  const hasUnsavedChanges = changeCount > 0 || hasUnsavedRouterChanges();
 
   els.reviewChangeStatus.textContent = !state.originalText
     ? 'Нет конфигурации'
     : changeCount > 0
       ? formatChangeCount(changeCount)
-      : 'Без локальных изменений';
-  els.reviewChangeStatus.classList.toggle('is-warning', changeCount > 0);
+      : hasUnsavedChanges ? 'YAML изменён вручную' : 'Без локальных изменений';
+  els.reviewChangeStatus.classList.toggle('is-warning', hasUnsavedChanges);
 
   els.reviewYamlStatus.classList.remove('is-ok', 'is-warning', 'is-danger');
   if (!text) {

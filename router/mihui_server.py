@@ -2545,7 +2545,7 @@ def reload_mihomo(app_dir, config_path):
         }
 
     confirmed_path = str(confirmed.get("path") or "") if isinstance(confirmed, dict) else ""
-    if not confirmed_path or not same_config_path(confirmed_path, target_path):
+    if confirmed_path and not same_config_path(confirmed_path, target_path):
         return {
             "ok": False,
             "method": "mihomo-api",
@@ -2559,7 +2559,8 @@ def reload_mihomo(app_dir, config_path):
         "ok": True,
         "verified": True,
         "method": "mihomo-api",
-        "path": confirmed_path,
+        "path": confirmed_path or target_path,
+        "pathConfirmed": bool(confirmed_path),
         "version": str(version.get("version") or "") if isinstance(version, dict) else "",
     }
 
