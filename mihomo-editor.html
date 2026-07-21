@@ -9293,6 +9293,7 @@ async function saveRouterConfig() {
     state.routerSavedText = state.outputText;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
+    persistSuccessfulConfigCheck(state.outputText);
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
@@ -10697,9 +10698,10 @@ function clearPersistedConfigCheck(text) {
 
 function restorePersistedConfigCheck() {
   const isPersisted = Boolean(
-    state.routerApiAvailable
-      && state.outputText
-      && getPersistedConfigCheck() === getConfigFingerprint(state.outputText),
+    state.lastConfigCheckOk && state.lastConfigCheckText === state.outputText
+      || state.routerApiAvailable
+        && state.outputText
+        && getPersistedConfigCheck() === getConfigFingerprint(state.outputText),
   );
   state.lastConfigCheckText = isPersisted ? state.outputText : '';
   state.lastConfigCheckOk = isPersisted;

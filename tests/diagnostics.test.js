@@ -130,6 +130,7 @@ globalThis.__app = {
   getRouterSaveState,
   getReviewPrimaryActionState,
   getHighRiskSaveSummaries,
+  getKernelCheckSummary,
   confirmHighRiskSave,
   hasUnsavedWorkspaceChanges,
   handleBeforeUnload,
@@ -228,6 +229,18 @@ for (const source of SOURCES) {
     app.setOutputText('changed yaml');
     assert.equal(app.state.lastConfigCheckOk, false);
     assert.equal(app.state.lastConfigCheckText, '');
+
+    app.state.outputText = 'applied yaml';
+    app.state.lastConfigCheckText = 'applied yaml';
+    app.state.lastConfigCheckOk = true;
+    app.setOutputText('applied yaml');
+    assert.equal(app.state.lastConfigCheckOk, true);
+    assert.equal(app.state.lastConfigCheckText, 'applied yaml');
+    assert.deepEqual({ ...app.getKernelCheckSummary() }, {
+      value: 'YAML принят',
+      note: 'Текущий YAML принят Mihomo',
+      variant: 'is-ok',
+    });
   });
 
   test(`${source.name}: reports broken route links`, () => {
