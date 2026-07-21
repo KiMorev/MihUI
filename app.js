@@ -718,20 +718,40 @@ function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
   const shouldScroll = options.scroll !== false;
-  state.activeSection = section;
-  renderSectionTabs();
-  updateMobileSectionTabsVisibility();
-  centerActiveMobileSectionTab();
-  if (!shouldScroll) return;
+  const isNewSection = section !== state.activeSection;
+  const switchSection = () => {
+    state.activeSection = section;
+    renderSectionTabs();
+    updateMobileSectionTabsVisibility();
+    centerActiveMobileSectionTab();
+  };
+  const scrollToSection = () => {
+    if (!shouldScroll) return;
 
-  const panel = document.querySelector(`[data-section-panel="${section}"]`);
-  if (!panel?.scrollIntoView) return;
+    const panel = document.querySelector(`[data-section-panel="${section}"]`);
+    if (!panel?.scrollIntoView) return;
 
-  panel.style.removeProperty('scroll-margin-top');
-  const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
-  const stickyTopbarMargin = getStickyTopbarHeight() + 12;
-  panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
-  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    panel.style.removeProperty('scroll-margin-top');
+    const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
+    const stickyTopbarMargin = getStickyTopbarHeight() + 12;
+    panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const reduceMotion = Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
+  if (isNewSection && !reduceMotion && typeof document.startViewTransition === 'function') {
+    const transition = document.startViewTransition(switchSection);
+    transition.updateCallbackDone.then(scrollToSection, scrollToSection);
+    return;
+  }
+
+  switchSection();
+  if (isNewSection && !reduceMotion) {
+    const panel = document.querySelector(`[data-section-panel="${section}"]`);
+    panel?.classList.add('is-entering');
+    panel?.addEventListener('animationend', () => panel.classList.remove('is-entering'), { once: true });
+  }
+  scrollToSection();
 }
 
 function updateMobileSectionTabsVisibility() {

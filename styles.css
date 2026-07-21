@@ -937,8 +937,43 @@ h2 {
   scroll-margin-top: 136px;
 }
 
+.app-section.is-active {
+  view-transition-name: app-section;
+}
+
+.app-section.is-entering {
+  animation: app-section-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
 .app-section[hidden] {
   display: none;
+}
+
+::view-transition-group(app-section) {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+::view-transition-old(app-section) {
+  animation: app-section-out 100ms ease-in both;
+}
+
+::view-transition-new(app-section) {
+  animation: app-section-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes app-section-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes app-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .overview-health {
@@ -1539,6 +1574,63 @@ input[type='file'] {
 .component-manager-dialog::backdrop {
   background: rgba(24, 34, 52, 0.38);
   backdrop-filter: blur(2px);
+}
+
+.backup-history-dialog,
+.component-manager-dialog {
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  transition:
+    opacity 160ms ease,
+    transform 180ms cubic-bezier(0.2, 0, 0, 1),
+    display 180ms allow-discrete,
+    overlay 180ms allow-discrete;
+}
+
+.backup-history-dialog[open],
+.component-manager-dialog[open] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.backup-history-dialog::backdrop,
+.component-manager-dialog::backdrop {
+  opacity: 0;
+  transition:
+    opacity 160ms ease,
+    display 180ms allow-discrete,
+    overlay 180ms allow-discrete;
+}
+
+.backup-history-dialog[open]::backdrop,
+.component-manager-dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  .backup-history-dialog[open],
+  .component-manager-dialog[open] {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  .backup-history-dialog[open]::backdrop,
+  .component-manager-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-section.is-entering {
+    animation: none;
+  }
+
+  .backup-history-dialog,
+  .component-manager-dialog,
+  .backup-history-dialog::backdrop,
+  .component-manager-dialog::backdrop {
+    transition: none;
+  }
 }
 
 body.component-manager-open {
