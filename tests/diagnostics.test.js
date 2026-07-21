@@ -12,6 +12,7 @@ function createElement() {
   const classes = new Set();
   return {
     children: [],
+    dataset: {},
     classList: {
       add(...items) {
         items.forEach((item) => classes.add(item));
@@ -63,8 +64,8 @@ function readSource(source) {
   return scripts[0][1];
 }
 
-function loadApp(source) {
-  const storage = new Map();
+function loadApp(source, initialStorage = {}, options = {}) {
+  const storage = new Map(Object.entries(initialStorage));
   const runTimer = (callback) => {
     callback();
     return 0;
@@ -88,7 +89,7 @@ function loadApp(source) {
     },
     setTimeout: runTimer,
     window: {
-      confirm: () => true,
+      confirm: options.confirm || (() => true),
       localStorage: {
         getItem: (key) => storage.get(key) ?? null,
         removeItem: (key) => storage.delete(key),
@@ -124,15 +125,21 @@ globalThis.__app = {
   getExportFileName,
   getDisplayFileName,
   getMissingConnectionSettings,
+  getNodeGroupSelectionItems,
   getOutputPreviewText,
   getRouterSaveState,
   getReviewPrimaryActionState,
+  getHighRiskSaveSummaries,
+  confirmHighRiskSave,
+  hasUnsavedWorkspaceChanges,
+  handleBeforeUnload,
   shouldShowRecommendations,
   maskProviderUrlsInYaml,
   maskSensitiveUrl,
   formatNodeInventoryError,
   formatServiceStatusLabel,
   summarizeRoutePattern,
+  isSelectableNodeGroup,
   splitRoutePattern,
   matchesRuleFilters,
   ruleRequiresValue,
@@ -286,7 +293,7 @@ rules:
 
     const diagnostics = app.collectDiagnostics(activeProviders);
 
-    assert(diagnostics.includes('Подписка happ: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.'));
+    assert(diagnostics.includes('Подписка happ: happ://crypt* не является прямой подпиской Mihomo; расшифруйте ссылку кнопкой в редакторе.'));
     assert(diagnostics.includes('Подписка incy: incy://import не является прямой подпиской Mihomo; нужен helper или локальный adapter.'));
     assert(diagnostics.includes('Подписка node: vless:// — это ссылка узла, а не URL proxy-provider; нужен локальный adapter или добавление в proxies.'));
     assert.equal(diagnostics.some((item) => item.includes('Подписка good:')), false);
@@ -1275,6 +1282,35 @@ proxy-groups:
     ]);
   });
 
+  test(`${source.name}: enables runtime selection only for live select groups`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - node-a
+      - node-b
+  - name: AUTO
+    type: url-test
+    proxies:
+      - node-a
+      - node-b
+`);
+    app.state.mihomoGroupSelections = [
+      { name: 'PROXY', type: 'Selector', now: 'node-a', all: ['node-a', 'node-b'] },
+      { name: 'AUTO', type: 'URLTest', now: 'node-b', all: ['node-a', 'node-b'] },
+    ];
+
+    const items = app.getNodeGroupSelectionItems([]);
+    const proxy = items.find((item) => item.groupName === 'PROXY');
+    const auto = items.find((item) => item.groupName === 'AUTO');
+
+    assert.deepEqual([...proxy.options], ['node-a', 'node-b']);
+    assert.equal(app.isSelectableNodeGroup(proxy), true);
+    assert.equal(app.isSelectableNodeGroup(auto), false);
+  });
+
   test(`${source.name}: renames existing group references`, () => {
     const app = loadApp(source);
     hydrate(app, `
@@ -1589,20 +1625,31 @@ proxy-providers:
     app.state.lastConfigCheckText = app.state.outputText;
     app.state.lastConfigCheckOk = true;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Сохранить и применить', tone: 'primary' });
-    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, { disabled: false, label: 'Проверить повторно' });
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, {
+      disabled: false,
+      label: 'Проверка пройдена · Проверить повторно',
+      tone: 'success',
+    });
+    app.state.lastConfigCheckOk = false;
+    assert.deepEqual({ ...app.getReviewPrimaryActionState() }, {
+      disabled: false,
+      label: 'Проверка не пройдена · Проверить повторно',
+      tone: 'danger',
+    });
     app.state.hasGroupsSection = false;
     assert.deepEqual({ ...app.getRouterSaveState() }, { disabled: false, label: 'Исправить ошибки', tone: 'danger' });
     app.renderConfigurationEditorControls();
     assert.equal(app.els.checkConfigButton.disabled, true);
   });
 
-  test(`${source.name}: hides subscription URLs only when the setting is enabled`, () => {
+  test(`${source.name}: hides subscription URLs by default and preserves an explicit choice`, () => {
     const app = loadApp(source);
 
-    assert.equal(app.state.hideProviderUrls, false);
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), '••••');
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub#secret'), '••••');
-    assert.equal(app.maskSensitiveUrl('https://example.test/sub'), '••••');
+    assert.equal(app.state.hideProviderUrls, true);
+    assert.equal(loadApp(source, { 'webmihomo.hideProviderUrls': 'false' }).state.hideProviderUrls, false);
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub?token=secret'), 'https://example.test/••••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/sub#secret'), 'https://example.test/••••••');
+    assert.equal(app.maskSensitiveUrl('https://example.test/s/private-token'), 'https://example.test/s/••••••');
     const yaml = `external-url: https://outside.example/path?keep=true
 proxy-providers:
   secure:
@@ -1639,13 +1686,13 @@ proxy-groups:
     assert.doesNotMatch(maskedYaml, /private-token|block-secret|escaped-secret|quoted-secret|indent-secret|flow-secret/);
     assert.match(maskedYaml, /  flow: \{type: http, url: "••••"\}/);
     assert.match(maskedYaml, /    url: "••••"\n      ••••/);
-    assert.equal(app.getOutputPreviewText(yaml), yaml);
-    app.setProviderUrlMasking(true);
-    assert.equal(app.els.hideProviderUrlsSetting.checked, true);
     assert.equal(app.getOutputPreviewText(yaml), maskedYaml);
     app.setProviderUrlMasking(false);
     assert.equal(app.els.hideProviderUrlsSetting.checked, false);
     assert.equal(app.getOutputPreviewText(yaml), yaml);
+    app.setProviderUrlMasking(true);
+    assert.equal(app.els.hideProviderUrlsSetting.checked, true);
+    assert.equal(app.getOutputPreviewText(yaml), maskedYaml);
     const topLevelFlow = 'proxy-providers: {secure: {type: http, url: "https://top.example/sub?token=top-secret"}}\nproxy-groups: []';
     const maskedTopLevelFlow = app.maskProviderUrlsInYaml(topLevelFlow);
     assert.doesNotMatch(maskedTopLevelFlow, /top-secret/);
@@ -1661,7 +1708,7 @@ proxy-groups: []`;
     const maskedMultilineFlow = app.maskProviderUrlsInYaml(multilineFlow);
     assert.doesNotMatch(maskedMultilineFlow, /multi-secret|nested-secret/);
     assert.match(maskedMultilineFlow, /inline: \{type: http, url: "••••"\},/);
-    assert.match(maskedMultilineFlow, /url: "••••",/);
+    assert.match(maskedMultilineFlow, /url: "https:\/\/nested\.example\/••••••",/);
     assert.deepEqual([...app.splitRoutePattern('RU\\|EU|NL|DE|FR')], ['RU\\|EU', 'NL', 'DE', 'FR']);
     assert.equal(app.summarizeRoutePattern('RU\\|EU|NL|DE|FR'), 'RU\\|EU · NL · DE · еще 1');
     assert.equal(app.formatNodeInventoryError('HTTP 404'), 'Список нод недоступен в текущем сервисе MihUI.');
@@ -1724,5 +1771,97 @@ rules:
 
     assert.equal(provider.deleted, false);
     assert.deepEqual([...app.state.groups[0].use], ['one', 'two', 'later-change']);
+  });
+
+  test(`${source.name}: warns before leaving with generated or raw draft changes`, () => {
+    const app = loadApp(source);
+    const yaml = `proxy-groups:\n  - name: Proxy\n    type: select\n    proxies:\n      - DIRECT\nrules:\n  - MATCH,Proxy\n`;
+    hydrate(app, yaml);
+    app.state.outputText = yaml;
+
+    let prevented = false;
+    const unchangedEvent = {
+      preventDefault() { prevented = true; },
+      returnValue: null,
+    };
+    app.handleBeforeUnload(unchangedEvent);
+    assert.equal(prevented, false);
+
+    app.state.outputText = `${yaml}# draft\n`;
+    const changedEvent = {
+      preventDefault() { prevented = true; },
+      returnValue: null,
+    };
+    app.handleBeforeUnload(changedEvent);
+    assert.equal(prevented, true);
+    assert.equal(changedEvent.returnValue, '');
+
+    app.state.outputText = yaml;
+    app.state.isEditingConfiguration = true;
+    app.els.outputPreview.value = `${yaml}# raw draft\n`;
+    assert.equal(app.hasUnsavedWorkspaceChanges(), true);
+  });
+
+  test(`${source.name}: confirms only high-risk save changes`, () => {
+    let confirmation = '';
+    const app = loadApp(source, {}, {
+      confirm: (message) => {
+        confirmation = message;
+        return false;
+      },
+    });
+    hydrate(app, `
+proxy-providers:
+  one:
+    type: http
+    url: https://one.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+    use:
+      - one
+rules:
+  - MATCH,Proxy
+`);
+
+    assert.deepEqual([...app.getHighRiskSaveSummaries()], []);
+    app.state.providers[0].deleted = true;
+    app.state.groups[0].proxies.push('REJECT');
+    app.state.rules[0].target = 'DIRECT';
+
+    const summaries = [...app.getHighRiskSaveSummaries()];
+    assert.equal(summaries.length, 3);
+    assert.equal(app.confirmHighRiskSave(), false);
+    assert.match(confirmation, /Удаляются подписки: one/);
+    assert.match(confirmation, /правила маршрутизации/);
+    assert.match(confirmation, /группа PROXY/);
+  });
+
+  test(`${source.name}: canceled provider and rule deletion leaves the draft unchanged`, () => {
+    const app = loadApp(source, {}, { confirm: () => false });
+    hydrate(app, `
+proxy-providers:
+  one:
+    type: http
+    url: https://one.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - one
+rules:
+  - MATCH,Proxy
+`);
+    const provider = app.state.providers[0];
+    const rule = app.state.rules[0];
+
+    app.removeProvider(provider);
+    app.removeRule(rule);
+
+    assert.equal(provider.deleted, false);
+    assert.equal(rule.deleted, false);
+    assert.deepEqual([...app.state.groups[0].use], ['one']);
   });
 }

@@ -9,6 +9,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 test('main and standalone UI expose labels for audited controls', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
+    assert.match(html, /<h1><a class="app-brand-home" href="" aria-label="[^"]+">WebMihomo<\/a><\/h1>/);
     assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
     assert.match(html, /id="backupHistoryButton"[\s\S]+?История конфигурации…/);
     assert.match(html, /id="backupHistoryDialog"[^>]+aria-labelledby="backupHistoryTitle"[^>]+aria-describedby="backupHistoryDescription"/);
@@ -19,9 +20,10 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="bulkHealthIntervalInput"[^>]+aria-label=/);
     assert.match(html, /id="outputPreview"[^>]+aria-label=/);
     assert.match(html, /id="hideProviderUrlsSetting" type="checkbox"/);
+    assert.match(html, /class="button compact provider-url-reveal-button"[\s\S]+?Показать/);
     assert.match(html, /id="nodeInventoryStatus"/);
     assert.match(html, /id="nodeResetFiltersButton"/);
-    assert.match(html, /id="happDecoderApiKey" type="password"/);
+    assert.doesNotMatch(html, /happDecoder|happDecryptor|Интеграция Happ Decoder/);
     assert.match(html, /id="copyButton"[^>]+aria-label="Копировать полный YAML с исходными ссылками"/);
     assert.match(html, /id="reviewDownloadButton"[^>]+aria-label="Скачать полный YAML с исходными ссылками"/);
     assert.match(html, /id="mobileFlowActions"[^>]+aria-label=/);
@@ -53,9 +55,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
-    assert.equal((html.match(/<summary>Дополнительные параметры<\/summary>/g) || []).length, 2);
+    assert.equal((html.match(/<button[^>]+data-component-advanced-toggle/g) || []).length, 2);
     assert.match(html, /id="componentMaintenance"[^>]+hidden/);
-    assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Сервисные действия…<\/button>/);
+    assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Обслуживание<\/button>/);
     assert.doesNotMatch(html, /4 действия|Проверить версии|Проверить обновление/);
     assert.match(html, /id="mihomoVersionSelect"/);
     assert.match(html, /id="overviewConfigSource"/);
@@ -79,6 +81,17 @@ test('main and standalone expose one review-to-save flow', () => {
   }
 });
 
+test('main and standalone use only the browser Happ decryptor', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /decodeHappProviderUrlInBrowser/);
+    assert.doesNotMatch(source, /\/api\/happ\/decode|settings\/happ-decoder|Happy Decoder API|server fallback/);
+  }
+
+  const server = read('router/mihui_server.py');
+  assert.doesNotMatch(server, /HAPP_DECRYPTOR|HAPP_DECODER|happy-decoder|\/api\/happ\/decode|settings\/happ-decoder/);
+});
+
 test('main and standalone expose responsive service traffic lights', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
@@ -93,6 +106,7 @@ test('main and standalone expose component update markers and one manager flow',
     const source = read(name);
     assert.match(source, /title: 'Доступны обновления компонентов'/);
     assert.match(source, /element\.textContent = `Обновления · \$\{updateCount\}`/);
+    assert.match(source, /updateMarker\.hidden = !state\.components\.items\[serviceName\]\?\.updateAvailable/);
     assert.match(source, /apiJson\('\/api\/components\/action'/);
     assert.match(source, /'X-Mihui-Action': 'components'/);
     assert.match(source, /action: 'channel'/);
@@ -103,16 +117,38 @@ test('main and standalone expose component update markers and one manager flow',
     assert.doesNotMatch(source, /Через XKeen/);
     assert.match(source, /Понизить Mihomo/);
     assert.match(source, /Переустановить текущую Beta-сборку/);
+    assert.match(source, /state\.components\.jobVisible = true/);
+    assert.match(source, /state\.components\.jobVisible && job\.ok !== null/);
+    assert.match(source, /getComponentActionSuccessLabel\(job\)/);
+    assert.match(source, /componentAdvancedButtons[\s\S]+?aria-controls[\s\S]+?aria-expanded[\s\S]+?panel\.hidden = expanded/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.service-health-head \.service-update-badge/);
+    assert.match(source, /\.service-update-marker\s*{[\s\S]+?background: #fff1c7;[\s\S]+?color: #946200;/);
     assert.match(source, /\.component-manager-dialog::backdrop/);
     assert.match(source, /\.component-manager-state\.is-update/);
     assert.match(source, /body\.component-manager-open\s*{/);
-    assert.match(source, /\.component-advanced\[open\]\s*{/);
+    assert.match(source, /\.component-advanced-toggle\s*{[\s\S]+?justify-self: start;/);
+    assert.match(source, /\.component-advanced-body\s*{[\s\S]+?grid-column: 1 \/ -1;[\s\S]+?display: flex;/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?max-height: calc\(100dvh - 16px\);/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-manager-item:not\(\.is-update-available\) \.component-advanced-toggle\s*{[\s\S]+?grid-column: 1 \/ -1;/);
+    assert.match(source, /\.component-manager-item:not\(\.is-update-available\) \[data-component-update\][\s\S]+?display: none;/);
+    assert.match(source, /\.component-job-panel pre\s*{[\s\S]+?max-width: 100%;[\s\S]+?max-height: min\(180px, 30vh\);/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.component-job-panel pre\s*{[\s\S]+?overflow-wrap: anywhere;/);
+    assert.match(source, /@media \(max-width: 560px\) and \(max-height: 600px\)/);
+  }
+
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.equal((source.match(/class="button compact component-advanced-toggle"[^>]+data-component-advanced-toggle[^>]+aria-expanded="false"/g) || []).length, 2);
+    assert.equal((source.match(/class="component-advanced-body" hidden/g) || []).length, 2);
+    assert.equal((source.match(/data-service-update-marker hidden/g) || []).length, 4);
+    assert.match(source, /id="dismissComponentJobButton"[^>]*hidden>Скрыть<\/button>/);
+    assert.match(source, /<summary>Журнал операции<\/summary>/);
+    assert.doesNotMatch(source, /service-update-mobile-badge/);
   }
 });
 
@@ -121,6 +157,8 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
     const source = read(name);
     assert.match(source, /data-section="xkeen-files"[\s\S]+?Порты и исключения/);
     assert.equal((source.match(/data-xkeen-file="/g) || []).length, 4);
+    assert.match(source, /id="xkeenRestartButton"[\s\S]+?Перезапустить XKeen/);
+    assert.match(source, /id="xkeenFilesRefreshButton"[\s\S]+?Обновить с роутера/);
     assert.match(source, /id="xkeenRestartAfterSave" type="checkbox" checked/);
     assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и применить/);
   }
@@ -128,6 +166,7 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /apiJson\('\/api\/xkeen\/network-files'/);
+    assert.match(source, /startComponentAction\(\{ component: 'xkeen', action: 'restart' \}\)/);
     assert.match(source, /'X-Mihui-Action': 'xkeen-network-files'/);
     assert.match(source, /Порты проксирования имеют приоритет/);
   }
@@ -151,6 +190,28 @@ test('main and standalone expose the UI switcher in the brand block', () => {
     const source = read(name);
     assert.match(source, /\.app-brand-title-row\s*{/);
     assert.match(source, /\.ui-link-item\.is-current\s*{/);
+  }
+});
+
+test('main and standalone keep provider filter text size stable on iOS', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.provider-inspector-list\s*{[\s\S]+?-webkit-text-size-adjust: 100%;[\s\S]+?text-size-adjust: 100%;/);
+  }
+});
+
+test('main and standalone present provider filters as compact disclosures', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /createProviderFilterInspectorSection\(provider\)/);
+    assert.match(source, /section\.open = window\.matchMedia\('\(min-width: 981px\)'\)\.matches/);
+    assert.match(source, /show\.textContent = 'Полностью'/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.provider-inspector-filter-head,[\s\S]+?min-height: 44px;/);
+    assert.match(source, /\.provider-inspector-filter-preview\s*{[\s\S]+?-webkit-line-clamp: 2;/);
   }
 });
 
@@ -182,10 +243,24 @@ test('main and standalone require an explicit backup selection before restore', 
   }
 });
 
+test('main and standalone guard destructive and stale config changes', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /addEventListener\?\.\('beforeunload', handleBeforeUnload\)/);
+    assert.match(source, /expectedRevision: state\.routerConfigRevision \|\| undefined/);
+    assert.match(source, /result\.stage === 'conflict'/);
+    assert.match(source, /Применить рискованные изменения\?/);
+    assert.match(source, /Удалить подписку \$\{provider\.name\}\?/);
+    assert.match(source, /Удалить правило \$\{formatRuleSummary\(rule\)\}\?/);
+    assert.match(source, /Mihomo не применил версию\. Текущий конфиг восстановлен/);
+  }
+});
+
 test('main and standalone styles expose mobile flow actions and touch targets', () => {
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
+    assert.doesNotMatch(source, /\.mobile-flow-actions:not\(\[hidden\]\)\s*{[^}]*position:\s*sticky/);
     assert.match(source, /\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: minmax\(330px, 0\.72fr\) minmax\(0, 1\.28fr\);/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: 1fr;/);
     assert.doesNotMatch(source, /review-support-column/);
@@ -196,6 +271,65 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
+test('main and standalone show mobile section tabs only after the primary menu scrolls away', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /id="mobileSectionTabs" class="mobile-section-tabs"[^>]+aria-hidden="true" hidden/);
+    assert.match(source, /class="mobile-section-tab[^>]+data-section="settings"/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.mobile-topbar-meta\s*{[\s\S]+?position: static;/);
+    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?position: fixed;[\s\S]+?top: 0;/);
+    assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-y: hidden;[\s\S]+?overscroll-behavior-y: none;[\s\S]+?touch-action: pan-x;/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /MOBILE_SECTION_TABS_MEDIA = '\(max-width: 560px\)'/);
+    assert.match(source, /const shouldShow = isMobile && sidebarBottom <= 0/);
+    assert.match(source, /window\.addEventListener\?\.\('scroll', updateMobileSectionTabsVisibility, \{ passive: true \}\)/);
+    assert.doesNotMatch(source, /mobileSectionTabsForced/);
+  }
+});
+
+test('main and standalone keep section starts below the sticky topbar', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /return isMobile \? getMobileSectionTabsHeight\(\) : els\.topbar\?\.offsetHeight \|\| 0/);
+    assert.match(source, /stickyTopbarMargin = getStickyTopbarHeight\(\) \+ 12/);
+    assert.match(source, /panel\.style\.scrollMarginTop = `\$\{Math\.max\(configuredMargin, stickyTopbarMargin\)\}px`/);
+  }
+});
+
+test('main and standalone keep provider creation and Happ feedback local on mobile', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /class="provider-url-status" aria-live="polite" hidden/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /Happ-ссылка расшифрована\. Прямой URL подставлен\./);
+    assert.match(source, /querySelector\('\.provider-detail\.is-editing'\)/);
+    assert.match(source, /scrollIntoView\?\.\(\{ behavior: 'smooth', block: 'start' \}\)/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-toolbar\s*{[\s\S]+?display: grid;/);
+    assert.match(source, /\.provider-card-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  }
+});
+
+test('main and standalone visually separate the mobile menu from content', () => {
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.app-sidebar\s*{[\s\S]+?border-bottom-color: var\(--line-strong\);[\s\S]+?box-shadow:/);
+  }
+});
+
 test('main and standalone consolidate node inventory errors', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
@@ -203,6 +337,32 @@ test('main and standalone consolidate node inventory errors', () => {
     assert.match(source, /retry\.textContent = 'Повторить загрузку'/);
     assert.match(source, /els\.nodeInventoryControls\.hidden = Boolean\(state\.nodeInventoryError\) \|\| nodes\.length === 0;/);
     assert.match(source, /summary\.hidden = true;/);
+  }
+});
+
+test('main and standalone allow confirmed runtime selection in select groups', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /apiJson\('\/api\/groups\/select'/);
+    assert.match(source, /\['select', 'selector'\]\.includes\(type\)/);
+    assert.match(source, /Активный вариант группы/);
+    assert.match(source, /Mihomo не подтвердил переключение группы/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.node-group-selection-actions\s*{/);
+    assert.match(source, /\.node-group-selection-choice select\s*{/);
+  }
+});
+
+test('main and standalone distinguish applied, rolled back and uncertain config saves', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /Конфиг сохранен и подтвержден Mihomo/);
+    assert.match(source, /result\.saved && result\.uncertain/);
+    assert.match(source, /result\.rolledBack/);
+    assert.match(source, /Предыдущая версия восстановлена, локальные изменения оставлены/);
   }
 });
 
@@ -221,6 +381,32 @@ test('main and standalone expose the editorial shell and routing workbench', () 
     assert.match(source, /\.route-inspector\s*{/);
     assert.match(source, /\.route-visual-stack\s*{/);
   }
+});
+
+test('main and standalone expose the safe live log viewer', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const html = read(name);
+    assert.match(html, /data-section="logs"[\s\S]+?>Логи</);
+    assert.match(html, /data-section-panel="logs"/);
+    assert.match(html, /id="logsSourceSelect"[\s\S]+?MihUI[\s\S]+?Mihomo[\s\S]+?XKeen/);
+    assert.match(html, /id="logsSearchInput"/);
+    assert.match(html, /id="logsLevelSelect"/);
+    assert.match(html, /id="logsAutoRefresh"[^>]+checked/);
+    assert.match(html, /id="logsOutput"[^>]+aria-label="Содержимое журнала"/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /apiJson\(`\/api\/logs\?source=\$\{source\}&lines=300`\)/);
+    assert.match(source, /state\.activeSection === 'logs' && state\.logs\.autoRefresh/);
+    assert.match(source, /function filterLogText/);
+  }
+
+  const server = read('router/mihui_server.py');
+  assert.match(server, /if route == "\/api\/logs"/);
+  assert.match(server, /LOG_SOURCE_DEFINITIONS/);
+  assert.match(server, /def redact_log_text/);
+  assert.doesNotMatch(server, /query\.get\("path"/);
 });
 
 test('standalone editor exactly mirrors the main html, styles and script', () => {

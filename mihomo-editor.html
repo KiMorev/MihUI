@@ -21,6 +21,7 @@
   --warning: #a66300;
   --shadow: 0 8px 24px rgba(24, 34, 52, 0.045);
   --sidebar-width: 220px;
+  --mobile-section-tabs-height: 44px;
 }
 
 * {
@@ -111,6 +112,16 @@ textarea {
   display: flex;
   align-items: center;
   gap: 3px;
+}
+
+.app-brand-home {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-brand-home:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .app-main {
@@ -219,10 +230,41 @@ textarea {
   background: #fff;
 }
 
+.service-health-item.is-refreshing .service-health-dot {
+  animation: service-health-refresh 1.1s ease-in-out infinite;
+}
+
+@keyframes service-health-refresh {
+  50% {
+    box-shadow: 0 0 0 4px rgba(0, 139, 145, 0.16);
+  }
+}
+
 .service-health-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
   font-size: 12px;
   font-weight: 700;
+}
+
+.service-update-marker {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff1c7;
+  color: #946200;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.service-update-marker[hidden] {
+  display: none;
 }
 
 .service-health-status {
@@ -241,24 +283,11 @@ textarea {
 }
 
 .service-health-mobile {
-  position: relative;
   display: none;
 }
 
-.service-update-mobile-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  padding: 2px 5px;
-  border: 2px solid var(--panel);
-  border-radius: 999px;
-  background: #c78300;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-align: center;
+.mobile-topbar-meta {
+  display: contents;
 }
 
 .topbar {
@@ -825,6 +854,10 @@ h2 {
 }
 
 .mobile-flow-actions {
+  display: none;
+}
+
+.mobile-section-tabs {
   display: none;
 }
 
@@ -1704,35 +1737,12 @@ body.component-manager-open {
   align-items: start;
 }
 
-.component-advanced {
-  position: relative;
-  min-width: 0;
-}
-
-.component-advanced > summary {
-  width: max-content;
-  min-height: 34px;
-  padding: 7px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: #fff;
-  color: var(--text);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-  list-style: none;
-}
-
-.component-advanced > summary::-webkit-details-marker {
-  display: none;
-}
-
-.component-advanced[open] {
-  grid-column: 1 / -1;
-  width: 100%;
+.component-advanced-toggle {
+  justify-self: start;
 }
 
 .component-advanced-body {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1805,7 +1815,8 @@ body.component-manager-open {
 
 .component-job-panel {
   display: grid;
-  gap: 5px;
+  gap: 8px;
+  min-width: 0;
   padding: 11px 12px;
   border: 1px solid rgba(8, 124, 128, 0.32);
   border-radius: 8px;
@@ -1817,13 +1828,27 @@ body.component-manager-open {
   background: #fff4f2;
 }
 
-.component-job-panel > span {
+.component-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.component-job-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.component-job-copy > span {
   color: var(--muted);
   font-size: 13px;
 }
 
 .component-job-panel details {
-  margin-top: 4px;
+  min-width: 0;
 }
 
 .component-job-panel summary {
@@ -1834,7 +1859,11 @@ body.component-manager-open {
 }
 
 .component-job-panel pre {
-  max-height: 180px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(180px, 30vh);
   margin: 8px 0 0;
   padding: 10px;
   overflow: auto;
@@ -2410,16 +2439,31 @@ body.component-manager-open {
   min-width: 0;
 }
 
+.xkeen-files-status-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
 .xkeen-files-action-copy strong {
   font-size: 13px;
 }
 
-.xkeen-files-action-copy span {
+.xkeen-files-action-copy > span,
+.xkeen-files-status-row > span {
   overflow: hidden;
   color: var(--muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.xkeen-files-refresh-button {
+  flex: 0 0 auto;
+  min-height: 0;
+  padding: 0;
+  font-size: 12px;
 }
 
 .xkeen-restart-option {
@@ -2450,7 +2494,8 @@ body.component-manager-open {
   font-size: 11px;
 }
 
-.nodes-page-head {
+.nodes-page-head,
+.logs-page-head {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -2464,17 +2509,20 @@ body.component-manager-open {
   padding: 4px 2px 0;
 }
 
-.nodes-page-head > div {
+.nodes-page-head > div,
+.logs-page-head > div {
   min-width: 0;
 }
 
 .nodes-page-head h2,
+.logs-page-head h2,
 .settings-page-head h2 {
   margin: 0;
   font-size: 20px;
 }
 
 .nodes-page-head p,
+.logs-page-head p,
 .settings-page-head p {
   margin: 2px 0 0;
   color: var(--muted);
@@ -2491,6 +2539,86 @@ body.component-manager-open {
 
 .nodes-page-head p.is-danger {
   color: var(--danger);
+}
+
+.logs-controls {
+  display: grid;
+  grid-template-columns: 150px 160px minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.logs-controls > label:not(.logs-auto-refresh) {
+  display: grid;
+  grid-template-rows: 18px 40px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.logs-controls > label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.logs-controls input,
+.logs-controls select {
+  min-width: 0;
+}
+
+.logs-auto-refresh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.logs-auto-refresh input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
+.logs-output {
+  min-height: 420px;
+  max-height: 62vh;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  background: #111922;
+  color: #dce6ee;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  white-space: pre-wrap;
+}
+
+.logs-output:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.logs-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.logs-footer span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-inventory-controls {
@@ -2653,6 +2781,37 @@ body.component-manager-open {
   color: var(--text);
   font-size: 14px;
   font-weight: 750;
+}
+
+.node-group-selection-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.node-group-selection-choice {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.node-group-selection-choice > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.node-group-selection-choice select {
+  width: 100%;
+  min-width: 0;
+}
+
+.node-group-selection-actions .button {
+  white-space: nowrap;
 }
 
 .node-inventory-list {
@@ -2922,153 +3081,10 @@ body.component-manager-open {
   min-height: 36px;
 }
 
-.settings-status {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.settings-status.is-success {
-  background: #edf8ef;
-  color: var(--success);
-}
-
-.settings-status.is-muted {
-  background: var(--panel-soft);
-  color: var(--muted);
-}
-
-.settings-panel-title {
-  display: grid;
-  gap: 2px;
-}
-
-.settings-panel-title p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.settings-panel-title code {
-  font: inherit;
-  font-weight: 650;
-}
-
 .settings-form {
   display: grid;
   gap: 12px;
   padding: 14px;
-}
-
-.settings-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
-}
-
-.settings-integration-form {
-  gap: 0;
-  padding: 0;
-}
-
-.settings-method {
-  display: grid;
-  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
-  gap: 24px;
-  padding: 16px;
-  border-bottom: 1px solid var(--line);
-}
-
-.settings-method-copy {
-  display: grid;
-  align-content: start;
-  gap: 3px;
-}
-
-.settings-method-copy h3,
-.settings-method-copy p {
-  margin: 0;
-}
-
-.settings-method-copy h3 {
-  font-size: 14px;
-}
-
-.settings-method-copy p {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.settings-field {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-width: 0;
-}
-
-.settings-field-label {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.settings-field-label strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.settings-field-label small {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-grid-local {
-  grid-template-columns: minmax(0, 1fr) 180px;
-}
-
-.settings-secret-control {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-}
-
-.settings-secret-control .button {
-  min-width: 82px;
-}
-
-.settings-field-wide {
-  min-width: 0;
-}
-
-.settings-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.settings-integration-form .settings-actions {
-  padding: 12px 16px 16px;
-}
-
-.settings-form-state {
-  margin-right: auto;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.settings-form-state.is-dirty {
-  color: var(--warning);
 }
 
 .settings-toggle {
@@ -3456,6 +3472,128 @@ body.component-manager-open {
   gap: 5px;
   color: var(--text-soft);
   font-size: 13px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.provider-inspector-filters {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.provider-inspector-filter-head,
+.provider-inspector-filter-rule-head {
+  min-height: 44px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.provider-inspector-filter-head::-webkit-details-marker,
+.provider-inspector-filter-rule-head::-webkit-details-marker {
+  display: none;
+}
+
+.provider-inspector-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.provider-inspector-filter-head strong {
+  font-size: 13px;
+}
+
+.provider-inspector-filter-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.provider-inspector-filters[open] > .provider-inspector-filter-head .provider-disclosure-icon {
+  transform: rotate(180deg);
+}
+
+.provider-inspector-filter-rules {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.provider-inspector-filter-rule {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+}
+
+.provider-inspector-filter-rule-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.provider-inspector-filter-label {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #e5f6f6;
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.provider-inspector-filter-preview,
+.provider-inspector-filter-full {
+  overflow-wrap: anywhere;
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.provider-inspector-filter-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.provider-inspector-filter-toggle {
+  padding-top: 1px;
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.provider-inspector-filter-toggle-hide,
+.provider-inspector-filter-full {
+  display: none;
+}
+
+.provider-inspector-filter-rule[open] .provider-inspector-filter-preview,
+.provider-inspector-filter-rule[open] .provider-inspector-filter-toggle-show {
+  display: none;
+}
+
+.provider-inspector-filter-rule[open] .provider-inspector-filter-toggle-hide {
+  display: inline;
+}
+
+.provider-inspector-filter-rule[open] .provider-inspector-filter-full {
+  display: block;
+  padding: 0 10px 10px;
 }
 
 .provider-inspector-actions {
@@ -3487,6 +3625,29 @@ body.component-manager-open {
 
 .provider-url.is-masked {
   color: var(--muted);
+}
+
+.provider-url-status {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.provider-url-status.is-success {
+  border-color: rgba(33, 138, 74, 0.3);
+  background: #eef9f2;
+  color: #176b39;
+}
+
+.provider-url-status.is-error {
+  border-color: rgba(180, 35, 24, 0.28);
+  background: #fff4f2;
+  color: var(--danger);
 }
 
 .empty-state {
@@ -3765,6 +3926,12 @@ body.component-manager-open {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
+}
+
+.provider-url-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 label {
@@ -5821,6 +5988,17 @@ button.review-check-card:focus-visible {
   width: 100%;
 }
 
+.review-repeat-button.is-ok {
+  border-color: #8bcbb3;
+  background: #edf8f3;
+  color: var(--success);
+}
+
+.review-repeat-button.is-ok:hover {
+  border-color: var(--success);
+  background: #e2f4ec;
+}
+
 .changes-panel {
   margin: 0;
   border: 0;
@@ -6205,6 +6383,15 @@ button.review-check-card:focus-visible {
     scroll-margin-top: 12px;
   }
 
+  .logs-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .logs-search-control,
+  .logs-auto-refresh {
+    grid-column: span 1;
+  }
+
   .topbar,
   .actions {
     align-items: stretch;
@@ -6285,18 +6472,6 @@ button.review-check-card:focus-visible {
 
   .connection-settings-grid {
     grid-template-columns: 1fr;
-  }
-
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-method {
-    grid-template-columns: 180px minmax(0, 1fr);
-  }
-
-  .settings-grid-local {
-    grid-template-columns: minmax(0, 1fr) 160px;
   }
 
   .node-inventory-controls {
@@ -6421,6 +6596,83 @@ button.review-check-card:focus-visible {
     display: none;
   }
 
+  .topbar {
+    position: static;
+    display: contents;
+  }
+
+  .mobile-topbar-meta {
+    position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    min-height: 48px;
+    padding: 4px 2px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(248, 250, 251, 0.98);
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-topbar-meta .topbar-main {
+    gap: 6px;
+    min-width: 0;
+    height: 40px;
+    overflow: hidden;
+  }
+
+  .mobile-topbar-meta .topbar-file-icon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .mobile-topbar-meta #fileMeta {
+    max-width: 88px;
+    font-size: 12px;
+  }
+
+  .mobile-topbar-meta .topbar-validation {
+    gap: 5px;
+    padding-left: 7px;
+    font-size: 0;
+  }
+
+  .mobile-topbar-meta .topbar-validation::after {
+    content: attr(data-short-label);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .mobile-topbar-meta .service-health-mobile {
+    grid-template-columns: repeat(2, auto);
+    gap: 8px;
+    width: auto;
+    min-height: 40px;
+    padding: 6px 8px;
+  }
+
+  .mobile-topbar-meta .service-health-item {
+    grid-template-columns: 9px auto;
+    gap: 5px;
+  }
+
+  .mobile-topbar-meta .service-health-item + .service-health-item {
+    padding-left: 8px;
+  }
+
+  .mobile-topbar-meta .service-health-status {
+    display: none;
+  }
+
+  .mobile-topbar-meta .service-health-name {
+    font-size: 11px;
+  }
+
+  .topbar > .actions {
+    margin: 8px 0 12px;
+  }
+
   .app-shell {
     width: 100%;
     padding: 0;
@@ -6431,6 +6683,8 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
     gap: 10px;
     padding: 12px 10px 10px;
+    border-bottom-color: var(--line-strong);
+    box-shadow: 0 6px 14px rgba(24, 34, 52, 0.08);
   }
 
   .app-main {
@@ -6457,9 +6711,6 @@ button.review-check-card:focus-visible {
   }
 
   .mobile-flow-actions:not([hidden]) {
-    position: sticky;
-    top: 8px;
-    z-index: 10;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 6px;
@@ -6539,8 +6790,6 @@ button.review-check-card:focus-visible {
   }
 
   .component-manager-actions,
-  .component-advanced,
-  .component-advanced > summary,
   .component-version-picker-controls {
     width: 100%;
   }
@@ -6568,6 +6817,136 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
+
+  .component-manager-dialog,
+  .component-manager-surface {
+    max-height: calc(100dvh - 16px);
+  }
+
+  .component-manager-dialog {
+    width: calc(100vw - 16px);
+  }
+
+  .component-manager-head {
+    align-items: center;
+    padding: 10px 12px;
+  }
+
+  .component-manager-head > div {
+    gap: 2px;
+  }
+
+  .component-manager-head h2 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+
+  .component-manager-head p {
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  .component-manager-body {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .component-manager-notice {
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .component-manager-list {
+    gap: 8px;
+  }
+
+  .component-manager-item {
+    gap: 8px;
+    padding: 10px 11px;
+  }
+
+  .component-version-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .component-version-grid > div {
+    gap: 2px;
+    padding: 6px 8px;
+  }
+
+  .component-version-grid dt {
+    font-size: 10px;
+  }
+
+  .component-version-grid dd {
+    font-size: 12px;
+  }
+
+  .component-manager-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+
+  .component-manager-actions {
+    width: auto;
+  }
+
+  .component-manager-actions > .button {
+    width: 100%;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-version-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-advanced-toggle {
+    grid-column: 1 / -1;
+  }
+
+  .component-manager-item:not(.is-update-available) .component-version-grid > div:last-child,
+  .component-manager-item:not(.is-update-available) [data-component-update] {
+    display: none;
+  }
+
+  .component-job-panel {
+    padding: 9px 10px;
+  }
+
+  .component-job-panel summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .component-job-head > .button {
+    min-height: 44px;
+  }
+
+  .component-job-panel pre {
+    max-height: min(150px, 24dvh);
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .component-manager-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    align-items: end;
+    gap: 8px;
+    padding: 8px 12px 12px;
+  }
+
+  .component-update-footer {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: end;
+    gap: 4px;
+  }
+
+  .component-update-footer span {
+    text-align: right;
+  }
   .overview-flow-steps {
     grid-template-columns: 1fr;
   }
@@ -6640,45 +7019,43 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .nodes-page-head {
+  .nodes-page-head,
+  .logs-page-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .nodes-page-head .button {
+  .nodes-page-head .button,
+  .logs-page-head .button {
     width: 100%;
+  }
+
+  .logs-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-search-control,
+  .logs-auto-refresh {
+    grid-column: auto;
+  }
+
+  .logs-output {
+    min-height: 360px;
+    max-height: 58vh;
+    padding: 12px;
+    font-size: 11px;
+  }
+
+  .logs-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .node-inventory-summary {
     align-items: flex-start;
     flex-direction: column;
     gap: 2px;
-  }
-
-  .settings-method {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-
-  .settings-grid-local {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-secret-control {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-secret-control .button {
-    width: 100%;
-  }
-
-  .settings-integration-form .settings-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .settings-form-state {
-    margin-right: 0;
   }
 
   .providers-table {
@@ -6752,6 +7129,43 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .provider-detail,
+  .provider-detail.is-editing {
+    min-height: 0;
+    padding: 14px 12px;
+    overflow: hidden;
+  }
+
+  .provider-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .provider-card-heading {
+    max-width: 100%;
+  }
+
+  .provider-card-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .provider-card-actions .button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .provider-editor-section,
+  .provider-name-row label,
+  .provider-url-row label {
+    min-width: 0;
+  }
+
+  .provider-url-actions {
+    flex-wrap: wrap;
+  }
+
   .generate-headers-button,
   .manual-name-button {
     min-width: 0;
@@ -6783,6 +7197,68 @@ button.review-check-card:focus-visible {
   .rules-table-head,
   .rule-registry-row {
     padding-inline: 8px;
+  }
+
+  .mobile-section-tabs:not([hidden]) {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 40;
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+    width: 100%;
+    height: var(--mobile-section-tabs-height);
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 10px;
+    border-bottom: 1px solid var(--line-strong);
+    background: rgba(248, 250, 251, 0.98);
+    box-shadow: 0 4px 12px rgba(24, 34, 52, 0.08);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: none;
+    scrollbar-width: none;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+    backdrop-filter: blur(10px);
+  }
+
+  .mobile-section-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-section-tab {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    min-height: var(--mobile-section-tabs-height);
+    padding: 0 1px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .mobile-section-tab .nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .mobile-section-tab.is-active {
+    border-bottom-color: var(--accent);
+    color: var(--accent-dark);
+  }
+
+  .mobile-section-tab:focus-visible {
+    outline: 2px solid rgba(8, 124, 128, 0.28);
+    outline-offset: -3px;
   }
 
   .rule-target-pill {
@@ -6908,6 +7384,28 @@ button.review-check-card:focus-visible {
 
 }
 
+@media (max-width: 560px) and (max-height: 600px) {
+  .component-manager-head p {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    border: 0;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .component-manager-body {
+    padding-block: 8px;
+  }
+
+  .component-manager-notice {
+    padding-block: 5px;
+  }
+}
+
 @media (max-width: 980px) {
   .xkeen-files-grid {
     grid-template-columns: 1fr;
@@ -6930,7 +7428,8 @@ button.review-check-card:focus-visible {
   }
 
   .xkeen-files-page-head .button {
-    width: 100%;
+    align-self: flex-end;
+    width: auto;
   }
 
   .xkeen-files-actions {
@@ -6939,6 +7438,12 @@ button.review-check-card:focus-visible {
 
   .xkeen-files-action-copy {
     grid-column: auto;
+  }
+
+  .xkeen-files-status-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .xkeen-files-actions .button {
@@ -6984,6 +7489,9 @@ button.review-check-card:focus-visible {
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
+      <symbol id="icon-logs" viewBox="0 0 24 24">
+        <path d="M8 9l3 3l-3 3" /><path d="M13 15h3" /><path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2" />
+      </symbol>
       <symbol id="icon-review" viewBox="0 0 24 24">
         <path d="M11.46 20.846a12 12 0 0 1 -7.96 -14.846a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 -.09 7.06" /><path d="M15 19l2 2l4 -4" />
       </symbol>
@@ -7008,7 +7516,7 @@ button.review-check-card:focus-visible {
           <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
           <div class="app-brand-copy">
             <div class="app-brand-title-row">
-              <h1>WebMihomo</h1>
+              <h1><a class="app-brand-home" href="" aria-label="Перейти на стартовую страницу и обновить WebMihomo">WebMihomo</a></h1>
               <div id="uiLinks" class="brand-ui-links" aria-live="polite"></div>
             </div>
             <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
@@ -7021,6 +7529,7 @@ button.review-check-card:focus-visible {
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
@@ -7033,12 +7542,12 @@ button.review-check-card:focus-visible {
             <span class="service-health-list">
               <span class="service-health-item is-loading" data-service-health="xkeen">
                 <span class="service-health-dot" aria-hidden="true"></span>
-                <span class="service-health-name">XKeen</span>
+                <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
                 <strong class="service-health-status">Проверка...</strong>
               </span>
               <span class="service-health-item is-loading" data-service-health="mihomo">
                 <span class="service-health-dot" aria-hidden="true"></span>
-                <span class="service-health-name">Mihomo</span>
+                <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
                 <strong class="service-health-status">Проверка...</strong>
               </span>
             </span>
@@ -7048,24 +7557,35 @@ button.review-check-card:focus-visible {
 
       <div class="app-main">
       <header class="topbar">
-        <div class="topbar-main">
-          <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
-          <p id="fileMeta">Конфигурация не загружена</p>
-          <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
+        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
+          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="mobile-section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
+          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
+        <div class="mobile-topbar-meta">
+          <div class="topbar-main">
+            <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
+            <p id="fileMeta">Конфигурация не загружена</p>
+            <span id="topbarValidation" class="topbar-validation" data-short-label="—">Проверка недоступна</span>
+          </div>
+          <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
+            <span class="service-health-item is-loading" data-service-health="xkeen">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+            <span class="service-health-item is-loading" data-service-health="mihomo">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+          </button>
         </div>
-        <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
-          <span class="service-health-item is-loading" data-service-health="xkeen">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">XKeen</span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-          <span class="service-health-item is-loading" data-service-health="mihomo">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">Mihomo</span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-          <span class="service-update-mobile-badge" data-service-update-mobile-badge hidden>0</span>
-        </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
@@ -7374,9 +7894,9 @@ button.review-check-card:focus-visible {
             <h2>Порты и исключения</h2>
             <p>Файлы XKeen из каталога <code id="xkeenFilesDirectory">/opt/etc/xkeen</code></p>
           </div>
-          <button id="xkeenFilesRefreshButton" class="button compact" type="button" disabled>
+          <button id="xkeenRestartButton" class="button compact" type="button" disabled>
             <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-            <span>Перезагрузить</span>
+            <span>Перезапустить XKeen</span>
           </button>
         </header>
 
@@ -7451,7 +7971,10 @@ button.review-check-card:focus-visible {
         <footer class="panel xkeen-files-actions">
           <div class="xkeen-files-action-copy">
             <strong id="xkeenFilesChangeStatus">Изменений нет</strong>
-            <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+            <div class="xkeen-files-status-row">
+              <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+              <button id="xkeenFilesRefreshButton" class="link-button xkeen-files-refresh-button" type="button" disabled>Обновить с роутера</button>
+            </div>
           </div>
           <label class="xkeen-restart-option">
             <input id="xkeenRestartAfterSave" type="checkbox" checked disabled />
@@ -7585,10 +8108,59 @@ button.review-check-card:focus-visible {
         </div>
       </section>
 
+      <section class="app-section logs-section" data-section-panel="logs" hidden>
+        <header class="logs-page-head">
+          <div>
+            <h2>Логи</h2>
+            <p id="logsStatus" aria-live="polite">Доступно при работе через MihUI на роутере.</p>
+          </div>
+          <button id="logsRefreshButton" class="button compact" type="button" disabled>
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+            <span>Обновить</span>
+          </button>
+        </header>
+
+        <section class="panel logs-panel">
+          <div class="logs-controls">
+            <label>
+              <span>Источник</span>
+              <select id="logsSourceSelect">
+                <option value="mihui">MihUI</option>
+                <option value="mihomo">Mihomo</option>
+                <option value="xkeen">XKeen</option>
+              </select>
+            </label>
+            <label>
+              <span>Уровень</span>
+              <select id="logsLevelSelect">
+                <option value="">Все</option>
+                <option value="error">Ошибки</option>
+                <option value="warn">Предупреждения</option>
+                <option value="info">Информация</option>
+                <option value="debug">Отладка</option>
+              </select>
+            </label>
+            <label class="logs-search-control">
+              <span>Поиск</span>
+              <input id="logsSearchInput" type="search" placeholder="Текст в журнале" autocomplete="off" />
+            </label>
+            <label class="logs-auto-refresh">
+              <input id="logsAutoRefresh" type="checkbox" checked />
+              <span>Обновлять автоматически</span>
+            </label>
+          </div>
+          <pre id="logsOutput" class="logs-output" tabindex="0" aria-label="Содержимое журнала">Выберите раздел через MihUI на роутере.</pre>
+          <footer class="logs-footer">
+            <span id="logsPath">Файл не выбран</span>
+            <span id="logsUpdatedAt">—</span>
+          </footer>
+        </section>
+      </section>
+
       <section class="app-section" data-section-panel="settings" hidden>
         <header class="settings-page-head">
           <h2>Настройки</h2>
-          <p>Параметры интерфейса и подключенных к MihUI интеграций.</p>
+          <p>Параметры интерфейса WebMihomo.</p>
         </header>
 
         <section class="panel settings-panel">
@@ -7606,74 +8178,6 @@ button.review-check-card:focus-visible {
           </div>
         </section>
 
-        <section class="panel settings-panel">
-          <div class="panel-head">
-            <div class="settings-panel-title">
-              <h2>Интеграция Happ Decoder</h2>
-              <p>Способы расшифровки ссылок формата <code>happ://</code>.</p>
-            </div>
-            <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
-          </div>
-          <form id="happDecoderSettingsForm" class="settings-form settings-integration-form">
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Облачный API</h3>
-                <p>Запрос к совместимому сервису декодирования.</p>
-              </div>
-              <div class="settings-grid">
-                <div class="settings-field">
-                  <label class="settings-field-label" for="happDecoderApiKey"><strong>API-ключ</strong><small>MIHUI_HAPP_DECODER_API_KEY</small></label>
-                  <span class="settings-secret-control">
-                    <input id="happDecoderApiKey" type="password" autocomplete="new-password" placeholder="Ключ не задан" />
-                    <button id="toggleHappDecoderApiKeyButton" class="button ghost compact" type="button" aria-pressed="false">Показать</button>
-                  </span>
-                </div>
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Адрес API</strong><small>MIHUI_HAPP_DECODER_API_URL</small></span>
-                  <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Локальный декодер</h3>
-                <p>Команда, которая запускается непосредственно на роутере.</p>
-              </div>
-              <div class="settings-grid settings-grid-local">
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Локальная команда</strong><small>MIHUI_HAPP_DECRYPTOR_CMD</small></span>
-                  <input id="happDecryptorCmd" type="text" autocomplete="off" placeholder="/opt/bin/node /opt/etc/mihui/bin/happ-decrypt-universal %LINK%" />
-                </label>
-                <label class="settings-field settings-timeout-field">
-                  <span class="settings-field-label"><strong>Тайм-аут, секунд</strong><small>MIHUI_HAPP_DECRYPTOR_TIMEOUT</small></span>
-                  <input id="happDecryptorTimeout" type="number" min="1" max="120" step="1" autocomplete="off" placeholder="45" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Удаленный резерв</h3>
-                <p>Используется, если локальный способ недоступен.</p>
-              </div>
-              <label class="settings-field settings-field-wide">
-                <span class="settings-field-label"><strong>Резервный URL</strong><small>MIHUI_HAPP_DECRYPTOR_REMOTE_URL</small></span>
-                <input id="happDecryptorRemoteUrl" type="url" autocomplete="off" placeholder="https://decoder.example/decrypt?url=%LINK_ENCODED%" />
-              </label>
-            </section>
-
-            <div class="settings-actions">
-              <span id="happDecoderFormState" class="settings-form-state">Изменений нет</span>
-              <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
-                <span>Перечитать</span>
-              </button>
-              <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
-                <span>Сохранить</span>
-              </button>
-            </div>
-          </form>
-        </section>
       </section>
       </div>
     </main>
@@ -7714,12 +8218,25 @@ button.review-check-card:focus-visible {
         <header class="component-manager-head">
           <div>
             <h2 id="componentManagerTitle">Сервисы и версии</h2>
-            <p id="componentManagerDescription">Состояние, версии и обслуживание основных компонентов.</p>
+            <p id="componentManagerDescription">Проверка и обновление компонентов.</p>
           </div>
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
         <div class="component-manager-body">
           <p id="componentManagerNotice" class="component-manager-notice" data-component-updates-view aria-live="polite">Получаем версии компонентов...</p>
+          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
+            <div class="component-job-head">
+              <div class="component-job-copy">
+                <strong id="componentJobTitle">Операция выполняется</strong>
+                <span id="componentJobMessage"></span>
+              </div>
+              <button id="dismissComponentJobButton" class="button compact" type="button" hidden>Скрыть</button>
+            </div>
+            <details id="componentJobDetails" hidden>
+              <summary>Журнал операции</summary>
+              <pre id="componentJobOutput"></pre>
+            </details>
+          </section>
           <div class="component-manager-list" data-component-updates-view>
             <article class="component-manager-item" data-component-card="xkeen">
               <header>
@@ -7732,26 +8249,24 @@ button.review-check-card:focus-visible {
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
-                  <div class="component-advanced-body">
-                    <div class="xkeen-channel-setting">
-                      <div class="xkeen-channel-copy">
-                        <strong>Канал обновлений</strong>
-                        <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
-                      </div>
-                      <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
-                      </div>
-                      <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="xkeenAdvancedPanel">Параметры</button>
+                <div id="xkeenAdvancedPanel" class="component-advanced-body" hidden>
+                  <div class="xkeen-channel-setting">
+                    <div class="xkeen-channel-copy">
+                      <strong>Канал обновлений</strong>
+                      <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
                     </div>
-                    <div class="component-advanced-actions">
-                      <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
-                      <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                    <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
                     </div>
+                    <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
                   </div>
-                </details>
+                  <div class="component-advanced-actions">
+                    <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
+                    <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                  </div>
+                </div>
               </div>
             </article>
 
@@ -7766,16 +8281,14 @@ button.review-check-card:focus-visible {
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
-                  <div class="component-advanced-body">
-                    <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
-                    <div class="component-version-picker-controls">
-                      <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
-                      <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
-                    </div>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="mihomoAdvancedPanel">Параметры</button>
+                <div id="mihomoAdvancedPanel" class="component-advanced-body" hidden>
+                  <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
+                  <div class="component-version-picker-controls">
+                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
                   </div>
-                </details>
+                </div>
               </div>
             </article>
           </div>
@@ -7801,17 +8314,9 @@ button.review-check-card:focus-visible {
               </section>
             </div>
           </section>
-          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
-            <strong id="componentJobTitle">Операция выполняется</strong>
-            <span id="componentJobMessage"></span>
-            <details id="componentJobDetails" hidden>
-              <summary>Технические подробности</summary>
-              <pre id="componentJobOutput"></pre>
-            </details>
-          </section>
         </div>
         <footer class="component-manager-footer">
-          <button id="openComponentMaintenanceButton" class="button compact" type="button">Сервисные действия…</button>
+          <button id="openComponentMaintenanceButton" class="button compact" type="button">Обслуживание</button>
           <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
           <div id="componentUpdateFooter" class="component-update-footer">
             <span id="componentVersionsChecked"></span>
@@ -7856,10 +8361,16 @@ button.review-check-card:focus-visible {
               <span title="url">Ссылка подписки</span>
               <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
             </label>
-            <button class="button compact happ-decode-button" type="button" hidden>
-              <span>Расшифровать Happ</span>
-            </button>
+            <div class="provider-url-actions">
+              <button class="button compact provider-url-reveal-button" type="button" hidden aria-pressed="false">
+                <span>Показать</span>
+              </button>
+              <button class="button compact happ-decode-button" type="button" hidden>
+                <span>Расшифровать Happ</span>
+              </button>
+            </div>
           </div>
+          <p class="provider-url-status" aria-live="polite" hidden></p>
         </div>
 
         <details class="provider-editor-section provider-editor-collapsible">
@@ -7964,12 +8475,14 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'logs', 'settings']);
+const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
+const LOG_REFRESH_MS = 3000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -8277,12 +8790,14 @@ const state = {
   providerStatusLoading: false,
   providerUpdatingName: '',
   happDecodeProviderName: '',
+  happDecodeFeedback: null,
   mihomoNodes: [],
   mihomoGroupSelections: [],
   nodeInventoryLoading: false,
   nodeInventoryError: '',
   nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
+  nodeGroupSelectingName: '',
   nodeInventoryUpdatedAt: 0,
   nodeFilters: {
     search: '',
@@ -8297,11 +8812,13 @@ const state = {
   routerMode: false,
   routerApiAvailable: false,
   routerConfigPath: '',
+  routerConfigRevision: '',
   routerBusy: false,
   xkeenFiles: {
     loaded: false,
     loading: false,
     saving: false,
+    restartRequested: false,
     available: false,
     directory: '/opt/etc/xkeen',
     files: {},
@@ -8311,18 +8828,6 @@ const state = {
   },
   backups: [],
   selectedBackupName: '',
-  happDecoderSettings: {
-    apiKey: '',
-    apiUrl: '',
-    decryptorCmd: '',
-    decryptorTimeout: '45',
-    remoteUrl: '',
-    hasApiKey: false,
-    hasDecryptor: false,
-    hasRemoteUrl: false,
-    loading: false,
-    saving: false,
-  },
   updatePollTimer: 0,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
@@ -8348,6 +8853,21 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  logs: {
+    loading: false,
+    loaded: false,
+    available: false,
+    source: 'mihui',
+    sources: [],
+    rawText: '',
+    path: '',
+    modifiedAt: 0,
+    truncated: false,
+    message: '',
+    search: '',
+    level: '',
+    autoRefresh: true,
+  },
   components: {
     loading: false,
     loaded: false,
@@ -8358,6 +8878,7 @@ const state = {
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
     },
     job: { running: false, ok: null, component: '', action: '', target: '', phase: 'idle', message: '', output: '' },
+    jobVisible: false,
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
@@ -8414,12 +8935,15 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  appSidebar: document.querySelector('.app-sidebar'),
+  primarySectionTabs: document.querySelector('.section-tabs'),
+  topbar: document.querySelector('.topbar'),
+  mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
-  serviceUpdateMobileBadges: document.querySelectorAll('[data-service-update-mobile-badge]'),
   componentManagerDialog: document.querySelector('#componentManagerDialog'),
   componentManagerTitle: document.querySelector('#componentManagerTitle'),
   componentManagerDescription: document.querySelector('#componentManagerDescription'),
@@ -8433,6 +8957,7 @@ const els = {
   componentLatestLabels: document.querySelectorAll('[data-component-latest-label]'),
   componentChannels: document.querySelectorAll('[data-component-channel]'),
   componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
+  componentAdvancedButtons: document.querySelectorAll('[data-component-advanced-toggle]'),
   componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
   xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
   xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
@@ -8450,6 +8975,7 @@ const els = {
   componentJobPanel: document.querySelector('#componentJobPanel'),
   componentJobTitle: document.querySelector('#componentJobTitle'),
   componentJobMessage: document.querySelector('#componentJobMessage'),
+  dismissComponentJobButton: document.querySelector('#dismissComponentJobButton'),
   componentJobDetails: document.querySelector('#componentJobDetails'),
   componentJobOutput: document.querySelector('#componentJobOutput'),
   providerCount: document.querySelector('#providerCount'),
@@ -8458,7 +8984,7 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
-  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionTabs: document.querySelectorAll('.section-tab, .mobile-section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
@@ -8468,6 +8994,7 @@ const els = {
   xkeenFileErrors: document.querySelectorAll('[data-xkeen-file-error]'),
   xkeenFilesDirectory: document.querySelector('#xkeenFilesDirectory'),
   xkeenFilesNotice: document.querySelector('#xkeenFilesNotice'),
+  xkeenRestartButton: document.querySelector('#xkeenRestartButton'),
   xkeenFilesRefreshButton: document.querySelector('#xkeenFilesRefreshButton'),
   xkeenFilesSaveButton: document.querySelector('#xkeenFilesSaveButton'),
   xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
@@ -8514,17 +9041,15 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
-  happDecoderSettingsForm: document.querySelector('#happDecoderSettingsForm'),
-  happDecoderApiKey: document.querySelector('#happDecoderApiKey'),
-  happDecoderApiUrl: document.querySelector('#happDecoderApiUrl'),
-  happDecryptorCmd: document.querySelector('#happDecryptorCmd'),
-  happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
-  happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
-  happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
-  happDecoderFormState: document.querySelector('#happDecoderFormState'),
-  toggleHappDecoderApiKeyButton: document.querySelector('#toggleHappDecoderApiKeyButton'),
-  saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
-  reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
+  logsStatus: document.querySelector('#logsStatus'),
+  logsRefreshButton: document.querySelector('#logsRefreshButton'),
+  logsSourceSelect: document.querySelector('#logsSourceSelect'),
+  logsLevelSelect: document.querySelector('#logsLevelSelect'),
+  logsSearchInput: document.querySelector('#logsSearchInput'),
+  logsAutoRefresh: document.querySelector('#logsAutoRefresh'),
+  logsOutput: document.querySelector('#logsOutput'),
+  logsPath: document.querySelector('#logsPath'),
+  logsUpdatedAt: document.querySelector('#logsUpdatedAt'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -8597,15 +9122,20 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
-els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
-els.happDecoderSettingsForm.addEventListener('input', renderHappDecoderSettings);
-els.toggleHappDecoderApiKeyButton.addEventListener('click', toggleHappDecoderApiKeyVisibility);
-els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
+els.logsRefreshButton.addEventListener('click', () => loadLogs({ silent: false }));
+els.logsSourceSelect.addEventListener('change', handleLogSourceChange);
+els.logsLevelSelect.addEventListener('change', handleLogFilterChange);
+els.logsSearchInput.addEventListener('input', handleLogFilterChange);
+els.logsAutoRefresh.addEventListener('change', handleLogAutoRefreshChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
+window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
+window.addEventListener?.('beforeunload', handleBeforeUnload);
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
 els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
@@ -8623,8 +9153,15 @@ els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
+els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
 els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
+els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
+  const panel = document.getElementById(button.getAttribute('aria-controls'));
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', String(!expanded));
+  if (panel) panel.hidden = expanded;
+}));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
@@ -8634,17 +9171,19 @@ els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates)
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
-renderHappDecoderSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+renderLogs();
+updateMobileSectionTabsVisibility();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
   try {
-    return window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY) === 'true';
+    const stored = window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY);
+    return stored === null || stored === undefined ? true : stored === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -8662,14 +9201,63 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
+function getMobileSectionTabsHeight() {
+  if (typeof window.getComputedStyle !== 'function') return 44;
+  return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 44;
+}
+
+function getStickyTopbarHeight() {
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  return isMobile ? getMobileSectionTabsHeight() : els.topbar?.offsetHeight || 0;
+}
+
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
+  const shouldScroll = options.scroll !== false;
   state.activeSection = section;
   renderSectionTabs();
-  if (options.scroll === false) return;
+  updateMobileSectionTabsVisibility();
+  centerActiveMobileSectionTab();
+  if (section === 'logs' && !state.logs.loaded && !state.logs.loading) {
+    loadLogs({ silent: true });
+  }
+  if (!shouldScroll) return;
 
-  document.querySelector(`[data-section-panel="${section}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  const panel = document.querySelector(`[data-section-panel="${section}"]`);
+  if (!panel?.scrollIntoView) return;
+
+  panel.style.removeProperty('scroll-margin-top');
+  const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
+  const stickyTopbarMargin = getStickyTopbarHeight() + 12;
+  panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateMobileSectionTabsVisibility() {
+  if (!els.mobileSectionTabs || !els.appSidebar) return;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
+  const shouldShow = isMobile && sidebarBottom <= 0;
+  const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
+
+  els.mobileSectionTabs.hidden = !shouldShow;
+  els.mobileSectionTabs.setAttribute('aria-hidden', String(!shouldShow));
+
+  if (els.primarySectionTabs) {
+    els.primarySectionTabs.inert = shouldShow;
+    els.primarySectionTabs.setAttribute('aria-hidden', String(shouldShow));
+  }
+
+  if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
+}
+
+function centerActiveMobileSectionTab() {
+  if (!els.mobileSectionTabs || els.mobileSectionTabs.hidden) return;
+  const activeTab = els.mobileSectionTabs.querySelector(`[data-section="${state.activeSection}"]`);
+  if (!activeTab) return;
+  const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
+  els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
 function renderSectionTabs() {
@@ -8688,6 +9276,7 @@ function renderSectionTabs() {
   renderProviderView();
   renderRoutingView();
   renderXkeenNetworkFiles();
+  renderLogs();
   els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
 }
 
@@ -8758,6 +9347,7 @@ function handleSubsectionTabKeydown(event, tabs, dataKey, setView) {
 function handleFileSelect(event) {
   const [file] = event.target.files;
   if (!file) return;
+  els.fileTools.open = false;
 
   const reader = new FileReader();
   reader.onload = () => {
@@ -8787,12 +9377,12 @@ function initRouterMode() {
   }
 
   loadRouterMetadata();
-  loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
   loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   startServiceHealthPolling();
+  startLogsPolling();
   checkMihuiUpdate();
 }
 
@@ -8805,6 +9395,7 @@ async function loadRouterConfig(options = {}) {
     state.routerApiAvailable = true;
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
+    state.routerConfigRevision = String(data.revision || '');
     state.fileName = state.routerConfigPath || 'router config';
     state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
@@ -8884,16 +9475,22 @@ async function saveRouterConfig() {
     }
   }
 
+  if (!confirmHighRiskSave()) return;
+
   setRouterBusy(true, 'Сохранение...');
 
   try {
     const data = await apiJson('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: state.outputText }),
+      body: JSON.stringify({
+        text: state.outputText,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     state.routerMode = true;
     state.routerConfigPath = data.path || state.routerConfigPath;
+    state.routerConfigRevision = String(data.revision || state.routerConfigRevision);
     state.fileName = state.routerConfigPath;
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
@@ -8904,13 +9501,50 @@ async function saveRouterConfig() {
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
 
-    if (data.reload?.ok) {
-      const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      showMessage(`Конфиг сохранен, Mihomo перезагружен. Применено в ${appliedAt}.`, { severity: 'success' });
-    } else {
-      showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
-    }
+    const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      showMessage('Конфиг на роутере изменился после открытия этой вкладки. Черновик не записан.', {
+        severity: 'warning',
+        actions: [
+          { label: 'Скачать черновик', onClick: downloadYaml },
+          { label: 'Перезагрузить с роутера', onClick: reloadRouterConfig },
+        ],
+      });
+      focusReviewSummary();
+      return;
+    }
+    if (result.saved && result.uncertain) {
+      state.routerMode = true;
+      state.routerConfigPath = result.path || state.routerConfigPath;
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      state.fileName = state.routerConfigPath;
+      state.configLoadedAt = Date.now();
+      state.originalText = state.outputText;
+      state.lastConfigCheckText = state.outputText;
+      state.lastConfigCheckOk = true;
+      parseAndRender();
+      await loadBackups();
+      await loadProviderStatuses({ silent: true });
+      await loadNodeInventory({ silent: true });
+      showMessage('Конфиг сохранен, но Mihomo не подтвердил применение. Проверьте состояние сервиса перед следующим изменением.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      await loadBackups();
+      showMessage('Mihomo не применил конфиг. Предыдущая версия восстановлена, локальные изменения оставлены для повторной попытки.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      focusReviewSummary();
+      return;
+    }
     showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
     focusReviewSummary();
   } finally {
@@ -8929,7 +9563,10 @@ async function restoreSelectedBackup() {
     const data = await apiJson('/api/backups/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     await loadRouterConfig({ silent: true });
     els.backupHistoryDialog.close();
@@ -8937,6 +9574,26 @@ async function restoreSelectedBackup() {
       severity: data.reload?.ok ? 'success' : 'warning',
     });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      setBackupHistoryStatus('Конфиг на роутере изменился. Закройте историю и перезагрузите конфиг с роутера.', 'error');
+      return;
+    }
+    if (result.restored && result.uncertain) {
+      await loadRouterConfig({ silent: true });
+      els.backupHistoryDialog.close();
+      showMessage('Версия записана, но Mihomo не подтвердил применение.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      await loadBackups();
+      setBackupHistoryStatus('Mihomo не применил версию. Текущий конфиг восстановлен.', 'error');
+      return;
+    }
     setBackupHistoryStatus(`Не удалось восстановить версию: ${error?.message || error}`, 'error');
   } finally {
     setRouterBusy(false, 'Перезагрузить с роутера');
@@ -9006,136 +9663,6 @@ async function loadRouterMetadata() {
   } catch (error) {
     renderUiLinks([]);
   }
-}
-
-async function loadHappDecoderSettings(options = {}) {
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
-    renderHappDecoderSettings();
-    return;
-  }
-
-  state.happDecoderSettings.loading = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder');
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || '';
-    state.happDecoderSettings.apiUrl = data.apiUrl || '';
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || '';
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || '';
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    if (els.happDecoderApiKey) els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
-    if (els.happDecryptorCmd) els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    if (els.happDecryptorTimeout) els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    if (els.happDecryptorRemoteUrl) els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
-  } catch (error) {
-    if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.loading = false;
-    renderHappDecoderSettings();
-  }
-}
-
-async function saveHappDecoderSettings(event) {
-  event.preventDefault();
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') return;
-
-  const apiUrl = String(els.happDecoderApiUrl.value || '').trim();
-  const apiKey = String(els.happDecoderApiKey.value || '').trim();
-  const decryptorCmd = String(els.happDecryptorCmd.value || '').trim();
-  const decryptorTimeout = String(els.happDecryptorTimeout.value || '').trim();
-  const remoteUrl = String(els.happDecryptorRemoteUrl.value || '').trim();
-  const payload = { apiUrl, decryptorCmd, decryptorTimeout, remoteUrl };
-  if (apiKey) payload.apiKey = apiKey;
-
-  state.happDecoderSettings.saving = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || apiKey;
-    state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || decryptorCmd;
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || remoteUrl;
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
-    els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    showMessage('Настройки Happ Decoder сохранены.');
-  } catch (error) {
-    showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.saving = false;
-    renderHappDecoderSettings();
-  }
-}
-
-function renderHappDecoderSettings() {
-  if (!els.happDecoderSettingsForm) return;
-  const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
-  const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
-  const dirty = isHappDecoderSettingsDirty();
-  els.happDecoderApiKey.disabled = unavailable || busy;
-  els.happDecoderApiUrl.disabled = unavailable || busy;
-  els.happDecryptorCmd.disabled = unavailable || busy;
-  els.happDecryptorTimeout.disabled = unavailable || busy;
-  els.happDecryptorRemoteUrl.disabled = unavailable || busy;
-  els.saveHappDecoderSettingsButton.disabled = unavailable || busy || !dirty;
-  els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
-
-  const label = els.saveHappDecoderSettingsButton.querySelector('span');
-  if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
-  const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
-  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать';
-
-  els.happDecoderFormState.textContent = dirty ? 'Есть несохраненные изменения' : 'Изменений нет';
-  els.happDecoderFormState.classList.toggle('is-dirty', dirty);
-
-  els.happDecoderSettingsStatus.classList.remove('is-success', 'is-muted');
-  if (unavailable) {
-    els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else if (state.happDecoderSettings.loading) {
-    els.happDecoderSettingsStatus.textContent = 'Загрузка...';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else {
-    const modes = [];
-    if (state.happDecoderSettings.hasApiKey) modes.push('API');
-    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('локально');
-    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('резерв');
-    els.happDecoderSettingsStatus.textContent = modes.length ? `Настроено · ${modes.join(' · ')}` : 'Не настроено';
-    els.happDecoderSettingsStatus.classList.add(modes.length ? 'is-success' : 'is-muted');
-  }
-}
-
-function isHappDecoderSettingsDirty() {
-  if (!els.happDecoderSettingsForm) return false;
-  return String(els.happDecoderApiKey.value || '').trim() !== String(state.happDecoderSettings.apiKey || '').trim()
-    || String(els.happDecoderApiUrl.value || '').trim() !== String(state.happDecoderSettings.apiUrl || '').trim()
-    || String(els.happDecryptorCmd.value || '').trim() !== String(state.happDecoderSettings.decryptorCmd || '').trim()
-    || String(els.happDecryptorTimeout.value || '').trim() !== String(state.happDecoderSettings.decryptorTimeout || '').trim()
-    || String(els.happDecryptorRemoteUrl.value || '').trim() !== String(state.happDecoderSettings.remoteUrl || '').trim();
-}
-
-function toggleHappDecoderApiKeyVisibility() {
-  const isVisible = els.happDecoderApiKey.type === 'text';
-  els.happDecoderApiKey.type = isVisible ? 'password' : 'text';
-  els.toggleHappDecoderApiKeyButton.textContent = isVisible ? 'Показать' : 'Скрыть';
-  els.toggleHappDecoderApiKeyButton.setAttribute('aria-pressed', String(!isVisible));
 }
 
 async function checkMihuiUpdate() {
@@ -9222,6 +9749,53 @@ function hasUnsavedRouterChanges() {
   return Boolean(state.outputText && state.originalText && state.outputText !== state.originalText);
 }
 
+function hasUnsavedWorkspaceChanges() {
+  const rawDraftChanged = state.isEditingConfiguration
+    && String(els.outputPreview?.value || '') !== String(state.outputText || '');
+  return hasUnsavedRouterChanges() || rawDraftChanged;
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedWorkspaceChanges()) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+function getHighRiskSaveSummaries() {
+  const summaries = [];
+  const deletedProviders = state.providers.filter((provider) => provider.deleted).map((provider) => provider.name);
+  if (deletedProviders.length > 0) {
+    summaries.push(`Удаляются подписки: ${deletedProviders.join(', ')}.`);
+  }
+
+  const ruleChanges = collectRuleChanges();
+  if (ruleChanges.length > 0) {
+    summaries.push(`Изменены правила маршрутизации (${ruleChanges.length}).`);
+  }
+
+  const originalMain = state.originalGroups.find((group) => normalizeLookupName(group.name) === 'proxy');
+  const currentMain = state.groups.find((group) => normalizeLookupName(group.originalName || group.name) === 'proxy');
+  if (originalMain && (!currentMain || !groupSnapshotsAreEqual(snapshotGroup(currentMain), originalMain))) {
+    summaries.push('Изменена основная группа PROXY.');
+  }
+
+  return summaries;
+}
+
+function groupSnapshotsAreEqual(left, right) {
+  return left.name === right.name
+    && left.type === right.type
+    && left.proxies.join('\n') === right.proxies.join('\n')
+    && left.use.join('\n') === right.use.join('\n');
+}
+
+function confirmHighRiskSave() {
+  const summaries = getHighRiskSaveSummaries();
+  if (summaries.length === 0) return true;
+  const details = summaries.map((summary) => `• ${summary}`).join('\n');
+  return window.confirm(`Применить рискованные изменения?\n\n${details}\n\nMihomo проверит YAML, но не может проверить намерение пользователя.`);
+}
+
 function isCurrentConfigKernelChecked() {
   return Boolean(state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk);
 }
@@ -9251,17 +9825,21 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) return { disabled: false, label: 'Проверить повторно' };
-  return {
-    disabled: false,
-    label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
-  };
+  if (isCurrentConfigKernelChecked()) {
+    return { disabled: false, label: 'Проверка пройдена · Проверить повторно', tone: 'success' };
+  }
+  if (state.lastConfigCheckText === state.outputText) {
+    return { disabled: false, label: 'Проверка не пройдена · Проверить повторно', tone: 'danger' };
+  }
+  return { disabled: false, label: 'Проверить YAML в Mihomo' };
 }
 
 function renderReviewPrimaryActionButton() {
   const action = getReviewPrimaryActionState();
   els.checkConfigButton.disabled = action.disabled;
   els.checkConfigButton.title = action.label;
+  els.checkConfigButton.classList.toggle('is-ok', action.tone === 'success');
+  els.checkConfigButton.classList.toggle('danger', action.tone === 'danger');
   const label = els.checkConfigButton.querySelector('.button-label');
   if (label) label.textContent = action.label;
 }
@@ -9480,6 +10058,10 @@ function handleXkeenNetworkFileInput(event) {
 function renderXkeenNetworkFiles() {
   const editorState = state.xkeenFiles;
   const changedKeys = getChangedXkeenNetworkFileKeys();
+  const componentBusy = state.components.job.running;
+  const restartBusy = componentBusy
+    && state.components.job.component === 'xkeen'
+    && state.components.job.action === 'restart';
   const disabled = !editorState.loaded || !editorState.available || editorState.loading || editorState.saving;
   const errorsByFile = new Map();
   editorState.errors.forEach((error) => {
@@ -9533,7 +10115,11 @@ function renderXkeenNetworkFiles() {
   }
 
   const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
-  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || !canRequest;
+  els.xkeenRestartButton.disabled = disabled || componentBusy || !canRequest;
+  els.xkeenRestartButton.setAttribute('aria-busy', String(restartBusy));
+  els.xkeenRestartButton.querySelector('span').textContent = restartBusy ? 'Перезапускаем...' : 'Перезапустить XKeen';
+  els.xkeenFilesRefreshButton.hidden = !editorState.loaded || !editorState.available;
+  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || componentBusy || !canRequest;
   els.xkeenRestartAfterSave.disabled = disabled || changedKeys.length === 0;
   els.xkeenFilesSaveButton.disabled = disabled || changedKeys.length === 0 || hasErrors;
   els.xkeenFilesSaveButton.classList.toggle('is-loading', editorState.saving);
@@ -9543,7 +10129,9 @@ function renderXkeenNetworkFiles() {
       ? 'Сохранить и применить'
       : 'Сохранить';
   els.xkeenFilesChangeStatus.textContent = changedKeys.length ? `Изменено файлов: ${changedKeys.length}` : 'Изменений нет';
-  if (editorState.loading) {
+  if (restartBusy) {
+    els.xkeenFilesStatus.textContent = 'XKeen и активное прокси-ядро перезапускаются...';
+  } else if (editorState.loading) {
     els.xkeenFilesStatus.textContent = 'Загрузка файлов с роутера...';
   } else if (editorState.saving) {
     els.xkeenFilesStatus.textContent = els.xkeenRestartAfterSave.checked ? 'Сохранение и перезапуск XKeen...' : 'Сохранение файлов...';
@@ -9598,6 +10186,18 @@ async function reloadXkeenNetworkFiles() {
   await loadXkeenNetworkFiles({ silent: false });
 }
 
+async function restartXkeenFromFiles() {
+  if (state.components.job.running || !state.xkeenFiles.available) return;
+  const hasUnsavedChanges = getChangedXkeenNetworkFileKeys().length > 0;
+  const warning = hasUnsavedChanges
+    ? 'Есть несохранённые изменения. Они останутся в редакторе, но перезапуск применит только файлы, уже сохранённые на роутере. Продолжить?'
+    : 'Перезапустить XKeen и активное прокси-ядро? Соединения могут кратковременно прерваться.';
+  if (!window.confirm(warning)) return;
+  const started = await startComponentAction({ component: 'xkeen', action: 'restart' });
+  state.xkeenFiles.restartRequested = started;
+  renderXkeenNetworkFiles();
+}
+
 async function saveXkeenNetworkFiles() {
   const changedKeys = getChangedXkeenNetworkFileKeys();
   if (!changedKeys.length || state.xkeenFiles.saving) return;
@@ -9645,11 +10245,13 @@ async function loadServiceHealth(options = {}) {
     state.serviceHealth.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
   } catch (error) {
     const detail = error?.message || String(error);
-    state.serviceHealth.services = {
-      xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
-      mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
-    };
-    state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    if (!state.serviceHealth.checkedAt) {
+      state.serviceHealth.services = {
+        xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
+        mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
+      };
+      state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    }
     if (!options.silent) showMessage('Не удалось обновить статусы сервисов.', { severity: 'warning', details: detail });
   } finally {
     state.serviceHealth.loading = false;
@@ -9675,21 +10277,29 @@ function formatServiceStatusLabel(service, loading = false) {
 
 function renderServiceHealth() {
   const { loading, checkedAt, services } = state.serviceHealth;
+  const initialLoading = loading && !checkedAt;
   els.serviceHealthItems.forEach((item) => {
     const serviceName = item.dataset.serviceHealth;
     const service = services[serviceName] || normalizeServiceStatus(null);
     const componentBusy = state.components.job.running && state.components.job.component === serviceName;
-    item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
-    item.classList.add(loading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.remove('is-loading', 'is-refreshing', 'is-ok', 'is-error', 'is-unavailable');
+    item.classList.add(initialLoading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.toggle('is-refreshing', loading && !initialLoading && !componentBusy);
     const status = item.querySelector('.service-health-status');
-    if (status) status.textContent = componentBusy ? 'Обновление...' : formatServiceStatusLabel(service, loading);
+    if (status) {
+      status.textContent = componentBusy
+        ? state.components.job.action === 'restart' ? 'Перезапуск...' : 'Обновление...'
+        : formatServiceStatusLabel(service, initialLoading);
+    }
+    const updateMarker = item.querySelector('[data-service-update-marker]');
+    if (updateMarker) updateMarker.hidden = !state.components.items[serviceName]?.updateAvailable;
     const details = [service.message, service.detail].filter(Boolean).join(' · ');
     item.title = details;
   });
 
   const updateCount = Number(state.components.updateCount) || 0;
   const checkedLabel = loading
-    ? 'Проверка...'
+    ? checkedAt ? 'Обновляем...' : 'Проверка...'
     : checkedAt
       ? `Проверено ${formatServiceHealthTime(checkedAt)}`
       : 'Нажмите для проверки';
@@ -9700,10 +10310,6 @@ function renderServiceHealth() {
   els.serviceUpdateBadges.forEach((element) => {
     element.hidden = updateCount === 0;
     element.textContent = `Обновления · ${updateCount}`;
-  });
-  els.serviceUpdateMobileBadges.forEach((element) => {
-    element.hidden = updateCount === 0;
-    element.textContent = String(updateCount);
   });
   els.componentOpenButtons.forEach((button) => {
     button.setAttribute('aria-busy', String(loading || state.components.loading));
@@ -9728,6 +10334,178 @@ function startServiceHealthPolling() {
       if (!document.hidden) loadServiceHealth({ silent: true });
     });
   }
+}
+
+async function loadLogs(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    state.logs.message = 'Доступно при работе через MihUI на роутере.';
+    renderLogs();
+    return;
+  }
+
+  state.logs.loading = true;
+  renderLogs();
+  try {
+    const source = encodeURIComponent(state.logs.source || 'mihui');
+    const data = await apiJson(`/api/logs?source=${source}&lines=300`);
+    state.logs.loaded = true;
+    state.logs.available = Boolean(data.available);
+    state.logs.sources = Array.isArray(data.sources) ? data.sources : [];
+    state.logs.rawText = String(data.text || '');
+    state.logs.path = String(data.path || '');
+    state.logs.modifiedAt = Number(data.modifiedAt) || 0;
+    state.logs.truncated = Boolean(data.truncated);
+    state.logs.message = data.ok === false
+      ? String(data.message || 'Не удалось прочитать журнал.')
+      : data.available
+        ? ''
+        : 'Файл журнала не найден.';
+  } catch (error) {
+    state.logs.loaded = true;
+    state.logs.available = false;
+    state.logs.message = error?.message || String(error);
+    if (!options.silent) {
+      showMessage('Не удалось получить логи.', { severity: 'warning', details: state.logs.message });
+    }
+  } finally {
+    state.logs.loading = false;
+    renderLogs();
+  }
+}
+
+function handleLogSourceChange() {
+  state.logs.source = els.logsSourceSelect.value || 'mihui';
+  state.logs.loaded = false;
+  state.logs.available = false;
+  state.logs.rawText = '';
+  state.logs.path = '';
+  state.logs.modifiedAt = 0;
+  state.logs.message = '';
+  loadLogs({ silent: false });
+}
+
+function handleLogFilterChange() {
+  state.logs.search = els.logsSearchInput.value || '';
+  state.logs.level = els.logsLevelSelect.value || '';
+  renderLogs();
+}
+
+function handleLogAutoRefreshChange() {
+  state.logs.autoRefresh = Boolean(els.logsAutoRefresh.checked);
+  if (state.logs.autoRefresh && state.activeSection === 'logs') loadLogs({ silent: true });
+  renderLogs();
+}
+
+function startLogsPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (state.activeSection === 'logs' && state.logs.autoRefresh && !state.logs.loading && !document.hidden) {
+      loadLogs({ silent: true });
+    }
+  }, LOG_REFRESH_MS);
+}
+
+function renderLogs() {
+  const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
+  const sources = state.logs.sources.length > 0
+    ? state.logs.sources
+    : [
+        { id: 'mihui', label: 'MihUI', available: true },
+        { id: 'mihomo', label: 'Mihomo', available: true },
+        { id: 'xkeen', label: 'XKeen', available: true },
+      ];
+
+  const currentSource = state.logs.source || 'mihui';
+  els.logsSourceSelect.textContent = '';
+  sources.forEach((source) => {
+    const option = document.createElement('option');
+    option.value = String(source.id || '');
+    option.textContent = source.available === false
+      ? `${source.label || source.id} · нет файла`
+      : String(source.label || source.id || '');
+    option.selected = option.value === currentSource;
+    els.logsSourceSelect.append(option);
+  });
+  els.logsSourceSelect.value = currentSource;
+  els.logsLevelSelect.value = state.logs.level;
+  els.logsSearchInput.value = state.logs.search;
+  els.logsAutoRefresh.checked = state.logs.autoRefresh;
+  els.logsSourceSelect.disabled = !canRequest || state.logs.loading;
+  els.logsRefreshButton.disabled = !canRequest || state.logs.loading;
+
+  const rawLineCount = state.logs.rawText ? state.logs.rawText.split('\n').length : 0;
+  if (!canRequest) {
+    els.logsStatus.textContent = 'Доступно при работе через MihUI на роутере.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    els.logsStatus.textContent = 'Загружаем журнал...';
+  } else if (state.logs.loading) {
+    els.logsStatus.textContent = 'Обновляем журнал...';
+  } else if (state.logs.message) {
+    els.logsStatus.textContent = state.logs.message;
+  } else if (state.logs.available) {
+    els.logsStatus.textContent = state.logs.truncated
+      ? `Показаны последние ${rawLineCount} строк.`
+      : `${formatLogLineCount(rawLineCount)}.`;
+  } else {
+    els.logsStatus.textContent = 'Выберите источник журнала.';
+  }
+
+  const filteredText = filterLogText(state.logs.rawText, state.logs.search, state.logs.level);
+  let outputText = filteredText;
+  if (!canRequest) {
+    outputText = 'Логи доступны только через локальный сервис MihUI.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    outputText = 'Загружаем журнал...';
+  } else if (!state.logs.available) {
+    outputText = state.logs.path
+      ? `Файл журнала не найден:\n${state.logs.path}`
+      : state.logs.message || 'Журнал недоступен.';
+  } else if (!filteredText) {
+    outputText = state.logs.rawText ? 'По выбранным фильтрам совпадений нет.' : 'Журнал пока пуст.';
+  }
+
+  const distanceFromBottom = Number(els.logsOutput.scrollHeight) - Number(els.logsOutput.scrollTop) - Number(els.logsOutput.clientHeight);
+  const shouldFollowTail = !Number.isFinite(distanceFromBottom) || distanceFromBottom < 48;
+  if (els.logsOutput.textContent !== outputText) els.logsOutput.textContent = outputText;
+  if (shouldFollowTail) {
+    window.requestAnimationFrame?.(() => {
+      els.logsOutput.scrollTop = els.logsOutput.scrollHeight;
+    });
+  }
+
+  els.logsPath.textContent = state.logs.path || 'Файл не выбран';
+  els.logsPath.title = state.logs.path || '';
+  els.logsUpdatedAt.textContent = state.logs.modifiedAt
+    ? `Изменён ${formatBackupMtime(state.logs.modifiedAt)}`
+    : '—';
+}
+
+function filterLogText(text, search, level) {
+  const searchValue = String(search || '').trim().toLocaleLowerCase('ru-RU');
+  return String(text || '')
+    .split('\n')
+    .filter((line) => !searchValue || line.toLocaleLowerCase('ru-RU').includes(searchValue))
+    .filter((line) => matchesLogLevel(line, level))
+    .join('\n');
+}
+
+function matchesLogLevel(line, level) {
+  const patterns = {
+    error: /\b(error|fatal|panic|critical|crit)\b/i,
+    warn: /\b(warn|warning)\b/i,
+    info: /\b(info|notice)\b/i,
+    debug: /\b(debug|trace)\b/i,
+  };
+  return !level || patterns[level]?.test(String(line || '')) || false;
+}
+
+function formatLogLineCount(count) {
+  const value = Number(count) || 0;
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} строка`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${value} строки`;
+  return `${value} строк`;
 }
 
 function normalizeComponentItem(item) {
@@ -9789,6 +10567,7 @@ async function loadComponents(options = {}) {
     state.components.xkeenChannelCurrent = xkeenChannel;
     state.components.updateCount = Number(data.updateCount) || 0;
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
   } catch (error) {
     if (!options.silent) showMessage('Не удалось проверить версии компонентов.', { severity: 'warning', details: error?.message || String(error) });
@@ -9818,6 +10597,14 @@ function closeComponentManager() {
 
 function handleComponentManagerClosed() {
   document.body.classList.remove('component-manager-open');
+  if (!state.components.job.running) dismissComponentJob();
+}
+
+function dismissComponentJob() {
+  if (state.components.job.running) return;
+  state.components.jobVisible = false;
+  els.componentJobDetails.open = false;
+  renderComponentJob();
 }
 
 function setComponentManagerView(view) {
@@ -9891,7 +10678,7 @@ function renderComponentManager() {
   els.componentManagerTitle.textContent = maintenanceView ? 'Сервисные действия' : 'Сервисы и версии';
   els.componentManagerDescription.textContent = maintenanceView
     ? 'Перезапуск компонентов и ручное обновление геоданных.'
-    : 'Проверка и установка обновлений основных компонентов.';
+    : 'Проверка и обновление компонентов.';
   els.componentUpdatesViews.forEach((element) => { element.hidden = maintenanceView; });
   els.componentMaintenance.hidden = !maintenanceView;
   els.openComponentMaintenanceButton.hidden = maintenanceView;
@@ -9900,15 +10687,15 @@ function renderComponentManager() {
   els.openComponentMaintenanceButton.disabled = busy;
 
   if (state.components.loading) {
-    els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
+    els.componentManagerNotice.textContent = 'Проверяем версии...';
   } else if (!state.components.loaded) {
     els.componentManagerNotice.textContent = 'Проверка версий доступна в MihUI на роутере.';
   } else if (updateCount > 0) {
-    els.componentManagerNotice.textContent = `Доступно ${formatRouteCount(updateCount, 'обновление', 'обновления', 'обновлений')}. Работающие сервисы останутся отмечены зелёным.`;
+    els.componentManagerNotice.textContent = `Доступно обновлений: ${updateCount}.`;
   } else if (errors > 0) {
     els.componentManagerNotice.textContent = 'Установленные версии получены, но GitHub не ответил на проверку обновлений.';
   } else {
-    els.componentManagerNotice.textContent = 'Установлены актуальные версии компонентов.';
+    els.componentManagerNotice.textContent = 'Установлены актуальные версии.';
   }
 
   els.componentCards.forEach((card) => {
@@ -10034,16 +10821,19 @@ function renderComponentManager() {
 
 function renderComponentJob() {
   const job = state.components.job;
-  const visible = job.running || job.ok !== null;
+  const visible = job.running || (state.components.jobVisible && job.ok !== null);
   els.componentJobPanel.hidden = !visible;
   if (!visible) return;
   els.componentJobPanel.classList.toggle('is-error', job.ok === false);
+  els.dismissComponentJobButton.hidden = job.running;
   els.componentJobTitle.textContent = job.running
     ? getComponentActionLabel(job)
     : job.ok
-      ? 'Операция завершена'
+      ? getComponentActionSuccessLabel(job)
       : 'Операция не выполнена';
-  els.componentJobMessage.textContent = job.message || '';
+  const message = job.ok === true && job.message === 'Операция завершена' ? '' : job.message;
+  els.componentJobMessage.textContent = message || '';
+  els.componentJobMessage.hidden = !message;
   els.componentJobOutput.textContent = job.output || '';
   els.componentJobDetails.hidden = !job.output;
 }
@@ -10056,6 +10846,16 @@ function getComponentActionLabel(job) {
   if (job.action === 'channel') return `Переключение канала XKeen`;
   if (job.action === 'rollback') return 'Восстановление XKeen';
   return `Обновление ${component}`;
+}
+
+function getComponentActionSuccessLabel(job) {
+  if (job.component === 'all') return 'Компоненты обновлены';
+  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  if (job.action === 'restart') return `${component} перезапущен`;
+  if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
+  if (job.action === 'channel') return 'Канал XKeen переключён';
+  if (job.action === 'rollback') return 'XKeen восстановлен';
+  return `${component} обновлён`;
 }
 
 function getComponentUpdateSummary() {
@@ -10154,10 +10954,15 @@ async function startComponentAction(payload) {
       body: JSON.stringify(payload),
     });
     state.components.job = normalizeComponentJob(data.job);
+    state.components.jobVisible = true;
+    els.componentJobDetails.open = false;
     renderComponentManager();
+    renderXkeenNetworkFiles();
     pollComponentJob();
+    return true;
   } catch (error) {
     showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+    return false;
   }
 }
 
@@ -10167,17 +10972,31 @@ async function pollComponentJob() {
     state.components.pollTimer = 0;
   }
   try {
+    const wasRunning = state.components.job.running;
     const data = await apiJson('/api/components/job');
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
+    if (wasRunning && !state.components.job.running) els.componentJobDetails.open = false;
     renderComponentManager();
+    renderXkeenNetworkFiles();
     if (state.components.job.running) {
       state.components.pollTimer = window.setTimeout(pollComponentJob, 1500);
       return;
+    }
+    if (state.xkeenFiles.restartRequested
+      && state.components.job.component === 'xkeen'
+      && state.components.job.action === 'restart') {
+      showMessage(
+        state.components.job.ok ? 'XKeen успешно перезапущен.' : `Не удалось перезапустить XKeen: ${state.components.job.message || 'операция не выполнена'}`,
+        { severity: state.components.job.ok ? 'success' : 'error' },
+      );
+      state.xkeenFiles.restartRequested = false;
     }
     await Promise.all([
       loadServiceHealth({ silent: true }),
       loadComponents({ force: true, silent: true }),
     ]);
+    renderXkeenNetworkFiles();
   } catch (error) {
     state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
   }
@@ -10363,6 +11182,7 @@ async function updateProviderNow(provider) {
 async function decodeHappProvider(provider) {
   if (!provider?.url || typeof fetch !== 'function') return;
   state.happDecodeProviderName = provider.name;
+  state.happDecodeFeedback = null;
   render();
 
   try {
@@ -10371,11 +11191,19 @@ async function decodeHappProvider(provider) {
     provider.url = data.decryptedUrl || provider.url;
     provider.hasUrl = true;
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'success',
+      message: 'Happ-ссылка расшифрована. Прямой URL подставлен.',
+    };
     generateOutput();
     render();
-    const sourceLabel = data.source === 'browser-decryptor' ? 'локально в браузере' : 'через серверный fallback';
-    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована ${sourceLabel} и заменена на прямой URL.`);
   } catch (error) {
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'error',
+      message: `Не удалось расшифровать Happ-ссылку: ${error?.message || error}`,
+    };
     showMessage(
       `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
       { href: 'https://leeeet.dev/happ-decryptor/', label: 'Happ decryptor' },
@@ -10387,28 +11215,8 @@ async function decodeHappProvider(provider) {
 }
 
 async function decodeHappProviderUrl(provider) {
-  const errors = [];
-  if (canUseBrowserHappDecryptor()) {
-    try {
-      return await decodeHappProviderUrlInBrowser(provider.url);
-    } catch (error) {
-      errors.push(`browser decryptor: ${error?.message || error}`);
-    }
-  }
-
-  if (state.routerApiAvailable) {
-    try {
-      return await apiJson('/api/happ/decode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
-      });
-    } catch (error) {
-      errors.push(`server fallback: ${error?.message || error}`);
-    }
-  }
-
-  throw new Error(errors.join('; ') || 'no Happ decryptor is available');
+  if (!canUseBrowserHappDecryptor()) throw new Error('browser Happ decryptor is unavailable');
+  return decodeHappProviderUrlInBrowser(provider.url);
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
@@ -10445,16 +11253,6 @@ function normalizeBrowserDecodedHappUrl(value) {
     return decodeURIComponent(text.slice(addPrefix.length)).trim();
   }
   return text;
-}
-
-function getProviderRequestHeaders(provider) {
-  const headers = {};
-  if (String(provider.userAgent || '').trim()) headers['User-Agent'] = provider.userAgent.trim();
-  if (String(provider.xHwid || '').trim()) headers['x-hwid'] = provider.xHwid.trim();
-  parseCustomHeaderText(provider.customHeaders).forEach((entry) => {
-    if (entry.key) headers[entry.key] = entry.value;
-  });
-  return headers;
 }
 
 function parseAndRender() {
@@ -10555,21 +11353,26 @@ function renderShellStatus(diagnostics) {
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   let validation = 'Проверка недоступна';
   let variant = '';
+  let shortLabel = '—';
 
   if (state.originalText) {
     if (hasStructuralError || errorCount > 0) {
       validation = hasStructuralError ? 'Локальная проверка: ошибка структуры' : `Локальная проверка: ${formatErrorCount(errorCount)}`;
       variant = 'is-danger';
+      shortLabel = 'Ошибка';
     } else if (warningCount > 0) {
       validation = `Локальная проверка: ${formatWarningCount(warningCount)}`;
       variant = 'is-warning';
+      shortLabel = String(warningCount);
     } else {
       validation = 'Локальная проверка: OK';
       variant = 'is-ok';
+      shortLabel = 'OK';
     }
   }
 
   els.topbarValidation.textContent = validation;
+  els.topbarValidation.dataset.shortLabel = shortLabel;
   els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
 
@@ -10730,7 +11533,7 @@ function renderOverviewHealth() {
   const warningCount = diagnostics.length - errorCount;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const services = Object.values(state.serviceHealth.services || {});
-  const serviceProblem = state.routerApiAvailable && !state.serviceHealth.loading
+  const serviceProblem = state.routerApiAvailable && state.serviceHealth.checkedAt > 0
     && services.some((service) => service.state === 'error' || service.state === 'unavailable');
   const nodesProblem = state.routerApiAvailable && !state.nodeInventoryLoading
     && (Boolean(state.nodeInventoryError) || state.mihomoNodes.length === 0);
@@ -10749,7 +11552,9 @@ function renderOverviewHealth() {
     summaryParts.push(hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount));
   } else {
     if (state.routerApiAvailable) {
-      summaryParts.push(state.serviceHealth.loading ? 'Проверяем сервисы' : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
+      summaryParts.push(state.serviceHealth.loading && !state.serviceHealth.checkedAt
+        ? 'Проверяем сервисы'
+        : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
     } else {
       summaryParts.push('Структура проверена');
     }
@@ -11443,7 +12248,7 @@ function collectProviderUrlDiagnostics(activeProviders) {
 
     const scheme = getUrlScheme(url);
     if (isHappDeepLink(url)) {
-      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.`);
+      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; расшифруйте ссылку кнопкой в редакторе.`);
       return;
     }
 
@@ -12338,11 +13143,8 @@ function createProviderInspector(provider) {
   content.className = 'provider-inspector-content';
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
-    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? 'Ссылка скрыта' : provider.url || 'Не указан'], 'value'),
-    createProviderInspectorSection('Фильтрация нод', [
-      provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
-      provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
-    ], 'list'),
+    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
+    createProviderFilterInspectorSection(provider),
     createProviderInspectorSection('Обновление', [
       provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
       status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
@@ -12386,6 +13188,71 @@ function createProviderInspectorSection(label, values, variant) {
   });
   section.append(title, body);
   return section;
+}
+
+function createProviderFilterInspectorSection(provider) {
+  const rules = [
+    { label: 'Включать', value: String(provider.filter || '').trim() },
+    { label: 'Исключать', value: String(provider.excludeFilter || '').trim() },
+  ].filter((rule) => rule.value);
+
+  if (!rules.length) {
+    return createProviderInspectorSection('Фильтрация нод', ['Не настроено'], 'list');
+  }
+
+  const section = document.createElement('details');
+  const summary = document.createElement('summary');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const count = document.createElement('span');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  const body = document.createElement('div');
+
+  section.className = 'provider-inspector-section provider-inspector-filters';
+  section.open = window.matchMedia('(min-width: 981px)').matches;
+  summary.className = 'provider-inspector-filter-head';
+  title.textContent = 'Фильтрация нод';
+  count.textContent = `${rules.length} ${rules.length === 1 ? 'правило' : 'правила'}`;
+  icon.classList.add('provider-disclosure-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', '#icon-chevron-down');
+  icon.append(iconUse);
+  meta.append(count, icon);
+  summary.append(title, meta);
+  body.className = 'provider-inspector-filter-rules';
+  rules.forEach((rule) => body.append(createProviderFilterRule(rule)));
+  section.append(summary, body);
+  return section;
+}
+
+function createProviderFilterRule(rule) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  const preview = document.createElement('code');
+  const toggle = document.createElement('span');
+  const show = document.createElement('span');
+  const hide = document.createElement('span');
+  const full = document.createElement('code');
+
+  details.className = 'provider-inspector-filter-rule';
+  summary.className = 'provider-inspector-filter-rule-head';
+  label.className = 'provider-inspector-filter-label';
+  label.textContent = rule.label;
+  preview.className = 'provider-inspector-filter-preview';
+  preview.textContent = rule.value;
+  toggle.className = 'provider-inspector-filter-toggle';
+  show.className = 'provider-inspector-filter-toggle-show';
+  show.textContent = 'Полностью';
+  hide.className = 'provider-inspector-filter-toggle-hide';
+  hide.textContent = 'Свернуть';
+  toggle.append(show, hide);
+  summary.append(label, preview, toggle);
+  full.className = 'provider-inspector-filter-full';
+  full.textContent = rule.value;
+  details.append(summary, full);
+  return details;
 }
 
 function formatDuration(value) {
@@ -12447,27 +13314,46 @@ function formatProviderListMeta(provider) {
 
 function bindProviderUrl(root, provider) {
   const input = root.querySelector('.provider-url');
-  const showFullValue = () => {
-    input.type = 'url';
-    input.value = provider.url || '';
-    input.classList.remove('is-masked');
-  };
-  const showMaskedValue = () => {
-    const masked = state.hideProviderUrls ? maskSensitiveUrl(provider.url) : provider.url || '';
-    input.type = state.hideProviderUrls ? 'text' : 'url';
-    input.value = masked;
-    input.classList.toggle('is-masked', state.hideProviderUrls && masked !== provider.url);
+  const revealButton = root.querySelector('.provider-url-reveal-button');
+  const decodeStatus = root.querySelector('.provider-url-status');
+  let revealed = !state.hideProviderUrls || !provider.url || provider.isNew;
+  const renderValue = () => {
+    const shouldMask = state.hideProviderUrls && Boolean(provider.url) && !revealed;
+    input.type = shouldMask ? 'text' : 'url';
+    input.value = shouldMask ? maskSensitiveUrl(provider.url) : provider.url || '';
+    input.readOnly = shouldMask;
+    input.classList.toggle('is-masked', shouldMask);
+    revealButton.hidden = !state.hideProviderUrls || !provider.url;
+    revealButton.setAttribute('aria-pressed', String(revealed));
+    revealButton.querySelector('span').textContent = revealed ? 'Скрыть' : 'Показать';
   };
 
-  input.type = 'text';
-  showMaskedValue();
-  input.addEventListener('focus', showFullValue);
-  input.addEventListener('input', () => updateProvider(provider, 'url', input.value));
-  input.addEventListener('blur', showMaskedValue);
+  renderValue();
+  input.addEventListener('input', () => {
+    if (state.happDecodeFeedback?.provider === provider) {
+      state.happDecodeFeedback = null;
+      decodeStatus.hidden = true;
+    }
+    updateProvider(provider, 'url', input.value);
+  });
+  revealButton.addEventListener('click', () => {
+    revealed = !revealed;
+    renderValue();
+    if (revealed) input.focus();
+  });
 }
 
 function maskSensitiveUrl(value) {
-  return String(value || '').trim() ? '••••' : '';
+  const source = String(value || '').trim();
+  if (!source) return '';
+  try {
+    const url = new URL(source);
+    const segments = url.pathname.split('/').filter(Boolean);
+    const visiblePrefix = segments.length > 1 && segments[0].length <= 3 ? `/${segments[0]}` : '';
+    return `${url.protocol}//${url.host}${visiblePrefix}/••••••`;
+  } catch {
+    return '••••••';
+  }
 }
 
 function formatProviderListBadge(provider) {
@@ -12523,9 +13409,11 @@ function bindProviderUpdateButton(root, provider) {
 function bindHappDecodeButton(root, provider) {
   const button = root.querySelector('.happ-decode-button');
   const label = button.querySelector('span');
+  const status = root.querySelector('.provider-url-status');
   const isVisible = isHappDeepLink(provider.url);
   const isDecoding = state.happDecodeProviderName === provider.name;
-  const canDecode = canUseBrowserHappDecryptor() || state.routerApiAvailable;
+  const canDecode = canUseBrowserHappDecryptor();
+  const feedback = state.happDecodeFeedback?.provider === provider ? state.happDecodeFeedback : null;
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !canDecode || isDecoding;
@@ -12533,8 +13421,12 @@ function bindHappDecodeButton(root, provider) {
   button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = canUseBrowserHappDecryptor()
     ? 'Расшифровать локально в браузере и заменить URL провайдера'
-    : 'Доступно через браузерный decryptor или MihUI на роутере с Happ decryptor/Happy Decoder API';
+    : 'Браузерный decryptor недоступен';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
+  status.hidden = !feedback;
+  status.className = `provider-url-status${feedback ? ` is-${feedback.severity}` : ''}`;
+  status.textContent = feedback?.message || '';
+  status.setAttribute('role', feedback?.severity === 'error' ? 'alert' : 'status');
   button.addEventListener('click', () => decodeHappProvider(provider));
 }
 
@@ -12709,6 +13601,7 @@ function getNodeGroupSelectionItems(nodes) {
       statusText: formatNodeStatus(selectedStatusSource),
       delay: selectedDelay,
       optionCount: Array.isArray(selection?.all) ? selection.all.length : null,
+      options: Array.isArray(selection?.all) ? selection.all.map((name) => String(name || '')).filter(Boolean) : [],
       isKnown: Boolean(selection),
     };
   });
@@ -12770,7 +13663,71 @@ function createNodeGroupSelectionCard(item) {
   titleRow.append(title, meta);
   current.append(label, name);
   card.append(titleRow, current, badges);
+  if (isSelectableNodeGroup(item)) {
+    const actions = document.createElement('div');
+    const choiceLabel = document.createElement('label');
+    const choiceText = document.createElement('span');
+    const select = document.createElement('select');
+    const button = document.createElement('button');
+    const isBusy = state.nodeGroupSelectingName === item.groupName;
+
+    actions.className = 'node-group-selection-actions';
+    choiceLabel.className = 'node-group-selection-choice';
+    choiceText.textContent = 'Активный вариант';
+    select.setAttribute('aria-label', `Активный вариант группы ${item.groupName}`);
+    item.options.forEach((optionName) => {
+      const option = document.createElement('option');
+      option.value = optionName;
+      option.textContent = stripNodeFlagEmoji(optionName) || optionName;
+      select.append(option);
+    });
+    select.value = item.selectedName;
+    select.disabled = isBusy;
+    button.className = 'button compact';
+    button.type = 'button';
+    button.textContent = isBusy ? 'Переключение…' : 'Сменить';
+    const syncButton = () => {
+      button.disabled = isBusy || !select.value || select.value === item.selectedName;
+    };
+    select.addEventListener('change', syncButton);
+    button.addEventListener('click', () => selectNodeGroup(item.groupName, select.value));
+    syncButton();
+    choiceLabel.append(choiceText, select);
+    actions.append(choiceLabel, button);
+    card.append(actions);
+  }
   return card;
+}
+
+function isSelectableNodeGroup(item) {
+  const type = String(item?.groupType || '').trim().toLowerCase();
+  return item?.isKnown && ['select', 'selector'].includes(type) && Array.isArray(item.options) && item.options.length > 0;
+}
+
+async function selectNodeGroup(groupName, proxyName) {
+  if (!groupName || !proxyName || state.nodeGroupSelectingName) return;
+  state.nodeGroupSelectingName = groupName;
+  renderNodeInventory();
+  try {
+    const data = await apiJson('/api/groups/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: groupName, name: proxyName }),
+    });
+    await loadNodeInventory({ silent: true });
+    showMessage(`Группа ${groupName}: активен ${data.now || proxyName}.`, { severity: 'success' });
+  } catch (error) {
+    await loadNodeInventory({ silent: true });
+    showMessage(
+      error?.data?.uncertain
+        ? `Mihomo не подтвердил переключение группы ${groupName}.`
+        : `Не удалось переключить группу ${groupName}.`,
+      { severity: 'error', details: error?.message || String(error) },
+    );
+  } finally {
+    state.nodeGroupSelectingName = '';
+    renderNodeInventory();
+  }
 }
 
 function formatNodeGroupSelectionMeta(item) {
@@ -14043,6 +15000,9 @@ function addRule() {
 }
 
 function removeRule(rule) {
+  const confirmed = window.confirm(`Удалить правило ${formatRuleSummary(rule)}? Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'rule',
     rule,
@@ -15873,6 +16833,11 @@ function replaceProviderUse(previousName, nextName) {
 }
 
 function removeProvider(provider) {
+  const usedBy = state.groups.filter((group) => group.use.includes(provider.name)).map((group) => group.name);
+  const usageDetail = usedBy.length > 0 ? ` Она будет отключена от групп: ${usedBy.join(', ')}.` : '';
+  const confirmed = window.confirm(`Удалить подписку ${provider.name}?${usageDetail} Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'provider',
     provider,
@@ -15992,6 +16957,12 @@ function addProvider() {
   connectProviderToUseGroups(provider.name);
   generateOutput();
   render();
+
+  window.setTimeout(() => {
+    const editor = els.providersList.querySelector('.provider-detail.is-editing');
+    if (editor?.style) editor.style.scrollMarginTop = `${getStickyTopbarHeight() + 12}px`;
+    editor?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, 0);
 
   window.setTimeout(() => {
     provider.highlight = false;

@@ -6,12 +6,14 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'logs', 'settings']);
+const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
+const LOG_REFRESH_MS = 3000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -319,12 +321,14 @@ const state = {
   providerStatusLoading: false,
   providerUpdatingName: '',
   happDecodeProviderName: '',
+  happDecodeFeedback: null,
   mihomoNodes: [],
   mihomoGroupSelections: [],
   nodeInventoryLoading: false,
   nodeInventoryError: '',
   nodeInventoryErrorDetail: '',
   nodeGroupSelectionsError: '',
+  nodeGroupSelectingName: '',
   nodeInventoryUpdatedAt: 0,
   nodeFilters: {
     search: '',
@@ -339,11 +343,13 @@ const state = {
   routerMode: false,
   routerApiAvailable: false,
   routerConfigPath: '',
+  routerConfigRevision: '',
   routerBusy: false,
   xkeenFiles: {
     loaded: false,
     loading: false,
     saving: false,
+    restartRequested: false,
     available: false,
     directory: '/opt/etc/xkeen',
     files: {},
@@ -353,18 +359,6 @@ const state = {
   },
   backups: [],
   selectedBackupName: '',
-  happDecoderSettings: {
-    apiKey: '',
-    apiUrl: '',
-    decryptorCmd: '',
-    decryptorTimeout: '45',
-    remoteUrl: '',
-    hasApiKey: false,
-    hasDecryptor: false,
-    hasRemoteUrl: false,
-    loading: false,
-    saving: false,
-  },
   updatePollTimer: 0,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
@@ -390,6 +384,21 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  logs: {
+    loading: false,
+    loaded: false,
+    available: false,
+    source: 'mihui',
+    sources: [],
+    rawText: '',
+    path: '',
+    modifiedAt: 0,
+    truncated: false,
+    message: '',
+    search: '',
+    level: '',
+    autoRefresh: true,
+  },
   components: {
     loading: false,
     loaded: false,
@@ -400,6 +409,7 @@ const state = {
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
     },
     job: { running: false, ok: null, component: '', action: '', target: '', phase: 'idle', message: '', output: '' },
+    jobVisible: false,
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
@@ -456,12 +466,15 @@ const els = {
   recommendationsJumpButton: document.querySelector('#recommendationsJumpButton'),
   downloadWarning: document.querySelector('#downloadWarning'),
   fileMeta: document.querySelector('#fileMeta'),
+  appSidebar: document.querySelector('.app-sidebar'),
+  primarySectionTabs: document.querySelector('.section-tabs'),
+  topbar: document.querySelector('.topbar'),
+  mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
-  serviceUpdateMobileBadges: document.querySelectorAll('[data-service-update-mobile-badge]'),
   componentManagerDialog: document.querySelector('#componentManagerDialog'),
   componentManagerTitle: document.querySelector('#componentManagerTitle'),
   componentManagerDescription: document.querySelector('#componentManagerDescription'),
@@ -475,6 +488,7 @@ const els = {
   componentLatestLabels: document.querySelectorAll('[data-component-latest-label]'),
   componentChannels: document.querySelectorAll('[data-component-channel]'),
   componentUpdateButtons: document.querySelectorAll('[data-component-update]'),
+  componentAdvancedButtons: document.querySelectorAll('[data-component-advanced-toggle]'),
   componentRollbackButtons: document.querySelectorAll('[data-component-rollback]'),
   xkeenChannelOptions: document.querySelectorAll('[data-xkeen-channel]'),
   xkeenChannelApplyButton: document.querySelector('#xkeenChannelApplyButton'),
@@ -492,6 +506,7 @@ const els = {
   componentJobPanel: document.querySelector('#componentJobPanel'),
   componentJobTitle: document.querySelector('#componentJobTitle'),
   componentJobMessage: document.querySelector('#componentJobMessage'),
+  dismissComponentJobButton: document.querySelector('#dismissComponentJobButton'),
   componentJobDetails: document.querySelector('#componentJobDetails'),
   componentJobOutput: document.querySelector('#componentJobOutput'),
   providerCount: document.querySelector('#providerCount'),
@@ -500,7 +515,7 @@ const els = {
   rulesStatus: document.querySelector('#rulesStatus'),
   rulesHint: document.querySelector('#rulesHint'),
   messageBox: document.querySelector('#messageBox'),
-  sectionTabs: document.querySelectorAll('.section-tab'),
+  sectionTabs: document.querySelectorAll('.section-tab, .mobile-section-tab'),
   sectionTargets: document.querySelectorAll('[data-section-target]'),
   sectionPanels: document.querySelectorAll('[data-section-panel]'),
   xkeenFileEditors: document.querySelectorAll('[data-xkeen-file]'),
@@ -510,6 +525,7 @@ const els = {
   xkeenFileErrors: document.querySelectorAll('[data-xkeen-file-error]'),
   xkeenFilesDirectory: document.querySelector('#xkeenFilesDirectory'),
   xkeenFilesNotice: document.querySelector('#xkeenFilesNotice'),
+  xkeenRestartButton: document.querySelector('#xkeenRestartButton'),
   xkeenFilesRefreshButton: document.querySelector('#xkeenFilesRefreshButton'),
   xkeenFilesSaveButton: document.querySelector('#xkeenFilesSaveButton'),
   xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
@@ -556,17 +572,15 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
-  happDecoderSettingsForm: document.querySelector('#happDecoderSettingsForm'),
-  happDecoderApiKey: document.querySelector('#happDecoderApiKey'),
-  happDecoderApiUrl: document.querySelector('#happDecoderApiUrl'),
-  happDecryptorCmd: document.querySelector('#happDecryptorCmd'),
-  happDecryptorTimeout: document.querySelector('#happDecryptorTimeout'),
-  happDecryptorRemoteUrl: document.querySelector('#happDecryptorRemoteUrl'),
-  happDecoderSettingsStatus: document.querySelector('#happDecoderSettingsStatus'),
-  happDecoderFormState: document.querySelector('#happDecoderFormState'),
-  toggleHappDecoderApiKeyButton: document.querySelector('#toggleHappDecoderApiKeyButton'),
-  saveHappDecoderSettingsButton: document.querySelector('#saveHappDecoderSettingsButton'),
-  reloadHappDecoderSettingsButton: document.querySelector('#reloadHappDecoderSettingsButton'),
+  logsStatus: document.querySelector('#logsStatus'),
+  logsRefreshButton: document.querySelector('#logsRefreshButton'),
+  logsSourceSelect: document.querySelector('#logsSourceSelect'),
+  logsLevelSelect: document.querySelector('#logsLevelSelect'),
+  logsSearchInput: document.querySelector('#logsSearchInput'),
+  logsAutoRefresh: document.querySelector('#logsAutoRefresh'),
+  logsOutput: document.querySelector('#logsOutput'),
+  logsPath: document.querySelector('#logsPath'),
+  logsUpdatedAt: document.querySelector('#logsUpdatedAt'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -639,15 +653,20 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
-els.happDecoderSettingsForm.addEventListener('submit', saveHappDecoderSettings);
-els.happDecoderSettingsForm.addEventListener('input', renderHappDecoderSettings);
-els.toggleHappDecoderApiKeyButton.addEventListener('click', toggleHappDecoderApiKeyVisibility);
-els.reloadHappDecoderSettingsButton.addEventListener('click', () => loadHappDecoderSettings({ silent: false }));
+els.logsRefreshButton.addEventListener('click', () => loadLogs({ silent: false }));
+els.logsSourceSelect.addEventListener('change', handleLogSourceChange);
+els.logsLevelSelect.addEventListener('change', handleLogFilterChange);
+els.logsSearchInput.addEventListener('input', handleLogFilterChange);
+els.logsAutoRefresh.addEventListener('change', handleLogAutoRefreshChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
+window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
+window.addEventListener?.('beforeunload', handleBeforeUnload);
 els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
 els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
@@ -665,8 +684,15 @@ els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
+els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
 els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
+els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
+  const panel = document.getElementById(button.getAttribute('aria-controls'));
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', String(!expanded));
+  if (panel) panel.hidden = expanded;
+}));
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
@@ -676,17 +702,19 @@ els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates)
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
-renderHappDecoderSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+renderLogs();
+updateMobileSectionTabsVisibility();
 initRouterMode();
 
 function readProviderUrlMaskingPreference() {
   try {
-    return window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY) === 'true';
+    const stored = window.localStorage?.getItem(PROVIDER_URL_MASKING_STORAGE_KEY);
+    return stored === null || stored === undefined ? true : stored === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -704,14 +732,63 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
+function getMobileSectionTabsHeight() {
+  if (typeof window.getComputedStyle !== 'function') return 44;
+  return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 44;
+}
+
+function getStickyTopbarHeight() {
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  return isMobile ? getMobileSectionTabsHeight() : els.topbar?.offsetHeight || 0;
+}
+
 function setActiveSection(section, options = {}) {
   if (!APP_SECTIONS.has(section)) return;
 
+  const shouldScroll = options.scroll !== false;
   state.activeSection = section;
   renderSectionTabs();
-  if (options.scroll === false) return;
+  updateMobileSectionTabsVisibility();
+  centerActiveMobileSectionTab();
+  if (section === 'logs' && !state.logs.loaded && !state.logs.loading) {
+    loadLogs({ silent: true });
+  }
+  if (!shouldScroll) return;
 
-  document.querySelector(`[data-section-panel="${section}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  const panel = document.querySelector(`[data-section-panel="${section}"]`);
+  if (!panel?.scrollIntoView) return;
+
+  panel.style.removeProperty('scroll-margin-top');
+  const configuredMargin = Number.parseFloat(window.getComputedStyle(panel).scrollMarginTop) || 0;
+  const stickyTopbarMargin = getStickyTopbarHeight() + 12;
+  panel.style.scrollMarginTop = `${Math.max(configuredMargin, stickyTopbarMargin)}px`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function updateMobileSectionTabsVisibility() {
+  if (!els.mobileSectionTabs || !els.appSidebar) return;
+  const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
+  const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
+  const shouldShow = isMobile && sidebarBottom <= 0;
+  const visibilityChanged = els.mobileSectionTabs.hidden === shouldShow;
+
+  els.mobileSectionTabs.hidden = !shouldShow;
+  els.mobileSectionTabs.setAttribute('aria-hidden', String(!shouldShow));
+
+  if (els.primarySectionTabs) {
+    els.primarySectionTabs.inert = shouldShow;
+    els.primarySectionTabs.setAttribute('aria-hidden', String(shouldShow));
+  }
+
+  if (shouldShow && visibilityChanged) centerActiveMobileSectionTab();
+}
+
+function centerActiveMobileSectionTab() {
+  if (!els.mobileSectionTabs || els.mobileSectionTabs.hidden) return;
+  const activeTab = els.mobileSectionTabs.querySelector(`[data-section="${state.activeSection}"]`);
+  if (!activeTab) return;
+  const left = activeTab.offsetLeft - (els.mobileSectionTabs.clientWidth - activeTab.offsetWidth) / 2;
+  els.mobileSectionTabs.scrollTo?.({ left: Math.max(0, left), behavior: 'smooth' });
 }
 
 function renderSectionTabs() {
@@ -730,6 +807,7 @@ function renderSectionTabs() {
   renderProviderView();
   renderRoutingView();
   renderXkeenNetworkFiles();
+  renderLogs();
   els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
 }
 
@@ -800,6 +878,7 @@ function handleSubsectionTabKeydown(event, tabs, dataKey, setView) {
 function handleFileSelect(event) {
   const [file] = event.target.files;
   if (!file) return;
+  els.fileTools.open = false;
 
   const reader = new FileReader();
   reader.onload = () => {
@@ -829,12 +908,12 @@ function initRouterMode() {
   }
 
   loadRouterMetadata();
-  loadHappDecoderSettings({ silent: true });
   loadRouterConfig({ silent: true });
   loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   startServiceHealthPolling();
+  startLogsPolling();
   checkMihuiUpdate();
 }
 
@@ -847,6 +926,7 @@ async function loadRouterConfig(options = {}) {
     state.routerApiAvailable = true;
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
+    state.routerConfigRevision = String(data.revision || '');
     state.fileName = state.routerConfigPath || 'router config';
     state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
@@ -926,16 +1006,22 @@ async function saveRouterConfig() {
     }
   }
 
+  if (!confirmHighRiskSave()) return;
+
   setRouterBusy(true, 'Сохранение...');
 
   try {
     const data = await apiJson('/api/config/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: state.outputText }),
+      body: JSON.stringify({
+        text: state.outputText,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     state.routerMode = true;
     state.routerConfigPath = data.path || state.routerConfigPath;
+    state.routerConfigRevision = String(data.revision || state.routerConfigRevision);
     state.fileName = state.routerConfigPath;
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
@@ -946,13 +1032,50 @@ async function saveRouterConfig() {
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
 
-    if (data.reload?.ok) {
-      const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      showMessage(`Конфиг сохранен, Mihomo перезагружен. Применено в ${appliedAt}.`, { severity: 'success' });
-    } else {
-      showMessage(`Конфиг сохранен, но reload Mihomo не прошел: ${data.reload?.message || 'нет ответа API'}`);
-    }
+    const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      showMessage('Конфиг на роутере изменился после открытия этой вкладки. Черновик не записан.', {
+        severity: 'warning',
+        actions: [
+          { label: 'Скачать черновик', onClick: downloadYaml },
+          { label: 'Перезагрузить с роутера', onClick: reloadRouterConfig },
+        ],
+      });
+      focusReviewSummary();
+      return;
+    }
+    if (result.saved && result.uncertain) {
+      state.routerMode = true;
+      state.routerConfigPath = result.path || state.routerConfigPath;
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      state.fileName = state.routerConfigPath;
+      state.configLoadedAt = Date.now();
+      state.originalText = state.outputText;
+      state.lastConfigCheckText = state.outputText;
+      state.lastConfigCheckOk = true;
+      parseAndRender();
+      await loadBackups();
+      await loadProviderStatuses({ silent: true });
+      await loadNodeInventory({ silent: true });
+      showMessage('Конфиг сохранен, но Mihomo не подтвердил применение. Проверьте состояние сервиса перед следующим изменением.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      await loadBackups();
+      showMessage('Mihomo не применил конфиг. Предыдущая версия восстановлена, локальные изменения оставлены для повторной попытки.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      focusReviewSummary();
+      return;
+    }
     showMessage('Не удалось сохранить конфиг.', { severity: 'error', details: error?.message || String(error) });
     focusReviewSummary();
   } finally {
@@ -971,7 +1094,10 @@ async function restoreSelectedBackup() {
     const data = await apiJson('/api/backups/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({
+        name,
+        expectedRevision: state.routerConfigRevision || undefined,
+      }),
     });
     await loadRouterConfig({ silent: true });
     els.backupHistoryDialog.close();
@@ -979,6 +1105,26 @@ async function restoreSelectedBackup() {
       severity: data.reload?.ok ? 'success' : 'warning',
     });
   } catch (error) {
+    const result = error?.data || {};
+    if (result.stage === 'conflict') {
+      setBackupHistoryStatus('Конфиг на роутере изменился. Закройте историю и перезагрузите конфиг с роутера.', 'error');
+      return;
+    }
+    if (result.restored && result.uncertain) {
+      await loadRouterConfig({ silent: true });
+      els.backupHistoryDialog.close();
+      showMessage('Версия записана, но Mihomo не подтвердил применение.', {
+        severity: 'warning',
+        details: result.reload?.message || error?.message || String(error),
+      });
+      return;
+    }
+    if (result.rolledBack) {
+      state.routerConfigRevision = String(result.revision || state.routerConfigRevision);
+      await loadBackups();
+      setBackupHistoryStatus('Mihomo не применил версию. Текущий конфиг восстановлен.', 'error');
+      return;
+    }
     setBackupHistoryStatus(`Не удалось восстановить версию: ${error?.message || error}`, 'error');
   } finally {
     setRouterBusy(false, 'Перезагрузить с роутера');
@@ -1048,136 +1194,6 @@ async function loadRouterMetadata() {
   } catch (error) {
     renderUiLinks([]);
   }
-}
-
-async function loadHappDecoderSettings(options = {}) {
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
-    renderHappDecoderSettings();
-    return;
-  }
-
-  state.happDecoderSettings.loading = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder');
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || '';
-    state.happDecoderSettings.apiUrl = data.apiUrl || '';
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || '';
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || '';
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    if (els.happDecoderApiUrl) els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    if (els.happDecoderApiKey) els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
-    if (els.happDecryptorCmd) els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    if (els.happDecryptorTimeout) els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    if (els.happDecryptorRemoteUrl) els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    if (!options.silent) showMessage('Настройки Happ Decoder обновлены.');
-  } catch (error) {
-    if (!options.silent) showMessage(`Не удалось загрузить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.loading = false;
-    renderHappDecoderSettings();
-  }
-}
-
-async function saveHappDecoderSettings(event) {
-  event.preventDefault();
-  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') return;
-
-  const apiUrl = String(els.happDecoderApiUrl.value || '').trim();
-  const apiKey = String(els.happDecoderApiKey.value || '').trim();
-  const decryptorCmd = String(els.happDecryptorCmd.value || '').trim();
-  const decryptorTimeout = String(els.happDecryptorTimeout.value || '').trim();
-  const remoteUrl = String(els.happDecryptorRemoteUrl.value || '').trim();
-  const payload = { apiUrl, decryptorCmd, decryptorTimeout, remoteUrl };
-  if (apiKey) payload.apiKey = apiKey;
-
-  state.happDecoderSettings.saving = true;
-  renderHappDecoderSettings();
-  try {
-    const data = await apiJson('/api/settings/happ-decoder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    state.routerApiAvailable = true;
-    state.happDecoderSettings.apiKey = data.apiKey || apiKey;
-    state.happDecoderSettings.apiUrl = data.apiUrl || apiUrl;
-    state.happDecoderSettings.decryptorCmd = data.decryptorCmd || decryptorCmd;
-    state.happDecoderSettings.decryptorTimeout = data.decryptorTimeout || decryptorTimeout || '45';
-    state.happDecoderSettings.remoteUrl = data.remoteUrl || remoteUrl;
-    state.happDecoderSettings.hasApiKey = Boolean(data.hasApiKey);
-    state.happDecoderSettings.hasDecryptor = Boolean(data.hasDecryptor);
-    state.happDecoderSettings.hasRemoteUrl = Boolean(data.hasRemoteUrl);
-    els.happDecoderApiUrl.value = state.happDecoderSettings.apiUrl;
-    els.happDecoderApiKey.value = state.happDecoderSettings.apiKey;
-    els.happDecryptorCmd.value = state.happDecoderSettings.decryptorCmd;
-    els.happDecryptorTimeout.value = state.happDecoderSettings.decryptorTimeout;
-    els.happDecryptorRemoteUrl.value = state.happDecoderSettings.remoteUrl;
-    showMessage('Настройки Happ Decoder сохранены.');
-  } catch (error) {
-    showMessage(`Не удалось сохранить настройки Happ Decoder: ${error?.message || error}`);
-  } finally {
-    state.happDecoderSettings.saving = false;
-    renderHappDecoderSettings();
-  }
-}
-
-function renderHappDecoderSettings() {
-  if (!els.happDecoderSettingsForm) return;
-  const unavailable = typeof fetch !== 'function' || window.location?.protocol === 'file:';
-  const busy = state.happDecoderSettings.loading || state.happDecoderSettings.saving;
-  const dirty = isHappDecoderSettingsDirty();
-  els.happDecoderApiKey.disabled = unavailable || busy;
-  els.happDecoderApiUrl.disabled = unavailable || busy;
-  els.happDecryptorCmd.disabled = unavailable || busy;
-  els.happDecryptorTimeout.disabled = unavailable || busy;
-  els.happDecryptorRemoteUrl.disabled = unavailable || busy;
-  els.saveHappDecoderSettingsButton.disabled = unavailable || busy || !dirty;
-  els.reloadHappDecoderSettingsButton.disabled = unavailable || busy;
-
-  const label = els.saveHappDecoderSettingsButton.querySelector('span');
-  if (label) label.textContent = state.happDecoderSettings.saving ? 'Сохранение...' : 'Сохранить';
-  const reloadLabel = els.reloadHappDecoderSettingsButton.querySelector('span');
-  if (reloadLabel) reloadLabel.textContent = state.happDecoderSettings.loading ? 'Загрузка...' : 'Перечитать';
-
-  els.happDecoderFormState.textContent = dirty ? 'Есть несохраненные изменения' : 'Изменений нет';
-  els.happDecoderFormState.classList.toggle('is-dirty', dirty);
-
-  els.happDecoderSettingsStatus.classList.remove('is-success', 'is-muted');
-  if (unavailable) {
-    els.happDecoderSettingsStatus.textContent = 'Только в MihUI';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else if (state.happDecoderSettings.loading) {
-    els.happDecoderSettingsStatus.textContent = 'Загрузка...';
-    els.happDecoderSettingsStatus.classList.add('is-muted');
-  } else {
-    const modes = [];
-    if (state.happDecoderSettings.hasApiKey) modes.push('API');
-    if (state.happDecoderSettings.hasDecryptor || state.happDecoderSettings.decryptorCmd) modes.push('локально');
-    if (state.happDecoderSettings.hasRemoteUrl || state.happDecoderSettings.remoteUrl) modes.push('резерв');
-    els.happDecoderSettingsStatus.textContent = modes.length ? `Настроено · ${modes.join(' · ')}` : 'Не настроено';
-    els.happDecoderSettingsStatus.classList.add(modes.length ? 'is-success' : 'is-muted');
-  }
-}
-
-function isHappDecoderSettingsDirty() {
-  if (!els.happDecoderSettingsForm) return false;
-  return String(els.happDecoderApiKey.value || '').trim() !== String(state.happDecoderSettings.apiKey || '').trim()
-    || String(els.happDecoderApiUrl.value || '').trim() !== String(state.happDecoderSettings.apiUrl || '').trim()
-    || String(els.happDecryptorCmd.value || '').trim() !== String(state.happDecoderSettings.decryptorCmd || '').trim()
-    || String(els.happDecryptorTimeout.value || '').trim() !== String(state.happDecoderSettings.decryptorTimeout || '').trim()
-    || String(els.happDecryptorRemoteUrl.value || '').trim() !== String(state.happDecoderSettings.remoteUrl || '').trim();
-}
-
-function toggleHappDecoderApiKeyVisibility() {
-  const isVisible = els.happDecoderApiKey.type === 'text';
-  els.happDecoderApiKey.type = isVisible ? 'password' : 'text';
-  els.toggleHappDecoderApiKeyButton.textContent = isVisible ? 'Показать' : 'Скрыть';
-  els.toggleHappDecoderApiKeyButton.setAttribute('aria-pressed', String(!isVisible));
 }
 
 async function checkMihuiUpdate() {
@@ -1264,6 +1280,53 @@ function hasUnsavedRouterChanges() {
   return Boolean(state.outputText && state.originalText && state.outputText !== state.originalText);
 }
 
+function hasUnsavedWorkspaceChanges() {
+  const rawDraftChanged = state.isEditingConfiguration
+    && String(els.outputPreview?.value || '') !== String(state.outputText || '');
+  return hasUnsavedRouterChanges() || rawDraftChanged;
+}
+
+function handleBeforeUnload(event) {
+  if (!hasUnsavedWorkspaceChanges()) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
+function getHighRiskSaveSummaries() {
+  const summaries = [];
+  const deletedProviders = state.providers.filter((provider) => provider.deleted).map((provider) => provider.name);
+  if (deletedProviders.length > 0) {
+    summaries.push(`Удаляются подписки: ${deletedProviders.join(', ')}.`);
+  }
+
+  const ruleChanges = collectRuleChanges();
+  if (ruleChanges.length > 0) {
+    summaries.push(`Изменены правила маршрутизации (${ruleChanges.length}).`);
+  }
+
+  const originalMain = state.originalGroups.find((group) => normalizeLookupName(group.name) === 'proxy');
+  const currentMain = state.groups.find((group) => normalizeLookupName(group.originalName || group.name) === 'proxy');
+  if (originalMain && (!currentMain || !groupSnapshotsAreEqual(snapshotGroup(currentMain), originalMain))) {
+    summaries.push('Изменена основная группа PROXY.');
+  }
+
+  return summaries;
+}
+
+function groupSnapshotsAreEqual(left, right) {
+  return left.name === right.name
+    && left.type === right.type
+    && left.proxies.join('\n') === right.proxies.join('\n')
+    && left.use.join('\n') === right.use.join('\n');
+}
+
+function confirmHighRiskSave() {
+  const summaries = getHighRiskSaveSummaries();
+  if (summaries.length === 0) return true;
+  const details = summaries.map((summary) => `• ${summary}`).join('\n');
+  return window.confirm(`Применить рискованные изменения?\n\n${details}\n\nMihomo проверит YAML, но не может проверить намерение пользователя.`);
+}
+
 function isCurrentConfigKernelChecked() {
   return Boolean(state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk);
 }
@@ -1293,17 +1356,21 @@ function getReviewPrimaryActionState() {
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) return { disabled: false, label: 'Проверить повторно' };
-  return {
-    disabled: false,
-    label: state.lastConfigCheckText === state.outputText ? 'Проверить YAML повторно' : 'Проверить YAML в Mihomo',
-  };
+  if (isCurrentConfigKernelChecked()) {
+    return { disabled: false, label: 'Проверка пройдена · Проверить повторно', tone: 'success' };
+  }
+  if (state.lastConfigCheckText === state.outputText) {
+    return { disabled: false, label: 'Проверка не пройдена · Проверить повторно', tone: 'danger' };
+  }
+  return { disabled: false, label: 'Проверить YAML в Mihomo' };
 }
 
 function renderReviewPrimaryActionButton() {
   const action = getReviewPrimaryActionState();
   els.checkConfigButton.disabled = action.disabled;
   els.checkConfigButton.title = action.label;
+  els.checkConfigButton.classList.toggle('is-ok', action.tone === 'success');
+  els.checkConfigButton.classList.toggle('danger', action.tone === 'danger');
   const label = els.checkConfigButton.querySelector('.button-label');
   if (label) label.textContent = action.label;
 }
@@ -1522,6 +1589,10 @@ function handleXkeenNetworkFileInput(event) {
 function renderXkeenNetworkFiles() {
   const editorState = state.xkeenFiles;
   const changedKeys = getChangedXkeenNetworkFileKeys();
+  const componentBusy = state.components.job.running;
+  const restartBusy = componentBusy
+    && state.components.job.component === 'xkeen'
+    && state.components.job.action === 'restart';
   const disabled = !editorState.loaded || !editorState.available || editorState.loading || editorState.saving;
   const errorsByFile = new Map();
   editorState.errors.forEach((error) => {
@@ -1575,7 +1646,11 @@ function renderXkeenNetworkFiles() {
   }
 
   const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
-  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || !canRequest;
+  els.xkeenRestartButton.disabled = disabled || componentBusy || !canRequest;
+  els.xkeenRestartButton.setAttribute('aria-busy', String(restartBusy));
+  els.xkeenRestartButton.querySelector('span').textContent = restartBusy ? 'Перезапускаем...' : 'Перезапустить XKeen';
+  els.xkeenFilesRefreshButton.hidden = !editorState.loaded || !editorState.available;
+  els.xkeenFilesRefreshButton.disabled = editorState.loading || editorState.saving || componentBusy || !canRequest;
   els.xkeenRestartAfterSave.disabled = disabled || changedKeys.length === 0;
   els.xkeenFilesSaveButton.disabled = disabled || changedKeys.length === 0 || hasErrors;
   els.xkeenFilesSaveButton.classList.toggle('is-loading', editorState.saving);
@@ -1585,7 +1660,9 @@ function renderXkeenNetworkFiles() {
       ? 'Сохранить и применить'
       : 'Сохранить';
   els.xkeenFilesChangeStatus.textContent = changedKeys.length ? `Изменено файлов: ${changedKeys.length}` : 'Изменений нет';
-  if (editorState.loading) {
+  if (restartBusy) {
+    els.xkeenFilesStatus.textContent = 'XKeen и активное прокси-ядро перезапускаются...';
+  } else if (editorState.loading) {
     els.xkeenFilesStatus.textContent = 'Загрузка файлов с роутера...';
   } else if (editorState.saving) {
     els.xkeenFilesStatus.textContent = els.xkeenRestartAfterSave.checked ? 'Сохранение и перезапуск XKeen...' : 'Сохранение файлов...';
@@ -1640,6 +1717,18 @@ async function reloadXkeenNetworkFiles() {
   await loadXkeenNetworkFiles({ silent: false });
 }
 
+async function restartXkeenFromFiles() {
+  if (state.components.job.running || !state.xkeenFiles.available) return;
+  const hasUnsavedChanges = getChangedXkeenNetworkFileKeys().length > 0;
+  const warning = hasUnsavedChanges
+    ? 'Есть несохранённые изменения. Они останутся в редакторе, но перезапуск применит только файлы, уже сохранённые на роутере. Продолжить?'
+    : 'Перезапустить XKeen и активное прокси-ядро? Соединения могут кратковременно прерваться.';
+  if (!window.confirm(warning)) return;
+  const started = await startComponentAction({ component: 'xkeen', action: 'restart' });
+  state.xkeenFiles.restartRequested = started;
+  renderXkeenNetworkFiles();
+}
+
 async function saveXkeenNetworkFiles() {
   const changedKeys = getChangedXkeenNetworkFileKeys();
   if (!changedKeys.length || state.xkeenFiles.saving) return;
@@ -1687,11 +1776,13 @@ async function loadServiceHealth(options = {}) {
     state.serviceHealth.checkedAt = Number(data.checkedAt) || Math.floor(Date.now() / 1000);
   } catch (error) {
     const detail = error?.message || String(error);
-    state.serviceHealth.services = {
-      xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
-      mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
-    };
-    state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    if (!state.serviceHealth.checkedAt) {
+      state.serviceHealth.services = {
+        xkeen: { state: 'unavailable', message: 'Статус недоступен', detail },
+        mihomo: { state: 'unavailable', message: 'Статус недоступен', detail },
+      };
+      state.serviceHealth.checkedAt = Math.floor(Date.now() / 1000);
+    }
     if (!options.silent) showMessage('Не удалось обновить статусы сервисов.', { severity: 'warning', details: detail });
   } finally {
     state.serviceHealth.loading = false;
@@ -1717,21 +1808,29 @@ function formatServiceStatusLabel(service, loading = false) {
 
 function renderServiceHealth() {
   const { loading, checkedAt, services } = state.serviceHealth;
+  const initialLoading = loading && !checkedAt;
   els.serviceHealthItems.forEach((item) => {
     const serviceName = item.dataset.serviceHealth;
     const service = services[serviceName] || normalizeServiceStatus(null);
     const componentBusy = state.components.job.running && state.components.job.component === serviceName;
-    item.classList.remove('is-loading', 'is-ok', 'is-error', 'is-unavailable');
-    item.classList.add(loading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.remove('is-loading', 'is-refreshing', 'is-ok', 'is-error', 'is-unavailable');
+    item.classList.add(initialLoading || componentBusy ? 'is-loading' : `is-${service.state}`);
+    item.classList.toggle('is-refreshing', loading && !initialLoading && !componentBusy);
     const status = item.querySelector('.service-health-status');
-    if (status) status.textContent = componentBusy ? 'Обновление...' : formatServiceStatusLabel(service, loading);
+    if (status) {
+      status.textContent = componentBusy
+        ? state.components.job.action === 'restart' ? 'Перезапуск...' : 'Обновление...'
+        : formatServiceStatusLabel(service, initialLoading);
+    }
+    const updateMarker = item.querySelector('[data-service-update-marker]');
+    if (updateMarker) updateMarker.hidden = !state.components.items[serviceName]?.updateAvailable;
     const details = [service.message, service.detail].filter(Boolean).join(' · ');
     item.title = details;
   });
 
   const updateCount = Number(state.components.updateCount) || 0;
   const checkedLabel = loading
-    ? 'Проверка...'
+    ? checkedAt ? 'Обновляем...' : 'Проверка...'
     : checkedAt
       ? `Проверено ${formatServiceHealthTime(checkedAt)}`
       : 'Нажмите для проверки';
@@ -1742,10 +1841,6 @@ function renderServiceHealth() {
   els.serviceUpdateBadges.forEach((element) => {
     element.hidden = updateCount === 0;
     element.textContent = `Обновления · ${updateCount}`;
-  });
-  els.serviceUpdateMobileBadges.forEach((element) => {
-    element.hidden = updateCount === 0;
-    element.textContent = String(updateCount);
   });
   els.componentOpenButtons.forEach((button) => {
     button.setAttribute('aria-busy', String(loading || state.components.loading));
@@ -1770,6 +1865,178 @@ function startServiceHealthPolling() {
       if (!document.hidden) loadServiceHealth({ silent: true });
     });
   }
+}
+
+async function loadLogs(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    state.logs.message = 'Доступно при работе через MihUI на роутере.';
+    renderLogs();
+    return;
+  }
+
+  state.logs.loading = true;
+  renderLogs();
+  try {
+    const source = encodeURIComponent(state.logs.source || 'mihui');
+    const data = await apiJson(`/api/logs?source=${source}&lines=300`);
+    state.logs.loaded = true;
+    state.logs.available = Boolean(data.available);
+    state.logs.sources = Array.isArray(data.sources) ? data.sources : [];
+    state.logs.rawText = String(data.text || '');
+    state.logs.path = String(data.path || '');
+    state.logs.modifiedAt = Number(data.modifiedAt) || 0;
+    state.logs.truncated = Boolean(data.truncated);
+    state.logs.message = data.ok === false
+      ? String(data.message || 'Не удалось прочитать журнал.')
+      : data.available
+        ? ''
+        : 'Файл журнала не найден.';
+  } catch (error) {
+    state.logs.loaded = true;
+    state.logs.available = false;
+    state.logs.message = error?.message || String(error);
+    if (!options.silent) {
+      showMessage('Не удалось получить логи.', { severity: 'warning', details: state.logs.message });
+    }
+  } finally {
+    state.logs.loading = false;
+    renderLogs();
+  }
+}
+
+function handleLogSourceChange() {
+  state.logs.source = els.logsSourceSelect.value || 'mihui';
+  state.logs.loaded = false;
+  state.logs.available = false;
+  state.logs.rawText = '';
+  state.logs.path = '';
+  state.logs.modifiedAt = 0;
+  state.logs.message = '';
+  loadLogs({ silent: false });
+}
+
+function handleLogFilterChange() {
+  state.logs.search = els.logsSearchInput.value || '';
+  state.logs.level = els.logsLevelSelect.value || '';
+  renderLogs();
+}
+
+function handleLogAutoRefreshChange() {
+  state.logs.autoRefresh = Boolean(els.logsAutoRefresh.checked);
+  if (state.logs.autoRefresh && state.activeSection === 'logs') loadLogs({ silent: true });
+  renderLogs();
+}
+
+function startLogsPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (state.activeSection === 'logs' && state.logs.autoRefresh && !state.logs.loading && !document.hidden) {
+      loadLogs({ silent: true });
+    }
+  }, LOG_REFRESH_MS);
+}
+
+function renderLogs() {
+  const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
+  const sources = state.logs.sources.length > 0
+    ? state.logs.sources
+    : [
+        { id: 'mihui', label: 'MihUI', available: true },
+        { id: 'mihomo', label: 'Mihomo', available: true },
+        { id: 'xkeen', label: 'XKeen', available: true },
+      ];
+
+  const currentSource = state.logs.source || 'mihui';
+  els.logsSourceSelect.textContent = '';
+  sources.forEach((source) => {
+    const option = document.createElement('option');
+    option.value = String(source.id || '');
+    option.textContent = source.available === false
+      ? `${source.label || source.id} · нет файла`
+      : String(source.label || source.id || '');
+    option.selected = option.value === currentSource;
+    els.logsSourceSelect.append(option);
+  });
+  els.logsSourceSelect.value = currentSource;
+  els.logsLevelSelect.value = state.logs.level;
+  els.logsSearchInput.value = state.logs.search;
+  els.logsAutoRefresh.checked = state.logs.autoRefresh;
+  els.logsSourceSelect.disabled = !canRequest || state.logs.loading;
+  els.logsRefreshButton.disabled = !canRequest || state.logs.loading;
+
+  const rawLineCount = state.logs.rawText ? state.logs.rawText.split('\n').length : 0;
+  if (!canRequest) {
+    els.logsStatus.textContent = 'Доступно при работе через MihUI на роутере.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    els.logsStatus.textContent = 'Загружаем журнал...';
+  } else if (state.logs.loading) {
+    els.logsStatus.textContent = 'Обновляем журнал...';
+  } else if (state.logs.message) {
+    els.logsStatus.textContent = state.logs.message;
+  } else if (state.logs.available) {
+    els.logsStatus.textContent = state.logs.truncated
+      ? `Показаны последние ${rawLineCount} строк.`
+      : `${formatLogLineCount(rawLineCount)}.`;
+  } else {
+    els.logsStatus.textContent = 'Выберите источник журнала.';
+  }
+
+  const filteredText = filterLogText(state.logs.rawText, state.logs.search, state.logs.level);
+  let outputText = filteredText;
+  if (!canRequest) {
+    outputText = 'Логи доступны только через локальный сервис MihUI.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    outputText = 'Загружаем журнал...';
+  } else if (!state.logs.available) {
+    outputText = state.logs.path
+      ? `Файл журнала не найден:\n${state.logs.path}`
+      : state.logs.message || 'Журнал недоступен.';
+  } else if (!filteredText) {
+    outputText = state.logs.rawText ? 'По выбранным фильтрам совпадений нет.' : 'Журнал пока пуст.';
+  }
+
+  const distanceFromBottom = Number(els.logsOutput.scrollHeight) - Number(els.logsOutput.scrollTop) - Number(els.logsOutput.clientHeight);
+  const shouldFollowTail = !Number.isFinite(distanceFromBottom) || distanceFromBottom < 48;
+  if (els.logsOutput.textContent !== outputText) els.logsOutput.textContent = outputText;
+  if (shouldFollowTail) {
+    window.requestAnimationFrame?.(() => {
+      els.logsOutput.scrollTop = els.logsOutput.scrollHeight;
+    });
+  }
+
+  els.logsPath.textContent = state.logs.path || 'Файл не выбран';
+  els.logsPath.title = state.logs.path || '';
+  els.logsUpdatedAt.textContent = state.logs.modifiedAt
+    ? `Изменён ${formatBackupMtime(state.logs.modifiedAt)}`
+    : '—';
+}
+
+function filterLogText(text, search, level) {
+  const searchValue = String(search || '').trim().toLocaleLowerCase('ru-RU');
+  return String(text || '')
+    .split('\n')
+    .filter((line) => !searchValue || line.toLocaleLowerCase('ru-RU').includes(searchValue))
+    .filter((line) => matchesLogLevel(line, level))
+    .join('\n');
+}
+
+function matchesLogLevel(line, level) {
+  const patterns = {
+    error: /\b(error|fatal|panic|critical|crit)\b/i,
+    warn: /\b(warn|warning)\b/i,
+    info: /\b(info|notice)\b/i,
+    debug: /\b(debug|trace)\b/i,
+  };
+  return !level || patterns[level]?.test(String(line || '')) || false;
+}
+
+function formatLogLineCount(count) {
+  const value = Number(count) || 0;
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} строка`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${value} строки`;
+  return `${value} строк`;
 }
 
 function normalizeComponentItem(item) {
@@ -1831,6 +2098,7 @@ async function loadComponents(options = {}) {
     state.components.xkeenChannelCurrent = xkeenChannel;
     state.components.updateCount = Number(data.updateCount) || 0;
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
   } catch (error) {
     if (!options.silent) showMessage('Не удалось проверить версии компонентов.', { severity: 'warning', details: error?.message || String(error) });
@@ -1860,6 +2128,14 @@ function closeComponentManager() {
 
 function handleComponentManagerClosed() {
   document.body.classList.remove('component-manager-open');
+  if (!state.components.job.running) dismissComponentJob();
+}
+
+function dismissComponentJob() {
+  if (state.components.job.running) return;
+  state.components.jobVisible = false;
+  els.componentJobDetails.open = false;
+  renderComponentJob();
 }
 
 function setComponentManagerView(view) {
@@ -1933,7 +2209,7 @@ function renderComponentManager() {
   els.componentManagerTitle.textContent = maintenanceView ? 'Сервисные действия' : 'Сервисы и версии';
   els.componentManagerDescription.textContent = maintenanceView
     ? 'Перезапуск компонентов и ручное обновление геоданных.'
-    : 'Проверка и установка обновлений основных компонентов.';
+    : 'Проверка и обновление компонентов.';
   els.componentUpdatesViews.forEach((element) => { element.hidden = maintenanceView; });
   els.componentMaintenance.hidden = !maintenanceView;
   els.openComponentMaintenanceButton.hidden = maintenanceView;
@@ -1942,15 +2218,15 @@ function renderComponentManager() {
   els.openComponentMaintenanceButton.disabled = busy;
 
   if (state.components.loading) {
-    els.componentManagerNotice.textContent = 'Проверяем установленные и доступные версии...';
+    els.componentManagerNotice.textContent = 'Проверяем версии...';
   } else if (!state.components.loaded) {
     els.componentManagerNotice.textContent = 'Проверка версий доступна в MihUI на роутере.';
   } else if (updateCount > 0) {
-    els.componentManagerNotice.textContent = `Доступно ${formatRouteCount(updateCount, 'обновление', 'обновления', 'обновлений')}. Работающие сервисы останутся отмечены зелёным.`;
+    els.componentManagerNotice.textContent = `Доступно обновлений: ${updateCount}.`;
   } else if (errors > 0) {
     els.componentManagerNotice.textContent = 'Установленные версии получены, но GitHub не ответил на проверку обновлений.';
   } else {
-    els.componentManagerNotice.textContent = 'Установлены актуальные версии компонентов.';
+    els.componentManagerNotice.textContent = 'Установлены актуальные версии.';
   }
 
   els.componentCards.forEach((card) => {
@@ -2076,16 +2352,19 @@ function renderComponentManager() {
 
 function renderComponentJob() {
   const job = state.components.job;
-  const visible = job.running || job.ok !== null;
+  const visible = job.running || (state.components.jobVisible && job.ok !== null);
   els.componentJobPanel.hidden = !visible;
   if (!visible) return;
   els.componentJobPanel.classList.toggle('is-error', job.ok === false);
+  els.dismissComponentJobButton.hidden = job.running;
   els.componentJobTitle.textContent = job.running
     ? getComponentActionLabel(job)
     : job.ok
-      ? 'Операция завершена'
+      ? getComponentActionSuccessLabel(job)
       : 'Операция не выполнена';
-  els.componentJobMessage.textContent = job.message || '';
+  const message = job.ok === true && job.message === 'Операция завершена' ? '' : job.message;
+  els.componentJobMessage.textContent = message || '';
+  els.componentJobMessage.hidden = !message;
   els.componentJobOutput.textContent = job.output || '';
   els.componentJobDetails.hidden = !job.output;
 }
@@ -2098,6 +2377,16 @@ function getComponentActionLabel(job) {
   if (job.action === 'channel') return `Переключение канала XKeen`;
   if (job.action === 'rollback') return 'Восстановление XKeen';
   return `Обновление ${component}`;
+}
+
+function getComponentActionSuccessLabel(job) {
+  if (job.component === 'all') return 'Компоненты обновлены';
+  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  if (job.action === 'restart') return `${component} перезапущен`;
+  if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
+  if (job.action === 'channel') return 'Канал XKeen переключён';
+  if (job.action === 'rollback') return 'XKeen восстановлен';
+  return `${component} обновлён`;
 }
 
 function getComponentUpdateSummary() {
@@ -2196,10 +2485,15 @@ async function startComponentAction(payload) {
       body: JSON.stringify(payload),
     });
     state.components.job = normalizeComponentJob(data.job);
+    state.components.jobVisible = true;
+    els.componentJobDetails.open = false;
     renderComponentManager();
+    renderXkeenNetworkFiles();
     pollComponentJob();
+    return true;
   } catch (error) {
     showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+    return false;
   }
 }
 
@@ -2209,17 +2503,31 @@ async function pollComponentJob() {
     state.components.pollTimer = 0;
   }
   try {
+    const wasRunning = state.components.job.running;
     const data = await apiJson('/api/components/job');
     state.components.job = normalizeComponentJob(data.job);
+    if (state.components.job.running) state.components.jobVisible = true;
+    if (wasRunning && !state.components.job.running) els.componentJobDetails.open = false;
     renderComponentManager();
+    renderXkeenNetworkFiles();
     if (state.components.job.running) {
       state.components.pollTimer = window.setTimeout(pollComponentJob, 1500);
       return;
+    }
+    if (state.xkeenFiles.restartRequested
+      && state.components.job.component === 'xkeen'
+      && state.components.job.action === 'restart') {
+      showMessage(
+        state.components.job.ok ? 'XKeen успешно перезапущен.' : `Не удалось перезапустить XKeen: ${state.components.job.message || 'операция не выполнена'}`,
+        { severity: state.components.job.ok ? 'success' : 'error' },
+      );
+      state.xkeenFiles.restartRequested = false;
     }
     await Promise.all([
       loadServiceHealth({ silent: true }),
       loadComponents({ force: true, silent: true }),
     ]);
+    renderXkeenNetworkFiles();
   } catch (error) {
     state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
   }
@@ -2405,6 +2713,7 @@ async function updateProviderNow(provider) {
 async function decodeHappProvider(provider) {
   if (!provider?.url || typeof fetch !== 'function') return;
   state.happDecodeProviderName = provider.name;
+  state.happDecodeFeedback = null;
   render();
 
   try {
@@ -2413,11 +2722,19 @@ async function decodeHappProvider(provider) {
     provider.url = data.decryptedUrl || provider.url;
     provider.hasUrl = true;
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'success',
+      message: 'Happ-ссылка расшифрована. Прямой URL подставлен.',
+    };
     generateOutput();
     render();
-    const sourceLabel = data.source === 'browser-decryptor' ? 'локально в браузере' : 'через серверный fallback';
-    showMessage(`Подписка ${provider.name}: Happ ссылка расшифрована ${sourceLabel} и заменена на прямой URL.`);
   } catch (error) {
+    state.happDecodeFeedback = {
+      provider,
+      severity: 'error',
+      message: `Не удалось расшифровать Happ-ссылку: ${error?.message || error}`,
+    };
     showMessage(
       `Не удалось расшифровать Happ ссылку ${provider.name}: ${error?.message || error}. Можно вручную расшифровать на ресурсе`,
       { href: 'https://leeeet.dev/happ-decryptor/', label: 'Happ decryptor' },
@@ -2429,28 +2746,8 @@ async function decodeHappProvider(provider) {
 }
 
 async function decodeHappProviderUrl(provider) {
-  const errors = [];
-  if (canUseBrowserHappDecryptor()) {
-    try {
-      return await decodeHappProviderUrlInBrowser(provider.url);
-    } catch (error) {
-      errors.push(`browser decryptor: ${error?.message || error}`);
-    }
-  }
-
-  if (state.routerApiAvailable) {
-    try {
-      return await apiJson('/api/happ/decode', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: provider.url, headers: getProviderRequestHeaders(provider) }),
-      });
-    } catch (error) {
-      errors.push(`server fallback: ${error?.message || error}`);
-    }
-  }
-
-  throw new Error(errors.join('; ') || 'no Happ decryptor is available');
+  if (!canUseBrowserHappDecryptor()) throw new Error('browser Happ decryptor is unavailable');
+  return decodeHappProviderUrlInBrowser(provider.url);
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
@@ -2487,16 +2784,6 @@ function normalizeBrowserDecodedHappUrl(value) {
     return decodeURIComponent(text.slice(addPrefix.length)).trim();
   }
   return text;
-}
-
-function getProviderRequestHeaders(provider) {
-  const headers = {};
-  if (String(provider.userAgent || '').trim()) headers['User-Agent'] = provider.userAgent.trim();
-  if (String(provider.xHwid || '').trim()) headers['x-hwid'] = provider.xHwid.trim();
-  parseCustomHeaderText(provider.customHeaders).forEach((entry) => {
-    if (entry.key) headers[entry.key] = entry.value;
-  });
-  return headers;
 }
 
 function parseAndRender() {
@@ -2597,21 +2884,26 @@ function renderShellStatus(diagnostics) {
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   let validation = 'Проверка недоступна';
   let variant = '';
+  let shortLabel = '—';
 
   if (state.originalText) {
     if (hasStructuralError || errorCount > 0) {
       validation = hasStructuralError ? 'Локальная проверка: ошибка структуры' : `Локальная проверка: ${formatErrorCount(errorCount)}`;
       variant = 'is-danger';
+      shortLabel = 'Ошибка';
     } else if (warningCount > 0) {
       validation = `Локальная проверка: ${formatWarningCount(warningCount)}`;
       variant = 'is-warning';
+      shortLabel = String(warningCount);
     } else {
       validation = 'Локальная проверка: OK';
       variant = 'is-ok';
+      shortLabel = 'OK';
     }
   }
 
   els.topbarValidation.textContent = validation;
+  els.topbarValidation.dataset.shortLabel = shortLabel;
   els.topbarValidation.className = `topbar-validation ${variant}`.trim();
 }
 
@@ -2772,7 +3064,7 @@ function renderOverviewHealth() {
   const warningCount = diagnostics.length - errorCount;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const services = Object.values(state.serviceHealth.services || {});
-  const serviceProblem = state.routerApiAvailable && !state.serviceHealth.loading
+  const serviceProblem = state.routerApiAvailable && state.serviceHealth.checkedAt > 0
     && services.some((service) => service.state === 'error' || service.state === 'unavailable');
   const nodesProblem = state.routerApiAvailable && !state.nodeInventoryLoading
     && (Boolean(state.nodeInventoryError) || state.mihomoNodes.length === 0);
@@ -2791,7 +3083,9 @@ function renderOverviewHealth() {
     summaryParts.push(hasStructuralError ? 'Ошибка структуры' : formatErrorCount(errorCount));
   } else {
     if (state.routerApiAvailable) {
-      summaryParts.push(state.serviceHealth.loading ? 'Проверяем сервисы' : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
+      summaryParts.push(state.serviceHealth.loading && !state.serviceHealth.checkedAt
+        ? 'Проверяем сервисы'
+        : serviceProblem ? 'Не все сервисы доступны' : 'Сервисы доступны');
     } else {
       summaryParts.push('Структура проверена');
     }
@@ -3485,7 +3779,7 @@ function collectProviderUrlDiagnostics(activeProviders) {
 
     const scheme = getUrlScheme(url);
     if (isHappDeepLink(url)) {
-      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; нужен внешний Happ decryptor или локальный adapter.`);
+      diagnostics.push(`Подписка ${provider.name}: happ://crypt* не является прямой подпиской Mihomo; расшифруйте ссылку кнопкой в редакторе.`);
       return;
     }
 
@@ -4380,11 +4674,8 @@ function createProviderInspector(provider) {
   content.className = 'provider-inspector-content';
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
-    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? 'Ссылка скрыта' : provider.url || 'Не указан'], 'value'),
-    createProviderInspectorSection('Фильтрация нод', [
-      provider.filter ? `Включить: ${provider.filter}` : 'Фильтр включения не задан',
-      provider.excludeFilter ? `Исключить: ${provider.excludeFilter}` : 'Фильтр исключения не задан',
-    ], 'list'),
+    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
+    createProviderFilterInspectorSection(provider),
     createProviderInspectorSection('Обновление', [
       provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
       status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
@@ -4428,6 +4719,71 @@ function createProviderInspectorSection(label, values, variant) {
   });
   section.append(title, body);
   return section;
+}
+
+function createProviderFilterInspectorSection(provider) {
+  const rules = [
+    { label: 'Включать', value: String(provider.filter || '').trim() },
+    { label: 'Исключать', value: String(provider.excludeFilter || '').trim() },
+  ].filter((rule) => rule.value);
+
+  if (!rules.length) {
+    return createProviderInspectorSection('Фильтрация нод', ['Не настроено'], 'list');
+  }
+
+  const section = document.createElement('details');
+  const summary = document.createElement('summary');
+  const title = document.createElement('strong');
+  const meta = document.createElement('span');
+  const count = document.createElement('span');
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  const body = document.createElement('div');
+
+  section.className = 'provider-inspector-section provider-inspector-filters';
+  section.open = window.matchMedia('(min-width: 981px)').matches;
+  summary.className = 'provider-inspector-filter-head';
+  title.textContent = 'Фильтрация нод';
+  count.textContent = `${rules.length} ${rules.length === 1 ? 'правило' : 'правила'}`;
+  icon.classList.add('provider-disclosure-icon');
+  icon.setAttribute('aria-hidden', 'true');
+  iconUse.setAttribute('href', '#icon-chevron-down');
+  icon.append(iconUse);
+  meta.append(count, icon);
+  summary.append(title, meta);
+  body.className = 'provider-inspector-filter-rules';
+  rules.forEach((rule) => body.append(createProviderFilterRule(rule)));
+  section.append(summary, body);
+  return section;
+}
+
+function createProviderFilterRule(rule) {
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  const label = document.createElement('span');
+  const preview = document.createElement('code');
+  const toggle = document.createElement('span');
+  const show = document.createElement('span');
+  const hide = document.createElement('span');
+  const full = document.createElement('code');
+
+  details.className = 'provider-inspector-filter-rule';
+  summary.className = 'provider-inspector-filter-rule-head';
+  label.className = 'provider-inspector-filter-label';
+  label.textContent = rule.label;
+  preview.className = 'provider-inspector-filter-preview';
+  preview.textContent = rule.value;
+  toggle.className = 'provider-inspector-filter-toggle';
+  show.className = 'provider-inspector-filter-toggle-show';
+  show.textContent = 'Полностью';
+  hide.className = 'provider-inspector-filter-toggle-hide';
+  hide.textContent = 'Свернуть';
+  toggle.append(show, hide);
+  summary.append(label, preview, toggle);
+  full.className = 'provider-inspector-filter-full';
+  full.textContent = rule.value;
+  details.append(summary, full);
+  return details;
 }
 
 function formatDuration(value) {
@@ -4489,27 +4845,46 @@ function formatProviderListMeta(provider) {
 
 function bindProviderUrl(root, provider) {
   const input = root.querySelector('.provider-url');
-  const showFullValue = () => {
-    input.type = 'url';
-    input.value = provider.url || '';
-    input.classList.remove('is-masked');
-  };
-  const showMaskedValue = () => {
-    const masked = state.hideProviderUrls ? maskSensitiveUrl(provider.url) : provider.url || '';
-    input.type = state.hideProviderUrls ? 'text' : 'url';
-    input.value = masked;
-    input.classList.toggle('is-masked', state.hideProviderUrls && masked !== provider.url);
+  const revealButton = root.querySelector('.provider-url-reveal-button');
+  const decodeStatus = root.querySelector('.provider-url-status');
+  let revealed = !state.hideProviderUrls || !provider.url || provider.isNew;
+  const renderValue = () => {
+    const shouldMask = state.hideProviderUrls && Boolean(provider.url) && !revealed;
+    input.type = shouldMask ? 'text' : 'url';
+    input.value = shouldMask ? maskSensitiveUrl(provider.url) : provider.url || '';
+    input.readOnly = shouldMask;
+    input.classList.toggle('is-masked', shouldMask);
+    revealButton.hidden = !state.hideProviderUrls || !provider.url;
+    revealButton.setAttribute('aria-pressed', String(revealed));
+    revealButton.querySelector('span').textContent = revealed ? 'Скрыть' : 'Показать';
   };
 
-  input.type = 'text';
-  showMaskedValue();
-  input.addEventListener('focus', showFullValue);
-  input.addEventListener('input', () => updateProvider(provider, 'url', input.value));
-  input.addEventListener('blur', showMaskedValue);
+  renderValue();
+  input.addEventListener('input', () => {
+    if (state.happDecodeFeedback?.provider === provider) {
+      state.happDecodeFeedback = null;
+      decodeStatus.hidden = true;
+    }
+    updateProvider(provider, 'url', input.value);
+  });
+  revealButton.addEventListener('click', () => {
+    revealed = !revealed;
+    renderValue();
+    if (revealed) input.focus();
+  });
 }
 
 function maskSensitiveUrl(value) {
-  return String(value || '').trim() ? '••••' : '';
+  const source = String(value || '').trim();
+  if (!source) return '';
+  try {
+    const url = new URL(source);
+    const segments = url.pathname.split('/').filter(Boolean);
+    const visiblePrefix = segments.length > 1 && segments[0].length <= 3 ? `/${segments[0]}` : '';
+    return `${url.protocol}//${url.host}${visiblePrefix}/••••••`;
+  } catch {
+    return '••••••';
+  }
 }
 
 function formatProviderListBadge(provider) {
@@ -4565,9 +4940,11 @@ function bindProviderUpdateButton(root, provider) {
 function bindHappDecodeButton(root, provider) {
   const button = root.querySelector('.happ-decode-button');
   const label = button.querySelector('span');
+  const status = root.querySelector('.provider-url-status');
   const isVisible = isHappDeepLink(provider.url);
   const isDecoding = state.happDecodeProviderName === provider.name;
-  const canDecode = canUseBrowserHappDecryptor() || state.routerApiAvailable;
+  const canDecode = canUseBrowserHappDecryptor();
+  const feedback = state.happDecodeFeedback?.provider === provider ? state.happDecodeFeedback : null;
 
   button.hidden = !isVisible;
   button.disabled = !isVisible || !canDecode || isDecoding;
@@ -4575,8 +4952,12 @@ function bindHappDecodeButton(root, provider) {
   button.setAttribute('aria-busy', isDecoding ? 'true' : 'false');
   button.title = canUseBrowserHappDecryptor()
     ? 'Расшифровать локально в браузере и заменить URL провайдера'
-    : 'Доступно через браузерный decryptor или MihUI на роутере с Happ decryptor/Happy Decoder API';
+    : 'Браузерный decryptor недоступен';
   if (label) label.textContent = isDecoding ? 'Расшифровка...' : 'Расшифровать Happ';
+  status.hidden = !feedback;
+  status.className = `provider-url-status${feedback ? ` is-${feedback.severity}` : ''}`;
+  status.textContent = feedback?.message || '';
+  status.setAttribute('role', feedback?.severity === 'error' ? 'alert' : 'status');
   button.addEventListener('click', () => decodeHappProvider(provider));
 }
 
@@ -4751,6 +5132,7 @@ function getNodeGroupSelectionItems(nodes) {
       statusText: formatNodeStatus(selectedStatusSource),
       delay: selectedDelay,
       optionCount: Array.isArray(selection?.all) ? selection.all.length : null,
+      options: Array.isArray(selection?.all) ? selection.all.map((name) => String(name || '')).filter(Boolean) : [],
       isKnown: Boolean(selection),
     };
   });
@@ -4812,7 +5194,71 @@ function createNodeGroupSelectionCard(item) {
   titleRow.append(title, meta);
   current.append(label, name);
   card.append(titleRow, current, badges);
+  if (isSelectableNodeGroup(item)) {
+    const actions = document.createElement('div');
+    const choiceLabel = document.createElement('label');
+    const choiceText = document.createElement('span');
+    const select = document.createElement('select');
+    const button = document.createElement('button');
+    const isBusy = state.nodeGroupSelectingName === item.groupName;
+
+    actions.className = 'node-group-selection-actions';
+    choiceLabel.className = 'node-group-selection-choice';
+    choiceText.textContent = 'Активный вариант';
+    select.setAttribute('aria-label', `Активный вариант группы ${item.groupName}`);
+    item.options.forEach((optionName) => {
+      const option = document.createElement('option');
+      option.value = optionName;
+      option.textContent = stripNodeFlagEmoji(optionName) || optionName;
+      select.append(option);
+    });
+    select.value = item.selectedName;
+    select.disabled = isBusy;
+    button.className = 'button compact';
+    button.type = 'button';
+    button.textContent = isBusy ? 'Переключение…' : 'Сменить';
+    const syncButton = () => {
+      button.disabled = isBusy || !select.value || select.value === item.selectedName;
+    };
+    select.addEventListener('change', syncButton);
+    button.addEventListener('click', () => selectNodeGroup(item.groupName, select.value));
+    syncButton();
+    choiceLabel.append(choiceText, select);
+    actions.append(choiceLabel, button);
+    card.append(actions);
+  }
   return card;
+}
+
+function isSelectableNodeGroup(item) {
+  const type = String(item?.groupType || '').trim().toLowerCase();
+  return item?.isKnown && ['select', 'selector'].includes(type) && Array.isArray(item.options) && item.options.length > 0;
+}
+
+async function selectNodeGroup(groupName, proxyName) {
+  if (!groupName || !proxyName || state.nodeGroupSelectingName) return;
+  state.nodeGroupSelectingName = groupName;
+  renderNodeInventory();
+  try {
+    const data = await apiJson('/api/groups/select', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: groupName, name: proxyName }),
+    });
+    await loadNodeInventory({ silent: true });
+    showMessage(`Группа ${groupName}: активен ${data.now || proxyName}.`, { severity: 'success' });
+  } catch (error) {
+    await loadNodeInventory({ silent: true });
+    showMessage(
+      error?.data?.uncertain
+        ? `Mihomo не подтвердил переключение группы ${groupName}.`
+        : `Не удалось переключить группу ${groupName}.`,
+      { severity: 'error', details: error?.message || String(error) },
+    );
+  } finally {
+    state.nodeGroupSelectingName = '';
+    renderNodeInventory();
+  }
 }
 
 function formatNodeGroupSelectionMeta(item) {
@@ -6085,6 +6531,9 @@ function addRule() {
 }
 
 function removeRule(rule) {
+  const confirmed = window.confirm(`Удалить правило ${formatRuleSummary(rule)}? Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'rule',
     rule,
@@ -7915,6 +8364,11 @@ function replaceProviderUse(previousName, nextName) {
 }
 
 function removeProvider(provider) {
+  const usedBy = state.groups.filter((group) => group.use.includes(provider.name)).map((group) => group.name);
+  const usageDetail = usedBy.length > 0 ? ` Она будет отключена от групп: ${usedBy.join(', ')}.` : '';
+  const confirmed = window.confirm(`Удалить подписку ${provider.name}?${usageDetail} Изменение попадет в итоговый YAML.`);
+  if (!confirmed) return;
+
   state.lastUndo = {
     type: 'provider',
     provider,
@@ -8034,6 +8488,12 @@ function addProvider() {
   connectProviderToUseGroups(provider.name);
   generateOutput();
   render();
+
+  window.setTimeout(() => {
+    const editor = els.providersList.querySelector('.provider-detail.is-editing');
+    if (editor?.style) editor.style.scrollMarginTop = `${getStickyTopbarHeight() + 12}px`;
+    editor?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  }, 0);
 
   window.setTimeout(() => {
     provider.highlight = false;

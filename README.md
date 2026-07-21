@@ -56,26 +56,15 @@ POST /api/update/start
 MIHUI_CONFIG_PATH="/opt/etc/mihomo/config.yaml"
 MIHUI_MIHOMO_API="http://127.0.0.1:9090"
 MIHUI_MIHOMO_SECRET=""
-MIHUI_HAPP_DECRYPTOR_CMD=""
-MIHUI_HAPP_DECRYPTOR_TIMEOUT="45"
-MIHUI_HAPP_DECRYPTOR_REMOTE_URL=""
-MIHUI_HAPP_DECODER_API_KEY=""
-MIHUI_HAPP_DECODER_API_URL="https://happy-decoder.cc/api/v1/decrypt"
-MIHUI_HAPP_DECODER_TIMEOUT="30"
+MIHUI_LOG_PATH="/opt/var/log/mihui/server.log"
+MIHUI_MIHOMO_LOG_PATH="/opt/var/log/mihomo.log"
+MIHUI_XKEEN_LOG_PATH="/opt/var/log/xkeen.log"
 ```
 
-Для `happ://crypt*` кнопка в UI сначала пробует browser-local decryptor из папки `happ-decryptor`, затем локальный decryptor на роутере из `MIHUI_HAPP_DECRYPTOR_CMD` или drop-in файл в `/opt/etc/mihui/bin/`, затем remote template из `MIHUI_HAPP_DECRYPTOR_REMOTE_URL`, а затем Happy Decoder, если задан `MIHUI_HAPP_DECODER_API_KEY`.
-`MIHUI_HAPP_DECRYPTOR_REMOTE_URL` должен содержать placeholder вроде `%LINK_ENCODED%`, например `https://decoder.example/decrypt?url=%LINK_ENCODED%`.
+Пути `MIHUI_MIHOMO_LOG_PATH` и `MIHUI_XKEEN_LOG_PATH` нужны только если соответствующий сервис пишет постоянный журнал в нестандартное место. Раздел «Логи» читает последние строки только из этих фиксированных источников.
+
+Для `happ://crypt*` кнопка в UI расшифровывает ссылку локально в браузере модулем из папки `happ-decryptor` и заменяет её на прямой URL.
 Локальный provider adapter также умеет разобрать `incy://import` и повторить Happ landing-запрос с `User-Agent: Happ/1.0`, `x-hwid` и `hwid` query, если обычный ответ выглядит как Happ/INCY landing.
-
-Рекомендуемый вариант для `happ://crypt*` — локальный decryptor. Скопируйте совместимый бинарник в `/opt/etc/mihui/bin/happ-decrypt-universal`, сделайте его исполняемым и перезапустите MihUI:
-
-```sh
-chmod +x /opt/etc/mihui/bin/happ-decrypt-universal
-/opt/etc/init.d/S99mihui restart
-```
-
-Если нужен явный запуск через команду, задайте `MIHUI_HAPP_DECRYPTOR_CMD`, например `/opt/etc/mihui/bin/happ-decrypt-universal %LINK%`. Happy Decoder API лучше оставить fallback для ручной расшифровки, а `https://happy-decoder.cc/p/?u=%LINK_ENCODED%` использовать только как аварийный remote-template, потому что при нём обновление подписки зависит от внешнего сервиса.
 
 Перед каждым сохранением создается бэкап, хранятся последние 5.
 

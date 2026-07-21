@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import hashlib
 import html
 import io
 import ipaddress
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import threading
@@ -45,49 +44,38 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "transfer-encoding",
     "accept-encoding",
 }
-HAPP_DECRYPTOR_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_CMD"
-HAPP_DECRYPTOR_TIMEOUT_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_TIMEOUT"
-HAPP_DECRYPTOR_CANDIDATES = [
-    "happ_decryptor.py",
-    "happ-decryptor.py",
-    "happ_decrypt_universal.py",
-    "happ-decrypt-universal.py",
-    "happwner.py",
-    "Happwner.py",
-    "happ_decryptor",
-    "happ-decryptor",
-    "happ-decrypt-universal",
-    "happ_decrypt_universal",
-    "happwner",
-    "happ-decryptor-aarch64",
-]
-HAPP_DECODER_API_KEY_ENV_KEY = "MIHUI_HAPP_DECODER_API_KEY"
-HAPP_DECODER_API_URL_ENV_KEY = "MIHUI_HAPP_DECODER_API_URL"
-HAPP_DECODER_TIMEOUT_ENV_KEY = "MIHUI_HAPP_DECODER_TIMEOUT"
-HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY = "MIHUI_HAPP_DECRYPTOR_REMOTE_URL"
-DEFAULT_HAPP_DECODER_API_URL = "https://happy-decoder.cc/api/v1/decrypt"
-DEFAULT_HAPP_DECODER_TIMEOUT = 30
-DEFAULT_HAPP_DECRYPTOR_TIMEOUT = 45
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
-DECODED_PROVIDER_VERIFY_BYTES = 512 * 1024
-HAPP_DECRYPTOR_NODE_SUFFIXES = {".js", ".mjs", ".cjs"}
-HAPP_DECRYPTOR_TEMPLATE_TOKENS = (
-    "%LINK%",
-    "%URL%",
-    "%INPUT%",
-    "{link}",
-    "{url}",
-    "{input}",
-    "%LINK_ENCODED%",
-    "%URL_ENCODED%",
-    "%INPUT_ENCODED%",
-    "{link_encoded}",
-    "{url_encoded}",
-    "{input_encoded}",
-)
+LOG_TAIL_MAX_BYTES = 256 * 1024
+LOG_TAIL_DEFAULT_LINES = 300
+LOG_TAIL_MAX_LINES = 1000
+LOG_SOURCE_DEFINITIONS = {
+    "mihui": {
+        "label": "MihUI",
+        "env": "MIHUI_LOG_PATH",
+        "paths": ("/opt/var/log/mihui/server.log",),
+    },
+    "mihomo": {
+        "label": "Mihomo",
+        "env": "MIHUI_MIHOMO_LOG_PATH",
+        "paths": (
+            "/opt/var/log/mihomo.log",
+            "/opt/var/log/mihomo/mihomo.log",
+            "/opt/var/log/mihomo/error.log",
+        ),
+    },
+    "xkeen": {
+        "label": "XKeen",
+        "env": "MIHUI_XKEEN_LOG_PATH",
+        "paths": (
+            "/opt/var/log/xkeen.log",
+            "/opt/var/log/xkeen/xkeen.log",
+        ),
+    },
+}
 
 
 update_lock = threading.Lock()
+config_write_lock = threading.Lock()
 update_state = {
     "running": False,
     "ok": None,
@@ -136,9 +124,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/router/uis":
             self.handle_router_uis_get()
             return
-        if route == "/api/settings/happ-decoder":
-            self.handle_happ_decoder_settings_get()
-            return
         if route == "/api/update/check":
             self.handle_update_check()
             return
@@ -147,6 +132,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/services/status":
             self.send_json(HTTPStatus.OK, get_services_status(self.app_dir))
+            return
+        if route == "/api/logs":
+            self.handle_logs_get()
             return
         if route == "/api/components/status":
             force = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("force", [""])[0]
@@ -196,11 +184,8 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/providers/update":
             self.handle_provider_update()
             return
-        if route == "/api/happ/decode":
-            self.handle_happ_decode()
-            return
-        if route == "/api/settings/happ-decoder":
-            self.handle_happ_decoder_settings_save()
+        if route == "/api/groups/select":
+            self.handle_group_select()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -218,18 +203,31 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         text = config_path.read_text(encoding="utf-8", errors="replace")
-        self.send_json(HTTPStatus.OK, {"ok": True, "path": str(config_path), "text": text})
+        self.send_json(
+            HTTPStatus.OK,
+            {"ok": True, "path": str(config_path), "text": text, "revision": config_revision(text)},
+        )
 
     def handle_config_save(self):
         payload = self.read_json_body()
         text = payload.get("text")
+        expected_revision = payload.get("expectedRevision")
         if not isinstance(text, str):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
             return
+        if expected_revision is not None and not isinstance(expected_revision, str):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            return
 
-        result = save_checked_config(self.app_dir, text)
+        result = save_checked_config(self.app_dir, text, expected_revision=expected_revision)
         if not result["ok"]:
-            self.send_json(HTTPStatus.UNPROCESSABLE_ENTITY, result)
+            if result.get("stage") == "conflict":
+                status = HTTPStatus.CONFLICT
+            elif result.get("stage") == "check":
+                status = HTTPStatus.UNPROCESSABLE_ENTITY
+            else:
+                status = HTTPStatus.BAD_GATEWAY
+            self.send_json(status, result)
             return
 
         self.send_json(
@@ -240,72 +238,49 @@ class MihuiHandler(SimpleHTTPRequestHandler):
     def handle_backups_get(self):
         self.send_json(HTTPStatus.OK, {"ok": True, "backups": list_backups(self.app_dir)})
 
+    def handle_logs_get(self):
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        source = str(query.get("source", ["mihui"])[0] or "mihui")
+        try:
+            lines = int(query.get("lines", [LOG_TAIL_DEFAULT_LINES])[0])
+        except (TypeError, ValueError):
+            lines = LOG_TAIL_DEFAULT_LINES
+        try:
+            payload = get_log_snapshot(self.app_dir, source, lines)
+        except ValueError as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        self.send_json(HTTPStatus.OK, payload)
+
+    def log_message(self, format_text, *args):
+        safe_args = tuple(redact_log_text(value) if isinstance(value, str) else value for value in args)
+        super().log_message(format_text, *safe_args)
+
     def handle_backup_restore(self):
         payload = self.read_json_body()
         name = str(payload.get("name") or "")
+        expected_revision = payload.get("expectedRevision")
+        if expected_revision is not None and not isinstance(expected_revision, str):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            return
         backup = backup_path_by_name(self.app_dir, name)
         if not backup:
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "backup not found"})
             return
 
-        config_path = get_config_path(self.app_dir)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        check = check_mihomo_config(self.app_dir, backup.read_text(encoding="utf-8", errors="replace"))
-        if not check["ok"]:
-            self.send_json(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                {"ok": False, "message": check.get("message", "backup config check failed"), "check": check},
-            )
-            return
-        current_backup = create_backup(self.app_dir, config_path)
-        shutil.copyfile(str(backup), str(config_path))
-        prune_backups(self.app_dir)
-        reload_result = reload_mihomo(self.app_dir, config_path)
-        self.send_json(
-            HTTPStatus.OK,
-            {
-                "ok": True,
-                "path": str(config_path),
-                "restored": backup.name,
-                "backup": current_backup.name if current_backup else None,
-                "reload": reload_result,
-            },
-        )
+        result = restore_checked_backup(self.app_dir, backup, expected_revision=expected_revision)
+        if result["ok"]:
+            status = HTTPStatus.OK
+        elif result.get("stage") == "conflict":
+            status = HTTPStatus.CONFLICT
+        elif result.get("stage") == "check":
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_GATEWAY
+        self.send_json(status, result)
 
     def handle_router_uis_get(self):
         self.send_json(HTTPStatus.OK, {"ok": True, "items": detect_router_uis(self.app_dir, self.headers.get("Host", ""))})
-
-    def handle_happ_decoder_settings_get(self):
-        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
-
-    def handle_happ_decoder_settings_save(self):
-        payload = self.read_json_body()
-        api_url = str(payload.get("apiUrl") or "").strip() or DEFAULT_HAPP_DECODER_API_URL
-        api_key = payload.get("apiKey")
-        decryptor_cmd = str(payload.get("decryptorCmd") or "").strip()
-        decryptor_timeout = str(payload.get("decryptorTimeout") or "").strip()
-        remote_url = str(payload.get("remoteUrl") or "").strip()
-        try:
-            api_url = normalize_happ_decoder_api_url(api_url)
-            if remote_url:
-                remote_url = normalize_happ_decryptor_remote_url(remote_url)
-            updates = {
-                HAPP_DECODER_API_URL_ENV_KEY: api_url,
-                HAPP_DECRYPTOR_ENV_KEY: decryptor_cmd,
-                HAPP_DECRYPTOR_TIMEOUT_ENV_KEY: normalize_happ_decryptor_timeout_value(decryptor_timeout),
-                HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY: remote_url,
-            }
-            if isinstance(api_key, str) and api_key.strip():
-                updates[HAPP_DECODER_API_KEY_ENV_KEY] = api_key.strip()
-            write_env_values(self.app_dir, updates)
-        except ValueError as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
-            return
-        except Exception as error:
-            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "message": str(error)})
-            return
-
-        self.send_json(HTTPStatus.OK, get_happ_decoder_settings(self.app_dir))
 
     def handle_update_check(self):
         version = read_version(self.app_dir)
@@ -438,6 +413,23 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         result = update_proxy_provider(self.app_dir, name)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
 
+    def handle_group_select(self):
+        payload = self.read_json_body()
+        group = str(payload.get("group") or "").strip()
+        name = str(payload.get("name") or "").strip()
+        if not group or not name:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "group and name are required"})
+            return
+
+        result = select_proxy_group(self.app_dir, group, name)
+        if result["ok"]:
+            status = HTTPStatus.OK
+        elif result.get("unavailable") or result.get("uncertain"):
+            status = HTTPStatus.BAD_GATEWAY
+        else:
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        self.send_json(status, result)
+
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
             self.send_plain(HTTPStatus.FORBIDDEN, "provider adapter is loopback-only")
@@ -460,21 +452,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_provider_payload(body, content_type)
-
-    def handle_happ_decode(self):
-        payload = self.read_json_body()
-        source_url = str(payload.get("url") or "").strip()
-        headers = normalize_provider_headers(payload.get("headers"))
-        try:
-            result = decode_happ_with_happy_decoder(self.app_dir, source_url, headers)
-        except ValueError as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
-            return
-        except Exception as error:
-            self.send_json(HTTPStatus.BAD_GATEWAY, {"ok": False, "message": str(error)})
-            return
-
-        self.send_json(HTTPStatus.OK, result)
 
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
@@ -542,111 +519,148 @@ def get_env(app_dir):
     return env
 
 
-def get_happ_decoder_settings(app_dir):
-    env = get_env(app_dir)
-    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
-    api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
-        HAPP_DECODER_API_URL_ENV_KEY,
-        DEFAULT_HAPP_DECODER_API_URL,
-    )
-    decryptor_cmd = env.get(HAPP_DECRYPTOR_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_ENV_KEY, "")
-    decryptor_timeout = env.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY) or os.environ.get(
-        HAPP_DECRYPTOR_TIMEOUT_ENV_KEY,
-        str(DEFAULT_HAPP_DECRYPTOR_TIMEOUT),
-    )
-    remote_url = env.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY) or os.environ.get(
-        HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY,
-        "",
-    )
-    return {
-        "ok": True,
-        "apiKey": api_key,
-        "apiUrl": api_url,
-        "decryptorCmd": decryptor_cmd,
-        "decryptorTimeout": decryptor_timeout,
-        "remoteUrl": remote_url,
-        "hasApiKey": bool(api_key),
-        "hasDecryptor": bool(find_happ_decryptor_command(app_dir)),
-        "hasRemoteUrl": bool(remote_url),
-    }
-
-
 def get_env_path(app_dir):
     return Path(app_dir) / "mihui.env"
 
 
-def write_env_values(app_dir, updates):
-    clean_updates = {}
-    for key, value in (updates or {}).items():
-        key = str(key or "").strip()
-        value = str(value or "").strip()
-        if not re.fullmatch(r"[A-Z0-9_]+", key):
-            raise ValueError("invalid env key")
-        if "\n" in value or "\r" in value or "\x00" in value:
-            raise ValueError(f"{key} contains an invalid character")
-        clean_updates[key] = value
+def get_log_source_candidates(app_dir, source):
+    definition = LOG_SOURCE_DEFINITIONS.get(source)
+    if not definition:
+        raise ValueError("unknown log source")
 
-    env_file = get_env_path(app_dir)
-    lines = env_file.read_text(encoding="utf-8", errors="replace").splitlines() if env_file.is_file() else []
+    env = get_env(app_dir)
+    candidates = []
+    override = str(env.get(definition["env"], "") or "").strip()
+    if override:
+        candidates.append(Path(override))
+    if source == "mihui":
+        log_dir = str(env.get("MIHUI_LOG_DIR", "") or "").strip()
+        if log_dir:
+            candidates.append(Path(log_dir) / "server.log")
+    candidates.extend(Path(path) for path in definition["paths"])
+
+    unique = []
     seen = set()
-    next_lines = []
-    for line in lines:
-        match = re.match(r"^([A-Z0-9_]+)=", line)
-        if match and match.group(1) in clean_updates:
-            key = match.group(1)
-            next_lines.append(f"{key}={quote_env_value(clean_updates[key])}")
-            seen.add(key)
-        else:
-            next_lines.append(line)
-
-    for key, value in clean_updates.items():
-        if key not in seen:
-            next_lines.append(f"{key}={quote_env_value(value)}")
-
-    env_file.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(env_file, "\n".join(next_lines).rstrip() + "\n")
+    for path in candidates:
+        path_key = str(path)
+        if path_key in seen:
+            continue
+        seen.add(path_key)
+        unique.append(path)
+    return unique
 
 
-def quote_env_value(value):
-    text = str(value or "")
-    text = text.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
-    return f'"{text}"'
+def resolve_log_source(app_dir, source):
+    candidates = get_log_source_candidates(app_dir, source)
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
 
 
-def normalize_happ_decoder_api_url(value):
-    url = str(value or "").strip()
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("MIHUI_HAPP_DECODER_API_URL must be an http/https URL")
-    return urllib.parse.urlunsplit(parsed)
+def list_log_sources(app_dir):
+    sources = []
+    for source, definition in LOG_SOURCE_DEFINITIONS.items():
+        path = resolve_log_source(app_dir, source)
+        sources.append(
+            {
+                "id": source,
+                "label": definition["label"],
+                "available": path.is_file(),
+                "path": str(path),
+            }
+        )
+    return sources
 
 
-def normalize_happ_decryptor_remote_url(value):
-    url = str(value or "").strip()
-    if not any(token in url for token in HAPP_DECRYPTOR_TEMPLATE_TOKENS):
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} must contain a Happ URL placeholder")
-    expanded = build_happ_decryptor_template_url(url, "happ://crypt/example")
-    parsed = urllib.parse.urlsplit(expanded)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} must be an http/https URL template")
-    return url
+def redact_log_text(text):
+    value = str(text or "")
+    value = re.sub(
+        r"([?&](?:url|uri|target|link|sub|subscription|token|secret|key|hwid)=)[^&\s\"']+",
+        r"\1••••••",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(
+        r"\b(authorization|x-hwid)(\s*[:=]\s*)\S+",
+        r"\1\2••••••",
+        value,
+        flags=re.IGNORECASE,
+    )
 
 
-def normalize_happ_decryptor_timeout_value(value):
-    text = str(value or "").strip()
-    if not text:
-        return str(DEFAULT_HAPP_DECRYPTOR_TIMEOUT)
+def read_log_tail(path, line_limit=LOG_TAIL_DEFAULT_LINES):
+    line_limit = max(1, min(int(line_limit), LOG_TAIL_MAX_LINES))
+    size = path.stat().st_size
+    offset = max(0, size - LOG_TAIL_MAX_BYTES)
+    with path.open("rb") as handle:
+        handle.seek(offset)
+        raw = handle.read(LOG_TAIL_MAX_BYTES)
+
+    text = raw.decode("utf-8", errors="replace")
+    if offset > 0 and "\n" in text:
+        text = text.split("\n", 1)[1]
+    lines = text.splitlines()
+    truncated = offset > 0 or len(lines) > line_limit
+    return redact_log_text("\n".join(lines[-line_limit:])), truncated
+
+
+def get_log_snapshot(app_dir, source, line_limit=LOG_TAIL_DEFAULT_LINES):
+    if source not in LOG_SOURCE_DEFINITIONS:
+        raise ValueError("unknown log source")
+
+    path = resolve_log_source(app_dir, source)
+    sources = list_log_sources(app_dir)
+    if not path.is_file():
+        return {
+            "ok": True,
+            "source": source,
+            "available": False,
+            "path": str(path),
+            "text": "",
+            "sources": sources,
+            "message": "log file not found",
+        }
+
     try:
-        timeout = int(text)
-    except ValueError as error:
-        raise ValueError(f"{HAPP_DECRYPTOR_TIMEOUT_ENV_KEY} must be an integer") from error
-    if timeout < 1 or timeout > 120:
-        raise ValueError(f"{HAPP_DECRYPTOR_TIMEOUT_ENV_KEY} must be between 1 and 120")
-    return str(timeout)
+        text, truncated = read_log_tail(path, line_limit)
+        stat = path.stat()
+    except OSError as error:
+        return {
+            "ok": False,
+            "source": source,
+            "available": True,
+            "path": str(path),
+            "text": "",
+            "sources": sources,
+            "message": str(error),
+        }
+
+    return {
+        "ok": True,
+        "source": source,
+        "available": True,
+        "path": str(path),
+        "text": text,
+        "size": stat.st_size,
+        "modifiedAt": int(stat.st_mtime),
+        "truncated": truncated,
+        "sources": sources,
+    }
 
 
 def get_config_path(app_dir):
     return Path(get_env(app_dir).get("MIHUI_CONFIG_PATH", DEFAULT_CONFIG_PATH))
+
+
+def config_revision(text):
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def read_config_text(config_path):
+    if not config_path.is_file():
+        return ""
+    return config_path.read_text(encoding="utf-8", errors="replace")
 
 
 def get_backup_dir(app_dir):
@@ -1036,27 +1050,179 @@ def save_xkeen_network_files(app_dir, changes, restart=True):
     }
 
 
-def save_checked_config(app_dir, text):
-    check = check_mihomo_config(app_dir, text)
-    if not check["ok"]:
+def save_checked_config(app_dir, text, expected_revision=None):
+    with config_write_lock:
+        config_path = get_config_path(app_dir)
+        current_revision = config_revision(read_config_text(config_path))
+        if expected_revision is not None and expected_revision != current_revision:
+            return {
+                "ok": False,
+                "saved": False,
+                "stage": "conflict",
+                "path": str(config_path),
+                "currentRevision": current_revision,
+                "message": "config changed on disk after it was loaded",
+            }
+
+        check = check_mihomo_config(app_dir, text)
+        if not check["ok"]:
+            return {
+                "ok": False,
+                "stage": "check",
+                "message": check.get("message", "config check failed"),
+                "check": check,
+            }
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        backup = create_backup(app_dir, config_path)
+        write_text_atomic(config_path, text)
+        next_revision = config_revision(text)
+        reload_result = reload_mihomo(app_dir, config_path)
+        if reload_result["ok"]:
+            prune_backups(app_dir)
+            return {
+                "ok": True,
+                "saved": True,
+                "applied": True,
+                "path": str(config_path),
+                "revision": next_revision,
+                "backup": backup.name if backup else None,
+                "check": check,
+                "reload": reload_result,
+            }
+
+        if reload_result.get("uncertain"):
+            prune_backups(app_dir)
+            return {
+                "ok": False,
+                "saved": True,
+                "applied": False,
+                "uncertain": True,
+                "path": str(config_path),
+                "revision": next_revision,
+                "backup": backup.name if backup else None,
+                "check": check,
+                "reload": reload_result,
+                "message": "config saved, but Mihomo apply status could not be confirmed",
+            }
+
+        rollback = restore_config_backup(config_path, backup)
+        rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and backup else None
+        restored_revision = config_revision(read_config_text(config_path))
+        prune_backups(app_dir)
         return {
             "ok": False,
-            "message": check.get("message", "config check failed"),
+            "saved": False,
+            "applied": False,
+            "rolledBack": rollback["ok"],
+            "path": str(config_path),
+            "revision": restored_revision,
+            "backup": backup.name if backup else None,
             "check": check,
+            "reload": reload_result,
+            "rollback": {**rollback, "reload": rollback_reload},
+            "message": (
+                "Mihomo did not apply the config; previous config restored"
+                if rollback["ok"]
+                else "Mihomo did not apply the config and rollback failed"
+            ),
         }
 
-    config_path = get_config_path(app_dir)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    backup = create_backup(app_dir, config_path)
-    write_text_atomic(config_path, text)
-    prune_backups(app_dir)
-    return {
-        "ok": True,
-        "path": str(config_path),
-        "backup": backup.name if backup else None,
-        "check": check,
-        "reload": reload_mihomo(app_dir, config_path),
-    }
+
+def restore_checked_backup(app_dir, backup, expected_revision=None):
+    with config_write_lock:
+        config_path = get_config_path(app_dir)
+        current_revision = config_revision(read_config_text(config_path))
+        if expected_revision is not None and expected_revision != current_revision:
+            return {
+                "ok": False,
+                "restored": False,
+                "stage": "conflict",
+                "path": str(config_path),
+                "currentRevision": current_revision,
+                "message": "config changed on disk after it was loaded",
+            }
+
+        backup_text = backup.read_text(encoding="utf-8", errors="replace")
+        check = check_mihomo_config(app_dir, backup_text)
+        if not check["ok"]:
+            return {
+                "ok": False,
+                "restored": False,
+                "stage": "check",
+                "message": check.get("message", "backup config check failed"),
+                "check": check,
+            }
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        current_backup = create_backup(app_dir, config_path)
+        write_text_atomic(config_path, backup_text)
+        restored_revision = config_revision(backup_text)
+        reload_result = reload_mihomo(app_dir, config_path)
+        if reload_result["ok"]:
+            prune_backups(app_dir)
+            return {
+                "ok": True,
+                "restored": True,
+                "applied": True,
+                "path": str(config_path),
+                "revision": restored_revision,
+                "restoredBackup": backup.name,
+                "backup": current_backup.name if current_backup else None,
+                "check": check,
+                "reload": reload_result,
+            }
+
+        if reload_result.get("uncertain"):
+            prune_backups(app_dir)
+            return {
+                "ok": False,
+                "restored": True,
+                "applied": False,
+                "uncertain": True,
+                "path": str(config_path),
+                "revision": restored_revision,
+                "restoredBackup": backup.name,
+                "backup": current_backup.name if current_backup else None,
+                "check": check,
+                "reload": reload_result,
+                "message": "backup restored, but Mihomo apply status could not be confirmed",
+            }
+
+        rollback = restore_config_backup(config_path, current_backup)
+        rollback_reload = reload_mihomo(app_dir, config_path) if rollback["ok"] and current_backup else None
+        rollback_revision = config_revision(read_config_text(config_path))
+        prune_backups(app_dir)
+        return {
+            "ok": False,
+            "restored": False,
+            "applied": False,
+            "rolledBack": rollback["ok"],
+            "stage": "apply",
+            "path": str(config_path),
+            "revision": rollback_revision,
+            "restoredBackup": backup.name,
+            "backup": current_backup.name if current_backup else None,
+            "check": check,
+            "reload": reload_result,
+            "rollback": {**rollback, "reload": rollback_reload},
+            "message": (
+                "Mihomo did not apply the backup; previous config restored"
+                if rollback["ok"]
+                else "Mihomo did not apply the backup and rollback failed"
+            ),
+        }
+
+
+def restore_config_backup(config_path, backup):
+    try:
+        if backup:
+            write_text_atomic(config_path, backup.read_text(encoding="utf-8", errors="replace"))
+        else:
+            config_path.unlink(missing_ok=True)
+        return {"ok": True}
+    except Exception as error:
+        return {"ok": False, "message": str(error)}
 
 
 def check_mihomo_config(app_dir, text):
@@ -1072,7 +1238,7 @@ def check_mihomo_config(app_dir, text):
     try:
         tmp_path = write_temp_config_for_check(app_dir, text)
         result = subprocess.run(
-            [binary, "-t", "-f", str(tmp_path)],
+            [binary, "-t", "-d", str(tmp_path.parent), "-f", str(tmp_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             timeout=45,
@@ -1865,21 +2031,8 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
             app_dir=app_dir,
         )
 
-    if is_happ_crypt_url(source_url):
-        kind, value, _source = resolve_happ_provider(source_url, app_dir, timeout)
-        if kind == "url":
-            return fetch_provider_payload(
-                value,
-                headers,
-                timeout,
-                append_hwid=append_hwid,
-                depth=depth + 1,
-                app_dir=app_dir,
-            )
-        return value, "text/yaml; charset=utf-8"
-
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError("provider adapter supports only http/https, incy://import, and configured happ://crypt URLs")
+        raise ValueError("provider adapter supports only http/https and incy://import URLs")
     if not parsed.netloc:
         raise ValueError("provider URL host is required")
 
@@ -1984,188 +2137,7 @@ def fetch_happ_landing_provider_payload(source_url, body, content_type, headers,
     return None
 
 
-def decrypt_happ_provider(source_url, app_dir, timeout):
-    command = find_happ_decryptor_command(app_dir)
-    if not command:
-        raise ValueError(f"happ://crypt requires an external decryptor; set {HAPP_DECRYPTOR_ENV_KEY}")
-
-    args = build_happ_decryptor_args(command, source_url)
-    env = get_env(Path(app_dir)) if app_dir else {}
-    try:
-        result = subprocess.run(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=read_happ_decryptor_timeout(env, timeout),
-            check=False,
-        )
-    except FileNotFoundError as error:
-        raise ValueError(f"happ decryptor missing: {error}") from error
-    except subprocess.TimeoutExpired as error:
-        raise ValueError("happ decryptor timed out") from error
-    except Exception as error:
-        raise ValueError(f"happ decryptor failed: {error}") from error
-    if result.returncode != 0:
-        error = result.stderr.decode("utf-8", "replace").strip()
-        raise ValueError(f"happ decryptor failed: {error or result.returncode}")
-    return parse_happ_decryptor_output(result.stdout)
-
-
-def resolve_happ_provider(source_url, app_dir, timeout=None):
-    fallback_errors = []
-    if find_happ_decryptor_command(app_dir):
-        try:
-            kind, value = decrypt_happ_provider(source_url, app_dir, timeout)
-            return kind, value, "local-decryptor"
-        except ValueError as error:
-            fallback_errors.append(str(error))
-
-    env = get_env(Path(app_dir)) if app_dir else {}
-    remote_url = env.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, "")
-    if remote_url:
-        try:
-            kind, value = request_happ_decryptor_remote_url(
-                remote_url,
-                source_url,
-                timeout=read_happ_decoder_timeout(env),
-            )
-            return kind, value, "remote-decryptor"
-        except ValueError as error:
-            fallback_errors.append(f"remote Happ decryptor failed: {error}")
-
-    api_key = env.get(HAPP_DECODER_API_KEY_ENV_KEY) or os.environ.get(HAPP_DECODER_API_KEY_ENV_KEY, "")
-    if api_key:
-        api_url = env.get(HAPP_DECODER_API_URL_ENV_KEY) or os.environ.get(
-            HAPP_DECODER_API_URL_ENV_KEY,
-            DEFAULT_HAPP_DECODER_API_URL,
-        )
-        try:
-            decrypted_url = request_happy_decoder(
-                api_url,
-                api_key,
-                source_url,
-                timeout=read_happ_decoder_timeout(env),
-            )
-            return "url", decrypted_url, "happy-decoder"
-        except ValueError as error:
-            fallback_errors.append(f"Happy Decoder fallback failed: {error}")
-
-    if fallback_errors:
-        raise ValueError("; ".join(fallback_errors))
-    raise ValueError(
-        f"happ://crypt requires an external decryptor; set {HAPP_DECRYPTOR_ENV_KEY} "
-        f"or {HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} or {HAPP_DECODER_API_KEY_ENV_KEY}"
-    )
-
-
-def find_happ_decryptor_command(app_dir):
-    env = get_env(Path(app_dir)) if app_dir else {}
-    command = env.get(HAPP_DECRYPTOR_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_ENV_KEY, "")
-    if command:
-        return command
-
-    if not app_dir:
-        return ""
-
-    app_path = Path(app_dir)
-    for directory in (app_path / "bin", app_path):
-        for name in HAPP_DECRYPTOR_CANDIDATES:
-            candidate = directory / name
-            if candidate.is_file():
-                return command_from_decryptor_path(candidate)
-    return ""
-
-
-def command_from_decryptor_path(path):
-    candidate = Path(path)
-    if candidate.suffix.lower() == ".py":
-        python = sys.executable or shutil.which("python3") or shutil.which("python") or ""
-        if python:
-            return format_command_parts([python, str(candidate)])
-    if candidate.suffix.lower() in HAPP_DECRYPTOR_NODE_SUFFIXES or has_node_shebang(candidate):
-        node = shutil.which("node") or ("/opt/bin/node" if Path("/opt/bin/node").is_file() else "")
-        if node:
-            return format_command_parts([node, str(candidate)])
-    return str(candidate)
-
-
-def has_node_shebang(path):
-    try:
-        with Path(path).open("rb") as file:
-            first_line = file.readline(256).decode("utf-8", "ignore").lower()
-    except OSError:
-        return False
-    return first_line.startswith("#!") and "node" in first_line
-
-
-def format_command_parts(parts):
-    normalized = []
-    for part in parts:
-        value = str(part)
-        if os.name == "nt":
-            value = value.replace("\\", "/")
-        normalized.append(value)
-    try:
-        return shlex.join(normalized)
-    except Exception:
-        return " ".join(normalized)
-
-
-def build_happ_decryptor_args(command, source_url):
-    parts = shlex.split(str(command or ""))
-    args = []
-    replaced = False
-    replacements = build_happ_decryptor_template_replacements(source_url)
-    for part in parts:
-        value = part
-        for token, replacement in replacements.items():
-            if token in value:
-                value = value.replace(token, replacement)
-                replaced = True
-        args.append(value)
-    if not replaced:
-        args.append(source_url)
-    return args
-
-
-def build_happ_decryptor_template_replacements(source_url):
-    encoded = urllib.parse.quote(str(source_url or ""), safe="")
-    raw = str(source_url or "")
-    return {
-        "%LINK%": raw,
-        "%URL%": raw,
-        "%INPUT%": raw,
-        "{link}": raw,
-        "{url}": raw,
-        "{input}": raw,
-        "%LINK_ENCODED%": encoded,
-        "%URL_ENCODED%": encoded,
-        "%INPUT_ENCODED%": encoded,
-        "{link_encoded}": encoded,
-        "{url_encoded}": encoded,
-        "{input_encoded}": encoded,
-    }
-
-
-def build_happ_decryptor_template_url(template, source_url):
-    url = str(template or "")
-    for token, replacement in build_happ_decryptor_template_replacements(source_url).items():
-        url = url.replace(token, replacement)
-    return url
-
-
-def parse_happ_decryptor_output(raw):
-    text = raw.decode("utf-8", "replace").strip()
-    if not text:
-        raise ValueError("happ decryptor returned empty output")
-
-    parsed = normalize_happ_decryptor_output(text)
-    if parsed:
-        return parsed
-    return "body", (text + "\n").encode("utf-8")
-
-
-def normalize_happ_decryptor_output(text):
+def normalize_happ_transport_result(text):
     raw = str(text or "").strip()
     if not raw:
         return None
@@ -2183,18 +2155,18 @@ def normalize_happ_decryptor_output(text):
         for key in ("payload", "content", "yaml", "data", "text", "body", "result", "output", "decrypted"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
-                nested = normalize_happ_decryptor_output(value)
+                nested = normalize_happ_transport_result(value)
                 if nested:
                     return nested
                 return "body", value.encode("utf-8")
     elif isinstance(data, str) and data.strip():
-        nested = normalize_happ_decryptor_output(data)
+        nested = normalize_happ_transport_result(data)
         if nested:
             return nested
 
-    result_block = extract_happ_result_block(raw)
+    result_block = extract_happ_transport_result_block(raw)
     if result_block and result_block != raw:
-        nested = normalize_happ_decryptor_output(result_block)
+        nested = normalize_happ_transport_result(result_block)
         if nested:
             return nested
 
@@ -2209,7 +2181,7 @@ def normalize_happ_decryptor_output(text):
     return None
 
 
-def extract_happ_result_block(text):
+def extract_happ_transport_result_block(text):
     lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
     for index, line in enumerate(lines):
         if not re.match(r"(?i)^result\s*:?\s*$", line.strip()):
@@ -2226,162 +2198,6 @@ def extract_happ_result_block(text):
         if collected:
             return "\n".join(collected).strip()
     return ""
-
-
-def decode_happ_with_happy_decoder(app_dir, source_url, provider_headers=None):
-    if not is_happ_crypt_url(source_url):
-        raise ValueError("happ://crypt URL is required")
-
-    env = get_env(Path(app_dir)) if app_dir else {}
-    timeout = max(read_happ_decoder_timeout(env), read_happ_decryptor_timeout(env, DEFAULT_HAPP_DECODER_TIMEOUT))
-    kind, value, source = resolve_happ_provider(source_url, app_dir, timeout)
-    if kind != "url":
-        raise ValueError("Happ decryptor returned provider payload, not a direct URL")
-
-    decrypted_url = value
-    verify = verify_decoded_provider_url(decrypted_url, provider_headers or {}, timeout=timeout)
-    if not verify["ok"]:
-        raise ValueError(f"decoded URL is not a direct provider: {verify['message']}")
-
-    return {
-        "ok": True,
-        "decryptedUrl": decrypted_url,
-        "source": source,
-        "verified": True,
-        "contentType": verify.get("contentType", ""),
-    }
-
-
-def request_happ_decryptor_remote_url(remote_url, source_url, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    target_url = build_happ_decryptor_template_url(remote_url, source_url)
-    parsed = urllib.parse.urlsplit(target_url)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"{HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY} produced an invalid URL")
-    request = urllib.request.Request(
-        target_url,
-        headers={
-            "Accept": "application/json, text/plain, */*",
-            "User-Agent": "MihUI",
-        },
-        method="GET",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read()
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", "replace")
-        raise ValueError(f"HTTP {error.code}: {extract_error_message(raw)}")
-    except urllib.error.URLError as error:
-        raise ValueError(format_urlopen_error(error))
-    except TimeoutError as error:
-        raise ValueError(f"timed out: {error}")
-    return parse_happ_decryptor_output(raw)
-
-
-def request_happy_decoder(api_url, api_key, source_url, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    body = json.dumps({"url": source_url}).encode("utf-8")
-    request = urllib.request.Request(
-        api_url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "MihUI",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as error:
-        raw = error.read().decode("utf-8", "replace")
-        raise ValueError(f"Happy Decoder returned HTTP {error.code}: {extract_error_message(raw)}")
-    except urllib.error.URLError as error:
-        raise ValueError(f"Happy Decoder API request failed: {format_urlopen_error(error)}")
-    except TimeoutError as error:
-        raise ValueError(f"Happy Decoder API request timed out: {error}")
-
-    data = json.loads(raw)
-    decrypted_url = str(data.get("decryptedUrl") or data.get("url") or "").strip()
-    if not normalize_landing_url(decrypted_url, "") or not is_http_url(decrypted_url):
-        raise ValueError("Happy Decoder response does not contain a direct http/https URL")
-    return decrypted_url
-
-
-def verify_decoded_provider_url(source_url, headers=None, timeout=DEFAULT_HAPP_DECODER_TIMEOUT):
-    if not is_http_url(source_url):
-        return {"ok": False, "message": "decoded URL is not http/https"}
-
-    request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(DECODED_PROVIDER_VERIFY_BYTES)
-            content_type = response.headers.get("Content-Type") or ""
-    except Exception as error:
-        return {"ok": False, "message": f"decoded URL fetch failed: {format_urlopen_error(error)}"}
-
-    if not body.strip():
-        return {"ok": False, "message": "decoded provider returned empty payload"}
-    if looks_like_landing_page(body[:262144].decode("utf-8", "replace"), content_type):
-        return {"ok": False, "message": "decoded provider returned landing page"}
-    return {"ok": True, "contentType": content_type}
-
-
-def normalize_provider_headers(value):
-    if not isinstance(value, dict):
-        return {}
-    headers = {}
-    for name, header_value in value.items():
-        name = str(name or "").strip()
-        if not name:
-            continue
-        lower_name = name.lower()
-        if lower_name in PROVIDER_ADAPTER_BLOCKED_HEADERS or lower_name.startswith("proxy-"):
-            continue
-        headers[name] = str(header_value or "")
-    return headers
-
-
-def extract_error_message(text):
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        return text.strip() or "empty response"
-    return str(data.get("message") or data.get("error") or text).strip()
-
-
-def read_happ_decoder_timeout(env):
-    value = env.get(HAPP_DECODER_TIMEOUT_ENV_KEY) or os.environ.get(HAPP_DECODER_TIMEOUT_ENV_KEY, "")
-    if not value:
-        return DEFAULT_HAPP_DECODER_TIMEOUT
-    try:
-        timeout = int(value)
-    except ValueError:
-        return DEFAULT_HAPP_DECODER_TIMEOUT
-    return min(max(timeout, 5), 120)
-
-
-def read_happ_decryptor_timeout(env, fallback=None):
-    value = env.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY) or os.environ.get(HAPP_DECRYPTOR_TIMEOUT_ENV_KEY, "")
-    if not value:
-        return max(DEFAULT_HAPP_DECRYPTOR_TIMEOUT, int(fallback or 0))
-    try:
-        timeout = int(value)
-    except ValueError:
-        return max(DEFAULT_HAPP_DECRYPTOR_TIMEOUT, int(fallback or 0))
-    return min(max(timeout, 1), 120)
-
-
-def format_urlopen_error(error):
-    reason = getattr(error, "reason", None)
-    if reason:
-        return str(reason)
-    return str(error)
-
-
-def is_http_url(value):
-    return urllib.parse.urlsplit(str(value or "").strip()).scheme in {"http", "https"}
 
 
 def append_hwid_query(source_url, headers):
@@ -2461,7 +2277,7 @@ def normalize_happ_transport_payload(body, content_type, base_url):
 
 def normalize_happ_transport_text(text, base_url):
     for candidate in build_happ_transport_candidates(text):
-        parsed = normalize_happ_decryptor_output(candidate)
+        parsed = normalize_happ_transport_result(candidate)
         if parsed:
             return parsed
 
@@ -2618,6 +2434,43 @@ def update_proxy_provider(app_dir, name):
         return {"ok": True, "message": "provider update started"}
     except Exception as error:
         return {"ok": False, "message": str(error)}
+
+
+def select_proxy_group(app_dir, group, name):
+    encoded_group = urllib.parse.quote(group, safe="")
+    path = f"/proxies/{encoded_group}"
+    try:
+        current = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "unavailable": True, "message": str(error)}
+
+    group_type = str(current.get("type") or "").strip().casefold() if isinstance(current, dict) else ""
+    if group_type not in {"select", "selector"}:
+        return {"ok": False, "message": "group is not selectable"}
+
+    options = current.get("all") if isinstance(current, dict) else None
+    if not isinstance(options, list) or name not in options:
+        return {"ok": False, "message": "proxy is not available in this group"}
+
+    if str(current.get("now") or "") == name:
+        return {"ok": True, "changed": False, "group": group, "now": name}
+
+    try:
+        mihomo_api_request(app_dir, path, method="PUT", payload={"name": name})
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "message": str(error)}
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+
+    try:
+        confirmed = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+
+    confirmed_name = str(confirmed.get("now") or "") if isinstance(confirmed, dict) else ""
+    if confirmed_name != name:
+        return {"ok": False, "uncertain": True, "message": "Mihomo did not confirm the selected proxy"}
+    return {"ok": True, "changed": True, "group": group, "now": confirmed_name}
 
 
 def get_current_nodes(app_dir):
@@ -2805,27 +2658,88 @@ def normalize_provider_status(name, item):
 
 
 def reload_mihomo(app_dir, config_path):
-    env = get_env(app_dir)
-    api = env.get("MIHUI_MIHOMO_API", "http://127.0.0.1:9090").rstrip("/")
-    secret = env.get("MIHUI_MIHOMO_SECRET", "")
-    headers = {"Content-Type": "application/json"}
-    if secret:
-        headers["Authorization"] = f"Bearer {secret}"
+    target_path = str(config_path)
+    try:
+        current = mihomo_api_request(app_dir, "/configs", timeout=5)
+    except Exception as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "prepare",
+            "uncertain": False,
+            "message": str(error),
+        }
+
+    current_path = str(current.get("path") or "") if isinstance(current, dict) else ""
+    if current_path and not same_config_path(current_path, target_path):
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "prepare",
+            "uncertain": False,
+            "path": current_path,
+            "message": f"Mihomo uses a different config path: {current_path}",
+        }
 
     try:
-        current_path = str(config_path)
-        get_req = urllib.request.Request(f"{api}/configs", headers=headers, method="GET")
-        with urllib.request.urlopen(get_req, timeout=5) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            current_path = data.get("path") or current_path
-
-        body = json.dumps({"path": current_path}).encode("utf-8")
-        put_req = urllib.request.Request(f"{api}/configs?force=true", data=body, headers=headers, method="PUT")
-        with urllib.request.urlopen(put_req, timeout=10) as response:
-            response.read()
-        return {"ok": True, "method": "mihomo-api", "path": current_path}
+        mihomo_api_request(
+            app_dir,
+            "/configs?force=true",
+            method="PUT",
+            payload={"path": target_path},
+            timeout=10,
+        )
+    except urllib.error.HTTPError as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "apply",
+            "uncertain": False,
+            "message": str(error),
+        }
     except Exception as error:
-        return {"ok": False, "method": "mihomo-api", "message": str(error)}
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "apply",
+            "uncertain": True,
+            "message": str(error),
+        }
+
+    try:
+        version = mihomo_api_request(app_dir, "/version", timeout=5)
+        confirmed = mihomo_api_request(app_dir, "/configs", timeout=5)
+    except Exception as error:
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "verify",
+            "uncertain": True,
+            "message": str(error),
+        }
+
+    confirmed_path = str(confirmed.get("path") or "") if isinstance(confirmed, dict) else ""
+    if not confirmed_path or not same_config_path(confirmed_path, target_path):
+        return {
+            "ok": False,
+            "method": "mihomo-api",
+            "stage": "verify",
+            "uncertain": True,
+            "path": confirmed_path,
+            "message": "Mihomo did not confirm the applied config path",
+        }
+
+    return {
+        "ok": True,
+        "verified": True,
+        "method": "mihomo-api",
+        "path": confirmed_path,
+        "version": str(version.get("version") or "") if isinstance(version, dict) else "",
+    }
+
+
+def same_config_path(left, right):
+    return os.path.normcase(os.path.normpath(str(left))) == os.path.normcase(os.path.normpath(str(right)))
 
 
 def detect_router_uis(app_dir, host):

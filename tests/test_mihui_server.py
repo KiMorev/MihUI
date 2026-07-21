@@ -99,33 +99,6 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
         return
 
 
-class HappyDecoderHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        parsed = urllib.parse.urlsplit(self.path)
-        self.server.received_query_url = urllib.parse.parse_qs(parsed.query).get("url", [""])[0]
-        body = self.server.decrypted_url.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length", "0") or "0")
-        payload = self.rfile.read(length).decode("utf-8")
-        self.server.received_payload = payload
-        self.server.received_authorization = self.headers.get("Authorization")
-        body = f'{{"decryptedUrl":"{self.server.decrypted_url}"}}'.encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *_args):
-        return
-
-
 class ProviderAdapterTests(unittest.TestCase):
     def start_provider_server(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderPayloadHandler)
@@ -173,29 +146,6 @@ class ProviderAdapterTests(unittest.TestCase):
             f"http://127.0.0.1:{server.server_address[1]}{path}", timeout=3
         ) as response:
             return response.status, json.loads(response.read().decode("utf-8"))
-
-    def restore_decryptor_env(self, previous):
-        if previous is None:
-            os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        else:
-            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = previous
-
-    def restore_decoder_env(self, key_previous, url_previous):
-        if key_previous is None:
-            os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
-        else:
-            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = key_previous
-
-        if url_previous is None:
-            os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
-        else:
-            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = url_previous
-
-    def restore_remote_env(self, previous):
-        if previous is None:
-            os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        else:
-            os.environ[mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY] = previous
 
     def test_fetch_provider_payload_forwards_headers(self):
         server, thread = self.start_provider_server()
@@ -300,347 +250,9 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(server.received_hwid_query, "ABC123")
 
-    def test_fetch_provider_payload_rejects_non_http_url(self):
-        previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        self.addCleanup(self.restore_decryptor_env, previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        with self.assertRaisesRegex(ValueError, "external decryptor"):
+    def test_fetch_provider_payload_rejects_happ_crypt_url(self):
+        with self.assertRaisesRegex(ValueError, "only http/https and incy"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
-
-    def test_fetch_provider_payload_uses_configured_happ_decryptor(self):
-        previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
-        self.addCleanup(self.restore_decryptor_env, previous)
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            script = Path(temp_dir) / "fake_happ_decryptor.py"
-            script.write_text(
-                "import sys\n"
-                "assert sys.argv[1].startswith('happ://crypt')\n"
-                "print('proxies:')\n"
-                "print('  - name: decrypted')\n"
-                "print('    type: direct')\n",
-                encoding="utf-8",
-            )
-            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = (
-                f'"{Path(sys.executable).as_posix()}" "{script.as_posix()}"'
-            )
-
-            body, content_type = mihui_server.fetch_provider_payload(
-                "happ://crypt/example",
-                {},
-                app_dir=Path(temp_dir),
-            )
-
-        self.assertEqual(content_type, "text/yaml; charset=utf-8")
-        self.assertIn(b"name: decrypted", body)
-
-    def test_fetch_provider_payload_uses_dropin_happ_decryptor_py(self):
-        previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        self.addCleanup(self.restore_decryptor_env, previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        provider_server, provider_thread = self.start_provider_server()
-        try:
-            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
-            with tempfile.TemporaryDirectory() as temp_dir:
-                bin_dir = Path(temp_dir) / "bin"
-                bin_dir.mkdir()
-                script = bin_dir / "happ-decrypt-universal.py"
-                script.write_text(
-                    "import sys\n"
-                    "assert sys.argv[1].startswith('happ://crypt')\n"
-                    f"print({decrypted_url!r})\n",
-                    encoding="utf-8",
-                )
-
-                body, content_type = mihui_server.fetch_provider_payload(
-                    "happ://crypt/example",
-                    {},
-                    app_dir=Path(temp_dir),
-                )
-        finally:
-            self.stop_provider_server(provider_server, provider_thread)
-
-        self.assertEqual(content_type, "text/yaml")
-        self.assertIn(b"name: local", body)
-
-    def test_dropin_happ_decryptor_uses_node_shebang(self):
-        old_which = mihui_server.shutil.which
-
-        def fake_which(name):
-            if name == "node":
-                return "/opt/bin/node"
-            return old_which(name)
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            script = Path(temp_dir) / "happ-decrypt-universal"
-            script.write_text("#!/usr/bin/env node\nconsole.log('ok')\n", encoding="utf-8")
-            mihui_server.shutil.which = fake_which
-            try:
-                command = mihui_server.command_from_decryptor_path(script)
-            finally:
-                mihui_server.shutil.which = old_which
-
-        self.assertIn("/opt/bin/node", command)
-        self.assertIn("happ-decrypt-universal", command)
-
-    def test_decode_happ_with_happy_decoder_returns_verified_url(self):
-        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        provider_server, provider_thread = self.start_provider_server()
-        decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
-        decoder_thread = threading.Thread(target=decoder_server.serve_forever, daemon=True)
-        decoder_thread.start()
-        try:
-            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
-            decoder_server.decrypted_url = decrypted_url
-            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "test-key"
-            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = (
-                f"http://127.0.0.1:{decoder_server.server_address[1]}/decode"
-            )
-
-            result = mihui_server.decode_happ_with_happy_decoder(
-                Path(tempfile.gettempdir()),
-                "happ://crypt/example",
-                {"User-Agent": "MihomoTest/1.0"},
-            )
-        finally:
-            self.stop_provider_server(provider_server, provider_thread)
-            decoder_server.shutdown()
-            decoder_thread.join(timeout=2)
-            decoder_server.server_close()
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["decryptedUrl"], decrypted_url)
-        self.assertEqual(result["source"], "happy-decoder")
-        self.assertEqual(decoder_server.received_authorization, "Bearer test-key")
-        self.assertIn("happ://crypt/example", decoder_server.received_payload)
-        self.assertEqual(provider_server.received_user_agent, "MihomoTest/1.0")
-
-    def test_decode_happ_prefers_local_decryptor_before_happy_decoder(self):
-        decryptor_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
-        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-
-        provider_server, provider_thread = self.start_provider_server()
-        try:
-            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
-            with tempfile.TemporaryDirectory() as temp_dir:
-                script = Path(temp_dir) / "fake_happ_decryptor.py"
-                script.write_text(
-                    "import sys\n"
-                    "assert sys.argv[1].startswith('happ://crypt')\n"
-                    f"print({decrypted_url!r})\n",
-                    encoding="utf-8",
-                )
-                os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = (
-                    f'"{Path(sys.executable).as_posix()}" "{script.as_posix()}"'
-                )
-                os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "unused"
-                os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = "http://127.0.0.1:1/decode"
-
-                result = mihui_server.decode_happ_with_happy_decoder(
-                    Path(temp_dir),
-                    "happ://crypt/example",
-                    {"User-Agent": "MihomoTest/1.0"},
-                )
-        finally:
-            self.stop_provider_server(provider_server, provider_thread)
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["decryptedUrl"], decrypted_url)
-        self.assertEqual(result["source"], "local-decryptor")
-
-    def test_decode_happ_falls_back_to_happy_decoder_when_local_missing(self):
-        decryptor_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_ENV_KEY)
-        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        provider_server, provider_thread = self.start_provider_server()
-        decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
-        decoder_thread = threading.Thread(target=decoder_server.serve_forever, daemon=True)
-        decoder_thread.start()
-        try:
-            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
-            decoder_server.decrypted_url = decrypted_url
-            os.environ[mihui_server.HAPP_DECRYPTOR_ENV_KEY] = "missing-happ-decryptor-binary"
-            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "test-key"
-            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = (
-                f"http://127.0.0.1:{decoder_server.server_address[1]}/decode"
-            )
-
-            result = mihui_server.decode_happ_with_happy_decoder(
-                Path(tempfile.gettempdir()),
-                "happ://crypt/example",
-                {},
-            )
-        finally:
-            self.stop_provider_server(provider_server, provider_thread)
-            decoder_server.shutdown()
-            decoder_thread.join(timeout=2)
-            decoder_server.server_close()
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["decryptedUrl"], decrypted_url)
-        self.assertEqual(result["source"], "happy-decoder")
-
-    def test_decode_happ_uses_remote_template_before_happy_decoder_api(self):
-        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        key_previous = os.environ.get(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY)
-        url_previous = os.environ.get(mihui_server.HAPP_DECODER_API_URL_ENV_KEY)
-        remote_previous = os.environ.get(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY)
-        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        provider_server, provider_thread = self.start_provider_server()
-        decoder_server = ThreadingHTTPServer(("127.0.0.1", 0), HappyDecoderHandler)
-        decoder_thread = threading.Thread(target=decoder_server.serve_forever, daemon=True)
-        decoder_thread.start()
-        try:
-            decrypted_url = f"http://127.0.0.1:{provider_server.server_address[1]}/target.yaml"
-            decoder_server.decrypted_url = decrypted_url
-            os.environ[mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY] = (
-                f"http://127.0.0.1:{decoder_server.server_address[1]}/decode?url=%LINK_ENCODED%"
-            )
-            os.environ[mihui_server.HAPP_DECODER_API_KEY_ENV_KEY] = "unused"
-            os.environ[mihui_server.HAPP_DECODER_API_URL_ENV_KEY] = "http://127.0.0.1:1/decode"
-
-            result = mihui_server.decode_happ_with_happy_decoder(
-                Path(tempfile.gettempdir()),
-                "happ://crypt/example",
-                {},
-            )
-        finally:
-            self.stop_provider_server(provider_server, provider_thread)
-            decoder_server.shutdown()
-            decoder_thread.join(timeout=2)
-            decoder_server.server_close()
-
-        self.assertTrue(result["ok"])
-        self.assertEqual(result["decryptedUrl"], decrypted_url)
-        self.assertEqual(result["source"], "remote-decryptor")
-        self.assertEqual(decoder_server.received_query_url, "happ://crypt/example")
-
-    def test_decode_happ_with_happy_decoder_requires_key(self):
-        decryptor_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_ENV_KEY, None)
-        key_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_KEY_ENV_KEY, None)
-        url_previous = os.environ.pop(mihui_server.HAPP_DECODER_API_URL_ENV_KEY, None)
-        remote_previous = os.environ.pop(mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY, None)
-        self.addCleanup(self.restore_decryptor_env, decryptor_previous)
-        self.addCleanup(self.restore_decoder_env, key_previous, url_previous)
-        self.addCleanup(self.restore_remote_env, remote_previous)
-
-        with self.assertRaisesRegex(ValueError, "MIHUI_HAPP_DECRYPTOR_CMD"):
-            mihui_server.decode_happ_with_happy_decoder(
-                Path(tempfile.gettempdir()),
-                "happ://crypt/example",
-                {},
-            )
-
-    def test_request_happy_decoder_wraps_url_errors(self):
-        with self.assertRaisesRegex(ValueError, "Happy Decoder API request failed"):
-            mihui_server.request_happy_decoder(
-                "http://127.0.0.1:1/decode",
-                "test-key",
-                "happ://crypt/example",
-                timeout=1,
-            )
-
-    def test_read_happ_decoder_timeout_clamps_values(self):
-        self.assertEqual(mihui_server.read_happ_decoder_timeout({}), 30)
-        self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "1"}), 5)
-        self.assertEqual(mihui_server.read_happ_decoder_timeout({"MIHUI_HAPP_DECODER_TIMEOUT": "999"}), 120)
-
-    def test_read_happ_decryptor_timeout_clamps_values(self):
-        self.assertEqual(mihui_server.read_happ_decryptor_timeout({}, 20), 45)
-        self.assertEqual(mihui_server.read_happ_decryptor_timeout({"MIHUI_HAPP_DECRYPTOR_TIMEOUT": "0"}), 1)
-        self.assertEqual(mihui_server.read_happ_decryptor_timeout({"MIHUI_HAPP_DECRYPTOR_TIMEOUT": "999"}), 120)
-
-    def test_parse_happ_decryptor_output_accepts_result_block(self):
-        kind, value = mihui_server.parse_happ_decryptor_output(
-            b"some heading\nResult:\n  https://example.test/sub.yaml\n"
-        )
-        self.assertEqual(kind, "url")
-        self.assertEqual(value, "https://example.test/sub.yaml")
-
-    def test_parse_happ_decryptor_output_accepts_json_string(self):
-        kind, value = mihui_server.parse_happ_decryptor_output(
-            b'"https://example.test/sub.yaml"\n'
-        )
-        self.assertEqual(kind, "url")
-        self.assertEqual(value, "https://example.test/sub.yaml")
-
-    def test_write_env_values_preserves_existing_settings(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            env_file = Path(temp_dir) / "mihui.env"
-            env_file.write_text(
-                'MIHUI_PORT=9878\n'
-                'MIHUI_HAPP_DECODER_API_URL="https://old.example/decrypt"\n',
-                encoding="utf-8",
-            )
-
-            mihui_server.write_env_values(
-                Path(temp_dir),
-                {
-                    mihui_server.HAPP_DECODER_API_KEY_ENV_KEY: "secret-key",
-                    mihui_server.HAPP_DECODER_API_URL_ENV_KEY: "https://new.example/decrypt",
-                    mihui_server.HAPP_DECRYPTOR_REMOTE_URL_ENV_KEY: "https://new.example/p/%LINK_ENCODED%",
-                },
-            )
-
-            text = env_file.read_text(encoding="utf-8")
-
-        self.assertIn("MIHUI_PORT=9878", text)
-        self.assertIn('MIHUI_HAPP_DECODER_API_KEY="secret-key"', text)
-        self.assertIn('MIHUI_HAPP_DECODER_API_URL="https://new.example/decrypt"', text)
-        self.assertIn('MIHUI_HAPP_DECRYPTOR_REMOTE_URL="https://new.example/p/%LINK_ENCODED%"', text)
-
-    def test_get_happ_decoder_settings_returns_visible_key(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            env_file = Path(temp_dir) / "mihui.env"
-            env_file.write_text(
-                'MIHUI_HAPP_DECODER_API_KEY="visible-key"\n'
-                'MIHUI_HAPP_DECODER_API_URL="https://decoder.example/decrypt"\n',
-                encoding="utf-8",
-            )
-
-            settings = mihui_server.get_happ_decoder_settings(Path(temp_dir))
-
-        self.assertEqual(settings["apiKey"], "visible-key")
-        self.assertTrue(settings["hasApiKey"])
-        self.assertEqual(settings["apiUrl"], "https://decoder.example/decrypt")
-        self.assertEqual(settings["decryptorTimeout"], "45")
-        self.assertEqual(settings["remoteUrl"], "")
-
-    def test_normalize_happ_decoder_api_url_rejects_non_http(self):
-        with self.assertRaisesRegex(ValueError, "http/https"):
-            mihui_server.normalize_happ_decoder_api_url("file:///tmp/decrypt")
-
-    def test_normalize_happ_decryptor_remote_url_requires_placeholder(self):
-        with self.assertRaisesRegex(ValueError, "placeholder"):
-            mihui_server.normalize_happ_decryptor_remote_url("https://decoder.example/decrypt")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
         headers = mihui_server.build_provider_request_headers(
@@ -1151,6 +763,57 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
             self.assertFalse((app_dir / "backups").exists())
 
+    def test_save_checked_config_rejects_stale_revision_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                result = mihui_server.save_checked_config(
+                    app_dir,
+                    "updated\n",
+                    expected_revision=mihui_server.config_revision("older\n"),
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            self.assertFalse((app_dir / "backups").exists())
+            check.assert_not_called()
+
+    def test_mihomo_config_check_uses_writable_home_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{app_dir / "config.yaml"}"\n', encoding="utf-8"
+            )
+            completed = mihui_server.subprocess.CompletedProcess([], 0, stdout=b"")
+            with mock.patch.object(
+                mihui_server, "find_mihomo_binary", return_value="/opt/sbin/mihomo"
+            ), mock.patch.object(
+                mihui_server.subprocess, "run", return_value=completed
+            ) as run:
+                result = mihui_server.check_mihomo_config(app_dir, "mixed-port: 7890\n")
+
+        self.assertTrue(result["ok"])
+        run.assert_called_once_with(
+            [
+                "/opt/sbin/mihomo",
+                "-t",
+                "-d",
+                str(app_dir),
+                "-f",
+                mock.ANY,
+            ],
+            stdout=mihui_server.subprocess.PIPE,
+            stderr=mihui_server.subprocess.STDOUT,
+            timeout=45,
+            check=False,
+        )
+
     def test_save_checked_config_writes_when_check_is_unavailable(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
@@ -1166,9 +829,104 @@ class ProviderAdapterTests(unittest.TestCase):
                 result = mihui_server.save_checked_config(app_dir, "updated\n")
 
             self.assertTrue(result["ok"])
+            self.assertTrue(result["applied"])
             self.assertEqual(result["check"], check)
             self.assertEqual(config_path.read_text(encoding="utf-8"), "updated\n")
             self.assertEqual(len(list((app_dir / "backups").glob("config-*.yaml"))), 1)
+
+    def test_save_checked_config_restores_previous_file_after_confirmed_reload_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            reloads = [
+                {"ok": False, "uncertain": False, "stage": "apply", "message": "rejected"},
+                {"ok": True, "verified": True},
+            ]
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(mihui_server, "reload_mihomo", side_effect=reloads) as reload_mihomo:
+                result = mihui_server.save_checked_config(app_dir, "updated\n")
+
+            self.assertFalse(result["ok"])
+            self.assertFalse(result["saved"])
+            self.assertTrue(result["rolledBack"])
+            self.assertTrue(result["rollback"]["reload"]["ok"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+            self.assertEqual(reload_mihomo.call_count, 2)
+
+    def test_save_checked_config_keeps_saved_file_when_reload_result_is_uncertain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("original\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(
+                mihui_server,
+                "reload_mihomo",
+                return_value={"ok": False, "uncertain": True, "stage": "verify", "message": "timeout"},
+            ) as reload_mihomo:
+                result = mihui_server.save_checked_config(app_dir, "updated\n")
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["saved"])
+            self.assertTrue(result["uncertain"])
+            self.assertFalse(result.get("rolledBack", False))
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "updated\n")
+            reload_mihomo.assert_called_once_with(app_dir, config_path)
+
+    def test_reload_mihomo_confirms_service_and_config_path(self):
+        config_path = Path("/opt/etc/mihomo/config.yaml")
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {"path": str(config_path)},
+                {},
+                {"version": "1.19.12"},
+                {"path": str(config_path)},
+            ],
+        ) as request:
+            result = mihui_server.reload_mihomo(Path("."), config_path)
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["version"], "1.19.12")
+        self.assertEqual(
+            request.call_args_list,
+            [
+                mock.call(Path("."), "/configs", timeout=5),
+                mock.call(
+                    Path("."),
+                    "/configs?force=true",
+                    method="PUT",
+                    payload={"path": str(config_path)},
+                    timeout=10,
+                ),
+                mock.call(Path("."), "/version", timeout=5),
+                mock.call(Path("."), "/configs", timeout=5),
+            ],
+        )
+
+    def test_reload_mihomo_rejects_different_active_config_before_put(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"path": "/opt/etc/mihomo/other.yaml"},
+        ) as request:
+            result = mihui_server.reload_mihomo(Path("."), Path("/opt/etc/mihomo/config.yaml"))
+
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["uncertain"])
+        self.assertEqual(result["stage"], "prepare")
+        request.assert_called_once_with(Path("."), "/configs", timeout=5)
 
     def test_config_save_endpoint_rejects_invalid_config(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1192,6 +950,36 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(status, 422)
             self.assertFalse(result["ok"])
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
+
+    def test_config_endpoint_returns_revision_and_rejects_stale_save(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, loaded = self.get_json(server, "/api/config")
+                with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                    save_status, result = self.post_json(
+                        server,
+                        "/api/config/save",
+                        {
+                            "text": "updated\n",
+                            "expectedRevision": mihui_server.config_revision("older\n"),
+                        },
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+            self.assertEqual(status, 200)
+            self.assertEqual(loaded["revision"], mihui_server.config_revision("current\n"))
+            self.assertEqual(save_status, 409)
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            check.assert_not_called()
 
     def test_backup_restore_rejects_invalid_backup_without_writing(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1222,6 +1010,83 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertEqual(config_path.read_text(encoding="utf-8"), "original\n")
 
+    def test_restore_checked_backup_rolls_back_after_confirmed_reload_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            backup_dir = app_dir / "backups"
+            backup_dir.mkdir()
+            selected_backup = backup_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\nMIHUI_BACKUP_DIR="{backup_dir}"\n',
+                encoding="utf-8",
+            )
+            reloads = [
+                {"ok": False, "uncertain": False, "stage": "apply", "message": "rejected"},
+                {"ok": True, "verified": True},
+            ]
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(mihui_server, "reload_mihomo", side_effect=reloads) as reload_mihomo:
+                result = mihui_server.restore_checked_backup(app_dir, selected_backup)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["rolledBack"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            self.assertEqual(result["revision"], mihui_server.config_revision("current\n"))
+            self.assertEqual(reload_mihomo.call_count, 2)
+
+    def test_restore_checked_backup_rejects_stale_revision_without_writing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            selected_backup = app_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server, "check_mihomo_config") as check:
+                result = mihui_server.restore_checked_backup(
+                    app_dir,
+                    selected_backup,
+                    expected_revision=mihui_server.config_revision("older\n"),
+                )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["stage"], "conflict")
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "current\n")
+            check.assert_not_called()
+
+    def test_restore_checked_backup_keeps_file_when_reload_is_uncertain(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("current\n", encoding="utf-8")
+            backup_dir = app_dir / "backups"
+            backup_dir.mkdir()
+            selected_backup = backup_dir / "config-test.yaml"
+            selected_backup.write_text("restored\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\nMIHUI_BACKUP_DIR="{backup_dir}"\n',
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(
+                mihui_server,
+                "reload_mihomo",
+                return_value={"ok": False, "uncertain": True, "stage": "verify", "message": "timeout"},
+            ):
+                result = mihui_server.restore_checked_backup(app_dir, selected_backup)
+
+            self.assertFalse(result["ok"])
+            self.assertTrue(result["restored"])
+            self.assertTrue(result["uncertain"])
+            self.assertEqual(config_path.read_text(encoding="utf-8"), "restored\n")
+
     def test_is_loopback_address(self):
         self.assertTrue(mihui_server.is_loopback_address("127.0.0.1"))
         self.assertTrue(mihui_server.is_loopback_address("127.10.0.2"))
@@ -1249,6 +1114,82 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(groups[0]["selected"]["type"], "Vmess")
         self.assertTrue(groups[0]["selected"]["alive"])
         self.assertEqual(groups[0]["selected"]["delay"], 97)
+
+    def test_select_proxy_group_checks_option_and_confirms_selection(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            side_effect=[
+                {"name": "Proxy", "type": "Selector", "now": "node-a", "all": ["node-a", "node-b"]},
+                {},
+                {"name": "Proxy", "type": "Selector", "now": "node-b", "all": ["node-a", "node-b"]},
+            ],
+        ) as request:
+            result = mihui_server.select_proxy_group(Path("."), "Proxy", "node-b")
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["changed"])
+        self.assertEqual(result["now"], "node-b")
+        self.assertEqual(
+            request.call_args_list,
+            [
+                mock.call(Path("."), "/proxies/Proxy"),
+                mock.call(Path("."), "/proxies/Proxy", method="PUT", payload={"name": "node-b"}),
+                mock.call(Path("."), "/proxies/Proxy"),
+            ],
+        )
+
+    def test_group_select_endpoint_rejects_non_select_group(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "mihomo_api_request",
+                    return_value={"name": "Auto", "type": "URLTest", "now": "node-a", "all": ["node-a"]},
+                ):
+                    status, result = self.post_json(
+                        server, "/api/groups/select", {"group": "Auto", "name": "node-a"}
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 422)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["message"], "group is not selectable")
+
+    def test_logs_endpoint_returns_allowlisted_tail_and_redacts_secrets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            log_path = app_dir / "server.log"
+            log_path.write_text(
+                "first\n"
+                'GET /mihomo/provider.yaml?url=https%3A%2F%2Fexample.test%2Fsecret&hwid=ABC123 HTTP/1.1\n'
+                "last\n",
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_LOG_PATH="{log_path}"\n',
+                encoding="utf-8",
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, result = self.get_json(server, "/api/logs?source=mihui&lines=2")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["available"])
+        self.assertNotIn("example.test", result["text"])
+        self.assertNotIn("ABC123", result["text"])
+        self.assertIn("url=••••••", result["text"])
+        self.assertTrue(result["text"].endswith("last"))
+        self.assertTrue(next(item for item in result["sources"] if item["id"] == "mihui")["available"])
+
+    def test_log_source_rejects_unknown_browser_value(self):
+        with self.assertRaisesRegex(ValueError, "unknown log source"):
+            mihui_server.get_log_snapshot(Path("."), "../../etc/passwd")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,9 @@
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
+      <symbol id="icon-logs" viewBox="0 0 24 24">
+        <path d="M8 9l3 3l-3 3" /><path d="M13 15h3" /><path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2" />
+      </symbol>
       <symbol id="icon-review" viewBox="0 0 24 24">
         <path d="M11.46 20.846a12 12 0 0 1 -7.96 -14.846a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 -.09 7.06" /><path d="M15 19l2 2l4 -4" />
       </symbol>
@@ -54,7 +57,7 @@
           <svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg>
           <div class="app-brand-copy">
             <div class="app-brand-title-row">
-              <h1>WebMihomo</h1>
+              <h1><a class="app-brand-home" href="" aria-label="Перейти на стартовую страницу и обновить WebMihomo">WebMihomo</a></h1>
               <div id="uiLinks" class="brand-ui-links" aria-live="polite"></div>
             </div>
             <button id="updateHint" class="version-pill" type="button" disabled>MihUI</button>
@@ -67,6 +70,7 @@
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
@@ -79,12 +83,12 @@
             <span class="service-health-list">
               <span class="service-health-item is-loading" data-service-health="xkeen">
                 <span class="service-health-dot" aria-hidden="true"></span>
-                <span class="service-health-name">XKeen</span>
+                <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
                 <strong class="service-health-status">Проверка...</strong>
               </span>
               <span class="service-health-item is-loading" data-service-health="mihomo">
                 <span class="service-health-dot" aria-hidden="true"></span>
-                <span class="service-health-name">Mihomo</span>
+                <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
                 <strong class="service-health-status">Проверка...</strong>
               </span>
             </span>
@@ -94,24 +98,35 @@
 
       <div class="app-main">
       <header class="topbar">
-        <div class="topbar-main">
-          <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
-          <p id="fileMeta">Конфигурация не загружена</p>
-          <span id="topbarValidation" class="topbar-validation">Проверка недоступна</span>
+        <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
+          <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
+          <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
+          <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
+          <button class="mobile-section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
+          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+        </nav>
+        <div class="mobile-topbar-meta">
+          <div class="topbar-main">
+            <svg class="topbar-file-icon" aria-hidden="true"><use href="#icon-file"></use></svg>
+            <p id="fileMeta">Конфигурация не загружена</p>
+            <span id="topbarValidation" class="topbar-validation" data-short-label="—">Проверка недоступна</span>
+          </div>
+          <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
+            <span class="service-health-item is-loading" data-service-health="xkeen">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">XKeen <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+            <span class="service-health-item is-loading" data-service-health="mihomo">
+              <span class="service-health-dot" aria-hidden="true"></span>
+              <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <strong class="service-health-status">Проверка...</strong>
+            </span>
+          </button>
         </div>
-        <button class="service-health-mobile" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
-          <span class="service-health-item is-loading" data-service-health="xkeen">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">XKeen</span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-          <span class="service-health-item is-loading" data-service-health="mihomo">
-            <span class="service-health-dot" aria-hidden="true"></span>
-            <span class="service-health-name">Mihomo</span>
-            <strong class="service-health-status">Проверка...</strong>
-          </span>
-          <span class="service-update-mobile-badge" data-service-update-mobile-badge hidden>0</span>
-        </button>
         <div class="actions">
           <button id="recommendationsJumpButton" class="link-button recommendations-jump-button" type="button" disabled hidden>
             <svg class="action-icon" aria-hidden="true"><use href="#icon-warning"></use></svg><span>Рекомендации</span>
@@ -420,9 +435,9 @@
             <h2>Порты и исключения</h2>
             <p>Файлы XKeen из каталога <code id="xkeenFilesDirectory">/opt/etc/xkeen</code></p>
           </div>
-          <button id="xkeenFilesRefreshButton" class="button compact" type="button" disabled>
+          <button id="xkeenRestartButton" class="button compact" type="button" disabled>
             <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-            <span>Перезагрузить</span>
+            <span>Перезапустить XKeen</span>
           </button>
         </header>
 
@@ -497,7 +512,10 @@
         <footer class="panel xkeen-files-actions">
           <div class="xkeen-files-action-copy">
             <strong id="xkeenFilesChangeStatus">Изменений нет</strong>
-            <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+            <div class="xkeen-files-status-row">
+              <span id="xkeenFilesStatus">Файлы ещё не загружены</span>
+              <button id="xkeenFilesRefreshButton" class="link-button xkeen-files-refresh-button" type="button" disabled>Обновить с роутера</button>
+            </div>
           </div>
           <label class="xkeen-restart-option">
             <input id="xkeenRestartAfterSave" type="checkbox" checked disabled />
@@ -631,10 +649,59 @@
         </div>
       </section>
 
+      <section class="app-section logs-section" data-section-panel="logs" hidden>
+        <header class="logs-page-head">
+          <div>
+            <h2>Логи</h2>
+            <p id="logsStatus" aria-live="polite">Доступно при работе через MihUI на роутере.</p>
+          </div>
+          <button id="logsRefreshButton" class="button compact" type="button" disabled>
+            <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
+            <span>Обновить</span>
+          </button>
+        </header>
+
+        <section class="panel logs-panel">
+          <div class="logs-controls">
+            <label>
+              <span>Источник</span>
+              <select id="logsSourceSelect">
+                <option value="mihui">MihUI</option>
+                <option value="mihomo">Mihomo</option>
+                <option value="xkeen">XKeen</option>
+              </select>
+            </label>
+            <label>
+              <span>Уровень</span>
+              <select id="logsLevelSelect">
+                <option value="">Все</option>
+                <option value="error">Ошибки</option>
+                <option value="warn">Предупреждения</option>
+                <option value="info">Информация</option>
+                <option value="debug">Отладка</option>
+              </select>
+            </label>
+            <label class="logs-search-control">
+              <span>Поиск</span>
+              <input id="logsSearchInput" type="search" placeholder="Текст в журнале" autocomplete="off" />
+            </label>
+            <label class="logs-auto-refresh">
+              <input id="logsAutoRefresh" type="checkbox" checked />
+              <span>Обновлять автоматически</span>
+            </label>
+          </div>
+          <pre id="logsOutput" class="logs-output" tabindex="0" aria-label="Содержимое журнала">Выберите раздел через MihUI на роутере.</pre>
+          <footer class="logs-footer">
+            <span id="logsPath">Файл не выбран</span>
+            <span id="logsUpdatedAt">—</span>
+          </footer>
+        </section>
+      </section>
+
       <section class="app-section" data-section-panel="settings" hidden>
         <header class="settings-page-head">
           <h2>Настройки</h2>
-          <p>Параметры интерфейса и подключенных к MihUI интеграций.</p>
+          <p>Параметры интерфейса WebMihomo.</p>
         </header>
 
         <section class="panel settings-panel">
@@ -652,74 +719,6 @@
           </div>
         </section>
 
-        <section class="panel settings-panel">
-          <div class="panel-head">
-            <div class="settings-panel-title">
-              <h2>Интеграция Happ Decoder</h2>
-              <p>Способы расшифровки ссылок формата <code>happ://</code>.</p>
-            </div>
-            <span id="happDecoderSettingsStatus" class="settings-status">Недоступно</span>
-          </div>
-          <form id="happDecoderSettingsForm" class="settings-form settings-integration-form">
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Облачный API</h3>
-                <p>Запрос к совместимому сервису декодирования.</p>
-              </div>
-              <div class="settings-grid">
-                <div class="settings-field">
-                  <label class="settings-field-label" for="happDecoderApiKey"><strong>API-ключ</strong><small>MIHUI_HAPP_DECODER_API_KEY</small></label>
-                  <span class="settings-secret-control">
-                    <input id="happDecoderApiKey" type="password" autocomplete="new-password" placeholder="Ключ не задан" />
-                    <button id="toggleHappDecoderApiKeyButton" class="button ghost compact" type="button" aria-pressed="false">Показать</button>
-                  </span>
-                </div>
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Адрес API</strong><small>MIHUI_HAPP_DECODER_API_URL</small></span>
-                  <input id="happDecoderApiUrl" type="url" autocomplete="off" placeholder="https://happy-decoder.cc/api/v1/decrypt" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Локальный декодер</h3>
-                <p>Команда, которая запускается непосредственно на роутере.</p>
-              </div>
-              <div class="settings-grid settings-grid-local">
-                <label class="settings-field">
-                  <span class="settings-field-label"><strong>Локальная команда</strong><small>MIHUI_HAPP_DECRYPTOR_CMD</small></span>
-                  <input id="happDecryptorCmd" type="text" autocomplete="off" placeholder="/opt/bin/node /opt/etc/mihui/bin/happ-decrypt-universal %LINK%" />
-                </label>
-                <label class="settings-field settings-timeout-field">
-                  <span class="settings-field-label"><strong>Тайм-аут, секунд</strong><small>MIHUI_HAPP_DECRYPTOR_TIMEOUT</small></span>
-                  <input id="happDecryptorTimeout" type="number" min="1" max="120" step="1" autocomplete="off" placeholder="45" />
-                </label>
-              </div>
-            </section>
-
-            <section class="settings-method">
-              <div class="settings-method-copy">
-                <h3>Удаленный резерв</h3>
-                <p>Используется, если локальный способ недоступен.</p>
-              </div>
-              <label class="settings-field settings-field-wide">
-                <span class="settings-field-label"><strong>Резервный URL</strong><small>MIHUI_HAPP_DECRYPTOR_REMOTE_URL</small></span>
-                <input id="happDecryptorRemoteUrl" type="url" autocomplete="off" placeholder="https://decoder.example/decrypt?url=%LINK_ENCODED%" />
-              </label>
-            </section>
-
-            <div class="settings-actions">
-              <span id="happDecoderFormState" class="settings-form-state">Изменений нет</span>
-              <button id="reloadHappDecoderSettingsButton" class="button compact" type="button">
-                <span>Перечитать</span>
-              </button>
-              <button id="saveHappDecoderSettingsButton" class="button primary compact" type="submit">
-                <span>Сохранить</span>
-              </button>
-            </div>
-          </form>
-        </section>
       </section>
       </div>
     </main>
@@ -760,12 +759,25 @@
         <header class="component-manager-head">
           <div>
             <h2 id="componentManagerTitle">Сервисы и версии</h2>
-            <p id="componentManagerDescription">Состояние, версии и обслуживание основных компонентов.</p>
+            <p id="componentManagerDescription">Проверка и обновление компонентов.</p>
           </div>
           <button id="closeComponentManagerButton" class="button compact" type="button">Закрыть</button>
         </header>
         <div class="component-manager-body">
           <p id="componentManagerNotice" class="component-manager-notice" data-component-updates-view aria-live="polite">Получаем версии компонентов...</p>
+          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
+            <div class="component-job-head">
+              <div class="component-job-copy">
+                <strong id="componentJobTitle">Операция выполняется</strong>
+                <span id="componentJobMessage"></span>
+              </div>
+              <button id="dismissComponentJobButton" class="button compact" type="button" hidden>Скрыть</button>
+            </div>
+            <details id="componentJobDetails" hidden>
+              <summary>Журнал операции</summary>
+              <pre id="componentJobOutput"></pre>
+            </details>
+          </section>
           <div class="component-manager-list" data-component-updates-view>
             <article class="component-manager-item" data-component-card="xkeen">
               <header>
@@ -778,26 +790,24 @@
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="xkeen">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
-                  <div class="component-advanced-body">
-                    <div class="xkeen-channel-setting">
-                      <div class="xkeen-channel-copy">
-                        <strong>Канал обновлений</strong>
-                        <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
-                      </div>
-                      <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
-                        <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
-                      </div>
-                      <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="xkeenAdvancedPanel">Параметры</button>
+                <div id="xkeenAdvancedPanel" class="component-advanced-body" hidden>
+                  <div class="xkeen-channel-setting">
+                    <div class="xkeen-channel-copy">
+                      <strong>Канал обновлений</strong>
+                      <span id="xkeenChannelHint">Stable — релизы, Beta — сборки из разработки</span>
                     </div>
-                    <div class="component-advanced-actions">
-                      <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
-                      <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                    <div class="xkeen-channel-options" role="group" aria-label="Канал обновлений XKeen">
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="stable" aria-pressed="false">Stable</button>
+                      <button class="xkeen-channel-option" type="button" data-xkeen-channel="beta" aria-pressed="false">Beta</button>
                     </div>
+                    <button id="xkeenChannelApplyButton" class="button compact" type="button" disabled>Переключить канал</button>
                   </div>
-                </details>
+                  <div class="component-advanced-actions">
+                    <button id="reinstallXkeenButton" class="button compact" type="button">Переустановить XKeen</button>
+                    <button class="button compact" type="button" data-component-rollback="xkeen">Откатить копию</button>
+                  </div>
+                </div>
               </div>
             </article>
 
@@ -812,16 +822,14 @@
               </dl>
               <div class="component-manager-actions">
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
-                <details class="component-advanced">
-                  <summary>Дополнительные параметры</summary>
-                  <div class="component-advanced-body">
-                    <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
-                    <div class="component-version-picker-controls">
-                      <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
-                      <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
-                    </div>
+                <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="mihomoAdvancedPanel">Параметры</button>
+                <div id="mihomoAdvancedPanel" class="component-advanced-body" hidden>
+                  <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
+                  <div class="component-version-picker-controls">
+                    <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
+                    <button id="installMihomoVersionButton" class="button compact" type="button">Установить</button>
                   </div>
-                </details>
+                </div>
               </div>
             </article>
           </div>
@@ -847,17 +855,9 @@
               </section>
             </div>
           </section>
-          <section id="componentJobPanel" class="component-job-panel" aria-live="polite" hidden>
-            <strong id="componentJobTitle">Операция выполняется</strong>
-            <span id="componentJobMessage"></span>
-            <details id="componentJobDetails" hidden>
-              <summary>Технические подробности</summary>
-              <pre id="componentJobOutput"></pre>
-            </details>
-          </section>
         </div>
         <footer class="component-manager-footer">
-          <button id="openComponentMaintenanceButton" class="button compact" type="button">Сервисные действия…</button>
+          <button id="openComponentMaintenanceButton" class="button compact" type="button">Обслуживание</button>
           <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
           <div id="componentUpdateFooter" class="component-update-footer">
             <span id="componentVersionsChecked"></span>
@@ -902,10 +902,16 @@
               <span title="url">Ссылка подписки</span>
               <input class="provider-url" type="url" placeholder="https://example.com/sub" autocomplete="off" />
             </label>
-            <button class="button compact happ-decode-button" type="button" hidden>
-              <span>Расшифровать Happ</span>
-            </button>
+            <div class="provider-url-actions">
+              <button class="button compact provider-url-reveal-button" type="button" hidden aria-pressed="false">
+                <span>Показать</span>
+              </button>
+              <button class="button compact happ-decode-button" type="button" hidden>
+                <span>Расшифровать Happ</span>
+              </button>
+            </div>
           </div>
+          <p class="provider-url-status" aria-live="polite" hidden></p>
         </div>
 
         <details class="provider-editor-section provider-editor-collapsible">
