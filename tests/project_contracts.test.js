@@ -383,32 +383,6 @@ test('main and standalone expose the editorial shell and routing workbench', () 
   }
 });
 
-test('main and standalone expose the safe live log viewer', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
-    const html = read(name);
-    assert.match(html, /data-section="logs"[\s\S]+?>Логи</);
-    assert.match(html, /data-section-panel="logs"/);
-    assert.match(html, /id="logsSourceSelect"[\s\S]+?MihUI[\s\S]+?Mihomo[\s\S]+?XKeen/);
-    assert.match(html, /id="logsSearchInput"/);
-    assert.match(html, /id="logsLevelSelect"/);
-    assert.match(html, /id="logsAutoRefresh"[^>]+checked/);
-    assert.match(html, /id="logsOutput"[^>]+aria-label="Содержимое журнала"/);
-  }
-
-  for (const name of ['app.js', 'mihomo-editor.html']) {
-    const source = read(name);
-    assert.match(source, /apiJson\(`\/api\/logs\?source=\$\{source\}&lines=300`\)/);
-    assert.match(source, /state\.activeSection === 'logs' && state\.logs\.autoRefresh/);
-    assert.match(source, /function filterLogText/);
-  }
-
-  const server = read('router/mihui_server.py');
-  assert.match(server, /if route == "\/api\/logs"/);
-  assert.match(server, /LOG_SOURCE_DEFINITIONS/);
-  assert.match(server, /def redact_log_text/);
-  assert.doesNotMatch(server, /query\.get\("path"/);
-});
-
 test('standalone editor exactly mirrors the main html, styles and script', () => {
   const expected = read('index.html')
     .replace('    <link rel="stylesheet" href="./styles.css" />', () => `    <style>\n${read('styles.css')}\n    </style>`)

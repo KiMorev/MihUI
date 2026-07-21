@@ -1159,38 +1159,6 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["message"], "group is not selectable")
 
-    def test_logs_endpoint_returns_allowlisted_tail_and_redacts_secrets(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            app_dir = Path(temp_dir)
-            log_path = app_dir / "server.log"
-            log_path.write_text(
-                "first\n"
-                'GET /mihomo/provider.yaml?url=https%3A%2F%2Fexample.test%2Fsecret&hwid=ABC123 HTTP/1.1\n'
-                "last\n",
-                encoding="utf-8",
-            )
-            (app_dir / "mihui.env").write_text(
-                f'MIHUI_LOG_PATH="{log_path}"\n',
-                encoding="utf-8",
-            )
-            server, thread = self.start_mihui_server(app_dir)
-            try:
-                status, result = self.get_json(server, "/api/logs?source=mihui&lines=2")
-            finally:
-                self.stop_provider_server(server, thread)
-
-        self.assertEqual(status, 200)
-        self.assertTrue(result["available"])
-        self.assertNotIn("example.test", result["text"])
-        self.assertNotIn("ABC123", result["text"])
-        self.assertIn("url=••••••", result["text"])
-        self.assertTrue(result["text"].endswith("last"))
-        self.assertTrue(next(item for item in result["sources"] if item["id"] == "mihui")["available"])
-
-    def test_log_source_rejects_unknown_browser_value(self):
-        with self.assertRaisesRegex(ValueError, "unknown log source"):
-            mihui_server.get_log_snapshot(Path("."), "../../etc/passwd")
-
 
 if __name__ == "__main__":
     unittest.main()

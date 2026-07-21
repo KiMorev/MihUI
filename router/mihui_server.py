@@ -45,33 +45,6 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "accept-encoding",
 }
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
-LOG_TAIL_MAX_BYTES = 256 * 1024
-LOG_TAIL_DEFAULT_LINES = 300
-LOG_TAIL_MAX_LINES = 1000
-LOG_SOURCE_DEFINITIONS = {
-    "mihui": {
-        "label": "MihUI",
-        "env": "MIHUI_LOG_PATH",
-        "paths": ("/opt/var/log/mihui/server.log",),
-    },
-    "mihomo": {
-        "label": "Mihomo",
-        "env": "MIHUI_MIHOMO_LOG_PATH",
-        "paths": (
-            "/opt/var/log/mihomo.log",
-            "/opt/var/log/mihomo/mihomo.log",
-            "/opt/var/log/mihomo/error.log",
-        ),
-    },
-    "xkeen": {
-        "label": "XKeen",
-        "env": "MIHUI_XKEEN_LOG_PATH",
-        "paths": (
-            "/opt/var/log/xkeen.log",
-            "/opt/var/log/xkeen/xkeen.log",
-        ),
-    },
-}
 
 
 update_lock = threading.Lock()
@@ -132,9 +105,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/services/status":
             self.send_json(HTTPStatus.OK, get_services_status(self.app_dir))
-            return
-        if route == "/api/logs":
-            self.handle_logs_get()
             return
         if route == "/api/components/status":
             force = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("force", [""])[0]
@@ -237,24 +207,6 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_backups_get(self):
         self.send_json(HTTPStatus.OK, {"ok": True, "backups": list_backups(self.app_dir)})
-
-    def handle_logs_get(self):
-        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-        source = str(query.get("source", ["mihui"])[0] or "mihui")
-        try:
-            lines = int(query.get("lines", [LOG_TAIL_DEFAULT_LINES])[0])
-        except (TypeError, ValueError):
-            lines = LOG_TAIL_DEFAULT_LINES
-        try:
-            payload = get_log_snapshot(self.app_dir, source, lines)
-        except ValueError as error:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
-            return
-        self.send_json(HTTPStatus.OK, payload)
-
-    def log_message(self, format_text, *args):
-        safe_args = tuple(redact_log_text(value) if isinstance(value, str) else value for value in args)
-        super().log_message(format_text, *safe_args)
 
     def handle_backup_restore(self):
         payload = self.read_json_body()
@@ -521,132 +473,6 @@ def get_env(app_dir):
 
 def get_env_path(app_dir):
     return Path(app_dir) / "mihui.env"
-
-
-def get_log_source_candidates(app_dir, source):
-    definition = LOG_SOURCE_DEFINITIONS.get(source)
-    if not definition:
-        raise ValueError("unknown log source")
-
-    env = get_env(app_dir)
-    candidates = []
-    override = str(env.get(definition["env"], "") or "").strip()
-    if override:
-        candidates.append(Path(override))
-    if source == "mihui":
-        log_dir = str(env.get("MIHUI_LOG_DIR", "") or "").strip()
-        if log_dir:
-            candidates.append(Path(log_dir) / "server.log")
-    candidates.extend(Path(path) for path in definition["paths"])
-
-    unique = []
-    seen = set()
-    for path in candidates:
-        path_key = str(path)
-        if path_key in seen:
-            continue
-        seen.add(path_key)
-        unique.append(path)
-    return unique
-
-
-def resolve_log_source(app_dir, source):
-    candidates = get_log_source_candidates(app_dir, source)
-    for path in candidates:
-        if path.is_file():
-            return path
-    return candidates[0]
-
-
-def list_log_sources(app_dir):
-    sources = []
-    for source, definition in LOG_SOURCE_DEFINITIONS.items():
-        path = resolve_log_source(app_dir, source)
-        sources.append(
-            {
-                "id": source,
-                "label": definition["label"],
-                "available": path.is_file(),
-                "path": str(path),
-            }
-        )
-    return sources
-
-
-def redact_log_text(text):
-    value = str(text or "")
-    value = re.sub(
-        r"([?&](?:url|uri|target|link|sub|subscription|token|secret|key|hwid)=)[^&\s\"']+",
-        r"\1••••••",
-        value,
-        flags=re.IGNORECASE,
-    )
-    return re.sub(
-        r"\b(authorization|x-hwid)(\s*[:=]\s*)\S+",
-        r"\1\2••••••",
-        value,
-        flags=re.IGNORECASE,
-    )
-
-
-def read_log_tail(path, line_limit=LOG_TAIL_DEFAULT_LINES):
-    line_limit = max(1, min(int(line_limit), LOG_TAIL_MAX_LINES))
-    size = path.stat().st_size
-    offset = max(0, size - LOG_TAIL_MAX_BYTES)
-    with path.open("rb") as handle:
-        handle.seek(offset)
-        raw = handle.read(LOG_TAIL_MAX_BYTES)
-
-    text = raw.decode("utf-8", errors="replace")
-    if offset > 0 and "\n" in text:
-        text = text.split("\n", 1)[1]
-    lines = text.splitlines()
-    truncated = offset > 0 or len(lines) > line_limit
-    return redact_log_text("\n".join(lines[-line_limit:])), truncated
-
-
-def get_log_snapshot(app_dir, source, line_limit=LOG_TAIL_DEFAULT_LINES):
-    if source not in LOG_SOURCE_DEFINITIONS:
-        raise ValueError("unknown log source")
-
-    path = resolve_log_source(app_dir, source)
-    sources = list_log_sources(app_dir)
-    if not path.is_file():
-        return {
-            "ok": True,
-            "source": source,
-            "available": False,
-            "path": str(path),
-            "text": "",
-            "sources": sources,
-            "message": "log file not found",
-        }
-
-    try:
-        text, truncated = read_log_tail(path, line_limit)
-        stat = path.stat()
-    except OSError as error:
-        return {
-            "ok": False,
-            "source": source,
-            "available": True,
-            "path": str(path),
-            "text": "",
-            "sources": sources,
-            "message": str(error),
-        }
-
-    return {
-        "ok": True,
-        "source": source,
-        "available": True,
-        "path": str(path),
-        "text": text,
-        "size": stat.st_size,
-        "modifiedAt": int(stat.st_mtime),
-        "truncated": truncated,
-        "sources": sources,
-    }
 
 
 def get_config_path(app_dir):

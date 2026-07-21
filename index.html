@@ -30,9 +30,6 @@
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
-      <symbol id="icon-logs" viewBox="0 0 24 24">
-        <path d="M8 9l3 3l-3 3" /><path d="M13 15h3" /><path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2" />
-      </symbol>
       <symbol id="icon-review" viewBox="0 0 24 24">
         <path d="M11.46 20.846a12 12 0 0 1 -7.96 -14.846a12 12 0 0 0 8.5 -3a12 12 0 0 0 8.5 3a12 12 0 0 1 -.09 7.06" /><path d="M15 19l2 2l4 -4" />
       </symbol>
@@ -70,7 +67,6 @@
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
@@ -105,7 +101,6 @@
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="mobile-section-tab" type="button" data-section="logs" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-logs"></use></svg><span>Логи</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
         <div class="mobile-topbar-meta">
@@ -647,55 +642,6 @@
             </footer>
           </section>
         </div>
-      </section>
-
-      <section class="app-section logs-section" data-section-panel="logs" hidden>
-        <header class="logs-page-head">
-          <div>
-            <h2>Логи</h2>
-            <p id="logsStatus" aria-live="polite">Доступно при работе через MihUI на роутере.</p>
-          </div>
-          <button id="logsRefreshButton" class="button compact" type="button" disabled>
-            <svg class="button-icon" aria-hidden="true"><use href="#icon-refresh"></use></svg>
-            <span>Обновить</span>
-          </button>
-        </header>
-
-        <section class="panel logs-panel">
-          <div class="logs-controls">
-            <label>
-              <span>Источник</span>
-              <select id="logsSourceSelect">
-                <option value="mihui">MihUI</option>
-                <option value="mihomo">Mihomo</option>
-                <option value="xkeen">XKeen</option>
-              </select>
-            </label>
-            <label>
-              <span>Уровень</span>
-              <select id="logsLevelSelect">
-                <option value="">Все</option>
-                <option value="error">Ошибки</option>
-                <option value="warn">Предупреждения</option>
-                <option value="info">Информация</option>
-                <option value="debug">Отладка</option>
-              </select>
-            </label>
-            <label class="logs-search-control">
-              <span>Поиск</span>
-              <input id="logsSearchInput" type="search" placeholder="Текст в журнале" autocomplete="off" />
-            </label>
-            <label class="logs-auto-refresh">
-              <input id="logsAutoRefresh" type="checkbox" checked />
-              <span>Обновлять автоматически</span>
-            </label>
-          </div>
-          <pre id="logsOutput" class="logs-output" tabindex="0" aria-label="Содержимое журнала">Выберите раздел через MihUI на роутере.</pre>
-          <footer class="logs-footer">
-            <span id="logsPath">Файл не выбран</span>
-            <span id="logsUpdatedAt">—</span>
-          </footer>
-        </section>
       </section>
 
       <section class="app-section" data-section-panel="settings" hidden>
