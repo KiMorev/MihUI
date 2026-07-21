@@ -1519,6 +1519,25 @@ rules:
     assert.equal(app.state.isEditingConfiguration, false);
   });
 
+  test(`${source.name}: keeps the current YAML viewport when editing starts`, () => {
+    const app = loadApp(source);
+    app.state.outputText = Array.from({ length: 40 }, (_, index) => `line-${index}`).join('\n');
+    app.els.outputCodeView.scrollTop = 240;
+    app.els.outputCodeView.scrollLeft = 18;
+    let selectionOffset = -1;
+    app.els.outputPreview.setSelectionRange = (start) => {
+      selectionOffset = start;
+    };
+
+    app.beginConfigurationEdit();
+
+    assert.equal(app.els.outputPreview.scrollTop, 240);
+    assert.equal(app.els.outputPreview.scrollLeft, 18);
+    assert.equal(app.els.outputCodeView.scrollTop, 240);
+    assert.equal(app.els.outputCodeView.scrollLeft, 18);
+    assert.ok(selectionOffset > 0);
+  });
+
   test(`${source.name}: keeps edited router yaml pending until it is saved`, () => {
     const app = loadApp(source);
     hydrate(app, `

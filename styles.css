@@ -6064,6 +6064,7 @@ button.review-check-card:focus-visible {
 }
 
 .output-viewer {
+  position: relative;
   background: #fbfcfe;
 }
 
@@ -6088,20 +6089,46 @@ button.review-check-card:focus-visible {
 }
 
 #outputPreview {
-  padding: 14px 16px;
-  resize: vertical;
-  background: #fbfcfe;
+  padding: 10px 16px;
+  resize: none;
+  background: transparent;
 }
 
-.output-viewer:not(.is-editing) #outputPreview,
-.output-viewer.is-editing #outputCodeView {
+.output-viewer:not(.is-editing) #outputPreview {
   display: none;
 }
 
 #outputPreview.is-editing {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: #182234;
   outline: 2px solid rgba(0, 111, 120, 0.35);
   outline-offset: -2px;
+}
+
+#outputPreview.is-editing::selection {
+  background: rgba(8, 124, 128, 0.22);
+}
+
+.output-viewer.is-editing #outputCodeView {
+  overflow: hidden;
   background: #fffdf7;
+  pointer-events: none;
+}
+
+.output-viewer.is-editing .yaml-line {
+  display: block;
+  padding: 0 16px;
+}
+
+.output-viewer.is-editing .yaml-line-code {
+  padding-left: 0;
 }
 
 .yaml-code-view.is-empty {

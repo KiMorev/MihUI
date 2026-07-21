@@ -613,6 +613,8 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
+els.outputPreview.addEventListener('input', handleConfigurationDraftInput);
+els.outputPreview.addEventListener('scroll', syncConfigurationEditorScroll, { passive: true });
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
@@ -8682,6 +8684,7 @@ function createYamlCodeLine(line) {
   const guides = document.createElement('span');
   const code = document.createElement('code');
   const depth = getYamlIndentDepth(line);
+  const leadingWhitespace = (line.match(/^\s*/) || [''])[0];
 
   row.className = 'yaml-line';
   guides.className = 'yaml-guides';
@@ -8689,6 +8692,13 @@ function createYamlCodeLine(line) {
   code.className = 'yaml-line-code';
 
   if (!line.trim()) row.classList.add('is-empty');
+
+  if (state.isEditingConfiguration) {
+    if (leadingWhitespace) appendYamlSpan(code, '', leadingWhitespace);
+    appendYamlHighlightedText(code, line.slice(leadingWhitespace.length));
+    row.append(code);
+    return row;
+  }
 
   for (let index = 0; index < depth; index += 1) {
     const guide = document.createElement('span');
@@ -8811,10 +8821,45 @@ function renderConfigurationEditorControls() {
 }
 
 function beginConfigurationEdit() {
+  const scrollTop = els.outputCodeView?.scrollTop || 0;
+  const scrollLeft = els.outputCodeView?.scrollLeft || 0;
   state.isEditingConfiguration = true;
   els.outputPreview.value = state.outputText || state.originalText || els.outputPreview.value || '';
+  renderYamlPreview(els.outputPreview.value);
   renderConfigurationEditorControls();
-  els.outputPreview.focus();
+  const selectionOffset = getConfigurationEditorOffset(els.outputPreview.value, scrollTop);
+  els.outputPreview.setSelectionRange?.(selectionOffset, selectionOffset);
+  els.outputPreview.focus({ preventScroll: true });
+  els.outputPreview.scrollTop = scrollTop;
+  els.outputPreview.scrollLeft = scrollLeft;
+  syncConfigurationEditorScroll();
+}
+
+function handleConfigurationDraftInput() {
+  if (!state.isEditingConfiguration) return;
+  renderYamlPreview(els.outputPreview.value);
+  syncConfigurationEditorScroll();
+}
+
+function syncConfigurationEditorScroll() {
+  if (!state.isEditingConfiguration || !els.outputCodeView) return;
+  els.outputCodeView.scrollTop = els.outputPreview.scrollTop;
+  els.outputCodeView.scrollLeft = els.outputPreview.scrollLeft;
+}
+
+function getConfigurationEditorOffset(text, scrollTop) {
+  const styles = window.getComputedStyle?.(els.outputCodeView);
+  const lineHeight = Number.parseFloat(styles?.lineHeight) || 20.15;
+  const paddingTop = Number.parseFloat(styles?.paddingTop) || 10;
+  const lines = String(text || '').split('\n');
+  const targetLine = Math.min(lines.length - 1, Math.max(0, Math.floor((scrollTop - paddingTop) / lineHeight)));
+  let offset = 0;
+
+  for (let index = 0; index < targetLine; index += 1) {
+    offset += lines[index].length + 1;
+  }
+
+  return offset;
 }
 
 function cancelConfigurationEdit() {
