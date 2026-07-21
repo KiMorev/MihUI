@@ -7482,6 +7482,9 @@ button.review-check-card:focus-visible {
       <symbol id="icon-providers" viewBox="0 0 24 24">
         <path d="M15 3v4a1 1 0 0 0 1 1h4" /><path d="M18 17h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h4l5 5v7a2 2 0 0 1 -2 2" /><path d="M16 17v2a2 2 0 0 1 -2 2h-7a2 2 0 0 1 -2 -2v-10a2 2 0 0 1 2 -2h2" />
       </symbol>
+      <symbol id="icon-groups" viewBox="0 0 24 24">
+        <path d="M10 5a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M6 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M14 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M12 7v3" /><path d="M8 15v-2a3 3 0 0 1 3 -3h2a3 3 0 0 1 3 3v2" />
+      </symbol>
       <symbol id="icon-routing" viewBox="0 0 24 24">
         <path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" /><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4" /><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5" />
       </symbol>
@@ -7524,7 +7527,6 @@ button.review-check-card:focus-visible {
         <nav class="section-tabs" aria-label="Разделы редактора">
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
-          <button class="section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -7558,7 +7560,6 @@ button.review-check-card:focus-visible {
         <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
-          <button class="mobile-section-tab" type="button" data-section="routing" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-routing"></use></svg><span>Маршрутизация</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -7655,10 +7656,10 @@ button.review-check-card:focus-visible {
             <span id="overviewProvidersSummary" class="overview-step-note">Источники нод</span>
             <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
           </button>
-          <button class="overview-step" type="button" data-section-target="routing">
+          <button class="overview-step" type="button" data-section-target="providers" data-provider-view-target="relations">
             <span class="overview-step-number">2</span>
-            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-routing"></use></svg>
-            <strong>Группы и маршруты</strong>
+            <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-groups"></use></svg>
+            <strong>Группы</strong>
             <span id="groupCount" class="overview-step-status">0 групп</span>
             <span id="overviewRoutingSummary" class="overview-step-note">Распределение трафика</span>
             <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
@@ -7804,84 +7805,6 @@ button.review-check-card:focus-visible {
               <span>После загрузки управляйте подключением подписок к группам.</span>
             </div>
           </div>
-        </section>
-      </section>
-
-      <section class="app-section routing-section" data-section-panel="routing" hidden>
-        <section class="groups-column">
-          <div class="subsection-tabs" role="tablist" aria-label="Режим маршрутизации">
-            <button id="routingMapTab" class="subsection-tab is-active" type="button" role="tab" data-routing-view="map" aria-controls="routingMapPanel" aria-selected="true">
-              Схема
-            </button>
-            <button id="routingRulesTab" class="subsection-tab" type="button" role="tab" data-routing-view="rules" aria-controls="routingRulesPanel" aria-selected="false">
-              Правила <span id="rulesViewCount" aria-hidden="true">0</span>
-            </button>
-          </div>
-
-          <section id="routingMapPanel" class="routing-workbench" role="tabpanel" aria-labelledby="routingMapTab" data-routing-view-panel="map">
-            <div id="groupOrderList" class="group-order-list empty-state">
-              <div class="empty-state-content">
-                <strong>Схема появится после загрузки</strong>
-                <span>Она покажет, куда правила отправляют трафик.</span>
-              </div>
-            </div>
-          </section>
-
-          <section id="routingRulesPanel" class="panel rules-panel" role="tabpanel" aria-labelledby="routingRulesTab" data-routing-view-panel="rules" hidden>
-            <div class="panel-head rules-panel-head">
-              <div>
-                <h2>Правила (rules)</h2>
-                <p id="rulesOrderSummary" class="rules-order-summary">Конфигурация не загружена</p>
-              </div>
-            </div>
-            <div id="rulesTargetSummary" class="rules-target-summary" aria-label="Распределение правил по целям"></div>
-            <div class="rule-filters" aria-label="Фильтры правил">
-              <label>
-                <span>Поиск</span>
-                <input id="ruleSearchInput" type="search" placeholder="Поиск правила" autocomplete="off" />
-              </label>
-              <label>
-                <span>Тип</span>
-                <select id="ruleTypeFilter">
-                  <option value="">Все типы</option>
-                </select>
-              </label>
-              <label>
-                <span>Цель</span>
-                <select id="ruleTargetFilter">
-                  <option value="">Все цели</option>
-                </select>
-              </label>
-              <span id="rulesFilterSummary" class="rule-filter-summary" aria-live="polite"></span>
-              <button id="addRuleButton" class="button primary compact" type="button" aria-label="Добавить правило" disabled title="Сначала загрузите конфигурацию">
-                <span>+ Добавить правило</span>
-              </button>
-            </div>
-            <div class="rules-workbench">
-              <div class="rules-registry">
-                <div class="rules-table-head" aria-hidden="true">
-                  <span>№</span>
-                  <span>Правило</span>
-                  <span>Цель</span>
-                  <span>Статус</span>
-                </div>
-                <div id="rulesEditorList" class="rules-editor-list empty-state">
-                  <div class="empty-state-content">
-                    <strong>Правила появятся после загрузки</strong>
-                    <span>Здесь можно будет менять условия и цели маршрутизации.</span>
-                  </div>
-                </div>
-              </div>
-              <aside id="ruleInspector" class="rule-inspector empty-state" aria-live="polite">
-                <div class="empty-state-content">
-                  <strong>Выберите правило</strong>
-                  <span>Справа появится его роль в маршрутизации.</span>
-                </div>
-              </aside>
-            </div>
-          </section>
-
-          <section id="diagnosticsPanel" class="panel diagnostics-panel hidden" data-routing-view-panel="rules" aria-live="polite"></section>
         </section>
       </section>
 
@@ -8056,6 +7979,7 @@ button.review-check-card:focus-visible {
               <h2>Результат проверки</h2>
             </div>
             <div id="reviewChecklist" class="review-checklist" aria-live="polite"></div>
+            <section id="diagnosticsPanel" class="diagnostics-panel hidden" aria-live="polite"></section>
 
             <section id="connectionSettingsPanel" class="review-recommendations hidden" aria-live="polite"></section>
             <section id="changesPanel" class="panel changes-panel hidden" aria-live="polite"></section>
@@ -8423,7 +8347,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -9007,7 +8931,7 @@ els.downloadButton.addEventListener('click', downloadYaml);
 els.reviewDownloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
-els.addRuleButton.addEventListener('click', addRule);
+els.addRuleButton?.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
 els.providerSearchInput.addEventListener('input', () => {
   state.providerSearch = els.providerSearchInput.value || '';
@@ -9051,7 +8975,10 @@ els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
-els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
+  if (button.dataset.providerViewTarget) setProviderView(button.dataset.providerViewTarget);
+  setActiveSection(button.dataset.sectionTarget);
+}));
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
@@ -9068,9 +8995,9 @@ els.routingViewTabs.forEach((button) => {
   button.addEventListener('click', () => setRoutingView(button.dataset.routingView));
   button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.routingViewTabs, 'routingView', setRoutingView));
 });
-els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
-els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
-els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+els.ruleSearchInput?.addEventListener('input', handleRuleFilterChange);
+els.ruleTypeFilter?.addEventListener('change', handleRuleFilterChange);
+els.ruleTargetFilter?.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
@@ -11093,8 +11020,10 @@ function render() {
   els.addProviderButton.title = state.originalText && state.hasGroupsSection ? 'Добавить подписку' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.addGroupButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
-  els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
-  els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
+  if (els.addRuleButton) {
+    els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
+    els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
+  }
   els.intervalToolsButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.intervalToolsButton.title = state.originalText && state.hasGroupsSection
     ? 'Массово изменить интервалы подписок'
@@ -11248,9 +11177,9 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     });
   } else {
     if (errors.length > 0) {
-      attentionItems.push({ section: 'routing', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
+      attentionItems.push({ section: 'review', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
     } else if (warnings > 0) {
-      attentionItems.push({ section: 'routing', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
+      attentionItems.push({ section: 'review', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
     }
     if (missingConnectionCount > 0) {
       attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
@@ -11402,6 +11331,7 @@ function renderReviewSummary(changes, diagnostics) {
             ? 'Проверьте ссылки между подписками, группами и правилами.'
             : 'Подписки, группы и правила связаны корректно.',
       variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      action: diagnostics.length > 0 ? focusDiagnosticsPanel : null,
       icon: 'routing',
     },
     {
@@ -11696,8 +11626,7 @@ function openOverviewCheck() {
 }
 
 function focusDiagnosticsPanel() {
-  setActiveSection('routing', { scroll: false });
-  setRoutingView('rules');
+  setActiveSection('review', { scroll: false });
   if (els.diagnosticsPanel.classList.contains('hidden')) return;
 
   els.diagnosticsPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -11904,13 +11833,12 @@ function focusDiagnosticTarget(target) {
   }
 
   if (target.type === 'group') {
-    setActiveSection('routing', { scroll: false });
-    setRoutingView('map');
+    setActiveSection('providers', { scroll: false });
+    setProviderView('relations');
   }
 
   if (target.type === 'rules') {
-    setActiveSection('routing', { scroll: false });
-    setRoutingView('rules');
+    setActiveSection('review', { scroll: false });
   }
 
   const element = findDiagnosticTargetElement(target);
@@ -11932,12 +11860,10 @@ function findDiagnosticTargetElement(target) {
   }
 
   if (target.type === 'group') {
-    return [...els.groupOrderList.querySelectorAll('.group-order-info')]
-      .find((item) => item.querySelector('strong')?.textContent === target.name)
-      ?.closest('.route-choice, .route-stage, .route-branch');
+    return els.groupsMatrix;
   }
 
-  if (target.type === 'rules') return els.groupOrderList;
+  if (target.type === 'rules') return els.outputViewer;
   if (target.type === 'groups') return els.groupsMatrix;
   return null;
 }
@@ -14819,6 +14745,7 @@ function ruleRequiresValue(type) {
 }
 
 function renderMainGroup(groups, activeProviders) {
+  if (!els.groupOrderList) return;
   els.groupOrderList.innerHTML = '';
   els.groupOrderList.classList.toggle('empty-state', !state.originalText);
 

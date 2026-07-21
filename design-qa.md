@@ -1,47 +1,36 @@
-# Design QA — rules registry
+# Design QA — удаление раздела маршрутизации
 
-- Source visual truth: `audit-rules-redesign-2026-07-11/selected-hybrid.png`
-- Implementation screenshot: `audit-rules-redesign-2026-07-11/03-implementation-selected-rule.png`
-- Full-view comparison: `audit-rules-redesign-2026-07-11/04-comparison.png`
-- Focused comparison: `audit-rules-redesign-2026-07-11/05-focused-comparison.png`
-- Viewport: 1440 × 900.
-- State: router mock, `config (4).yaml`, «Маршрутизация → Правила», правило 26 (MATCH → PROXY) выбрано.
+- Source visual truth: `C:\Users\morev\AppData\Local\Temp\codex-clipboard-296ae4f7-46f5-4d5e-95a7-0be66f33b023.png`
+- Implementation screenshot: `C:\Users\morev\AppData\Local\Temp\webmihomo-overview-after.jpg`
+- Combined comparison: `C:\Users\morev\AppData\Local\Temp\webmihomo-overview-comparison.png`
+- Reference viewport: 1917 × 912; browser capture: 1917 × 916 (4 px platform delta).
+- State: router mock, 3 subscriptions, 3 groups, 117 Mihomo nodes, Overview.
 
 ## Findings
 
 No actionable P0, P1 or P2 findings remain.
 
-- Typography: passed. Заголовок, сводка, строки реестра и инспектор используют действующую типографическую шкалу WebMihomo.
-- Spacing and layout: passed. Реестр остаётся главным рабочим блоком, инспектор — вторичным; панель инструментов и четыре колонки соответствуют выбранному гибриду.
-- Colors and tokens: passed. Использованы существующие нейтральные поверхности, бирюзовый акцент и цветовые ярлыки DIRECT, REJECT и PROXY.
-- Image and icon fidelity: passed. Растровых материалов в целевом макете нет; использованы существующие SVG-иконки проекта.
-- Copy and content: passed. Сводка 23 DIRECT, 2 REJECT, 1 PROXY и состояние порядка строятся из загруженной конфигурации.
-- Interactions: passed. Выбор правила, фильтрация по цели, открытие и закрытие режима редактирования работают без создания изменений.
-- Responsive behavior: passed by code review. На узких экранах реестр и инспектор складываются вертикально, второстепенные размеры колонок сокращаются без горизонтального переполнения.
-- Accessibility: passed for the implemented scope. Строки правил доступны с клавиатуры, фильтры имеют подписи, а графический статус получает `aria-label` и `title` без видимого текста «Корректно».
+- Layout and spacing: passed. Overview keeps the approved status block, four-card flow, connector line and lower panels.
+- Navigation: passed. The dedicated «Маршрутизация» item and panel are absent in desktop and mobile navigation.
+- Card fidelity: passed. Step 2 keeps the existing card proportions and now reads «Группы» with a groups icon.
+- Interaction: passed. Step 2 opens «Подписки и группы» with the «Группы» tab selected.
+- Diagnostics: passed. A broken `rules` target opens its detailed message inside «Проверка».
+- Responsive structure: passed by the existing responsive contracts; the removed mobile tab is absent.
+- Accessibility: passed for the changed scope. Native buttons and tabs retain their selected/pressed states and accessible names.
+- Console: passed. No warnings or errors were recorded in the tested flows.
 
-## Intentional product constraints
+## Intentional differences from the source screenshot
 
-- В реальном реестре используется прокрутка всех 26 правил; синтетический разрыв «…» из макета не воспроизводится, потому что он скрывал бы реальные строки и нарушал управление порядком.
-- В компактной таблице состояние показано только маркером. Полное объяснение корректности и назначения правила находится в инспекторе справа.
-- Редактирование остаётся явным режимом инспектора, чтобы случайный выбор строки не менял YAML.
-
-## Comparison history
-
-### Iteration 1
-
-- P2: подписи фильтров и счётчик результатов визуально перегружали компактную панель.
-- Fix: подписи сохранены для доступности, но убраны из визуального потока; панель сведена к поиску, двум фильтрам и основной кнопке.
-- P2: у строк реестра был лишний `role=listitem`, не соответствующий кнопочной модели выбора.
-- Fix: оставлены нативные кнопки строк и доступные имена состояний.
-- Evidence after fixes: `audit-rules-redesign-2026-07-11/03-implementation-selected-rule.png` and `audit-rules-redesign-2026-07-11/05-focused-comparison.png`.
+- «Маршрутизация» is removed from the sidebar.
+- «Группы и маршруты» is replaced by «Группы» and a groups icon.
+- Dynamic counts and recommendation text come from the QA config and are not visual design changes.
 
 ## Verification
 
-- `node --check app.js`: passed.
-- `npm.cmd test`: 110/110 passed.
+- `npm.cmd test`: 134/134 passed.
 - Main/standalone synchronization: passed.
-- Browser console warnings/errors: none.
-- Browser scenarios: выбор правила, фильтр PROXY, вход и выход из режима редактирования passed.
+- Browser flow `Overview → Группы`: passed.
+- Browser flow `broken rules target → Проверка`: passed.
+- DOM check: no `data-section="routing"` or `data-section-panel="routing"` remains.
 
 final result: passed

@@ -6,7 +6,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -590,7 +590,7 @@ els.downloadButton.addEventListener('click', downloadYaml);
 els.reviewDownloadButton.addEventListener('click', downloadYaml);
 els.addProviderButton.addEventListener('click', addProvider);
 els.addGroupButton.addEventListener('click', addGroup);
-els.addRuleButton.addEventListener('click', addRule);
+els.addRuleButton?.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
 els.providerSearchInput.addEventListener('input', () => {
   state.providerSearch = els.providerSearchInput.value || '';
@@ -634,7 +634,10 @@ els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
-els.sectionTargets.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.sectionTarget)));
+els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
+  if (button.dataset.providerViewTarget) setProviderView(button.dataset.providerViewTarget);
+  setActiveSection(button.dataset.sectionTarget);
+}));
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
@@ -651,9 +654,9 @@ els.routingViewTabs.forEach((button) => {
   button.addEventListener('click', () => setRoutingView(button.dataset.routingView));
   button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.routingViewTabs, 'routingView', setRoutingView));
 });
-els.ruleSearchInput.addEventListener('input', handleRuleFilterChange);
-els.ruleTypeFilter.addEventListener('change', handleRuleFilterChange);
-els.ruleTargetFilter.addEventListener('change', handleRuleFilterChange);
+els.ruleSearchInput?.addEventListener('input', handleRuleFilterChange);
+els.ruleTypeFilter?.addEventListener('change', handleRuleFilterChange);
+els.ruleTargetFilter?.addEventListener('change', handleRuleFilterChange);
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
@@ -2676,8 +2679,10 @@ function render() {
   els.addProviderButton.title = state.originalText && state.hasGroupsSection ? 'Добавить подписку' : 'Сначала загрузите конфигурацию с proxy-groups';
   els.addGroupButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.addGroupButton.title = state.originalText && state.hasGroupsSection ? 'Добавить группу' : 'Сначала загрузите конфигурацию с proxy-groups';
-  els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
-  els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
+  if (els.addRuleButton) {
+    els.addRuleButton.disabled = !state.originalText || !state.hasGroupsSection;
+    els.addRuleButton.title = state.originalText && state.hasGroupsSection ? 'Добавить правило' : 'Сначала загрузите конфигурацию с proxy-groups';
+  }
   els.intervalToolsButton.disabled = !state.originalText || !state.hasGroupsSection;
   els.intervalToolsButton.title = state.originalText && state.hasGroupsSection
     ? 'Массово изменить интервалы подписок'
@@ -2831,9 +2836,9 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     });
   } else {
     if (errors.length > 0) {
-      attentionItems.push({ section: 'routing', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
+      attentionItems.push({ section: 'review', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
     } else if (warnings > 0) {
-      attentionItems.push({ section: 'routing', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
+      attentionItems.push({ section: 'review', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
     }
     if (missingConnectionCount > 0) {
       attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
@@ -2985,6 +2990,7 @@ function renderReviewSummary(changes, diagnostics) {
             ? 'Проверьте ссылки между подписками, группами и правилами.'
             : 'Подписки, группы и правила связаны корректно.',
       variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      action: diagnostics.length > 0 ? focusDiagnosticsPanel : null,
       icon: 'routing',
     },
     {
@@ -3279,8 +3285,7 @@ function openOverviewCheck() {
 }
 
 function focusDiagnosticsPanel() {
-  setActiveSection('routing', { scroll: false });
-  setRoutingView('rules');
+  setActiveSection('review', { scroll: false });
   if (els.diagnosticsPanel.classList.contains('hidden')) return;
 
   els.diagnosticsPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -3487,13 +3492,12 @@ function focusDiagnosticTarget(target) {
   }
 
   if (target.type === 'group') {
-    setActiveSection('routing', { scroll: false });
-    setRoutingView('map');
+    setActiveSection('providers', { scroll: false });
+    setProviderView('relations');
   }
 
   if (target.type === 'rules') {
-    setActiveSection('routing', { scroll: false });
-    setRoutingView('rules');
+    setActiveSection('review', { scroll: false });
   }
 
   const element = findDiagnosticTargetElement(target);
@@ -3515,12 +3519,10 @@ function findDiagnosticTargetElement(target) {
   }
 
   if (target.type === 'group') {
-    return [...els.groupOrderList.querySelectorAll('.group-order-info')]
-      .find((item) => item.querySelector('strong')?.textContent === target.name)
-      ?.closest('.route-choice, .route-stage, .route-branch');
+    return els.groupsMatrix;
   }
 
-  if (target.type === 'rules') return els.groupOrderList;
+  if (target.type === 'rules') return els.outputViewer;
   if (target.type === 'groups') return els.groupsMatrix;
   return null;
 }
@@ -6402,6 +6404,7 @@ function ruleRequiresValue(type) {
 }
 
 function renderMainGroup(groups, activeProviders) {
+  if (!els.groupOrderList) return;
   els.groupOrderList.innerHTML = '';
   els.groupOrderList.classList.toggle('empty-state', !state.originalText);
 

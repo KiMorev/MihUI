@@ -34,7 +34,6 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addProviderButton"[^>]+aria-label="Добавить подписку"/);
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
-    assert.match(html, /id="addRuleButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить правило"[\s\S]+?\+ Добавить правило/);
     assert.match(html, /id="checkConfigButton"[^>]+class="[^"]*button[^"]*compact[^"]*"[\s\S]+?Проверить YAML в Mihomo/);
     assert.match(html, /id="fileTools"[\s\S]+?summary aria-label="Конфигурация"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
     assert.match(html, /id="backupHistoryButton"[^>]+class="file-menu-item"[\s\S]+?file-tools-separator[\s\S]+?Загрузить YAML[\s\S]+?Скачать YAML/);
@@ -366,20 +365,19 @@ test('main and standalone distinguish applied, rolled back and uncertain config 
   }
 });
 
-test('main and standalone expose the editorial shell and routing workbench', () => {
+test('main and standalone expose the editorial shell without a dedicated routing page', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
     assert.match(html, /class="app-sidebar"/);
     assert.match(html, /id="topbarValidation"/);
-    assert.match(html, /class="routing-workbench"/);
+    assert.doesNotMatch(html, /data-section="routing"/);
+    assert.doesNotMatch(html, /data-section-panel="routing"/);
+    assert.doesNotMatch(html, /class="routing-workbench"/);
+    assert.match(html, /data-section-target="providers" data-provider-view-target="relations"/);
+    assert.match(html, /href="#icon-groups"/);
+    assert.match(html, /<strong>Группы<\/strong>/);
+    assert.match(html, /id="diagnosticsPanel" class="diagnostics-panel hidden"/);
     assert.match(html, /Interface icons: Tabler Icons, MIT License/);
-  }
-
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
-    const source = read(name);
-    assert.match(source, /\.route-map\s*{[\s\S]+?grid-template-columns: 244px minmax\(380px, 1fr\) 300px;/);
-    assert.match(source, /\.route-inspector\s*{/);
-    assert.match(source, /\.route-visual-stack\s*{/);
   }
 });
 
