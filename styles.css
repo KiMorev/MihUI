@@ -2486,7 +2486,8 @@ body.component-manager-open {
   font-size: 11px;
 }
 
-.nodes-page-head {
+.nodes-page-head,
+.logs-page-head {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -2500,17 +2501,20 @@ body.component-manager-open {
   padding: 4px 2px 0;
 }
 
-.nodes-page-head > div {
+.nodes-page-head > div,
+.logs-page-head > div {
   min-width: 0;
 }
 
 .nodes-page-head h2,
+.logs-page-head h2,
 .settings-page-head h2 {
   margin: 0;
   font-size: 20px;
 }
 
 .nodes-page-head p,
+.logs-page-head p,
 .settings-page-head p {
   margin: 2px 0 0;
   color: var(--muted);
@@ -2527,6 +2531,86 @@ body.component-manager-open {
 
 .nodes-page-head p.is-danger {
   color: var(--danger);
+}
+
+.logs-controls {
+  display: grid;
+  grid-template-columns: 150px 160px minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.logs-controls > label:not(.logs-auto-refresh) {
+  display: grid;
+  grid-template-rows: 18px 40px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.logs-controls > label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.logs-controls input,
+.logs-controls select {
+  min-width: 0;
+}
+
+.logs-auto-refresh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.logs-auto-refresh input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--accent);
+}
+
+.logs-output {
+  min-height: 420px;
+  max-height: 62vh;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  background: #111922;
+  color: #dce6ee;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  white-space: pre-wrap;
+}
+
+.logs-output:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.logs-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.logs-footer span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .node-inventory-controls {
@@ -6291,6 +6375,15 @@ button.review-check-card:focus-visible {
     scroll-margin-top: 12px;
   }
 
+  .logs-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .logs-search-control,
+  .logs-auto-refresh {
+    grid-column: span 1;
+  }
+
   .topbar,
   .actions {
     align-items: stretch;
@@ -6918,13 +7011,37 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .nodes-page-head {
+  .nodes-page-head,
+  .logs-page-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .nodes-page-head .button {
+  .nodes-page-head .button,
+  .logs-page-head .button {
     width: 100%;
+  }
+
+  .logs-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .logs-search-control,
+  .logs-auto-refresh {
+    grid-column: auto;
+  }
+
+  .logs-output {
+    min-height: 360px;
+    max-height: 58vh;
+    padding: 12px;
+    font-size: 11px;
+  }
+
+  .logs-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .node-inventory-summary {

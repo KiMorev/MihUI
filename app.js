@@ -6,13 +6,14 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'routing', 'xkeen-files', 'nodes', 'review', 'logs', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
+const LOG_REFRESH_MS = 3000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -383,6 +384,21 @@ const state = {
       mihomo: { state: 'unavailable', message: 'Доступно только в MihUI', detail: '' },
     },
   },
+  logs: {
+    loading: false,
+    loaded: false,
+    available: false,
+    source: 'mihui',
+    sources: [],
+    rawText: '',
+    path: '',
+    modifiedAt: 0,
+    truncated: false,
+    message: '',
+    search: '',
+    level: '',
+    autoRefresh: true,
+  },
   components: {
     loading: false,
     loaded: false,
@@ -556,6 +572,15 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
+  logsStatus: document.querySelector('#logsStatus'),
+  logsRefreshButton: document.querySelector('#logsRefreshButton'),
+  logsSourceSelect: document.querySelector('#logsSourceSelect'),
+  logsLevelSelect: document.querySelector('#logsLevelSelect'),
+  logsSearchInput: document.querySelector('#logsSearchInput'),
+  logsAutoRefresh: document.querySelector('#logsAutoRefresh'),
+  logsOutput: document.querySelector('#logsOutput'),
+  logsPath: document.querySelector('#logsPath'),
+  logsUpdatedAt: document.querySelector('#logsUpdatedAt'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -628,6 +653,11 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
+els.logsRefreshButton.addEventListener('click', () => loadLogs({ silent: false }));
+els.logsSourceSelect.addEventListener('change', handleLogSourceChange);
+els.logsLevelSelect.addEventListener('change', handleLogFilterChange);
+els.logsSearchInput.addEventListener('input', handleLogFilterChange);
+els.logsAutoRefresh.addEventListener('change', handleLogAutoRefreshChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
@@ -675,6 +705,7 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+renderLogs();
 updateMobileSectionTabsVisibility();
 initRouterMode();
 
@@ -719,6 +750,9 @@ function setActiveSection(section, options = {}) {
   renderSectionTabs();
   updateMobileSectionTabsVisibility();
   centerActiveMobileSectionTab();
+  if (section === 'logs' && !state.logs.loaded && !state.logs.loading) {
+    loadLogs({ silent: true });
+  }
   if (!shouldScroll) return;
 
   const panel = document.querySelector(`[data-section-panel="${section}"]`);
@@ -773,6 +807,7 @@ function renderSectionTabs() {
   renderProviderView();
   renderRoutingView();
   renderXkeenNetworkFiles();
+  renderLogs();
   els.recommendationsJumpButton.hidden = !shouldShowRecommendations(state.recommendationCount, state.activeSection);
 }
 
@@ -878,6 +913,7 @@ function initRouterMode() {
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   startServiceHealthPolling();
+  startLogsPolling();
   checkMihuiUpdate();
 }
 
@@ -1829,6 +1865,178 @@ function startServiceHealthPolling() {
       if (!document.hidden) loadServiceHealth({ silent: true });
     });
   }
+}
+
+async function loadLogs(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    state.logs.message = 'Доступно при работе через MihUI на роутере.';
+    renderLogs();
+    return;
+  }
+
+  state.logs.loading = true;
+  renderLogs();
+  try {
+    const source = encodeURIComponent(state.logs.source || 'mihui');
+    const data = await apiJson(`/api/logs?source=${source}&lines=300`);
+    state.logs.loaded = true;
+    state.logs.available = Boolean(data.available);
+    state.logs.sources = Array.isArray(data.sources) ? data.sources : [];
+    state.logs.rawText = String(data.text || '');
+    state.logs.path = String(data.path || '');
+    state.logs.modifiedAt = Number(data.modifiedAt) || 0;
+    state.logs.truncated = Boolean(data.truncated);
+    state.logs.message = data.ok === false
+      ? String(data.message || 'Не удалось прочитать журнал.')
+      : data.available
+        ? ''
+        : 'Файл журнала не найден.';
+  } catch (error) {
+    state.logs.loaded = true;
+    state.logs.available = false;
+    state.logs.message = error?.message || String(error);
+    if (!options.silent) {
+      showMessage('Не удалось получить логи.', { severity: 'warning', details: state.logs.message });
+    }
+  } finally {
+    state.logs.loading = false;
+    renderLogs();
+  }
+}
+
+function handleLogSourceChange() {
+  state.logs.source = els.logsSourceSelect.value || 'mihui';
+  state.logs.loaded = false;
+  state.logs.available = false;
+  state.logs.rawText = '';
+  state.logs.path = '';
+  state.logs.modifiedAt = 0;
+  state.logs.message = '';
+  loadLogs({ silent: false });
+}
+
+function handleLogFilterChange() {
+  state.logs.search = els.logsSearchInput.value || '';
+  state.logs.level = els.logsLevelSelect.value || '';
+  renderLogs();
+}
+
+function handleLogAutoRefreshChange() {
+  state.logs.autoRefresh = Boolean(els.logsAutoRefresh.checked);
+  if (state.logs.autoRefresh && state.activeSection === 'logs') loadLogs({ silent: true });
+  renderLogs();
+}
+
+function startLogsPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (state.activeSection === 'logs' && state.logs.autoRefresh && !state.logs.loading && !document.hidden) {
+      loadLogs({ silent: true });
+    }
+  }, LOG_REFRESH_MS);
+}
+
+function renderLogs() {
+  const canRequest = typeof fetch === 'function' && window.location?.protocol !== 'file:';
+  const sources = state.logs.sources.length > 0
+    ? state.logs.sources
+    : [
+        { id: 'mihui', label: 'MihUI', available: true },
+        { id: 'mihomo', label: 'Mihomo', available: true },
+        { id: 'xkeen', label: 'XKeen', available: true },
+      ];
+
+  const currentSource = state.logs.source || 'mihui';
+  els.logsSourceSelect.textContent = '';
+  sources.forEach((source) => {
+    const option = document.createElement('option');
+    option.value = String(source.id || '');
+    option.textContent = source.available === false
+      ? `${source.label || source.id} · нет файла`
+      : String(source.label || source.id || '');
+    option.selected = option.value === currentSource;
+    els.logsSourceSelect.append(option);
+  });
+  els.logsSourceSelect.value = currentSource;
+  els.logsLevelSelect.value = state.logs.level;
+  els.logsSearchInput.value = state.logs.search;
+  els.logsAutoRefresh.checked = state.logs.autoRefresh;
+  els.logsSourceSelect.disabled = !canRequest || state.logs.loading;
+  els.logsRefreshButton.disabled = !canRequest || state.logs.loading;
+
+  const rawLineCount = state.logs.rawText ? state.logs.rawText.split('\n').length : 0;
+  if (!canRequest) {
+    els.logsStatus.textContent = 'Доступно при работе через MihUI на роутере.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    els.logsStatus.textContent = 'Загружаем журнал...';
+  } else if (state.logs.loading) {
+    els.logsStatus.textContent = 'Обновляем журнал...';
+  } else if (state.logs.message) {
+    els.logsStatus.textContent = state.logs.message;
+  } else if (state.logs.available) {
+    els.logsStatus.textContent = state.logs.truncated
+      ? `Показаны последние ${rawLineCount} строк.`
+      : `${formatLogLineCount(rawLineCount)}.`;
+  } else {
+    els.logsStatus.textContent = 'Выберите источник журнала.';
+  }
+
+  const filteredText = filterLogText(state.logs.rawText, state.logs.search, state.logs.level);
+  let outputText = filteredText;
+  if (!canRequest) {
+    outputText = 'Логи доступны только через локальный сервис MihUI.';
+  } else if (state.logs.loading && !state.logs.loaded) {
+    outputText = 'Загружаем журнал...';
+  } else if (!state.logs.available) {
+    outputText = state.logs.path
+      ? `Файл журнала не найден:\n${state.logs.path}`
+      : state.logs.message || 'Журнал недоступен.';
+  } else if (!filteredText) {
+    outputText = state.logs.rawText ? 'По выбранным фильтрам совпадений нет.' : 'Журнал пока пуст.';
+  }
+
+  const distanceFromBottom = Number(els.logsOutput.scrollHeight) - Number(els.logsOutput.scrollTop) - Number(els.logsOutput.clientHeight);
+  const shouldFollowTail = !Number.isFinite(distanceFromBottom) || distanceFromBottom < 48;
+  if (els.logsOutput.textContent !== outputText) els.logsOutput.textContent = outputText;
+  if (shouldFollowTail) {
+    window.requestAnimationFrame?.(() => {
+      els.logsOutput.scrollTop = els.logsOutput.scrollHeight;
+    });
+  }
+
+  els.logsPath.textContent = state.logs.path || 'Файл не выбран';
+  els.logsPath.title = state.logs.path || '';
+  els.logsUpdatedAt.textContent = state.logs.modifiedAt
+    ? `Изменён ${formatBackupMtime(state.logs.modifiedAt)}`
+    : '—';
+}
+
+function filterLogText(text, search, level) {
+  const searchValue = String(search || '').trim().toLocaleLowerCase('ru-RU');
+  return String(text || '')
+    .split('\n')
+    .filter((line) => !searchValue || line.toLocaleLowerCase('ru-RU').includes(searchValue))
+    .filter((line) => matchesLogLevel(line, level))
+    .join('\n');
+}
+
+function matchesLogLevel(line, level) {
+  const patterns = {
+    error: /\b(error|fatal|panic|critical|crit)\b/i,
+    warn: /\b(warn|warning)\b/i,
+    info: /\b(info|notice)\b/i,
+    debug: /\b(debug|trace)\b/i,
+  };
+  return !level || patterns[level]?.test(String(line || '')) || false;
+}
+
+function formatLogLineCount(count) {
+  const value = Number(count) || 0;
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${value} строка`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${value} строки`;
+  return `${value} строк`;
 }
 
 function normalizeComponentItem(item) {

@@ -56,7 +56,12 @@ POST /api/update/start
 MIHUI_CONFIG_PATH="/opt/etc/mihomo/config.yaml"
 MIHUI_MIHOMO_API="http://127.0.0.1:9090"
 MIHUI_MIHOMO_SECRET=""
+MIHUI_LOG_PATH="/opt/var/log/mihui/server.log"
+MIHUI_MIHOMO_LOG_PATH="/opt/var/log/mihomo.log"
+MIHUI_XKEEN_LOG_PATH="/opt/var/log/xkeen.log"
 ```
+
+Пути `MIHUI_MIHOMO_LOG_PATH` и `MIHUI_XKEEN_LOG_PATH` нужны только если соответствующий сервис пишет постоянный журнал в нестандартное место. Раздел «Логи» читает последние строки только из этих фиксированных источников.
 
 Для `happ://crypt*` кнопка в UI расшифровывает ссылку локально в браузере модулем из папки `happ-decryptor` и заменяет её на прямой URL.
 Локальный provider adapter также умеет разобрать `incy://import` и повторить Happ landing-запрос с `User-Agent: Happ/1.0`, `x-hwid` и `hwid` query, если обычный ответ выглядит как Happ/INCY landing.
