@@ -119,6 +119,7 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /state\.components\.jobVisible = true/);
     assert.match(source, /state\.components\.jobVisible && job\.ok !== null/);
     assert.match(source, /getComponentActionSuccessLabel\(job\)/);
+    assert.doesNotMatch(source, /!state\.components\.job\.running\) els\.componentJobDetails\.open = false/);
     assert.match(source, /componentAdvancedButtons[\s\S]+?aria-controls[\s\S]+?aria-expanded[\s\S]+?panel\.hidden = expanded/);
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }

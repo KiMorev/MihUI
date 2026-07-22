@@ -2327,11 +2327,9 @@ async function pollComponentJob() {
     state.components.pollTimer = 0;
   }
   try {
-    const wasRunning = state.components.job.running;
     const data = await apiJson('/api/components/job');
     state.components.job = normalizeComponentJob(data.job);
     if (state.components.job.running) state.components.jobVisible = true;
-    if (wasRunning && !state.components.job.running) els.componentJobDetails.open = false;
     renderComponentManager();
     renderXkeenNetworkFiles();
     if (state.components.job.running) {
