@@ -641,7 +641,10 @@ els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
-els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenFileEditors.forEach((editor) => {
+  editor.addEventListener('input', handleXkeenNetworkFileInput);
+  editor.addEventListener('scroll', syncXkeenFileHighlightScroll);
+});
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
@@ -1574,6 +1577,48 @@ function formatXkeenEntryCount(count) {
   return `${value} записей`;
 }
 
+function updateXkeenFileHighlight(editor, key, value) {
+  const highlight = editor.previousElementSibling;
+  if (!highlight || highlight.dataset.xkeenFileHighlight !== key) return;
+  const fragment = document.createDocumentFragment();
+  const text = String(value);
+  const lines = text.split('\n');
+  let inBlockComment = false;
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trimStart();
+    let isComment = trimmed.startsWith('#');
+    if (key === 'xkeenConfig') {
+      const startsBlockComment = !inBlockComment && trimmed.startsWith('/*');
+      isComment = inBlockComment || trimmed.startsWith('//') || startsBlockComment;
+      if ((inBlockComment || startsBlockComment) && line.includes('*/')) {
+        inBlockComment = false;
+      } else if (startsBlockComment) {
+        inBlockComment = true;
+      }
+    }
+    const lineNode = isComment ? document.createElement('span') : document.createTextNode(line);
+    if (isComment) {
+      lineNode.className = 'xkeen-file-comment';
+      lineNode.textContent = line;
+    }
+    fragment.append(lineNode);
+    if (index < lines.length - 1) fragment.append(document.createTextNode('\n'));
+  });
+  if (!text || text.endsWith('\n')) fragment.append(document.createTextNode(' '));
+  highlight.replaceChildren(fragment);
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+
+function syncXkeenFileHighlightScroll(event) {
+  const editor = event.currentTarget;
+  const highlight = editor.previousElementSibling;
+  if (!highlight) return;
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+
 function handleXkeenNetworkFileInput(event) {
   const key = event.currentTarget.dataset.xkeenFile;
   if (!XKEEN_NETWORK_FILE_KEYS.includes(key)) return;
@@ -1604,6 +1649,9 @@ function renderXkeenNetworkFiles() {
     if (editor.value !== value) editor.value = value;
     editor.disabled = disabled;
     editor.classList.toggle('is-invalid', errorsByFile.has(key));
+    editor.parentElement?.classList.toggle('is-disabled', disabled);
+    editor.parentElement?.classList.toggle('is-invalid', errorsByFile.has(key));
+    updateXkeenFileHighlight(editor, key, value);
   });
   els.xkeenFileCards.forEach((card) => {
     const key = card.dataset.xkeenFileCard;

@@ -371,7 +371,10 @@
               <span class="xkeen-file-count" data-xkeen-file-count="portProxying">0 записей</span>
             </header>
             <p class="xkeen-file-description">Порты и диапазоны, которые XKeen направляет через прокси.</p>
-            <textarea id="xkeenPortProxyingEditor" class="xkeen-file-editor" data-xkeen-file="portProxying" spellcheck="false" aria-label="Проксируемые порты" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="portProxying" aria-hidden="true"></pre>
+              <textarea id="xkeenPortProxyingEditor" class="xkeen-file-editor" data-xkeen-file="portProxying" spellcheck="false" aria-label="Проксируемые порты" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="portProxying">port_proxying.lst</span>
               <strong data-xkeen-file-error="portProxying" hidden></strong>
@@ -387,7 +390,10 @@
               <span class="xkeen-file-count" data-xkeen-file-count="portExclude">0 записей</span>
             </header>
             <p class="xkeen-file-description">Порты, которые нужно исключить из проксирования.</p>
-            <textarea id="xkeenPortExcludeEditor" class="xkeen-file-editor" data-xkeen-file="portExclude" spellcheck="false" aria-label="Исключённые порты" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="portExclude" aria-hidden="true"></pre>
+              <textarea id="xkeenPortExcludeEditor" class="xkeen-file-editor" data-xkeen-file="portExclude" spellcheck="false" aria-label="Исключённые порты" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="portExclude">port_exclude.lst</span>
               <strong data-xkeen-file-error="portExclude" hidden></strong>
@@ -403,7 +409,10 @@
               <span class="xkeen-file-count" data-xkeen-file-count="ipExclude">0 записей</span>
             </header>
             <p class="xkeen-file-description">IPv4/IPv6 адреса и подсети, которые должны идти напрямую.</p>
-            <textarea id="xkeenIpExcludeEditor" class="xkeen-file-editor" data-xkeen-file="ipExclude" spellcheck="false" aria-label="Исключённые IP-адреса и подсети" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="ipExclude" aria-hidden="true"></pre>
+              <textarea id="xkeenIpExcludeEditor" class="xkeen-file-editor" data-xkeen-file="ipExclude" spellcheck="false" aria-label="Исключённые IP-адреса и подсети" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="ipExclude">ip_exclude.lst</span>
               <strong data-xkeen-file-error="ipExclude" hidden></strong>
@@ -419,7 +428,10 @@
               <span class="xkeen-file-count" data-xkeen-file-count="xkeenConfig">JSONC</span>
             </header>
             <p class="xkeen-file-description">Пользовательские политики маршрутизации XKeen в формате JSON с комментариями.</p>
-            <textarea id="xkeenConfigEditor" class="xkeen-file-editor" data-xkeen-file="xkeenConfig" spellcheck="false" aria-label="Конфигурация xkeen.json" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="xkeenConfig" aria-hidden="true"></pre>
+              <textarea id="xkeenConfigEditor" class="xkeen-file-editor" data-xkeen-file="xkeenConfig" spellcheck="false" aria-label="Конфигурация xkeen.json" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="xkeenConfig">xkeen.json</span>
               <strong data-xkeen-file-error="xkeenConfig" hidden></strong>

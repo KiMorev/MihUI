@@ -2464,28 +2464,81 @@ body.component-manager-open {
   font-size: 13px;
 }
 
-.xkeen-file-editor {
-  width: auto;
+.xkeen-file-editor-shell {
+  position: relative;
   min-width: 0;
   min-height: 220px;
   margin: 0 14px;
+  border-radius: 6px;
+}
+
+.xkeen-file-highlight {
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 11px 12px;
+  border-radius: 5px;
+  background: #fbfcfe;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  tab-size: 2;
+  white-space: pre-wrap;
+}
+
+.xkeen-file-comment {
+  color: #949aa4;
+  font-style: italic;
+}
+
+.xkeen-file-editor {
+  position: relative;
+  z-index: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 220px;
+  margin: 0;
   padding: 11px 12px;
   resize: vertical;
   border-radius: 6px;
-  background: #fbfcfe;
+  background: transparent;
+  caret-color: var(--text);
+  color: transparent;
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   font-size: 13px;
   line-height: 1.55;
   tab-size: 2;
+  -webkit-text-fill-color: transparent;
+}
+
+.xkeen-file-editor-shell > .xkeen-file-editor {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .xkeen-file-editor:disabled {
+  background: transparent;
+  color: transparent;
+}
+
+.xkeen-file-editor-shell.is-disabled .xkeen-file-highlight {
   background: #f1f4f6;
   color: var(--muted);
 }
 
 .xkeen-file-editor.is-invalid {
   border-color: var(--danger);
+  background: transparent;
+}
+
+.xkeen-file-editor-shell.is-invalid .xkeen-file-highlight {
   background: #fffafa;
 }
 
@@ -7452,7 +7505,7 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
-  .xkeen-file-editor {
+  .xkeen-file-editor-shell {
     margin-inline: 10px;
   }
 
@@ -7832,7 +7885,10 @@ button.review-check-card:focus-visible {
               <span class="xkeen-file-count" data-xkeen-file-count="portProxying">0 записей</span>
             </header>
             <p class="xkeen-file-description">Порты и диапазоны, которые XKeen направляет через прокси.</p>
-            <textarea id="xkeenPortProxyingEditor" class="xkeen-file-editor" data-xkeen-file="portProxying" spellcheck="false" aria-label="Проксируемые порты" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="portProxying" aria-hidden="true"></pre>
+              <textarea id="xkeenPortProxyingEditor" class="xkeen-file-editor" data-xkeen-file="portProxying" spellcheck="false" aria-label="Проксируемые порты" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="portProxying">port_proxying.lst</span>
               <strong data-xkeen-file-error="portProxying" hidden></strong>
@@ -7848,7 +7904,10 @@ button.review-check-card:focus-visible {
               <span class="xkeen-file-count" data-xkeen-file-count="portExclude">0 записей</span>
             </header>
             <p class="xkeen-file-description">Порты, которые нужно исключить из проксирования.</p>
-            <textarea id="xkeenPortExcludeEditor" class="xkeen-file-editor" data-xkeen-file="portExclude" spellcheck="false" aria-label="Исключённые порты" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="portExclude" aria-hidden="true"></pre>
+              <textarea id="xkeenPortExcludeEditor" class="xkeen-file-editor" data-xkeen-file="portExclude" spellcheck="false" aria-label="Исключённые порты" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="portExclude">port_exclude.lst</span>
               <strong data-xkeen-file-error="portExclude" hidden></strong>
@@ -7864,7 +7923,10 @@ button.review-check-card:focus-visible {
               <span class="xkeen-file-count" data-xkeen-file-count="ipExclude">0 записей</span>
             </header>
             <p class="xkeen-file-description">IPv4/IPv6 адреса и подсети, которые должны идти напрямую.</p>
-            <textarea id="xkeenIpExcludeEditor" class="xkeen-file-editor" data-xkeen-file="ipExclude" spellcheck="false" aria-label="Исключённые IP-адреса и подсети" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="ipExclude" aria-hidden="true"></pre>
+              <textarea id="xkeenIpExcludeEditor" class="xkeen-file-editor" data-xkeen-file="ipExclude" spellcheck="false" aria-label="Исключённые IP-адреса и подсети" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="ipExclude">ip_exclude.lst</span>
               <strong data-xkeen-file-error="ipExclude" hidden></strong>
@@ -7880,7 +7942,10 @@ button.review-check-card:focus-visible {
               <span class="xkeen-file-count" data-xkeen-file-count="xkeenConfig">JSONC</span>
             </header>
             <p class="xkeen-file-description">Пользовательские политики маршрутизации XKeen в формате JSON с комментариями.</p>
-            <textarea id="xkeenConfigEditor" class="xkeen-file-editor" data-xkeen-file="xkeenConfig" spellcheck="false" aria-label="Конфигурация xkeen.json" disabled></textarea>
+            <div class="xkeen-file-editor-shell">
+              <pre class="xkeen-file-highlight" data-xkeen-file-highlight="xkeenConfig" aria-hidden="true"></pre>
+              <textarea id="xkeenConfigEditor" class="xkeen-file-editor" data-xkeen-file="xkeenConfig" spellcheck="false" aria-label="Конфигурация xkeen.json" disabled></textarea>
+            </div>
             <footer class="xkeen-file-meta">
               <span data-xkeen-file-path="xkeenConfig">xkeen.json</span>
               <strong data-xkeen-file-error="xkeenConfig" hidden></strong>
@@ -8982,7 +9047,10 @@ els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
-els.xkeenFileEditors.forEach((editor) => editor.addEventListener('input', handleXkeenNetworkFileInput));
+els.xkeenFileEditors.forEach((editor) => {
+  editor.addEventListener('input', handleXkeenNetworkFileInput);
+  editor.addEventListener('scroll', syncXkeenFileHighlightScroll);
+});
 els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
@@ -9915,6 +9983,48 @@ function formatXkeenEntryCount(count) {
   return `${value} записей`;
 }
 
+function updateXkeenFileHighlight(editor, key, value) {
+  const highlight = editor.previousElementSibling;
+  if (!highlight || highlight.dataset.xkeenFileHighlight !== key) return;
+  const fragment = document.createDocumentFragment();
+  const text = String(value);
+  const lines = text.split('\n');
+  let inBlockComment = false;
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trimStart();
+    let isComment = trimmed.startsWith('#');
+    if (key === 'xkeenConfig') {
+      const startsBlockComment = !inBlockComment && trimmed.startsWith('/*');
+      isComment = inBlockComment || trimmed.startsWith('//') || startsBlockComment;
+      if ((inBlockComment || startsBlockComment) && line.includes('*/')) {
+        inBlockComment = false;
+      } else if (startsBlockComment) {
+        inBlockComment = true;
+      }
+    }
+    const lineNode = isComment ? document.createElement('span') : document.createTextNode(line);
+    if (isComment) {
+      lineNode.className = 'xkeen-file-comment';
+      lineNode.textContent = line;
+    }
+    fragment.append(lineNode);
+    if (index < lines.length - 1) fragment.append(document.createTextNode('\n'));
+  });
+  if (!text || text.endsWith('\n')) fragment.append(document.createTextNode(' '));
+  highlight.replaceChildren(fragment);
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+
+function syncXkeenFileHighlightScroll(event) {
+  const editor = event.currentTarget;
+  const highlight = editor.previousElementSibling;
+  if (!highlight) return;
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+}
+
 function handleXkeenNetworkFileInput(event) {
   const key = event.currentTarget.dataset.xkeenFile;
   if (!XKEEN_NETWORK_FILE_KEYS.includes(key)) return;
@@ -9945,6 +10055,9 @@ function renderXkeenNetworkFiles() {
     if (editor.value !== value) editor.value = value;
     editor.disabled = disabled;
     editor.classList.toggle('is-invalid', errorsByFile.has(key));
+    editor.parentElement?.classList.toggle('is-disabled', disabled);
+    editor.parentElement?.classList.toggle('is-invalid', errorsByFile.has(key));
+    updateXkeenFileHighlight(editor, key, value);
   });
   els.xkeenFileCards.forEach((card) => {
     const key = card.dataset.xkeenFileCard;
