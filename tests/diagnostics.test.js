@@ -126,6 +126,10 @@ globalThis.__app = {
   getDisplayFileName,
   getMissingConnectionSettings,
   getNodeGroupSelectionItems,
+  getNodeInventoryStatusCounts,
+  getNodeInventorySummaryText,
+  getNodeNameRuleImpact,
+  getNodeProtocolImpact,
   getOutputPreviewText,
   getRouterSaveState,
   getReviewPrimaryActionState,
@@ -155,6 +159,7 @@ globalThis.__app = {
   getProviderRuntimeWarnings,
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
+  applyNodeProviderRule,
   parseGroups,
   parseRules,
   parseProviders,
@@ -1441,6 +1446,67 @@ proxy-groups:
     assert.deepEqual([...proxy.options], ['node-a', 'node-b']);
     assert.equal(app.isSelectableNodeGroup(proxy), true);
     assert.equal(app.isSelectableNodeGroup(auto), false);
+  });
+
+  test(`${source.name}: writes node-derived provider rules into yaml`, () => {
+    const app = loadApp(source);
+    const [provider] = hydrate(app, `
+proxy-providers:
+  AlphaNet:
+    type: http
+    url: https://alpha.example/sub
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - AlphaNet
+rules:
+  - MATCH,PROXY
+`);
+
+    app.applyNodeProviderRule(provider, 'filter', 'EU');
+    app.applyNodeProviderRule(provider, 'excludeFilter', 'NL');
+    app.applyNodeProviderRule(provider, 'excludeType', 'vless');
+
+    assert.equal(provider.hasFilter, true);
+    assert.equal(provider.hasExcludeFilter, true);
+    assert.equal(provider.hasExcludeType, true);
+    assert.match(app.state.outputText, /\n    filter: EU\s*\n/);
+    assert.match(app.state.outputText, /\n    exclude-filter: NL\s*\n/);
+    assert.match(app.state.outputText, /\n    exclude-type: vless\s*\n/);
+  });
+
+  test(`${source.name}: reports node rule impact, status and filtered totals`, () => {
+    const app = loadApp(source);
+    app.state.mihomoNodes = [
+      { name: 'NL Amsterdam 01', provider: 'AlphaNet', type: 'VLESS', alive: true },
+      { name: 'NL Amsterdam 02', provider: 'AlphaNet', type: 'TROJAN', alive: true },
+      { name: 'DE Berlin', provider: 'AlphaNet', type: 'VLESS', alive: false },
+      { name: 'No status', provider: 'BetaMesh', type: 'HTTP' },
+    ];
+
+    const nameImpact = app.getNodeNameRuleImpact('AlphaNet', 'NL');
+    const protocolImpact = app.getNodeProtocolImpact('AlphaNet', 'vless');
+    const invalidImpact = app.getNodeNameRuleImpact('AlphaNet', '[');
+    const nodes = [
+      { provider: 'AlphaNet', protocol: 'VLESS' },
+      { provider: 'AlphaNet', protocol: 'TROJAN' },
+      { provider: 'BetaMesh', protocol: 'HTTP' },
+    ];
+
+    assert.equal(nameImpact.matches.length, 2);
+    assert.equal(nameImpact.total, 3);
+    assert.equal(protocolImpact.matches.length, 2);
+    assert.equal(invalidImpact.valid, false);
+    assert.deepEqual({ ...app.getNodeInventoryStatusCounts(app.state.mihomoNodes) }, {
+      availableCount: 2,
+      unavailableCount: 1,
+      unknownCount: 1,
+    });
+    assert.equal(
+      app.getNodeInventorySummaryText(nodes, [nodes[0]]),
+      'Ноды: 1 из 3 · Подписки: 1 из 2 · Протоколы: 1 из 3',
+    );
   });
 
   test(`${source.name}: renames existing group references`, () => {

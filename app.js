@@ -340,6 +340,8 @@ const state = {
     protocol: '',
     status: '',
   },
+  nodeFiltersCollapsed: null,
+  nodeGroupSelectionsCollapsed: null,
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
   kernelCheckBusy: false,
@@ -556,6 +558,8 @@ const els = {
   nodeInventoryStatus: document.querySelector('#nodeInventoryStatus'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
   nodeResetFiltersButton: document.querySelector('#nodeResetFiltersButton'),
+  nodeFiltersToggleButton: document.querySelector('#nodeFiltersToggleButton'),
+  nodeFiltersToggleSummary: document.querySelector('#nodeFiltersToggleSummary'),
   nodeGroupSelections: document.querySelector('#nodeGroupSelections'),
   nodeInventorySummary: document.querySelector('#nodeInventorySummary'),
   nodeInventoryList: document.querySelector('#nodeInventoryList'),
@@ -633,6 +637,7 @@ els.mobileReviewButton.addEventListener('click', handleTopbarSaveAction);
 els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
 els.nodeResetFiltersButton.addEventListener('click', resetNodeFilters);
+els.nodeFiltersToggleButton.addEventListener('click', toggleNodeFilters);
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
 els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
@@ -2558,6 +2563,7 @@ function formatNodeInventoryError(detail) {
 }
 
 function handleNodeFilterChange() {
+  hideMessage();
   state.nodeFilters.search = els.nodeSearchInput.value || '';
   state.nodeFilters.provider = els.nodeProviderFilter.value || '';
   state.nodeFilters.group = els.nodeGroupFilter.value || '';
@@ -2567,6 +2573,7 @@ function handleNodeFilterChange() {
 }
 
 function resetNodeFilters() {
+  hideMessage();
   state.nodeFilters = {
     search: '',
     provider: '',
@@ -2575,6 +2582,26 @@ function resetNodeFilters() {
     status: '',
   };
   renderNodeInventory();
+}
+
+function toggleNodeFilters() {
+  state.nodeFiltersCollapsed = !getNodeFiltersCollapsed();
+  renderNodeInventory();
+  els.nodeFiltersToggleButton.focus();
+}
+
+function getNodeFiltersCollapsed() {
+  if (state.nodeFiltersCollapsed === null) {
+    state.nodeFiltersCollapsed = Boolean(window.matchMedia?.('(max-width: 560px)').matches);
+  }
+  return state.nodeFiltersCollapsed;
+}
+
+function getNodeGroupSelectionsCollapsed() {
+  if (state.nodeGroupSelectionsCollapsed === null) {
+    state.nodeGroupSelectionsCollapsed = Boolean(window.matchMedia?.('(max-width: 560px)').matches);
+  }
+  return state.nodeGroupSelectionsCollapsed;
 }
 
 async function updateProviderNow(provider) {
@@ -5124,6 +5151,12 @@ function renderNodeInventory() {
     .forEach((control) => { control.disabled = controlsDisabled; });
   els.nodeResetFiltersButton.hidden = controlsDisabled || activeFilterCount === 0;
   els.nodeResetFiltersButton.querySelector('span').textContent = `Сбросить (${activeFilterCount})`;
+  const filtersCollapsed = getNodeFiltersCollapsed();
+  els.nodeInventoryControls.classList.toggle('is-collapsed', filtersCollapsed);
+  els.nodeFiltersToggleButton.setAttribute('aria-expanded', String(!filtersCollapsed));
+  els.nodeFiltersToggleSummary.textContent = activeFilterCount > 0
+    ? `${activeFilterCount} ${activeFilterCount === 1 ? 'активен' : 'активны'}`
+    : 'Все ноды';
   els.nodeInventoryRefreshButton.hidden = false;
   els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
   els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading
@@ -5203,16 +5236,31 @@ function renderNodeGroupSelections(nodes) {
   const head = document.createElement('div');
   const title = document.createElement('strong');
   const meta = document.createElement('span');
+  const headActions = document.createElement('div');
+  const toggle = document.createElement('button');
   const list = document.createElement('div');
   const knownCount = items.filter((item) => item.isKnown).length;
+  const collapsed = getNodeGroupSelectionsCollapsed();
 
   panel.classList.remove('empty-state');
   head.className = 'node-group-selection-head';
   title.textContent = 'Текущий выбор в группах';
   meta.textContent = `${knownCount} из ${items.length}`;
+  headActions.className = 'node-group-selection-head-actions';
+  toggle.className = 'button ghost compact node-group-selection-toggle';
+  toggle.type = 'button';
+  toggle.textContent = collapsed ? 'Показать' : 'Скрыть';
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.addEventListener('click', () => {
+    state.nodeGroupSelectionsCollapsed = !state.nodeGroupSelectionsCollapsed;
+    renderNodeGroupSelections(nodes);
+    els.nodeGroupSelections.querySelector('.node-group-selection-toggle')?.focus();
+  });
   list.className = 'node-group-selection-list';
+  list.hidden = collapsed;
   items.forEach((item) => list.append(createNodeGroupSelectionCard(item)));
-  head.append(title, meta);
+  headActions.append(meta, toggle);
+  head.append(title, headActions);
   panel.append(head, list);
 }
 
@@ -5421,8 +5469,6 @@ function matchesNodeFilters(node) {
 }
 
 function renderNodeInventorySummary(nodes, filtered) {
-  const providerCount = new Set(nodes.map((node) => node.provider).filter(Boolean)).size;
-  const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
   const summary = els.nodeInventorySummary.closest('.node-inventory-summary');
 
   if (state.nodeInventoryLoading || state.nodeInventoryError || nodes.length === 0) {
@@ -5431,11 +5477,23 @@ function renderNodeInventorySummary(nodes, filtered) {
   }
 
   summary.hidden = false;
-  els.nodeInventorySummary.textContent = `${formatProxyCount(filtered.length)} из ${formatProxyCount(nodes.length)} · ${providerCount} подписок · ${protocolCount} протоколов`;
+  els.nodeInventorySummary.textContent = getNodeInventorySummaryText(nodes, filtered);
+}
+
+function getNodeInventorySummaryText(nodes, filtered) {
+  const providerCount = new Set(nodes.map((node) => node.provider).filter(Boolean)).size;
+  const filteredProviderCount = new Set(filtered.map((node) => node.provider).filter(Boolean)).size;
+  const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
+  const filteredProtocolCount = new Set(filtered.map((node) => node.protocol).filter(Boolean)).size;
+  return [
+    `Ноды: ${filtered.length} из ${nodes.length}`,
+    `Подписки: ${filteredProviderCount} из ${providerCount}`,
+    `Протоколы: ${filteredProtocolCount} из ${protocolCount}`,
+  ].join(' · ');
 }
 
 function renderNodeInventoryStatus(nodes) {
-  const availableCount = nodes.filter((node) => node.alive === true).length;
+  const { availableCount, unavailableCount, unknownCount } = getNodeInventoryStatusCounts(nodes);
   const updatedAt = state.nodeInventoryUpdatedAt ? formatServiceHealthTime(state.nodeInventoryUpdatedAt) : '';
   els.nodeInventoryStatus.classList.remove('is-success', 'is-warning', 'is-danger');
 
@@ -5456,12 +5514,22 @@ function renderNodeInventoryStatus(nodes) {
     return;
   }
 
-  const unavailableCount = nodes.length - availableCount;
   const parts = [`${availableCount} из ${nodes.length} доступны`];
   if (unavailableCount > 0) parts.push(`${unavailableCount} без ответа`);
+  if (unknownCount > 0) parts.push(`${unknownCount} без статуса`);
   if (updatedAt) parts.push(`обновлено ${updatedAt}`);
   els.nodeInventoryStatus.textContent = parts.join(' · ');
-  els.nodeInventoryStatus.classList.add(unavailableCount > 0 ? 'is-warning' : 'is-success');
+  els.nodeInventoryStatus.classList.add(unavailableCount > 0 || unknownCount > 0 ? 'is-warning' : 'is-success');
+}
+
+function getNodeInventoryStatusCounts(nodes) {
+  const availableCount = nodes.filter((node) => node.alive === true).length;
+  const unavailableCount = nodes.filter((node) => node.alive === false).length;
+  return {
+    availableCount,
+    unavailableCount,
+    unknownCount: nodes.length - availableCount - unavailableCount,
+  };
 }
 
 function replaceFilterOptions(select, allLabel, values, selected) {
@@ -5500,12 +5568,16 @@ function createNodeInventoryCard(node) {
 
   card.className = 'node-card';
   card.classList.toggle('has-inline-flag', !hasFlag);
+  card.dataset.nodeName = node.name;
+  card.dataset.nodeProvider = node.provider;
   body.className = 'node-card-body';
   titleRow.className = 'node-card-title';
   title.type = 'button';
   title.className = 'node-name-button';
   title.textContent = node.displayName || 'Без названия';
-  title.addEventListener('click', () => showNodeNameAction(card, node));
+  title.title = 'Настроить filter или exclude-filter по имени ноды';
+  title.setAttribute('aria-label', `Настроить filter или exclude-filter по имени ноды ${node.displayName || node.name}`);
+  title.addEventListener('click', () => showNodeNameAction(card, node, title));
   badges.className = 'node-badges';
   badges.append(
     protocolBadge,
@@ -5523,14 +5595,14 @@ function createNodeInventoryCard(node) {
   if (hasFlag) {
     flag.className = node.flagEmoji ? 'node-flag is-emoji' : 'node-flag';
     flag.type = 'button';
-    flag.title = node.flagCode || node.flagEmoji;
-    flag.setAttribute('aria-label', node.flagCode || node.flagEmoji);
+    flag.title = 'Настроить filter или exclude-filter по имени ноды';
+    flag.setAttribute('aria-label', `Настроить filter или exclude-filter для ноды ${node.displayName || node.name}`);
     if (node.flagEmoji) {
       flag.textContent = node.flagEmoji;
     } else if (flag.style) {
       flag.style.backgroundImage = `url("${node.flagImage}")`;
     }
-    flag.addEventListener('click', () => showNodeNameAction(card, node));
+    flag.addEventListener('click', () => showNodeNameAction(card, node, flag));
     card.append(flag, body);
   } else {
     card.append(body);
@@ -5543,7 +5615,12 @@ function createNodeProtocolBadge(node) {
   badge.type = 'button';
   badge.className = 'node-badge node-badge-button is-protocol';
   badge.textContent = node.protocol || 'UNKNOWN';
-  badge.addEventListener('click', () => showNodeProtocolAction(badge.closest('.node-card'), node));
+  badge.title = 'Фильтровать список или добавить exclude-type';
+  badge.setAttribute(
+    'aria-label',
+    `Настроить действия для протокола ${node.protocol || 'UNKNOWN'} у ноды ${node.displayName || node.name}`,
+  );
+  badge.addEventListener('click', () => showNodeProtocolAction(badge.closest('.node-card'), node, badge));
   return badge;
 }
 
@@ -5554,7 +5631,7 @@ function createNodeBadge(text, className) {
   return badge;
 }
 
-function showNodeNameAction(card, node) {
+function showNodeNameAction(card, node, trigger) {
   if (!card) return;
   closeNodeActionForms();
 
@@ -5568,6 +5645,7 @@ function showNodeNameAction(card, node) {
   const label = document.createElement('label');
   const labelText = document.createElement('span');
   const input = document.createElement('input');
+  const impact = document.createElement('p');
   const actions = document.createElement('div');
   const keepButton = document.createElement('button');
   const excludeButton = document.createElement('button');
@@ -5578,29 +5656,38 @@ function showNodeNameAction(card, node) {
   input.type = 'text';
   input.value = suggestNodeNameFilter(node);
   input.autocomplete = 'off';
+  impact.className = 'node-action-impact';
   actions.className = 'node-action-buttons';
   keepButton.type = 'button';
   keepButton.className = 'button compact';
-  keepButton.textContent = 'Фильтровать';
+  keepButton.textContent = 'Добавить в filter';
   excludeButton.type = 'button';
   excludeButton.className = 'button compact';
-  excludeButton.textContent = 'Исключить';
+  excludeButton.textContent = 'Добавить в exclude-filter';
   cancelButton.type = 'button';
   cancelButton.className = 'button compact ghost';
   cancelButton.textContent = 'Отмена';
 
-  keepButton.addEventListener('click', () => applyNodeNameFilter(provider, 'filter', input.value));
-  excludeButton.addEventListener('click', () => applyNodeNameFilter(provider, 'excludeFilter', input.value));
-  cancelButton.addEventListener('click', closeNodeActionForms);
+  const updateImpact = () => {
+    impact.textContent = formatNodeNameRuleImpact(provider.name, input.value);
+  };
+  input.addEventListener('input', updateImpact);
+  keepButton.addEventListener('click', () => applyNodeNameFilter(provider, 'filter', input.value, node));
+  excludeButton.addEventListener('click', () => applyNodeNameFilter(provider, 'excludeFilter', input.value, node));
+  cancelButton.addEventListener('click', () => {
+    closeNodeActionForms();
+    trigger?.focus();
+  });
   label.append(labelText, input);
   actions.append(keepButton, excludeButton, cancelButton);
-  panel.append(label, actions);
+  panel.append(label, impact, actions);
   card.append(panel);
+  updateImpact();
   input.focus();
   input.select();
 }
 
-function showNodeProtocolAction(card, node) {
+function showNodeProtocolAction(card, node, trigger) {
   if (!card) return;
   closeNodeActionForms();
 
@@ -5613,27 +5700,33 @@ function showNodeProtocolAction(card, node) {
   const protocol = String(node.protocol || '').trim();
   const excludeType = protocol.toLowerCase();
   const panel = createNodeActionPanel(`Протокол ${protocol || 'UNKNOWN'}`, provider.name);
+  const impact = document.createElement('p');
   const actions = document.createElement('div');
   const filterButton = document.createElement('button');
   const excludeButton = document.createElement('button');
   const cancelButton = document.createElement('button');
 
   actions.className = 'node-action-buttons';
+  impact.className = 'node-action-impact';
+  impact.textContent = formatNodeProtocolImpact(provider.name, protocol);
   filterButton.type = 'button';
   filterButton.className = 'button compact';
-  filterButton.textContent = `Фильтровать список по ${protocol || 'UNKNOWN'}`;
+  filterButton.textContent = `Показать ${protocol || 'UNKNOWN'} в списке`;
   excludeButton.type = 'button';
   excludeButton.className = 'button compact';
-  excludeButton.textContent = `Исключить ${protocol || 'UNKNOWN'} из подписки`;
+  excludeButton.textContent = `Добавить exclude-type: ${excludeType || 'unknown'}`;
   cancelButton.type = 'button';
   cancelButton.className = 'button compact ghost';
   cancelButton.textContent = 'Отмена';
 
-  filterButton.addEventListener('click', () => applyNodeProtocolScreenFilter(protocol));
-  excludeButton.addEventListener('click', () => applyNodeProtocolExclude(provider, excludeType));
-  cancelButton.addEventListener('click', closeNodeActionForms);
+  filterButton.addEventListener('click', () => applyNodeProtocolScreenFilter(protocol, node));
+  excludeButton.addEventListener('click', () => applyNodeProtocolExclude(provider, excludeType, node));
+  cancelButton.addEventListener('click', () => {
+    closeNodeActionForms();
+    trigger?.focus();
+  });
   actions.append(filterButton, excludeButton, cancelButton);
-  panel.append(actions);
+  panel.append(impact, actions);
   card.append(panel);
 }
 
@@ -5661,37 +5754,102 @@ function getNodeActionProvider(node) {
   return state.providers.find((provider) => !provider.deleted && provider.name === node.provider) || null;
 }
 
-function applyNodeNameFilter(provider, key, rawValue) {
+function applyNodeNameFilter(provider, key, rawValue, node) {
   const value = String(rawValue || '').trim();
   if (!value) {
     showMessage('Введите текст для правила.');
     return;
   }
 
-  provider[key] = appendPipeValue(provider[key], value);
+  const impact = getNodeNameRuleImpact(provider.name, value);
+  if (!impact.valid) {
+    showMessage('Проверьте выражение для filter: оно не распознаётся.', { severity: 'error' });
+    return;
+  }
+  applyNodeProviderRule(provider, key, value);
   state.selectedProviderName = provider.name;
-  generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: ${key === 'filter' ? 'фильтрация' : 'исключение'} по названию обновлено.`);
+  focusNodeActionTrigger(node, 'name');
+  showMessage(
+    `Подписка ${provider.name}: в ${key === 'filter' ? 'filter' : 'exclude-filter'} добавлено «${value}» · совпадений: ${impact.matches.length}.`,
+    { severity: 'success' },
+  );
 }
 
-function applyNodeProtocolScreenFilter(protocol) {
+function applyNodeProtocolScreenFilter(protocol, node) {
   state.nodeFilters.protocol = protocol;
   renderNodeInventory();
+  focusNodeActionTrigger(node, 'protocol');
   showMessage(`Список нод отфильтрован по протоколу ${protocol}. Конфиг не изменён.`);
 }
 
-function applyNodeProtocolExclude(provider, protocol) {
+function applyNodeProtocolExclude(provider, protocol, node) {
   if (!ALLOWED_EXCLUDE_TYPES.has(protocol)) {
     showMessage(`Протокол ${protocol || 'unknown'} нельзя добавить в исключения.`);
     return;
   }
 
-  provider.excludeType = appendPipeValue(provider.excludeType, protocol);
+  const impact = getNodeProtocolImpact(provider.name, protocol);
+  applyNodeProviderRule(provider, 'excludeType', protocol);
   state.selectedProviderName = provider.name;
-  generateOutput();
   render();
-  showMessage(`Подписка ${provider.name}: протокол добавлен в исключения.`);
+  focusNodeActionTrigger(node, 'protocol');
+  showMessage(
+    `Подписка ${provider.name}: добавлено exclude-type: ${protocol} · совпадений: ${impact.matches.length}.`,
+    { severity: 'success' },
+  );
+}
+
+function applyNodeProviderRule(provider, key, value) {
+  const nextValue = appendPipeValue(provider[key], value);
+  updateProvider(provider, key, nextValue);
+  return nextValue;
+}
+
+function getNodeNameRuleImpact(providerName, rawPattern) {
+  const pattern = String(rawPattern || '').trim();
+  const nodes = state.mihomoNodes.filter((node) => String(node.provider || '') === providerName);
+  if (!pattern) return { matches: [], total: nodes.length, valid: true };
+
+  try {
+    const expression = new RegExp(pattern, 'i');
+    return {
+      matches: nodes.filter((node) => expression.test(String(node.name || ''))),
+      total: nodes.length,
+      valid: true,
+    };
+  } catch {
+    return { matches: [], total: nodes.length, valid: false };
+  }
+}
+
+function formatNodeNameRuleImpact(providerName, pattern) {
+  const impact = getNodeNameRuleImpact(providerName, pattern);
+  if (!impact.valid) return 'Не удалось посчитать совпадения: проверьте выражение.';
+  const examples = impact.matches.slice(0, 3).map((node) => stripNodeFlagEmoji(node.name)).join(', ');
+  return `Совпадения: ${impact.matches.length} из ${impact.total}${examples ? ` · ${examples}` : ''}`;
+}
+
+function getNodeProtocolImpact(providerName, protocol) {
+  const normalized = formatNodeProtocol(protocol);
+  const nodes = state.mihomoNodes.filter((node) => String(node.provider || '') === providerName);
+  return {
+    matches: nodes.filter((node) => formatNodeProtocol(node.type) === normalized),
+    total: nodes.length,
+  };
+}
+
+function formatNodeProtocolImpact(providerName, protocol) {
+  const impact = getNodeProtocolImpact(providerName, protocol);
+  return `Совпадения: ${impact.matches.length} из ${impact.total} нод подписки`;
+}
+
+function focusNodeActionTrigger(node, action) {
+  if (!node) return;
+  const card = [...els.nodeInventoryList.querySelectorAll('.node-card')].find(
+    (item) => item.dataset.nodeName === node.name && item.dataset.nodeProvider === node.provider,
+  );
+  card?.querySelector(action === 'protocol' ? '.node-badge-button' : '.node-name-button')?.focus();
 }
 
 function appendPipeValue(current, value) {

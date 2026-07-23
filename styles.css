@@ -2747,6 +2747,15 @@ body.component-manager-open {
   white-space: nowrap;
 }
 
+.node-filters-toggle {
+  display: none;
+}
+
+.node-filters-toggle strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
 .node-filter-reset {
   min-width: 100px;
   white-space: nowrap;
@@ -2794,6 +2803,16 @@ body.component-manager-open {
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;
+}
+
+.node-group-selection-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-group-selection-toggle {
+  display: none;
 }
 
 .node-group-selection-list {
@@ -3068,19 +3087,14 @@ body.component-manager-open {
 
 .node-card-action {
   grid-column: 1 / -1;
-  position: absolute;
-  z-index: 20;
-  top: calc(100% - 4px);
-  right: 10px;
-  left: 10px;
+  position: static;
   display: grid;
   gap: 10px;
-  margin-top: 0;
+  margin-top: 4px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfcfe;
-  box-shadow: var(--shadow);
 }
 
 .node-action-head {
@@ -3112,6 +3126,13 @@ body.component-manager-open {
   background: #fff;
   color: var(--text);
   font: inherit;
+}
+
+.node-action-impact {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .node-action-buttons {
@@ -7450,6 +7471,25 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .node-inventory-list {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .node-filters-toggle {
+    display: flex;
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+
+  .node-inventory-controls.is-collapsed label {
+    display: none;
+  }
+
+  .node-group-selection-toggle {
+    display: inline-flex;
+  }
+
   .node-card-title {
     display: grid;
     gap: 6px;
@@ -7457,12 +7497,6 @@ button.review-check-card:focus-visible {
 
   .node-badges {
     justify-content: flex-start;
-  }
-
-  .node-card-action {
-    position: static;
-    margin-top: 4px;
-    box-shadow: none;
   }
 
   .matrix-wrap {
