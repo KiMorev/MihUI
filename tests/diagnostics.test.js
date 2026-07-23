@@ -150,6 +150,7 @@ globalThis.__app = {
   describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
+  getStaleProviderInfo,
   persistSuccessfulConfigCheck,
   parseGroups,
   parseRules,
@@ -217,6 +218,43 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: detects providers without a successful update after the configured interval`, () => {
+    const app = loadApp(source);
+    const providers = hydrate(app, `
+proxy-providers:
+  stale:
+    type: http
+    url: https://stale.example/sub
+    interval: 3600
+  recent:
+    type: http
+    url: https://recent.example/sub
+    interval: 3600
+  manual:
+    type: http
+    url: https://manual.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - stale
+      - recent
+      - manual
+`);
+    const now = Date.UTC(2026, 6, 23, 12, 0);
+    app.state.providerStatuses = {
+      stale: { name: 'stale', updatedAt: new Date(now - (3 * 3600 + 30 * 60) * 1000).toISOString() },
+      recent: { name: 'recent', updatedAt: new Date(now - (3600 + 14 * 60) * 1000).toISOString() },
+      manual: { name: 'manual', updatedAt: new Date(now - 7 * 86400 * 1000).toISOString() },
+    };
+
+    const stale = app.getStaleProviderInfo(providers[0], now);
+    assert.equal(stale.intervalCount, 3);
+    assert.equal(stale.updatedAt, app.state.providerStatuses.stale.updatedAt);
+    assert.equal(app.getStaleProviderInfo(providers[1], now), null);
+    assert.equal(app.getStaleProviderInfo(providers[2], now), null);
+  });
+
   test(`${source.name}: restores only the successful unchanged config check`, () => {
     const app = loadApp(source);
     app.state.routerApiAvailable = true;

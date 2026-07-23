@@ -8419,6 +8419,8 @@ const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязат
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
+const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
+const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -9314,6 +9316,7 @@ function initRouterMode() {
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   startServiceHealthPolling();
+  startProviderStatusPolling();
   checkMihuiUpdate();
 }
 
@@ -10317,6 +10320,15 @@ function startServiceHealthPolling() {
   }
 }
 
+function startProviderStatusPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  window.setInterval(() => {
+    if (!document.hidden && state.routerApiAvailable && !state.providerStatusLoading) {
+      loadProviderStatuses({ silent: true });
+    }
+  }, PROVIDER_STATUS_REFRESH_MS);
+}
+
 function normalizeComponentItem(item) {
   return {
     installed: Boolean(item?.installed),
@@ -11275,6 +11287,18 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
       title: 'Доступны обновления компонентов',
       text: getComponentUpdateSummary(),
       onClick: openComponentManager,
+    });
+  }
+
+  if (state.routerApiAvailable) {
+    activeProviders.forEach((provider) => {
+      const stale = getStaleProviderInfo(provider);
+      if (!stale) return;
+      attentionItems.push({
+        title: `Подписка «${provider.name}» давно не обновлялась`,
+        text: `Последнее успешное обновление: ${formatProviderUpdatedAt(stale.updatedAt)} · Без успешного обновления: ${formatRouteCount(stale.intervalCount, 'интервал', 'интервала', 'интервалов')}.`,
+        onClick: () => focusDiagnosticTarget({ type: 'provider', name: provider.name }),
+      });
     });
   }
 
@@ -13254,14 +13278,39 @@ function formatProxyCount(count) {
 
 function formatProviderUpdatedAt(value) {
   if (value === null || value === undefined || value === '') return '';
-  const date = typeof value === 'number' ? new Date(value > 100000000000 ? value : value * 1000) : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
+  const date = parseProviderUpdatedAt(value);
+  if (!date) return String(value);
   return date.toLocaleString('ru-RU', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function parseProviderUpdatedAt(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const date = typeof value === 'number' ? new Date(value > 100000000000 ? value : value * 1000) : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getStaleProviderInfo(provider, now = Date.now()) {
+  if (!provider?.hasInterval) return null;
+  const intervalSeconds = Number(provider.interval);
+  if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) return null;
+
+  const status = getProviderStatus(provider.name);
+  const updatedAt = parseProviderUpdatedAt(status?.updatedAt);
+  if (!updatedAt) return null;
+
+  const intervalMs = intervalSeconds * 1000;
+  const elapsedMs = Number(now) - updatedAt.getTime();
+  if (!Number.isFinite(elapsedMs) || elapsedMs <= intervalMs + PROVIDER_STALE_GRACE_MS) return null;
+
+  return {
+    updatedAt: status.updatedAt,
+    intervalCount: Math.floor(elapsedMs / intervalMs),
+  };
 }
 
 function renderNodeInventory() {
