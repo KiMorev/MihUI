@@ -405,6 +405,7 @@ const state = {
     view: 'updates',
   },
   overviewDiagnostics: [],
+  overviewProviderAttentionItems: [],
   lastUndo: null,
 };
 
@@ -527,8 +528,10 @@ const els = {
   overviewReviewSummary: document.querySelector('#overviewReviewSummary'),
   overviewAttentionList: document.querySelector('#overviewAttentionList'),
   overviewHealth: document.querySelector('.overview-health'),
+  overviewHealthIconUse: document.querySelector('#overviewHealthIcon use'),
   overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
   overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
+  overviewHealthAction: document.querySelector('#overviewHealthAction'),
   overviewConfigSource: document.querySelector('#overviewConfigSource'),
   overviewConfigPath: document.querySelector('#overviewConfigPath'),
   overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
@@ -636,6 +639,7 @@ els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
+els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
 els.sectionTabs.forEach((button) => button.addEventListener('click', () => setActiveSection(button.dataset.section)));
 els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
@@ -2806,9 +2810,13 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
   const knownProviderStatuses = activeProviders
     .map((provider) => getProviderStatus(provider.name))
     .filter((status) => status?.proxyCount !== null && status?.proxyCount !== undefined);
-  const workingProviderCount = knownProviderStatuses.filter((status) => Number(status.proxyCount) > 0).length;
+  const providersWithNodesCount = knownProviderStatuses.filter((status) => Number(status.proxyCount) > 0).length;
+  const providerAttentionItems = state.routerApiAvailable
+    ? activeProviders.map((provider) => getProviderAttentionItem(provider)).filter(Boolean)
+    : [];
 
   state.overviewDiagnostics = diagnostics;
+  state.overviewProviderAttentionItems = providerAttentionItems;
   renderOverviewHealth();
 
   els.providerCount.textContent = !state.originalText
@@ -2816,7 +2824,7 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     : state.providerStatusLoading
       ? 'Обновляем статусы'
       : knownProviderStatuses.length > 0
-        ? `${workingProviderCount} из ${activeProviders.length} ${workingProviderCount === 1 ? 'работает' : 'работают'}`
+        ? `${providersWithNodesCount} из ${activeProviders.length} с нодами`
         : formatConfiguredProviderCount(activeProviders.length);
 
   els.overviewProvidersSummary.textContent = state.originalText
@@ -2882,53 +2890,46 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     attentionItems.push({
       title: 'Доступны обновления компонентов',
       text: getComponentUpdateSummary(),
+      severity: 'neutral',
       onClick: openComponentManager,
     });
   }
 
-  if (state.routerApiAvailable) {
-    activeProviders.forEach((provider) => {
-      getProviderRuntimeWarnings(provider).forEach((warning) => {
-        attentionItems.push({
-          ...warning,
-          onClick: () => focusDiagnosticTarget({ type: 'provider', name: provider.name }),
-        });
-      });
-      const stale = getStaleProviderInfo(provider);
-      if (!stale) return;
-      attentionItems.push({
-        title: `Подписка «${provider.name}» давно не обновлялась`,
-        text: `Последнее успешное обновление: ${formatProviderUpdatedAt(stale.updatedAt)} · Без успешного обновления: ${formatRouteCount(stale.intervalCount, 'интервал', 'интервала', 'интервалов')}.`,
-        onClick: () => focusDiagnosticTarget({ type: 'provider', name: provider.name }),
-      });
+  providerAttentionItems.forEach((item) => {
+    attentionItems.push({
+      ...item,
+      onClick: () => focusDiagnosticTarget({ type: 'provider', name: item.providerName }),
     });
-  }
+  });
 
   if (!state.originalText) {
-    attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.' });
+    attentionItems.push({ section: 'overview', title: 'Конфигурация не загружена', text: 'Откройте файл или конфиг из ядра, чтобы начать.', severity: 'neutral' });
   } else if (hasStructuralError) {
     attentionItems.push({
       title: 'Ошибка структуры конфигурации',
       text: 'Добавьте proxy-groups или откройте другой файл.',
+      severity: 'danger',
       onClick: () => els.fileInput.click(),
     });
   } else {
     if (errors.length > 0) {
-      attentionItems.push({ section: 'review', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.' });
+      attentionItems.push({ section: 'review', title: formatErrorCount(errors.length), text: 'Проверьте маршрутизацию и отсутствующие связи.', severity: 'danger' });
     } else if (warnings > 0) {
-      attentionItems.push({ section: 'review', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.' });
+      attentionItems.push({ section: 'review', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.', severity: 'warning' });
     }
     if (missingConnectionCount > 0) {
-      attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.' });
+      attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.', severity: 'neutral' });
     }
     if (changeCount > 0) {
-      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.' });
+      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.', severity: 'neutral' });
     }
     if (state.routerApiAvailable && state.nodeInventoryError) {
-      attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError });
+      attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError, severity: 'danger' });
     }
   }
 
+  const attentionOrder = { danger: 0, warning: 1, neutral: 2 };
+  attentionItems.sort((left, right) => attentionOrder[left.severity] - attentionOrder[right.severity]);
   els.overviewAttentionList.textContent = '';
   if (attentionItems.length === 0) {
     const empty = document.createElement('div');
@@ -2943,11 +2944,21 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
     const title = document.createElement('strong');
     const text = document.createElement('span');
     const action = document.createElement('span');
-    button.className = 'overview-attention-item';
+    const severityLabel = item.severity === 'danger'
+      ? 'Критично'
+      : item.severity === 'warning' ? 'Предупреждение' : '';
+    button.className = `overview-attention-item is-${item.severity}`;
     button.type = 'button';
     if (item.section) button.setAttribute('data-section-target', item.section);
     button.addEventListener('click', item.onClick || (() => setActiveSection(item.section)));
-    title.textContent = item.title;
+    if (severityLabel) {
+      const severity = document.createElement('span');
+      severity.className = 'overview-attention-severity';
+      severity.textContent = severityLabel;
+      title.append(severity, document.createTextNode(` ${item.title}`));
+    } else {
+      title.textContent = item.title;
+    }
     text.textContent = item.text;
     action.className = 'overview-attention-action';
     action.textContent = 'Посмотреть →';
@@ -2967,6 +2978,8 @@ function renderOverviewHealth() {
   const diagnostics = state.overviewDiagnostics || [];
   const errorCount = diagnostics.filter((text) => getDiagnosticSeverity(text) === 'error').length;
   const warningCount = diagnostics.length - errorCount;
+  const providerAttentionItems = state.overviewProviderAttentionItems || [];
+  const providerDangerCount = providerAttentionItems.filter((item) => item.severity === 'danger').length;
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
   const services = Object.values(state.serviceHealth.services || {});
   const serviceProblem = state.routerApiAvailable && state.serviceHealth.checkedAt > 0
@@ -2977,6 +2990,9 @@ function renderOverviewHealth() {
   const summaryParts = [];
   let title = 'Конфигурация готова к работе';
   let variant = '';
+  let actionTarget = 'review';
+  let actionLabel = 'Открыть проверку';
+  let actionProviderName = '';
 
   if (!state.originalText) {
     title = 'Конфигурация не загружена';
@@ -2995,21 +3011,63 @@ function renderOverviewHealth() {
       summaryParts.push('Структура проверена');
     }
     summaryParts.push(warningCount > 0 ? formatWarningCount(warningCount) : 'ошибок нет');
+    if (providerAttentionItems.length > 0) {
+      summaryParts.push(formatRouteCount(
+        providerAttentionItems.length,
+        'подписка требует внимания',
+        'подписки требуют внимания',
+        'подписок требуют внимания',
+      ));
+    }
     summaryParts.push(state.changeCount > 0
       ? formatChangeCount(state.changeCount)
       : hasUnsavedRouterChanges() ? 'YAML изменён вручную' : 'изменений нет');
     if (nodesProblem) summaryParts.push(state.nodeInventoryError ? 'ноды недоступны' : 'ноды не получены');
     if (recommendationCount > 0) summaryParts.push(formatRouteCount(recommendationCount, 'рекомендация', 'рекомендации', 'рекомендаций'));
-    if (serviceProblem || nodesProblem) {
+    if (providerDangerCount > 0) {
+      title = 'Подписки требуют внимания';
+      variant = 'is-danger';
+      actionTarget = 'provider';
+      actionLabel = 'Открыть подписку';
+      actionProviderName = providerAttentionItems.find((item) => item.severity === 'danger')?.providerName || '';
+    } else if (serviceProblem || nodesProblem || providerAttentionItems.length > 0) {
       title = serviceProblem ? 'Проверьте состояние сервисов' : 'Система работает, но требуется внимание';
       variant = 'is-warning';
+      if (serviceProblem) {
+        actionTarget = 'services';
+        actionLabel = 'Открыть сервисы';
+      } else if (nodesProblem) {
+        actionTarget = 'nodes';
+        actionLabel = 'Открыть ноды';
+      } else {
+        actionTarget = 'provider';
+        actionLabel = 'Открыть подписку';
+        actionProviderName = providerAttentionItems[0]?.providerName || '';
+      }
     }
   }
 
   els.overviewHealth.classList.remove('is-muted', 'is-warning', 'is-danger');
   if (variant) els.overviewHealth.classList.add(variant);
+  els.overviewHealthIconUse.setAttribute('href', variant === 'is-warning' || variant === 'is-danger' ? '#icon-warning' : '#icon-check');
   els.overviewHealthTitle.textContent = title;
   els.overviewHealthSummary.textContent = summaryParts.join(' · ');
+  els.overviewHealthAction.textContent = actionLabel;
+  els.overviewHealthAction.dataset.healthTarget = actionTarget;
+  els.overviewHealthAction.dataset.providerName = actionProviderName;
+}
+
+function openOverviewHealthTarget() {
+  const target = els.overviewHealthAction.dataset.healthTarget;
+  if (target === 'provider' && els.overviewHealthAction.dataset.providerName) {
+    focusDiagnosticTarget({ type: 'provider', name: els.overviewHealthAction.dataset.providerName });
+    return;
+  }
+  if (target === 'services') {
+    openComponentManager();
+    return;
+  }
+  setActiveSection(target === 'nodes' ? 'nodes' : 'review');
 }
 
 function formatOverviewLoadedAt(value) {
@@ -4517,23 +4575,17 @@ function createProviderListItem(provider, index, isSelected) {
 
 function createProviderStatusPill(provider) {
   const pill = document.createElement('span');
-  const status = getProviderStatus(provider.name);
+  const displayState = getProviderDisplayState(provider);
   const isUpdating = state.providerUpdatingName === provider.name;
-  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
-  const isLive = hasNodeCount && Number(status.proxyCount) > 0;
+  const className = isUpdating || state.providerStatusLoading ? 'is-loading' : displayState.className;
   pill.className = 'provider-status-pill';
-  pill.classList.toggle('is-live', isLive && !isUpdating);
-  pill.classList.toggle('is-empty', hasNodeCount && !isLive && !isUpdating);
-  pill.classList.toggle('is-loading', isUpdating || state.providerStatusLoading);
+  if (className) pill.classList.add(className);
   pill.textContent = isUpdating
     ? 'Обновляется'
     : state.providerStatusLoading
       ? 'Проверяется'
-      : isLive
-        ? 'Работает'
-        : hasNodeCount
-          ? 'Нет нод'
-          : 'Нет данных';
+      : displayState.label;
+  pill.title = isUpdating || state.providerStatusLoading ? '' : displayState.detail;
   return pill;
 }
 
@@ -4561,6 +4613,7 @@ function createProviderInspector(provider) {
   if (!provider) return inspector;
 
   const status = getProviderStatus(provider.name);
+  const displayState = getProviderDisplayState(provider);
   const groups = getProviderUseGroupNames(provider.name);
   const head = document.createElement('div');
   const title = document.createElement('div');
@@ -4579,6 +4632,7 @@ function createProviderInspector(provider) {
   head.append(title, createProviderStatusPill(provider));
 
   content.className = 'provider-inspector-content';
+  if (displayState.attention) content.append(createProviderAttentionSection(displayState.attention));
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
     createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
@@ -4610,6 +4664,17 @@ function createProviderInspector(provider) {
   actions.append(editButton, updateButton, removeButton);
   inspector.append(head, content, actions);
   return inspector;
+}
+
+function createProviderAttentionSection(attention) {
+  const section = document.createElement('section');
+  const title = document.createElement('span');
+  const text = document.createElement('p');
+  section.className = `provider-inspector-section provider-inspector-attention is-${attention.severity}`;
+  title.textContent = attention.severity === 'danger' ? 'Критично' : 'Предупреждение';
+  text.textContent = attention.text;
+  section.append(title, text);
+  return section;
 }
 
 function createProviderInspectorSection(label, values, variant) {
@@ -4929,6 +4994,7 @@ function getProviderRuntimeWarnings(provider, now = Date.now()) {
     const remainingMs = expireMs - nowMs;
     if (remainingMs <= SUBSCRIPTION_EXPIRY_WARNING_MS) {
       warnings.push({
+        severity: remainingMs <= 0 ? 'danger' : 'warning',
         title: remainingMs <= 0
           ? `Подписка «${provider.name}» закончилась`
           : `Подписка «${provider.name}» скоро закончится`,
@@ -4946,6 +5012,7 @@ function getProviderRuntimeWarnings(provider, now = Date.now()) {
   if (Number.isFinite(total) && total > 0 && Number.isFinite(used) && used / total >= SUBSCRIPTION_TRAFFIC_WARNING_RATIO) {
     const exhausted = used >= total;
     warnings.push({
+      severity: exhausted ? 'danger' : 'warning',
       title: exhausted
         ? `Лимит трафика подписки «${provider.name}» исчерпан`
         : `У подписки «${provider.name}» заканчивается трафик`,
@@ -4958,12 +5025,54 @@ function getProviderRuntimeWarnings(provider, now = Date.now()) {
   const groups = getProviderUseGroupNames(provider.name);
   if (status.proxyCount !== null && status.proxyCount !== undefined && Number(status.proxyCount) === 0 && groups.length > 0) {
     warnings.push({
+      severity: 'danger',
       title: `Подписка «${provider.name}» не содержит нод`,
       text: `Используется в группах ${formatNameList(groups)}.`,
     });
   }
 
   return warnings;
+}
+
+function getProviderAttentionItem(provider, now = Date.now()) {
+  const warnings = getProviderRuntimeWarnings(provider, now);
+  const stale = getStaleProviderInfo(provider, now);
+  if (stale) {
+    warnings.push({
+      severity: 'warning',
+      text: `Последнее успешное обновление: ${formatProviderUpdatedAt(stale.updatedAt)} · без успешного обновления: ${formatRouteCount(stale.intervalCount, 'интервал', 'интервала', 'интервалов')}.`,
+    });
+  }
+  if (warnings.length === 0) return null;
+
+  return {
+    providerName: provider.name,
+    title: `Подписка «${provider.name}» требует внимания`,
+    text: warnings.map((warning) => warning.text).join(' '),
+    severity: warnings.some((warning) => warning.severity === 'danger') ? 'danger' : 'warning',
+  };
+}
+
+function getProviderDisplayState(provider, now = Date.now()) {
+  const status = getProviderStatus(provider?.name);
+  const attention = getProviderAttentionItem(provider, now);
+  if (attention) {
+    return {
+      attention,
+      className: attention.severity === 'danger' ? 'is-danger' : 'is-warning',
+      detail: attention.text,
+      label: attention.severity === 'danger' ? 'Критично' : 'Внимание',
+    };
+  }
+
+  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
+  if (hasNodeCount && Number(status.proxyCount) > 0) {
+    return { attention: null, className: 'is-live', detail: '', label: 'Работает' };
+  }
+  if (hasNodeCount) {
+    return { attention: null, className: 'is-empty', detail: '', label: 'Нет нод' };
+  }
+  return { attention: null, className: '', detail: '', label: 'Нет данных' };
 }
 
 function formatSubscriptionDate(value) {

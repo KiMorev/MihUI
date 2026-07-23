@@ -150,6 +150,8 @@ globalThis.__app = {
   describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
+  getProviderAttentionItem,
+  getProviderDisplayState,
   getProviderRuntimeWarnings,
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
@@ -254,6 +256,10 @@ proxy-groups:
     assert.equal(stale.updatedAt, app.state.providerStatuses.stale.updatedAt);
     assert.equal(app.getStaleProviderInfo(providers[1], now), null);
     assert.equal(app.getStaleProviderInfo(providers[2], now), null);
+    const attention = app.getProviderAttentionItem(providers[0], now);
+    assert.equal(attention.severity, 'warning');
+    assert.match(attention.title, /stale/);
+    assert.match(attention.text, /3 интервала/);
   });
 
   test(`${source.name}: reports expiring, traffic-limited and empty active providers`, () => {
@@ -298,22 +304,36 @@ proxy-groups:
 
     const limitedWarnings = app.getProviderRuntimeWarnings(providers[0], now);
     assert.equal(limitedWarnings.length, 2);
+    assert.equal(limitedWarnings[0].severity, 'warning');
     assert.match(limitedWarnings[0].title, /скоро закончится/);
     assert.match(limitedWarnings[0].text, /осталось 2 дня/);
     assert.match(limitedWarnings[1].title, /заканчивается трафик/);
     assert.match(limitedWarnings[1].text, /Использовано 92%/);
+    const limitedAttention = app.getProviderAttentionItem(providers[0], now);
+    assert.equal(limitedAttention.severity, 'warning');
+    assert.match(limitedAttention.text, /осталось 2 дня/);
+    assert.match(limitedAttention.text, /Использовано 92%/);
+    assert.equal(app.getProviderDisplayState(providers[0], now).label, 'Внимание');
 
     const emptyWarnings = app.getProviderRuntimeWarnings(providers[1], now);
     assert.equal(emptyWarnings.length, 1);
+    assert.equal(emptyWarnings[0].severity, 'danger');
     assert.match(emptyWarnings[0].title, /не содержит нод/);
     assert.match(emptyWarnings[0].text, /Proxy/);
+    assert.equal(app.getProviderAttentionItem(providers[1], now).severity, 'danger');
+    assert.equal(app.getProviderDisplayState(providers[1], now).label, 'Критично');
     assert.equal(app.getProviderRuntimeWarnings(providers[2], now).length, 0);
+    assert.equal(app.getProviderDisplayState(providers[2], now).label, 'Нет нод');
 
     app.state.providerStatuses.limited.subscriptionInfo.Expire = Math.floor((now - 86400 * 1000) / 1000);
     app.state.providerStatuses.limited.subscriptionInfo.Download = 82 * gibibyte;
     const exhaustedWarnings = app.getProviderRuntimeWarnings(providers[0], now);
+    assert.equal(exhaustedWarnings[0].severity, 'danger');
+    assert.equal(exhaustedWarnings[1].severity, 'danger');
     assert.match(exhaustedWarnings[0].title, /закончилась/);
     assert.match(exhaustedWarnings[1].title, /исчерпан/);
+    assert.equal(app.getProviderAttentionItem(providers[0], now).severity, 'danger');
+    assert.equal(app.getProviderDisplayState(providers[0], now).label, 'Критично');
   });
 
   test(`${source.name}: restores only the successful unchanged config check`, () => {
