@@ -8421,6 +8421,8 @@ const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
+const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
+const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -11292,6 +11294,12 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
 
   if (state.routerApiAvailable) {
     activeProviders.forEach((provider) => {
+      getProviderRuntimeWarnings(provider).forEach((warning) => {
+        attentionItems.push({
+          ...warning,
+          onClick: () => focusDiagnosticTarget({ type: 'provider', name: provider.name }),
+        });
+      });
       const stale = getStaleProviderInfo(provider);
       if (!stale) return;
       attentionItems.push({
@@ -13311,6 +13319,80 @@ function getStaleProviderInfo(provider, now = Date.now()) {
     updatedAt: status.updatedAt,
     intervalCount: Math.floor(elapsedMs / intervalMs),
   };
+}
+
+function getProviderRuntimeWarnings(provider, now = Date.now()) {
+  const status = getProviderStatus(provider?.name);
+  if (!status) return [];
+
+  const warnings = [];
+  const subscriptionInfo = status.subscriptionInfo || {};
+  const expireSeconds = Number(subscriptionInfo.Expire ?? subscriptionInfo.expire);
+  const nowMs = Number(now);
+
+  if (Number.isFinite(expireSeconds) && expireSeconds > 0 && Number.isFinite(nowMs)) {
+    const expireMs = expireSeconds * 1000;
+    const remainingMs = expireMs - nowMs;
+    if (remainingMs <= SUBSCRIPTION_EXPIRY_WARNING_MS) {
+      warnings.push({
+        title: remainingMs <= 0
+          ? `Подписка «${provider.name}» закончилась`
+          : `Подписка «${provider.name}» скоро закончится`,
+        text: remainingMs <= 0
+          ? `Срок действия истёк ${formatSubscriptionDate(expireMs)}.`
+          : `Истекает ${formatSubscriptionDate(expireMs)} · осталось ${formatRouteCount(Math.max(1, Math.ceil(remainingMs / (24 * 60 * 60 * 1000))), 'день', 'дня', 'дней')}.`,
+      });
+    }
+  }
+
+  const upload = Math.max(0, Number(subscriptionInfo.Upload ?? subscriptionInfo.upload ?? 0));
+  const download = Math.max(0, Number(subscriptionInfo.Download ?? subscriptionInfo.download ?? 0));
+  const total = Number(subscriptionInfo.Total ?? subscriptionInfo.total);
+  const used = upload + download;
+  if (Number.isFinite(total) && total > 0 && Number.isFinite(used) && used / total >= SUBSCRIPTION_TRAFFIC_WARNING_RATIO) {
+    const exhausted = used >= total;
+    warnings.push({
+      title: exhausted
+        ? `Лимит трафика подписки «${provider.name}» исчерпан`
+        : `У подписки «${provider.name}» заканчивается трафик`,
+      text: exhausted
+        ? `Использовано ${Math.round((used / total) * 100)}% · ${formatDataSize(used)} из ${formatDataSize(total)}.`
+        : `Использовано ${Math.round((used / total) * 100)}% · осталось ${formatDataSize(total - used)} из ${formatDataSize(total)}.`,
+    });
+  }
+
+  const groups = getProviderUseGroupNames(provider.name);
+  if (status.proxyCount !== null && status.proxyCount !== undefined && Number(status.proxyCount) === 0 && groups.length > 0) {
+    warnings.push({
+      title: `Подписка «${provider.name}» не содержит нод`,
+      text: `Используется в группах ${formatNameList(groups)}.`,
+    });
+  }
+
+  return warnings;
+}
+
+function formatSubscriptionDate(value) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function formatDataSize(value) {
+  const bytes = Math.max(0, Number(value));
+  if (!Number.isFinite(bytes)) return '—';
+  const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  return `${size.toLocaleString('ru-RU', { maximumFractionDigits: size < 10 && unitIndex > 0 ? 1 : 0 })} ${units[unitIndex]}`;
 }
 
 function renderNodeInventory() {

@@ -150,6 +150,7 @@ globalThis.__app = {
   describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
+  getProviderRuntimeWarnings,
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
   parseGroups,
@@ -253,6 +254,66 @@ proxy-groups:
     assert.equal(stale.updatedAt, app.state.providerStatuses.stale.updatedAt);
     assert.equal(app.getStaleProviderInfo(providers[1], now), null);
     assert.equal(app.getStaleProviderInfo(providers[2], now), null);
+  });
+
+  test(`${source.name}: reports expiring, traffic-limited and empty active providers`, () => {
+    const app = loadApp(source);
+    const providers = hydrate(app, `
+proxy-providers:
+  limited:
+    type: http
+    url: https://limited.example/sub
+    interval: 3600
+  empty:
+    type: http
+    url: https://empty.example/sub
+    interval: 3600
+  unused:
+    type: http
+    url: https://unused.example/sub
+    interval: 3600
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - limited
+      - empty
+`);
+    const now = Date.UTC(2026, 6, 23, 12, 0);
+    const gibibyte = 1024 ** 3;
+    app.state.providerStatuses = {
+      limited: {
+        name: 'limited',
+        proxyCount: 2,
+        subscriptionInfo: {
+          Upload: 20 * gibibyte,
+          Download: 72 * gibibyte,
+          Total: 100 * gibibyte,
+          Expire: Math.floor((now + 2 * 86400 * 1000) / 1000),
+        },
+      },
+      empty: { name: 'empty', proxyCount: 0, subscriptionInfo: {} },
+      unused: { name: 'unused', proxyCount: 0, subscriptionInfo: {} },
+    };
+
+    const limitedWarnings = app.getProviderRuntimeWarnings(providers[0], now);
+    assert.equal(limitedWarnings.length, 2);
+    assert.match(limitedWarnings[0].title, /скоро закончится/);
+    assert.match(limitedWarnings[0].text, /осталось 2 дня/);
+    assert.match(limitedWarnings[1].title, /заканчивается трафик/);
+    assert.match(limitedWarnings[1].text, /Использовано 92%/);
+
+    const emptyWarnings = app.getProviderRuntimeWarnings(providers[1], now);
+    assert.equal(emptyWarnings.length, 1);
+    assert.match(emptyWarnings[0].title, /не содержит нод/);
+    assert.match(emptyWarnings[0].text, /Proxy/);
+    assert.equal(app.getProviderRuntimeWarnings(providers[2], now).length, 0);
+
+    app.state.providerStatuses.limited.subscriptionInfo.Expire = Math.floor((now - 86400 * 1000) / 1000);
+    app.state.providerStatuses.limited.subscriptionInfo.Download = 82 * gibibyte;
+    const exhaustedWarnings = app.getProviderRuntimeWarnings(providers[0], now);
+    assert.match(exhaustedWarnings[0].title, /закончилась/);
+    assert.match(exhaustedWarnings[1].title, /исчерпан/);
   });
 
   test(`${source.name}: restores only the successful unchanged config check`, () => {
