@@ -2022,27 +2022,47 @@ proxy-groups: []`;
     assert.deepEqual([...tokens('ports: [80, 8080]')], [
       ['ports', 'yaml-key'],
       [':', 'yaml-punctuation'],
-      ['[', 'yaml-punctuation'],
+      ['[', 'yaml-bracket'],
       ['80', 'yaml-number'],
       [',', 'yaml-punctuation'],
       ['8080', 'yaml-number'],
-      [']', 'yaml-punctuation'],
+      [']', 'yaml-bracket'],
     ]);
     assert.deepEqual([...tokens('external-controller: 0.0.0.0:9090')], [
       ['external-controller', 'yaml-key'],
       [':', 'yaml-punctuation'],
-      ['0.0.0.0:', 'yaml-string'],
+      ['0.0.0.0', 'yaml-scalar'],
+      [':', 'yaml-punctuation'],
       ['9090', 'yaml-number'],
     ]);
     assert.deepEqual([...tokens('external-ui: zashboard')], [
       ['external-ui', 'yaml-key'],
       [':', 'yaml-punctuation'],
-      ['zashboard', 'yaml-string'],
+      ['zashboard', 'yaml-scalar'],
     ]);
     assert.deepEqual([...tokens('external-ui-url: https://example.test/ui.zip')], [
       ['external-ui-url', 'yaml-key'],
       [':', 'yaml-punctuation'],
-      ['https://example.test/ui.zip', 'yaml-string yaml-url'],
+      ['https://example.test/ui.zip', 'yaml-scalar yaml-url'],
+    ]);
+    assert.deepEqual([...tokens('exclude-filter: "Whitelist|Россия|Киев"')], [
+      ['exclude-filter', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['"Whitelist|Россия|Киев"', 'yaml-string'],
+    ]);
+    assert.deepEqual([...tokens('domain: &domain { type: http, interval: 86400 }')], [
+      ['domain', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['&domain', 'yaml-anchor'],
+      ['{', 'yaml-bracket'],
+      ['type', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['http', 'yaml-scalar'],
+      [',', 'yaml-punctuation'],
+      ['interval', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['86400', 'yaml-number'],
+      ['}', 'yaml-bracket'],
     ]);
   });
 

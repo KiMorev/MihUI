@@ -6390,6 +6390,11 @@ button.review-check-card:focus-visible {
   -webkit-text-stroke: 0.28px currentColor;
 }
 
+.output-viewer.is-editing .yaml-anchor {
+  font-weight: 400;
+  -webkit-text-stroke: 0.2px currentColor;
+}
+
 .output-viewer.is-editing .yaml-comment {
   font-style: normal;
 }
@@ -6469,19 +6474,19 @@ button.review-check-card:focus-visible {
 
 .yaml-list-marker,
 .yaml-punctuation {
-  color: #0891b2;
+  color: #087f8c;
 }
 
 .yaml-string {
-  color: #3157b7;
+  color: #087a42;
 }
 
 .yaml-number {
-  color: #b45309;
+  color: #a14f00;
 }
 
 .yaml-literal {
-  color: #7c3aed;
+  color: #6d28d9;
 }
 
 .yaml-collection {
@@ -6490,6 +6495,19 @@ button.review-check-card:focus-visible {
 
 .yaml-scalar {
   color: #3157b7;
+}
+
+.yaml-anchor {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.yaml-tag {
+  color: #6d28d9;
+}
+
+.yaml-bracket {
+  color: #a16000;
 }
 
 .yaml-comment {

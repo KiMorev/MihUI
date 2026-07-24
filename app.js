@@ -9230,23 +9230,7 @@ function appendYamlValue(target, text) {
   if (leading) appendYamlSpan(target, '', leading);
   if (!value) return;
 
-  if (/^[{[]/.test(value)) {
-    appendYamlFlowValue(target, value);
-  } else if (/^['"]/.test(value)) {
-    appendYamlSpan(target, 'yaml-string', value);
-  } else if (/^(true|false|yes|no|on|off|null|~)$/i.test(value)) {
-    appendYamlSpan(target, 'yaml-literal', value);
-  } else if (/^[+-]?\d+(?:\.\d+)?$/.test(value)) {
-    appendYamlSpan(target, 'yaml-number', value);
-  } else {
-    const hostPortMatch = value.match(/^(.+:)(\d+)$/);
-    if (hostPortMatch && !value.includes('://')) {
-      appendYamlSpan(target, 'yaml-string', hostPortMatch[1]);
-      appendYamlSpan(target, 'yaml-number', hostPortMatch[2]);
-    } else {
-      appendYamlSpan(target, 'yaml-string', value);
-    }
-  }
+  appendYamlFlowValue(target, value);
 
   if (trailing) appendYamlSpan(target, '', trailing);
 }
@@ -9275,19 +9259,24 @@ function appendYamlFlowValue(target, text) {
     const match =
       rest.match(/^\s+/) ||
       rest.match(/^https?:\/\/[^\s"'<>[\]{},]+/i) ||
+      rest.match(/^[&*][A-Za-z0-9_.@-]+/) ||
+      rest.match(/^![^\s[\]{},:]+/) ||
       rest.match(/^[\[\]{},:]/) ||
       rest.match(/^(?:true|false|yes|no|on|off|null)\b/i) ||
       rest.match(/^~(?=\s|[\]}\[,]|$)/) ||
-      rest.match(/^[+-]?\d+(?:\.\d+)?(?=\s|[\[\]{},:]|$)/) ||
+      rest.match(/^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?(?=\s|[\[\]{},:]|$)/i) ||
       rest.match(/^[^\s\[\]{},:]+/);
     const token = match ? match[0] : rest[0];
-    let className = 'yaml-string';
+    let className = 'yaml-scalar';
 
     if (/^\s+$/.test(token)) className = '';
-    else if (/^[\[\]{},:]$/.test(token)) className = 'yaml-punctuation';
+    else if (/^[\[\]{}]$/.test(token)) className = 'yaml-bracket';
+    else if (/^[,:]$/.test(token)) className = 'yaml-punctuation';
+    else if (/^[&*][A-Za-z0-9_.@-]+$/.test(token)) className = 'yaml-anchor';
+    else if (/^![^\s[\]{},:]+$/.test(token)) className = 'yaml-tag';
     else if (/^(true|false|yes|no|on|off|null|~)$/i.test(token)) className = 'yaml-literal';
-    else if (/^[+-]?\d+(?:\.\d+)?$/.test(token)) className = 'yaml-number';
-    else if (/^\s*:/.test(rest.slice(token.length))) className = 'yaml-key';
+    else if (/^[+-]?(?:0|[1-9]\d*)(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(token)) className = 'yaml-number';
+    else if (/^\s*:(?:\s|$)/.test(rest.slice(token.length))) className = 'yaml-key';
 
     appendYamlSpan(target, className, token);
     offset += token.length;
