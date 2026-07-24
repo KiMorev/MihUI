@@ -90,6 +90,7 @@ function loadApp(source, initialStorage = {}, options = {}) {
     setTimeout: runTimer,
     window: {
       confirm: options.confirm || (() => true),
+      open: options.open || (() => null),
       localStorage: {
         getItem: (key) => storage.get(key) ?? null,
         removeItem: (key) => storage.delete(key),
@@ -180,6 +181,10 @@ globalThis.__app = {
   snapshotProvider,
   setOutputText,
   setProviderUrlMasking,
+  createYamlCodeLine,
+  splitYamlHttpUrls,
+  findYamlHttpUrlAtOffset,
+  handleConfigurationUrlClick,
   splitLines,
   moveGroupProxy,
   orderNodeGroupSelectionGroups,
@@ -1962,6 +1967,83 @@ proxy-groups: []`;
     assert.equal(app.formatServiceStatusLabel({ state: 'error' }), 'Ошибка');
     assert.equal(app.formatServiceStatusLabel({ state: 'unavailable' }), 'Не найден');
     assert.equal(app.formatServiceStatusLabel({ state: 'ok' }, true), 'Проверка...');
+  });
+
+  test(`${source.name}: opens only explicit http links from the YAML editor`, () => {
+    const opened = [];
+    const app = loadApp(source, {}, {
+      open: (...args) => {
+        const tab = { opener: 'source' };
+        opened.push({ args, tab });
+        return tab;
+      },
+    });
+    const yaml = 'url: https://example.test/path\nmasked: https://hidden.test/••••••\nother: ftp://example.test/file';
+    const urlOffset = yaml.indexOf('example.test') + 2;
+
+    assert.equal(app.findYamlHttpUrlAtOffset(yaml, urlOffset), 'https://example.test/path');
+    assert.equal(app.findYamlHttpUrlAtOffset(yaml, yaml.indexOf('hidden.test') + 2), '');
+    assert.equal(app.findYamlHttpUrlAtOffset(yaml, yaml.indexOf('ftp://') + 2), '');
+
+    app.state.isEditingConfiguration = true;
+    app.els.outputPreview.value = yaml;
+    app.els.outputPreview.selectionStart = urlOffset;
+    let prevented = false;
+    app.handleConfigurationUrlClick({
+      ctrlKey: true,
+      metaKey: false,
+      preventDefault() {
+        prevented = true;
+      },
+    });
+
+    assert.equal(prevented, true);
+    assert.deepEqual(opened[0].args, ['https://example.test/path', '_blank', 'noopener,noreferrer']);
+    assert.equal(opened[0].tab.opener, null);
+
+    app.handleConfigurationUrlClick({ ctrlKey: false, metaKey: false, preventDefault() {} });
+    assert.equal(opened.length, 1);
+  });
+
+  test(`${source.name}: assigns the selected palette to YAML value tokens`, () => {
+    const app = loadApp(source);
+    app.state.isEditingConfiguration = true;
+    const tokens = (line) =>
+      app
+        .createYamlCodeLine(line)
+        .children[0].children.filter((token) => token.className)
+        .map((token) => [token.textContent, token.className]);
+
+    assert.deepEqual([...tokens('find-process-mode: off')], [
+      ['find-process-mode', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['off', 'yaml-literal'],
+    ]);
+    assert.deepEqual([...tokens('ports: [80, 8080]')], [
+      ['ports', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['[', 'yaml-punctuation'],
+      ['80', 'yaml-number'],
+      [',', 'yaml-punctuation'],
+      ['8080', 'yaml-number'],
+      [']', 'yaml-punctuation'],
+    ]);
+    assert.deepEqual([...tokens('external-controller: 0.0.0.0:9090')], [
+      ['external-controller', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['0.0.0.0:', 'yaml-string'],
+      ['9090', 'yaml-number'],
+    ]);
+    assert.deepEqual([...tokens('external-ui: zashboard')], [
+      ['external-ui', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['zashboard', 'yaml-string'],
+    ]);
+    assert.deepEqual([...tokens('external-ui-url: https://example.test/ui.zip')], [
+      ['external-ui-url', 'yaml-key'],
+      [':', 'yaml-punctuation'],
+      ['https://example.test/ui.zip', 'yaml-string yaml-url'],
+    ]);
   });
 
   test(`${source.name}: filters rules without changing yaml`, () => {

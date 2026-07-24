@@ -1,36 +1,37 @@
-# Design QA — удаление раздела маршрутизации
+# Design QA — цветовая схема YAML
 
-- Source visual truth: `C:\Users\morev\AppData\Local\Temp\codex-clipboard-296ae4f7-46f5-4d5e-95a7-0be66f33b023.png`
-- Implementation screenshot: `C:\Users\morev\AppData\Local\Temp\webmihomo-overview-after.jpg`
-- Combined comparison: `C:\Users\morev\AppData\Local\Temp\webmihomo-overview-comparison.png`
-- Reference viewport: 1917 × 912; browser capture: 1917 × 916 (4 px platform delta).
-- State: router mock, 3 subscriptions, 3 groups, 117 Mihomo nodes, Overview.
+- Source visual truth: `C:\Users\morev\.codex\visualizations\2026\07\24\019f952f-578c-79b1-b275-427c877013b6\webmihomo-color-audit\03-revised-direction.png`
+- Implementation screenshot: `C:\Users\morev\.codex\visualizations\2026\07\24\019f952f-578c-79b1-b275-427c877013b6\webmihomo-color-audit\implementation-edit-mode-1672x940.png`
+- Combined comparison: `C:\Users\morev\.codex\visualizations\2026\07\24\019f952f-578c-79b1-b275-427c877013b6\webmihomo-color-audit\comparison-reference-vs-implementation.png`
+- Mobile screenshot: `C:\Users\morev\.codex\visualizations\2026\07\24\019f952f-578c-79b1-b275-427c877013b6\webmihomo-color-audit\implementation-edit-mode-mobile-yaml-390x844.png`
+- Desktop comparison viewport: 1672 × 940.
+- State: router mock, review page, configuration editing enabled.
 
 ## Findings
 
-No actionable P0, P1 or P2 findings remain.
+No actionable P0, P1 or P2 findings remain in the changed YAML-highlighting scope.
 
-- Layout and spacing: passed. Overview keeps the approved status block, four-card flow, connector line and lower panels.
-- Navigation: passed. The dedicated «Маршрутизация» item and panel are absent in desktop and mobile navigation.
-- Card fidelity: passed. Step 2 keeps the existing card proportions and now reads «Группы» with a groups icon.
-- Interaction: passed. Step 2 opens «Подписки и группы» with the «Группы» tab selected.
-- Diagnostics: passed. A broken `rules` target opens its detailed message inside «Проверка».
-- Responsive structure: passed by the existing responsive contracts; the removed mobile tab is absent.
-- Accessibility: passed for the changed scope. Native buttons and tabs retain their selected/pressed states and accessible names.
-- Console: passed. No warnings or errors were recorded in the tested flows.
+- Colors and tokens: passed. Keys are near-black, punctuation cyan, numbers ochre, literals purple, ordinary strings blue, and comments gray.
+- URLs: passed. Both visible `http(s)` forms use the same vivid blue and 1 px underline; ordinary strings remain unlined.
+- Typography: passed. Preview keys use weight 700. Edit-mode keys keep the textarea's weight and use a non-layout stroke so text metrics stay aligned.
+- Content: passed. Inline collections color brackets and commas separately from their numeric and literal values.
+- Editing overlay: passed. Highlight text exactly matches textarea text; transparent editor text preserves the native caret and selection layer.
+- Interaction: passed. A normal link click remains in the editor; Ctrl-click opens the exact URL in a new tab.
+- Responsiveness: passed. At 390 px the page has no horizontal overflow, the YAML editor remains usable, and its own horizontal scrolling contains long URLs.
+- Accessibility: passed for the changed scope. Link contrast and underlining do not depend on color alone.
+- Console: passed. No warnings or errors were recorded.
 
-## Intentional differences from the source screenshot
+## Intentional differences from the source visual
 
-- «Маршрутизация» is removed from the sidebar.
-- «Группы и маршруты» is replaced by «Группы» and a groups icon.
-- Dynamic counts and recommendation text come from the QA config and are not visual design changes.
+- The reference is a generated visual direction, so its mock data and recommendation counts differ from the browser QA fixture.
+- Existing application layout, controls, spacing, icons and status copy were not redesigned.
 
 ## Verification
 
-- `npm.cmd test`: 134/134 passed.
+- `npm.cmd test`: 146/146 passed.
 - Main/standalone synchronization: passed.
-- Browser flow `Overview → Группы`: passed.
-- Browser flow `broken rules target → Проверка`: passed.
-- DOM check: no `data-section="routing"` or `data-section-panel="routing"` remains.
+- Browser desktop edit state: passed.
+- Browser mobile edit state: passed.
+- Browser URL interaction: passed.
 
 final result: passed

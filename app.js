@@ -11,6 +11,7 @@ const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
+const YAML_HTTP_URL_PATTERN = /https?:\/\/[^\s"'<>[\]{},]+/gi;
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
@@ -626,6 +627,9 @@ els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
 els.outputPreview.addEventListener('input', handleConfigurationDraftInput);
 els.outputPreview.addEventListener('scroll', syncConfigurationEditorScroll, { passive: true });
+els.outputPreview.addEventListener('click', handleConfigurationUrlClick);
+els.outputCodeView.addEventListener('click', handleYamlUrlPreviewClick);
+els.outputCodeView.addEventListener('auxclick', handleYamlUrlPreviewClick);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
@@ -654,6 +658,9 @@ els.sectionTargets.forEach((button) => button.addEventListener('click', () => {
 window.addEventListener?.('scroll', updateMobileSectionTabsVisibility, { passive: true });
 window.addEventListener?.('resize', updateMobileSectionTabsVisibility);
 window.addEventListener?.('beforeunload', handleBeforeUnload);
+window.addEventListener?.('keydown', handleYamlUrlModifierState);
+window.addEventListener?.('keyup', handleYamlUrlModifierState);
+window.addEventListener?.('blur', clearYamlUrlNavigationMode);
 els.xkeenFileEditors.forEach((editor) => {
   editor.addEventListener('input', handleXkeenNetworkFileInput);
   editor.addEventListener('scroll', syncXkeenFileHighlightScroll);
@@ -9215,22 +9222,154 @@ function appendYamlBody(target, text) {
 }
 
 function appendYamlValue(target, text) {
-  const trimmed = text.trimStart();
-  let className = 'yaml-scalar';
+  const leading = (text.match(/^\s*/) || [''])[0];
+  const trailing = (text.match(/\s*$/) || [''])[0];
+  const valueEnd = text.length - trailing.length;
+  const value = text.slice(leading.length, valueEnd);
 
-  if (/^['"]/.test(trimmed)) className = 'yaml-string';
-  else if (/^(true|false|null|~)\b/i.test(trimmed)) className = 'yaml-literal';
-  else if (/^[+-]?\d+(\.\d+)?\b/.test(trimmed)) className = 'yaml-number';
-  else if (/^[{[]/.test(trimmed)) className = 'yaml-collection';
+  if (leading) appendYamlSpan(target, '', leading);
+  if (!value) return;
 
-  appendYamlSpan(target, className, text);
+  if (/^[{[]/.test(value)) {
+    appendYamlFlowValue(target, value);
+  } else if (/^['"]/.test(value)) {
+    appendYamlSpan(target, 'yaml-string', value);
+  } else if (/^(true|false|yes|no|on|off|null|~)$/i.test(value)) {
+    appendYamlSpan(target, 'yaml-literal', value);
+  } else if (/^[+-]?\d+(?:\.\d+)?$/.test(value)) {
+    appendYamlSpan(target, 'yaml-number', value);
+  } else {
+    const hostPortMatch = value.match(/^(.+:)(\d+)$/);
+    if (hostPortMatch && !value.includes('://')) {
+      appendYamlSpan(target, 'yaml-string', hostPortMatch[1]);
+      appendYamlSpan(target, 'yaml-number', hostPortMatch[2]);
+    } else {
+      appendYamlSpan(target, 'yaml-string', value);
+    }
+  }
+
+  if (trailing) appendYamlSpan(target, '', trailing);
+}
+
+function appendYamlFlowValue(target, text) {
+  let offset = 0;
+
+  while (offset < text.length) {
+    const rest = text.slice(offset);
+    const quote = rest[0];
+
+    if (quote === '"' || quote === "'") {
+      let end = 1;
+      while (end < rest.length) {
+        if (rest[end] === quote && (quote === "'" || rest[end - 1] !== '\\')) {
+          end += 1;
+          break;
+        }
+        end += 1;
+      }
+      appendYamlSpan(target, 'yaml-string', rest.slice(0, end));
+      offset += end;
+      continue;
+    }
+
+    const match =
+      rest.match(/^\s+/) ||
+      rest.match(/^https?:\/\/[^\s"'<>[\]{},]+/i) ||
+      rest.match(/^[\[\]{},:]/) ||
+      rest.match(/^(?:true|false|yes|no|on|off|null)\b/i) ||
+      rest.match(/^~(?=\s|[\]}\[,]|$)/) ||
+      rest.match(/^[+-]?\d+(?:\.\d+)?(?=\s|[\[\]{},:]|$)/) ||
+      rest.match(/^[^\s\[\]{},:]+/);
+    const token = match ? match[0] : rest[0];
+    let className = 'yaml-string';
+
+    if (/^\s+$/.test(token)) className = '';
+    else if (/^[\[\]{},:]$/.test(token)) className = 'yaml-punctuation';
+    else if (/^(true|false|yes|no|on|off|null|~)$/i.test(token)) className = 'yaml-literal';
+    else if (/^[+-]?\d+(?:\.\d+)?$/.test(token)) className = 'yaml-number';
+    else if (/^\s*:/.test(rest.slice(token.length))) className = 'yaml-key';
+
+    appendYamlSpan(target, className, token);
+    offset += token.length;
+  }
 }
 
 function appendYamlSpan(target, className, text) {
-  const span = document.createElement('span');
-  if (className) span.className = className;
-  span.textContent = text;
-  target.append(span);
+  splitYamlHttpUrls(text).forEach((part) => {
+    const element = document.createElement(part.url ? 'a' : 'span');
+    element.className = [className, part.url ? 'yaml-url' : ''].filter(Boolean).join(' ');
+    element.textContent = part.text;
+    if (part.url) {
+      element.draggable = false;
+      element.href = part.url;
+      element.target = '_blank';
+      element.rel = 'noopener noreferrer';
+      element.title = 'Ctrl/Cmd + клик — открыть ссылку';
+    }
+    target.append(element);
+  });
+}
+
+function splitYamlHttpUrls(text) {
+  const value = String(text || '');
+  const parts = [];
+  let offset = 0;
+
+  for (const match of value.matchAll(YAML_HTTP_URL_PATTERN)) {
+    const index = match.index || 0;
+    const url = match[0];
+    if (index > offset) parts.push({ text: value.slice(offset, index), url: '' });
+    parts.push({ text: url, url: url.includes('•') ? '' : url });
+    offset = index + url.length;
+  }
+
+  if (offset < value.length || parts.length === 0) {
+    parts.push({ text: value.slice(offset), url: '' });
+  }
+
+  return parts;
+}
+
+function findYamlHttpUrlAtOffset(text, targetOffset) {
+  let offset = 0;
+
+  for (const part of splitYamlHttpUrls(text)) {
+    const end = offset + part.text.length;
+    if (part.url && targetOffset >= offset && targetOffset < end) return part.url;
+    offset = end;
+  }
+
+  return '';
+}
+
+function handleConfigurationUrlClick(event) {
+  if (!state.isEditingConfiguration || (!event.ctrlKey && !event.metaKey)) return;
+  const url = findYamlHttpUrlAtOffset(els.outputPreview.value, els.outputPreview.selectionStart || 0);
+  if (!url) return;
+  event.preventDefault();
+  openYamlUrl(url);
+}
+
+function handleYamlUrlPreviewClick(event) {
+  const link = event.target?.closest?.('.yaml-url');
+  if (!link || !els.outputCodeView.contains(link)) return;
+  if (event.ctrlKey || event.metaKey) return;
+  event.preventDefault();
+}
+
+function handleYamlUrlModifierState(event) {
+  els.outputViewer?.classList.toggle('is-url-navigation', Boolean(event.ctrlKey || event.metaKey));
+}
+
+function clearYamlUrlNavigationMode() {
+  els.outputViewer?.classList.remove('is-url-navigation');
+}
+
+function openYamlUrl(url) {
+  if (!/^https?:\/\//i.test(url) || url.includes('•')) return false;
+  const opened = window.open?.(url, '_blank', 'noopener,noreferrer');
+  if (opened) opened.opener = null;
+  return true;
 }
 
 function splitYamlHighlightComment(text) {
