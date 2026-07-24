@@ -6358,8 +6358,9 @@ button.review-check-card:focus-visible {
   height: 100%;
   min-height: 0;
   overflow: auto;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  background: #fffdf7;
+  color: #182234;
+  -webkit-text-fill-color: #182234;
   caret-color: #182234;
   outline: 2px solid rgba(0, 111, 120, 0.35);
   outline-offset: -2px;
