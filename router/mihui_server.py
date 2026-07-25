@@ -49,6 +49,8 @@ RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
 RESOURCE_MONITOR_EVENT_LIMIT = 200
 RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD = 2
 RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO = 0.25
+RESOURCE_MONITOR_STARTUP_WARMUP_SECONDS = 15
+RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS = 3000
 RESOURCE_MONITOR_GROUP_TYPES = {
     "selector",
     "select",
@@ -2749,7 +2751,7 @@ def load_resource_monitor_proxies(app_dir):
                         continue
                     merged = {**proxies[name], "_mihui_provider": str(provider_name)}
                     provider_delay = get_proxy_delay(proxy)
-                    if get_proxy_delay(merged) is None and provider_delay is not None:
+                    if provider_delay is not None:
                         merged["delay"] = provider_delay
                     proxies[name] = merged
     except Exception:
@@ -2853,6 +2855,64 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
     return {"ok": ok, "services": results}
 
 
+def refresh_resource_monitor_provider_delays(app_dir, settings, proxies, services=None):
+    selected_services = set(services or settings["services"])
+    monitored_nodes = set()
+    for service, service_settings in settings["services"].items():
+        if service not in selected_services or not service_settings["enabled"]:
+            continue
+        group = proxies.get(service_settings["group"])
+        options = group.get("all") if isinstance(group, dict) else None
+        if isinstance(options, list):
+            monitored_nodes.update(str(option or "") for option in options)
+
+    data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
+    providers = data.get("providers", data)
+    if not isinstance(providers, dict):
+        raise RuntimeError("Mihomo returned an invalid provider list")
+
+    checked = []
+    timeout = max(10, int(settings["timeoutMs"] / 1000) + 10)
+    for provider_name, provider in providers.items():
+        provider_nodes = provider.get("proxies") if isinstance(provider, dict) else None
+        if not isinstance(provider_nodes, list):
+            continue
+        names = {
+            str(proxy.get("name") or "")
+            for proxy in provider_nodes
+            if isinstance(proxy, dict)
+        }
+        if not monitored_nodes.intersection(names):
+            continue
+        encoded_provider = urllib.parse.quote(str(provider_name), safe="")
+        try:
+            mihomo_api_request(
+                app_dir,
+                f"/providers/proxies/{encoded_provider}/healthcheck",
+                timeout=timeout,
+            )
+        except Exception:
+            continue
+        checked.append(str(provider_name))
+    return checked
+
+
+def run_resource_monitor_startup_cycle(app_dir):
+    settings = load_resource_monitor_settings(app_dir)
+    if not settings["enabled"]:
+        return {"ok": True, "selection": {"ok": True, "services": {}}, "runtime": None}
+
+    proxies = load_resource_monitor_proxies(app_dir)
+    try:
+        refresh_resource_monitor_provider_delays(app_dir, settings, proxies)
+    except Exception:
+        pass
+    proxies = load_resource_monitor_proxies(app_dir)
+    selection = select_resource_monitor_fastest_nodes(app_dir, settings, proxies)
+    runtime = run_resource_monitor_cycle(app_dir, proxies=proxies)
+    return {"ok": selection["ok"], "selection": selection, "runtime": runtime}
+
+
 def is_resource_monitor_node_candidate(name, proxies):
     normalized_name = str(name or "")
     if not normalized_name or normalized_name.upper() in RESOURCE_MONITOR_BUILTINS:
@@ -2924,6 +2984,31 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     previous_state = item.get("state")
     previous_slow_checks = int(item.get("consecutiveSlowChecks") or 0)
     result = probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
+    failover_timeout_ms = min(settings["timeoutMs"], RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS)
+    failures = int(item.get("consecutiveFailures") or 0)
+    while not result["ok"]:
+        item["consecutiveSlowChecks"] = 0
+        failures = min(settings["failureThreshold"], failures + 1)
+        item.update(
+            {
+                "state": "warning" if failures < settings["failureThreshold"] else "error",
+                "delay": None,
+                "consecutiveFailures": failures,
+                "message": result["message"],
+            }
+        )
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "failure",
+            f"Проверка не пройдена ({failures}/{settings['failureThreshold']})",
+            node=current,
+            detail=result["message"],
+        )
+        if failures >= settings["failureThreshold"]:
+            break
+        result = probe_resource_node(app_dir, service, current, failover_timeout_ms, proxies)
+
     latency_switch = False
     switch_reason = result["message"]
     if result["ok"]:
@@ -2981,27 +3066,22 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             return
         latency_switch = True
         switch_reason = f"Высокая задержка: {current_delay} мс"
-    else:
-        item["consecutiveSlowChecks"] = 0
-        failures = int(item.get("consecutiveFailures") or 0) + 1
-        item.update(
-            {
-                "state": "warning" if failures < settings["failureThreshold"] else "error",
-                "delay": None,
-                "consecutiveFailures": failures,
-                "message": result["message"],
-            }
-        )
-        append_resource_monitor_event(
-            app_dir,
-            service,
-            "failure",
-            f"Проверка не пройдена ({failures}/{settings['failureThreshold']})",
-            node=current,
-            detail=result["message"],
-        )
-        if failures < settings["failureThreshold"]:
-            return
+
+    if not result["ok"]:
+        try:
+            refresh_resource_monitor_provider_delays(
+                app_dir,
+                settings,
+                proxies,
+                services=[service],
+            )
+            refreshed_proxies = load_resource_monitor_proxies(app_dir)
+            refreshed_group = refreshed_proxies.get(group_name)
+            if isinstance(refreshed_group, dict):
+                proxies = refreshed_proxies
+                group = refreshed_group
+        except Exception:
+            pass
 
     candidates = resource_monitor_candidates(
         group,
@@ -3011,10 +3091,13 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         settings["maxAlternatives"],
     )
     successful = []
+    candidate_timeout_ms = settings["timeoutMs"] if latency_switch else failover_timeout_ms
     for candidate in candidates:
-        candidate_result = probe_resource_node(app_dir, service, candidate, settings["timeoutMs"], proxies)
+        candidate_result = probe_resource_node(app_dir, service, candidate, candidate_timeout_ms, proxies)
         if candidate_result["ok"]:
             successful.append((candidate_result["delay"], candidate))
+            if not latency_switch:
+                break
 
     if latency_switch:
         required_delay = result["delay"] * (1 - RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO)
@@ -3097,7 +3180,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     )
 
 
-def run_resource_monitor_cycle(app_dir, services=None):
+def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
     with resource_monitor_lock:
         settings = load_resource_monitor_settings(app_dir)
         selected_services = services or [
@@ -3105,7 +3188,8 @@ def run_resource_monitor_cycle(app_dir, services=None):
         ]
         runtime = load_resource_monitor_runtime(app_dir)
         try:
-            proxies = load_resource_monitor_proxies(app_dir)
+            if proxies is None:
+                proxies = load_resource_monitor_proxies(app_dir)
             for service in selected_services:
                 if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
                     run_resource_monitor_service(app_dir, settings, runtime, service, proxies)
@@ -3124,9 +3208,12 @@ def run_resource_monitor_cycle(app_dir, services=None):
         return runtime
 
 
-def run_resource_monitor_job(app_dir, services=None):
+def run_resource_monitor_job(app_dir, services=None, startup=False):
     try:
-        run_resource_monitor_cycle(app_dir, services)
+        if startup:
+            run_resource_monitor_startup_cycle(app_dir)
+        else:
+            run_resource_monitor_cycle(app_dir, services)
     finally:
         with resource_monitor_state_lock:
             resource_monitor_job_state.update(
@@ -3138,7 +3225,7 @@ def run_resource_monitor_job(app_dir, services=None):
             )
 
 
-def start_resource_monitor_check(app_dir, services=None):
+def start_resource_monitor_check(app_dir, services=None, startup=False):
     with resource_monitor_state_lock:
         if resource_monitor_job_state["running"]:
             return {"ok": False, "message": "resource check already running", "job": dict(resource_monitor_job_state)}
@@ -3152,7 +3239,7 @@ def start_resource_monitor_check(app_dir, services=None):
         )
     thread = threading.Thread(
         target=run_resource_monitor_job,
-        args=(Path(app_dir), services),
+        args=(Path(app_dir), services, startup),
         daemon=True,
     )
     thread.start()
@@ -3160,10 +3247,19 @@ def start_resource_monitor_check(app_dir, services=None):
 
 
 def resource_monitor_worker(app_dir):
+    startup_pending = True
+    startup_due_at = time.monotonic() + RESOURCE_MONITOR_STARTUP_WARMUP_SECONDS
     while True:
         time.sleep(5)
         settings = load_resource_monitor_settings(app_dir)
         if not settings["enabled"] or snapshot_resource_monitor_job()["running"]:
+            continue
+        if startup_pending:
+            if time.monotonic() < startup_due_at:
+                continue
+            result = start_resource_monitor_check(app_dir, startup=True)
+            if result["ok"]:
+                startup_pending = False
             continue
         runtime = load_resource_monitor_runtime(app_dir)
         now = int(time.time())
@@ -3300,7 +3396,7 @@ def normalize_current_node(provider_name, proxy):
 
 def get_proxy_delay(proxy):
     delay = proxy.get("delay")
-    if isinstance(delay, (int, float)) and delay >= 0:
+    if isinstance(delay, (int, float)) and delay > 0:
         return int(delay)
 
     history = proxy.get("history")
@@ -3309,7 +3405,7 @@ def get_proxy_delay(proxy):
             if not isinstance(item, dict):
                 continue
             delay = item.get("delay")
-            if isinstance(delay, (int, float)) and delay >= 0:
+            if isinstance(delay, (int, float)) and delay > 0:
                 return int(delay)
     return None
 
