@@ -3410,6 +3410,7 @@ def initialize_resource_monitor(app_dir):
 def default_whitelist_monitor_settings():
     return {
         "enabled": False,
+        "actionMode": "observe",
         "intervalSeconds": 300,
         "confirmationThreshold": 3,
         "controlFailureThreshold": 2,
@@ -3484,6 +3485,10 @@ def validate_whitelist_monitor_settings(payload):
         "timeoutMs": (1000, 15000),
     }
     result = {"enabled": bool(payload.get("enabled", False))}
+    action_mode = str(payload.get("actionMode") or "observe").strip()
+    if action_mode not in {"observe", "suggest"}:
+        raise ValueError("actionMode must be observe or suggest")
+    result["actionMode"] = action_mode
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
@@ -3529,6 +3534,7 @@ def load_whitelist_monitor_settings(app_dir):
     merged = dict(defaults)
     for key in (
         "enabled",
+        "actionMode",
         "intervalSeconds",
         "confirmationThreshold",
         "controlFailureThreshold",

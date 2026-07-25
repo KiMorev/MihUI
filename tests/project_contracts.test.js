@@ -403,20 +403,29 @@ test('main and standalone expose the editorial shell without a dedicated routing
   }
 });
 
-test('main and standalone expose observation-only whitelist monitoring', () => {
+test('main and standalone expose observation and reviewed whitelist proposals', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
     assert.match(html, /data-section="whitelist"/);
     assert.match(html, /data-section-panel="whitelist"/);
     assert.match(html, /id="whitelistMonitorEnabled"/);
+    assert.match(html, /id="whitelistMonitorActionMode"/);
+    assert.match(html, /id="whitelistMonitorProposal"/);
+    assert.match(html, /value="observe"/);
+    assert.match(html, /value="suggest"/);
     assert.match(html, /id="whitelistMonitorPositiveEndpoints"/);
     assert.match(html, /id="whitelistMonitorControlEndpoints"/);
-    assert.match(html, /Маршрутизация и YAML не меняются/);
+    assert.match(html, /Автоматического применения нет/);
   }
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const script = read(name);
     assert.match(script, /\/api\/whitelist-monitor/);
     assert.match(script, /controlFailureThreshold: 2/);
+    assert.match(script, /prepareWhitelistFallbackConfig/);
+    assert.match(script, /prepareWhitelistMonitorDisable/);
+    assert.match(script, /applyPendingWhitelistMonitorSettings/);
+    assert.match(script, /Отключится после сохранения/);
+    assert.match(script, /webmihomo-whitelist:/);
   }
 });
 

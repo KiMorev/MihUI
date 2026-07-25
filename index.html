@@ -578,7 +578,7 @@
         <header class="whitelist-monitor-page-head">
           <div>
             <h2>Белые списки оператора</h2>
-            <p>Наблюдение за ограничением доступа без автоматического изменения конфигурации</p>
+            <p>Наблюдение с безопасной подготовкой изменений только после ручного подтверждения</p>
           </div>
           <label class="resource-monitor-switch whitelist-monitor-main-switch">
             <input id="whitelistMonitorEnabled" type="checkbox" />
@@ -590,8 +590,8 @@
         <article id="whitelistMonitorIntro" class="panel whitelist-monitor-intro">
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
           <div>
-            <h3>Режим только наблюдает</h3>
-            <p>MihUI сравнивает доступность небольших HTTPS-адресов напрямую и через выбранную прокси-группу. Маршрутизация и YAML не меняются.</p>
+            <h3>Мониторинг выключен</h3>
+            <p>После включения можно только наблюдать либо получать предложение подготовить обратимый черновик YAML. Автоматического применения нет.</p>
           </div>
         </article>
 
@@ -609,6 +609,15 @@
               <div><dt>Работают через PROXY</dt><dd id="whitelistMonitorProxyRecoveries">0</dd></div>
             </dl>
             <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
+          </section>
+
+          <section id="whitelistMonitorProposal" class="panel whitelist-monitor-proposal" hidden>
+            <div>
+              <span id="whitelistMonitorProposalBadge">Предложение</span>
+              <h3 id="whitelistMonitorProposalTitle">Подготовить временную маршрутизацию</h3>
+              <p id="whitelistMonitorProposalMessage"></p>
+            </div>
+            <button id="whitelistMonitorProposalButton" class="button primary" type="button">Подготовить черновик</button>
           </section>
 
           <section class="panel whitelist-monitor-settings">
@@ -649,6 +658,13 @@
               <label>
                 <span>Прокси-группа</span>
                 <input id="whitelistMonitorProxyGroup" type="text" value="PROXY" maxlength="128" autocomplete="off" />
+              </label>
+              <label>
+                <span>После подтверждения</span>
+                <select id="whitelistMonitorActionMode">
+                  <option value="observe">Только сообщить</option>
+                  <option value="suggest">Предложить черновик YAML</option>
+                </select>
               </label>
             </div>
           </section>

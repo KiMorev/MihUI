@@ -3499,6 +3499,55 @@ body.component-manager-open {
   gap: 14px;
 }
 
+.whitelist-monitor-proposal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-color: #f0c77c;
+  background: #fffaf0;
+}
+
+.whitelist-monitor-proposal[hidden] {
+  display: none;
+}
+
+.whitelist-monitor-proposal > div {
+  display: grid;
+  gap: 4px;
+}
+
+.whitelist-monitor-proposal span {
+  width: fit-content;
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.whitelist-monitor-proposal h3,
+.whitelist-monitor-proposal p {
+  margin: 0;
+}
+
+.whitelist-monitor-proposal h3 {
+  font-size: 14px;
+}
+
+.whitelist-monitor-proposal p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.whitelist-monitor-proposal.is-active {
+  border-color: #a9d8b9;
+  background: #f3fbf5;
+}
+
+.whitelist-monitor-proposal.is-active span {
+  color: var(--success);
+}
+
 .whitelist-monitor-status-card {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) auto auto;
@@ -3610,7 +3659,7 @@ body.component-manager-open {
 
 .whitelist-monitor-policy-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px;
 }
 
@@ -8575,7 +8624,8 @@ button.review-check-card:focus-visible {
 
   .whitelist-monitor-page-head,
   .whitelist-monitor-block-head,
-  .whitelist-monitor-actions {
+  .whitelist-monitor-actions,
+  .whitelist-monitor-proposal {
     align-items: stretch;
     flex-direction: column;
   }
@@ -8608,6 +8658,10 @@ button.review-check-card:focus-visible {
   }
 
   .whitelist-monitor-actions .button {
+    width: 100%;
+  }
+
+  .whitelist-monitor-proposal .button {
     width: 100%;
   }
 

@@ -1245,6 +1245,7 @@ class ProviderAdapterTests(unittest.TestCase):
             app_dir = Path(temp_dir)
             settings = mihui_server.default_whitelist_monitor_settings()
             settings["enabled"] = True
+            settings["actionMode"] = "suggest"
             settings["intervalSeconds"] = 120
             settings["proxyGroup"] = "FASTEST"
 
@@ -1252,6 +1253,7 @@ class ProviderAdapterTests(unittest.TestCase):
             mihui_server.save_whitelist_monitor_settings(app_dir, validated)
 
             self.assertEqual(mihui_server.load_whitelist_monitor_settings(app_dir), validated)
+            self.assertEqual(validated["actionMode"], "suggest")
             self.assertEqual(len(validated["positiveEndpoints"]), 2)
             self.assertEqual(len(validated["controlEndpoints"]), 3)
 
@@ -1263,6 +1265,11 @@ class ProviderAdapterTests(unittest.TestCase):
             invalid = mihui_server.default_whitelist_monitor_settings()
             invalid["controlEndpoints"][1]["enabled"] = False
             invalid["controlEndpoints"][2]["enabled"] = False
+            with self.assertRaises(ValueError):
+                mihui_server.validate_whitelist_monitor_settings(invalid)
+
+            invalid = mihui_server.default_whitelist_monitor_settings()
+            invalid["actionMode"] = "automatic"
             with self.assertRaises(ValueError):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 

@@ -162,6 +162,10 @@ globalThis.__app = {
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
+  prepareWhitelistFallbackConfig,
+  prepareWhitelistMonitorDisable,
+  removeWhitelistFallbackConfig,
+  isWhitelistFallbackConfigActive,
   applyNodeProviderRule,
   parseGroups,
   parseRules,
@@ -332,6 +336,58 @@ rules:
     assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+  });
+
+  test(`${source.name}: prepares and removes a reversible whitelist fallback`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: PROXY
+    type: select
+    use:
+      - main
+rules:
+  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve
+  - DOMAIN,plex.tv,DIRECT
+  - DOMAIN-SUFFIX,plex.direct,DIRECT
+  - DOMAIN-SUFFIX,ru,DIRECT
+  - RULE-SET,yandex@domain,DIRECT
+  - GEOIP,RU,DIRECT
+  - MATCH,PROXY
+`);
+    const settings = {
+      proxyGroup: 'PROXY',
+      positiveEndpoints: [
+        { id: 'allowed-ya', name: 'Яндекс', url: 'https://ya.ru/', enabled: true },
+        { id: 'allowed-gosuslugi', name: 'Госуслуги', url: 'https://www.gosuslugi.ru/', enabled: true },
+      ],
+    };
+
+    app.prepareWhitelistFallbackConfig(settings);
+
+    const output = app.state.outputText;
+    const catchAll = output.indexOf('MATCH,PROXY # webmihomo-whitelist: catch-all');
+    assert.ok(output.indexOf('IP-CIDR,192.168.0.0/16,DIRECT') < catchAll);
+    assert.ok(output.indexOf('DOMAIN,plex.tv,DIRECT') < catchAll);
+    assert.ok(output.indexOf('DOMAIN-SUFFIX,plex.direct,DIRECT') < catchAll);
+    assert.ok(output.indexOf('DOMAIN-SUFFIX,ya.ru,DIRECT # webmihomo-whitelist: direct ya.ru') < catchAll);
+    assert.ok(output.indexOf('DOMAIN-SUFFIX,www.gosuslugi.ru,DIRECT # webmihomo-whitelist: direct www.gosuslugi.ru') < catchAll);
+    assert.ok(catchAll < output.indexOf('DOMAIN-SUFFIX,ru,DIRECT'));
+    assert.ok(catchAll < output.indexOf('RULE-SET,yandex@domain,DIRECT'));
+    assert.ok(catchAll < output.indexOf('GEOIP,RU,DIRECT'));
+    assert.equal(app.isWhitelistFallbackConfigActive(), true);
+
+    app.prepareWhitelistMonitorDisable(settings);
+
+    assert.doesNotMatch(app.state.outputText, /webmihomo-whitelist:/);
+    assert.equal((app.state.outputText.match(/MATCH,PROXY/g) || []).length, 1);
+    assert.match(app.state.outputText, /DOMAIN-SUFFIX,ru,DIRECT/);
+    assert.equal(app.isWhitelistFallbackConfigActive(), false);
+    assert.equal(app.state.whitelistMonitor.pendingSettings.enabled, false);
   });
 
   test(`${source.name}: enables selection persistence without changing profile siblings`, () => {
