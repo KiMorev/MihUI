@@ -192,6 +192,21 @@
           <button id="overviewHealthAction" class="button compact overview-health-action" type="button">Открыть проверку</button>
         </section>
 
+        <button id="overviewWhitelistMonitorStatus" class="overview-whitelist-status panel" type="button" data-section-target="whitelist" aria-live="polite" hidden>
+          <span class="overview-whitelist-status-icon" aria-hidden="true">
+            <svg><use href="#icon-shield-lock"></use></svg>
+          </span>
+          <span class="overview-whitelist-status-copy">
+            <span>Мониторинг белых списков</span>
+            <strong id="overviewWhitelistMonitorTitle">Проверка ещё не выполнялась</strong>
+          </span>
+          <span class="overview-whitelist-status-meta">
+            <span id="overviewWhitelistMonitorBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+            <span id="overviewWhitelistMonitorCheckedAt">Ещё не проверено</span>
+          </span>
+          <span class="overview-whitelist-status-action">Открыть <span aria-hidden="true">→</span></span>
+        </button>
+
         <section class="overview-flow panel" aria-label="Путь конфигурации">
           <div class="overview-flow-steps">
           <button class="overview-step" type="button" data-section-target="providers">

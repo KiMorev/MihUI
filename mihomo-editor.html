@@ -1057,6 +1057,88 @@ h2 {
   font-size: 13px;
 }
 
+.overview-whitelist-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.overview-whitelist-status[hidden] {
+  display: none;
+}
+
+.overview-whitelist-status:hover,
+.overview-whitelist-status:focus-visible {
+  border-color: var(--accent);
+  background: #f7fcfc;
+  outline: 0;
+}
+
+.overview-whitelist-status-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #eaf5f5;
+  color: var(--accent-dark);
+}
+
+.overview-whitelist-status-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.overview-whitelist-status-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.overview-whitelist-status-copy > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.overview-whitelist-status-copy strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-whitelist-status-meta {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.overview-whitelist-status-meta > span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.overview-whitelist-status-action {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
 .overview-flow {
   padding: 18px;
 }
@@ -8373,6 +8455,19 @@ button.review-check-card:focus-visible {
     width: 100%;
   }
 
+  .overview-whitelist-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .overview-whitelist-status-meta {
+    grid-column: 2;
+  }
+
+  .overview-whitelist-status-action {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
   .overview-attention-item {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
@@ -9252,6 +9347,21 @@ button.review-check-card:focus-visible {
           </div>
           <button id="overviewHealthAction" class="button compact overview-health-action" type="button">Открыть проверку</button>
         </section>
+
+        <button id="overviewWhitelistMonitorStatus" class="overview-whitelist-status panel" type="button" data-section-target="whitelist" aria-live="polite" hidden>
+          <span class="overview-whitelist-status-icon" aria-hidden="true">
+            <svg><use href="#icon-shield-lock"></use></svg>
+          </span>
+          <span class="overview-whitelist-status-copy">
+            <span>Мониторинг белых списков</span>
+            <strong id="overviewWhitelistMonitorTitle">Проверка ещё не выполнялась</strong>
+          </span>
+          <span class="overview-whitelist-status-meta">
+            <span id="overviewWhitelistMonitorBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+            <span id="overviewWhitelistMonitorCheckedAt">Ещё не проверено</span>
+          </span>
+          <span class="overview-whitelist-status-action">Открыть <span aria-hidden="true">→</span></span>
+        </button>
 
         <section class="overview-flow panel" aria-label="Путь конфигурации">
           <div class="overview-flow-steps">
@@ -10885,6 +10995,10 @@ const els = {
   overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
   overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
   overviewHealthAction: document.querySelector('#overviewHealthAction'),
+  overviewWhitelistMonitorStatus: document.querySelector('#overviewWhitelistMonitorStatus'),
+  overviewWhitelistMonitorTitle: document.querySelector('#overviewWhitelistMonitorTitle'),
+  overviewWhitelistMonitorBadge: document.querySelector('#overviewWhitelistMonitorBadge'),
+  overviewWhitelistMonitorCheckedAt: document.querySelector('#overviewWhitelistMonitorCheckedAt'),
   overviewConfigSource: document.querySelector('#overviewConfigSource'),
   overviewConfigPath: document.querySelector('#overviewConfigPath'),
   overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
@@ -14092,7 +14206,29 @@ function renderWhitelistMonitorHistory(runtime) {
     : 'За последние сутки данных пока нет.';
 }
 
+function renderOverviewWhitelistMonitor() {
+  if (!els.overviewWhitelistMonitorStatus) return;
+  const config = state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings();
+  const enabled = state.whitelistMonitor.loaded
+    && state.routerMode
+    && state.routerApiAvailable
+    && Boolean(config.enabled);
+  els.overviewWhitelistMonitorStatus.hidden = !enabled;
+  if (!enabled) return;
+
+  const runtime = state.whitelistMonitor.runtime || {};
+  const runtimeState = runtime.state || 'idle';
+  const presentation = getWhitelistMonitorStatePresentation(runtimeState);
+  els.overviewWhitelistMonitorTitle.textContent = presentation.title;
+  els.overviewWhitelistMonitorBadge.className = `whitelist-monitor-state is-${runtimeState}`;
+  els.overviewWhitelistMonitorBadge.textContent = presentation.label;
+  els.overviewWhitelistMonitorCheckedAt.textContent = runtime.checkedAt
+    ? `Проверено ${formatResourceMonitorTime(runtime.checkedAt)}`
+    : 'Ещё не проверено';
+}
+
 function renderWhitelistMonitor() {
+  renderOverviewWhitelistMonitor();
   if (!els.whitelistMonitorEnabled) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
   const config = state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings();

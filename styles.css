@@ -1049,6 +1049,88 @@ h2 {
   font-size: 13px;
 }
 
+.overview-whitelist-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.overview-whitelist-status[hidden] {
+  display: none;
+}
+
+.overview-whitelist-status:hover,
+.overview-whitelist-status:focus-visible {
+  border-color: var(--accent);
+  background: #f7fcfc;
+  outline: 0;
+}
+
+.overview-whitelist-status-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #eaf5f5;
+  color: var(--accent-dark);
+}
+
+.overview-whitelist-status-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.overview-whitelist-status-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.overview-whitelist-status-copy > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.overview-whitelist-status-copy strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-whitelist-status-meta {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.overview-whitelist-status-meta > span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.overview-whitelist-status-action {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
 .overview-flow {
   padding: 18px;
 }
@@ -8363,6 +8445,19 @@ button.review-check-card:focus-visible {
   .overview-health-action {
     grid-column: 1 / -1;
     width: 100%;
+  }
+
+  .overview-whitelist-status {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .overview-whitelist-status-meta {
+    grid-column: 2;
+  }
+
+  .overview-whitelist-status-action {
+    grid-column: 2;
+    grid-row: auto;
   }
 
   .overview-attention-item {

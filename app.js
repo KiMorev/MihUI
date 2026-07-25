@@ -599,6 +599,10 @@ const els = {
   overviewHealthTitle: document.querySelector('#overviewHealthTitle'),
   overviewHealthSummary: document.querySelector('#overviewHealthSummary'),
   overviewHealthAction: document.querySelector('#overviewHealthAction'),
+  overviewWhitelistMonitorStatus: document.querySelector('#overviewWhitelistMonitorStatus'),
+  overviewWhitelistMonitorTitle: document.querySelector('#overviewWhitelistMonitorTitle'),
+  overviewWhitelistMonitorBadge: document.querySelector('#overviewWhitelistMonitorBadge'),
+  overviewWhitelistMonitorCheckedAt: document.querySelector('#overviewWhitelistMonitorCheckedAt'),
   overviewConfigSource: document.querySelector('#overviewConfigSource'),
   overviewConfigPath: document.querySelector('#overviewConfigPath'),
   overviewConfigChanges: document.querySelector('#overviewConfigChanges'),
@@ -3806,7 +3810,29 @@ function renderWhitelistMonitorHistory(runtime) {
     : 'За последние сутки данных пока нет.';
 }
 
+function renderOverviewWhitelistMonitor() {
+  if (!els.overviewWhitelistMonitorStatus) return;
+  const config = state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings();
+  const enabled = state.whitelistMonitor.loaded
+    && state.routerMode
+    && state.routerApiAvailable
+    && Boolean(config.enabled);
+  els.overviewWhitelistMonitorStatus.hidden = !enabled;
+  if (!enabled) return;
+
+  const runtime = state.whitelistMonitor.runtime || {};
+  const runtimeState = runtime.state || 'idle';
+  const presentation = getWhitelistMonitorStatePresentation(runtimeState);
+  els.overviewWhitelistMonitorTitle.textContent = presentation.title;
+  els.overviewWhitelistMonitorBadge.className = `whitelist-monitor-state is-${runtimeState}`;
+  els.overviewWhitelistMonitorBadge.textContent = presentation.label;
+  els.overviewWhitelistMonitorCheckedAt.textContent = runtime.checkedAt
+    ? `Проверено ${formatResourceMonitorTime(runtime.checkedAt)}`
+    : 'Ещё не проверено';
+}
+
 function renderWhitelistMonitor() {
+  renderOverviewWhitelistMonitor();
   if (!els.whitelistMonitorEnabled) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
   const config = state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings();
