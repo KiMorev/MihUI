@@ -467,6 +467,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            previous_settings = load_resource_monitor_settings(self.app_dir)
+            if not previous_settings["enabled"]:
+                proxies = load_resource_monitor_proxies(self.app_dir)
+                selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
+                if not selection["ok"]:
+                    self.send_json(
+                        HTTPStatus.BAD_GATEWAY,
+                        {
+                            "ok": False,
+                            "message": "Mihomo did not apply the fastest resource nodes",
+                            "selection": selection,
+                        },
+                    )
+                    return
+
         save_resource_monitor_settings(self.app_dir, settings)
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
 
@@ -2695,6 +2710,38 @@ def get_resource_monitor_status(app_dir):
     }
 
 
+def load_resource_monitor_proxies(app_dir):
+    data = mihomo_api_request(app_dir, "/proxies", timeout=5)
+    proxies = data.get("proxies", data)
+    if not isinstance(proxies, dict):
+        raise RuntimeError("Mihomo returned an invalid proxy list")
+    proxies = dict(proxies)
+
+    try:
+        provider_data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
+        providers = provider_data.get("providers", provider_data)
+        if not isinstance(providers, dict):
+            return proxies
+        for provider in providers.values():
+            provider_proxies = provider.get("proxies") if isinstance(provider, dict) else None
+            if not isinstance(provider_proxies, list):
+                continue
+            for proxy in provider_proxies:
+                if not isinstance(proxy, dict):
+                    continue
+                name = str(proxy.get("name") or "")
+                if name and name not in proxies:
+                    proxies[name] = proxy
+                elif name and isinstance(proxies.get(name), dict) and get_proxy_delay(proxies[name]) is None:
+                    provider_delay = get_proxy_delay(proxy)
+                    if provider_delay is not None:
+                        proxies[name] = {**proxies[name], "delay": provider_delay}
+    except Exception:
+        pass
+
+    return proxies
+
+
 def resource_monitor_delay(app_dir, node, endpoint, timeout_ms):
     encoded_node = urllib.parse.quote(node, safe="")
     query = urllib.parse.urlencode(
@@ -2744,11 +2791,47 @@ def resource_monitor_candidates(group, proxies, current, quarantine, limit):
             continue
         if not is_resource_monitor_node_candidate(name, proxies):
             continue
-        proxy = proxies[name]
+        proxy = proxies.get(name, {})
         known_delay = get_proxy_delay(proxy)
         candidates.append((known_delay if known_delay is not None else 10**9, order, name))
     candidates.sort()
     return [name for _, _, name in candidates[:limit]]
+
+
+def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
+    results = {}
+    ok = True
+    for service, service_settings in settings["services"].items():
+        if not service_settings["enabled"]:
+            continue
+        group_name = service_settings["group"]
+        group = proxies.get(group_name)
+        options = group.get("all") if isinstance(group, dict) else []
+        candidates = resource_monitor_candidates(
+            group,
+            proxies,
+            "",
+            {},
+            len(options) if isinstance(options, list) else 0,
+        )
+        selected = candidates[0] if candidates else ""
+        selected_proxy = proxies.get(selected)
+        current = str(group.get("now") or "") if isinstance(group, dict) else ""
+        selected_delay = get_proxy_delay(selected_proxy) if isinstance(selected_proxy, dict) else None
+        if not selected or selected_delay is None:
+            results[service] = {"ok": True, "changed": False, "now": current}
+            continue
+        if current == selected:
+            results[service] = {"ok": True, "changed": False, "now": selected}
+            continue
+
+        result = select_proxy_group(app_dir, group_name, selected)
+        results[service] = result
+        if result["ok"]:
+            group["now"] = selected
+        else:
+            ok = False
+    return {"ok": ok, "services": results}
 
 
 def is_resource_monitor_node_candidate(name, proxies):
@@ -2756,6 +2839,8 @@ def is_resource_monitor_node_candidate(name, proxies):
     if not normalized_name or normalized_name.upper() in RESOURCE_MONITOR_BUILTINS:
         return False
     proxy = proxies.get(normalized_name)
+    if proxy is None:
+        return True
     if not isinstance(proxy, dict):
         return False
     proxy_type = str(proxy.get("type") or "").strip().casefold()
@@ -2936,10 +3021,7 @@ def run_resource_monitor_cycle(app_dir, services=None):
         ]
         runtime = load_resource_monitor_runtime(app_dir)
         try:
-            data = mihomo_api_request(app_dir, "/proxies", timeout=5)
-            proxies = data.get("proxies", data)
-            if not isinstance(proxies, dict):
-                raise RuntimeError("Mihomo returned an invalid proxy list")
+            proxies = load_resource_monitor_proxies(app_dir)
             for service in selected_services:
                 if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
                     run_resource_monitor_service(app_dir, settings, runtime, service, proxies)

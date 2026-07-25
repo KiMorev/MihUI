@@ -1273,6 +1273,151 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertGreater(item["quarantine"]["node-a"], int(time.time()))
         select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-c")
 
+    def test_resource_monitor_accepts_provider_nodes_omitted_from_proxies_map(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        proxies = {
+            name: {
+                "name": name,
+                "type": "Selector",
+                "now": "provider-node",
+                "all": ["provider-node", "provider-node-2"],
+            }
+            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "AI")
+        }
+
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"proxies": proxies},
+        ):
+            readiness = mihui_server.get_resource_monitor_readiness(Path("."), settings)
+
+        self.assertTrue(readiness["ready"])
+        self.assertTrue(all(item["ready"] for item in readiness["services"].values()))
+        self.assertEqual(
+            mihui_server.resource_monitor_candidates(
+                proxies["YOUTUBE"],
+                proxies,
+                "provider-node",
+                {},
+                3,
+            ),
+            ["provider-node-2"],
+        )
+
+    def test_resource_monitor_uses_mihomo_provider_delays_for_initial_selection(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        for service in settings["services"].values():
+            service["enabled"] = False
+        settings["services"]["youtube"]["enabled"] = True
+        group = {
+            "name": "YOUTUBE",
+            "type": "Selector",
+            "now": "node-a",
+            "all": ["node-a", "node-b", "node-c"],
+        }
+
+        def request(_app_dir, path, **_kwargs):
+            if path == "/proxies":
+                return {
+                    "proxies": {
+                        "YOUTUBE": group,
+                        "node-a": {"name": "node-a", "type": "VLESS", "alive": True},
+                        "node-b": {"name": "node-b", "type": "VLESS", "alive": True},
+                        "node-c": {"name": "node-c", "type": "VLESS", "alive": True},
+                    }
+                }
+            if path == "/providers/proxies":
+                return {
+                    "providers": {
+                        "main": {
+                            "proxies": [
+                                {"name": "node-a", "type": "VLESS", "alive": True, "history": [{"delay": 80}]},
+                                {"name": "node-b", "type": "VLESS", "alive": True, "history": [{"delay": 25}]},
+                                {"name": "node-c", "type": "VLESS", "alive": True, "history": [{"delay": 45}]},
+                            ]
+                        }
+                    }
+                }
+            raise AssertionError(path)
+
+        with mock.patch.object(mihui_server, "mihomo_api_request", side_effect=request), mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-b"},
+        ) as select:
+            proxies = mihui_server.load_resource_monitor_proxies(Path("."))
+            result = mihui_server.select_resource_monitor_fastest_nodes(Path("."), settings, proxies)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            mihui_server.resource_monitor_candidates(group, proxies, "", {}, 3),
+            ["node-b", "node-c", "node-a"],
+        )
+        select.assert_called_once_with(Path("."), "YOUTUBE", "node-b")
+
+    def test_resource_monitor_keeps_current_node_without_mihomo_delay(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        for service in settings["services"].values():
+            service["enabled"] = False
+        settings["services"]["youtube"]["enabled"] = True
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a", "node-b"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True},
+        }
+
+        with mock.patch.object(mihui_server, "select_proxy_group") as select:
+            result = mihui_server.select_resource_monitor_fastest_nodes(Path("."), settings, proxies)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["services"]["youtube"]["now"], "node-a")
+        select.assert_not_called()
+
+    def test_resource_monitor_enable_applies_fastest_mihomo_nodes(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["enabled"] = True
+        proxies = {"YOUTUBE": {"type": "Selector", "now": "node-a", "all": ["node-a"]}}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "get_resource_monitor_readiness",
+                    return_value={"ready": True, "message": "", "services": {}},
+                ), mock.patch.object(
+                    mihui_server,
+                    "load_resource_monitor_proxies",
+                    return_value=proxies,
+                ), mock.patch.object(
+                    mihui_server,
+                    "select_resource_monitor_fastest_nodes",
+                    return_value={"ok": True, "services": {}},
+                ) as select_fastest, mock.patch.object(
+                    mihui_server,
+                    "get_resource_monitor_status",
+                    return_value={"ok": True, "config": settings},
+                ):
+                    status, result = self.post_json(
+                        server,
+                        "/api/resource-monitor/settings",
+                        settings,
+                        headers={"X-Mihui-Action": "resource-monitor"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        select_fastest.assert_called_once_with(app_dir, settings, proxies)
+
     def test_resource_monitor_delay_uses_mihomo_proxy_probe(self):
         with mock.patch.object(
             mihui_server,

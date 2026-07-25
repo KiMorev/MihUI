@@ -2858,8 +2858,8 @@ body.component-manager-open {
 }
 
 .node-group-selection-card {
-  flex: 1 0 260px;
-  min-width: min(260px, 100%);
+  flex: 1 0 300px;
+  min-width: min(300px, 100%);
   display: grid;
   gap: 8px;
   padding: 10px;
@@ -2925,7 +2925,7 @@ body.component-manager-open {
 .node-group-selection-actions {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: end;
   gap: 8px;
   padding-top: 8px;
@@ -2950,6 +2950,8 @@ body.component-manager-open {
 }
 
 .node-group-selection-actions .button {
+  min-width: 96px;
+  justify-self: end;
   white-space: nowrap;
 }
 
