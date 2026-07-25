@@ -162,6 +162,9 @@ globalThis.__app = {
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
+  buildResourceMonitorTimeline,
+  isRecentResourceMonitorSwitch,
+  formatResourceMonitorSwitchAge,
   buildWhitelistMonitorTimeline,
   prepareWhitelistFallbackConfig,
   prepareWhitelistMonitorDisable,
@@ -429,6 +432,59 @@ rules:
     ], null, now, 1);
 
     assert.equal(timeline[0].state, 'confirmed');
+  });
+
+  test(`${source.name}: builds resource history and marks node switches`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 24 * 60 * 60 * 1000;
+    const at = (offsetHours) => Math.floor((start + offsetHours * 60 * 60 * 1000) / 1000);
+    const timeline = app.buildResourceMonitorTimeline([
+      { service: 'youtube', type: 'recovered', timestamp: at(-1) },
+      { service: 'youtube', type: 'failure', timestamp: at(10) },
+      { service: 'youtube', type: 'switch', timestamp: at(11) },
+      { service: 'youtube', type: 'unavailable', timestamp: at(15) },
+      { service: 'youtube', type: 'recovered', timestamp: at(17) },
+      { service: 'ai', type: 'failure', timestamp: at(12) },
+    ], {
+      state: 'available',
+      checkedAt: at(23.9),
+    }, 'youtube', now);
+    const counts = timeline.reduce((result, item) => {
+      result[item.state] = (result[item.state] || 0) + 1;
+      return result;
+    }, {});
+
+    assert.equal(timeline.length, 24);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(counts)),
+      { available: 19, warning: 2, error: 3 },
+    );
+    assert.equal(timeline[11].hasSwitch, true);
+    assert.equal(timeline[12].hasSwitch, false);
+  });
+
+  test(`${source.name}: keeps the serious resource state when a switch succeeds in the same hour`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 60 * 60 * 1000;
+    const at = (offsetMinutes) => Math.floor((start + offsetMinutes * 60 * 1000) / 1000);
+    const timeline = app.buildResourceMonitorTimeline([
+      { service: 'ai', type: 'failure', timestamp: at(10) },
+      { service: 'ai', type: 'switch', timestamp: at(15) },
+    ], null, 'ai', now, 1);
+
+    assert.equal(timeline[0].state, 'warning');
+    assert.equal(timeline[0].hasSwitch, true);
+  });
+
+  test(`${source.name}: expires the compact switch note after two hours`, () => {
+    const app = loadApp(source);
+    const now = 10_000;
+
+    assert.equal(app.isRecentResourceMonitorSwitch({ lastSwitch: { at: now - 7199 } }, now), true);
+    assert.equal(app.isRecentResourceMonitorSwitch({ lastSwitch: { at: now - 7200 } }, now), false);
+    assert.equal(app.formatResourceMonitorSwitchAge(now - 60, now), '1 мин назад');
   });
 
   test(`${source.name}: enables selection persistence without changing profile siblings`, () => {

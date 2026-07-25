@@ -16,6 +16,8 @@ const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
 const RESOURCE_MONITOR_REFRESH_MS = 30000;
+const RESOURCE_MONITOR_HISTORY_HOURS = 24;
+const RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS = 2 * 60 * 60;
 const WHITELIST_MONITOR_REFRESH_MS = 30000;
 const WHITELIST_FALLBACK_MARKER = 'webmihomo-whitelist:';
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
@@ -635,6 +637,9 @@ const els = {
   resourceMonitorSummary: document.querySelector('#resourceMonitorSummary'),
   resourceMonitorEnabled: document.querySelector('#resourceMonitorEnabled'),
   resourceMonitorSettingsButton: document.querySelector('#resourceMonitorSettingsButton'),
+  resourceMonitorHistory: document.querySelector('#resourceMonitorHistory'),
+  resourceMonitorHistoryRows: document.querySelector('#resourceMonitorHistoryRows'),
+  resourceMonitorHistorySummary: document.querySelector('#resourceMonitorHistorySummary'),
   resourceMonitorRows: document.querySelector('#resourceMonitorRows'),
   resourceMonitorEventsCount: document.querySelector('#resourceMonitorEventsCount'),
   resourceMonitorEventsList: document.querySelector('#resourceMonitorEventsList'),
@@ -2752,6 +2757,150 @@ function startResourceMonitorPolling() {
   }, RESOURCE_MONITOR_REFRESH_MS);
 }
 
+function getResourceMonitorHistoryTimestamp(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeResourceMonitorHistoryState(value) {
+  if (['available', 'recovered', 'latency_recovered', 'switch'].includes(value)) return 'available';
+  if (['warning', 'checking', 'failure', 'high_latency', 'latency_no_better'].includes(value)) return 'warning';
+  if (['error', 'needs_sync', 'unavailable', 'switch_failed', 'config_drift'].includes(value)) return 'error';
+  return 'idle';
+}
+
+function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now(), hours = RESOURCE_MONITOR_HISTORY_HOURS) {
+  const hourMs = 60 * 60 * 1000;
+  const totalHours = Math.max(1, Number(hours) || RESOURCE_MONITOR_HISTORY_HOURS);
+  const windowEnd = Number(nowMs);
+  const windowStart = windowEnd - totalHours * hourMs;
+  const transitions = (Array.isArray(events) ? events : [])
+    .filter((event) => event?.service === service)
+    .map((event) => ({
+      at: getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at),
+      state: normalizeResourceMonitorHistoryState(event.type),
+      hasSwitch: event.type === 'switch',
+    }))
+    .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd && event.state !== 'idle');
+  const runtimeAt = getResourceMonitorHistoryTimestamp(runtime?.checkedAt);
+  if (Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
+    transitions.push({
+      at: runtimeAt,
+      state: normalizeResourceMonitorHistoryState(runtime?.state),
+      hasSwitch: false,
+    });
+  }
+  transitions.sort((left, right) => left.at - right.at);
+
+  let currentState = 'idle';
+  let transitionIndex = 0;
+  while (transitionIndex < transitions.length && transitions[transitionIndex].at < windowStart) {
+    currentState = transitions[transitionIndex].state;
+    transitionIndex += 1;
+  }
+
+  const priority = { idle: 0, available: 1, warning: 2, error: 3 };
+  const result = [];
+  for (let index = 0; index < totalHours; index += 1) {
+    const start = windowStart + index * hourMs;
+    const end = start + hourMs;
+    const states = [currentState];
+    let hasSwitch = false;
+    while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
+      currentState = transitions[transitionIndex].state;
+      states.push(currentState);
+      hasSwitch ||= transitions[transitionIndex].hasSwitch;
+      transitionIndex += 1;
+    }
+    const stateValue = states.reduce(
+      (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
+      'idle',
+    );
+    result.push({ start, end, state: stateValue, hasSwitch });
+  }
+  return result;
+}
+
+function getResourceMonitorHistoryStateLabel(value) {
+  return {
+    available: 'Доступен',
+    warning: 'Требует внимания',
+    error: 'Недоступен',
+    idle: 'Нет данных',
+  }[value] || 'Нет данных';
+}
+
+function renderResourceMonitorHistory(enabledEntries, runtime) {
+  if (!els.resourceMonitorHistory || !els.resourceMonitorHistoryRows || !els.resourceMonitorHistorySummary) return;
+  const visible = state.resourceMonitor.loaded && enabledEntries.length > 0;
+  els.resourceMonitorHistory.hidden = !visible;
+  els.resourceMonitorHistoryRows.textContent = '';
+  if (!visible) return;
+
+  let knownIntervals = 0;
+  enabledEntries.forEach(([key, definition]) => {
+    const row = document.createElement('article');
+    const title = document.createElement('strong');
+    const track = document.createElement('div');
+    const timeline = buildResourceMonitorTimeline(
+      state.resourceMonitor.events,
+      runtime[key] || {},
+      key,
+    );
+    row.className = 'resource-monitor-history-row';
+    row.setAttribute('role', 'listitem');
+    title.textContent = definition.title;
+    track.className = 'resource-monitor-history-track';
+    track.setAttribute('role', 'list');
+    track.setAttribute('aria-label', `История проверок ${definition.title}`);
+
+    timeline.forEach((item) => {
+      const dot = document.createElement('span');
+      const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      const switchLabel = item.hasSwitch ? ' · Нода переключена' : '';
+      const label = `${start}–${end} · ${getResourceMonitorHistoryStateLabel(item.state)}${switchLabel}`;
+      if (item.state !== 'idle') knownIntervals += 1;
+      dot.className = `resource-monitor-history-dot is-${item.state}${item.hasSwitch ? ' has-switch' : ''}`;
+      dot.title = label;
+      dot.setAttribute('role', 'listitem');
+      dot.setAttribute('aria-label', label);
+      track.append(dot);
+    });
+    row.append(title, track);
+    els.resourceMonitorHistoryRows.append(row);
+  });
+
+  const enabledKeys = new Set(enabledEntries.map(([key]) => key));
+  const windowStart = Date.now() - RESOURCE_MONITOR_HISTORY_HOURS * 60 * 60 * 1000;
+  const switchCount = state.resourceMonitor.events.filter((event) => (
+    event?.type === 'switch'
+    && enabledKeys.has(event.service)
+    && Number(getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at)) >= windowStart
+  )).length;
+  els.resourceMonitorHistorySummary.textContent = knownIntervals
+    ? `Ресурсов: ${enabledEntries.length} · смен нод за сутки: ${switchCount}`
+    : 'За последние сутки данных пока нет.';
+}
+
+function isRecentResourceMonitorSwitch(item, nowSeconds = Date.now() / 1000) {
+  const switchedAt = Number(item?.lastSwitch?.at || 0);
+  const age = Number(nowSeconds) - switchedAt;
+  return switchedAt > 0 && age >= 0 && age < RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS;
+}
+
+function formatResourceMonitorSwitchAge(value, nowSeconds = Date.now() / 1000) {
+  const ageSeconds = Math.max(0, Number(nowSeconds) - Number(value || 0));
+  if (ageSeconds < 60) return 'только что';
+  const minutes = Math.floor(ageSeconds / 60);
+  if (minutes < 60) return `${minutes} мин назад`;
+  return `${Math.floor(minutes / 60)} ч назад`;
+}
+
 function renderResourceMonitor() {
   if (!els.resourceMonitorPanel) return;
   const visible = state.routerMode && state.routerApiAvailable;
@@ -2775,6 +2924,7 @@ function renderResourceMonitor() {
     : summaryParts.join(' · ');
   els.resourceMonitorEnabled.checked = Boolean(config.enabled);
   els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
+  renderResourceMonitorHistory(enabledEntries, runtime);
 
   els.resourceMonitorRows.textContent = '';
   enabledEntries.forEach(([key, definition]) => {
@@ -2809,9 +2959,13 @@ function renderResourceMonitor() {
     node.className = 'resource-monitor-node';
     nodeName.textContent = item.currentNode || '—';
     node.append(nodeName);
-    if (item.lastSwitch?.at) {
+    const hasRecentSwitch = isRecentResourceMonitorSwitch(item);
+    if (hasRecentSwitch) {
       const note = document.createElement('span');
-      note.textContent = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
+      const fullNote = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
+      note.textContent = `Сменена ${formatResourceMonitorSwitchAge(item.lastSwitch.at)}`;
+      note.title = fullNote;
+      note.setAttribute('aria-label', fullNote);
       node.append(note);
     }
     nodeCell.append(node);
@@ -2824,7 +2978,7 @@ function renderResourceMonitor() {
     const actionCell = document.createElement('td');
     const checkButton = document.createElement('button');
     checkButton.className = 'button ghost compact';
-    if (item.lastSwitch?.at) checkButton.classList.add('is-visible');
+    if (hasRecentSwitch) checkButton.classList.add('is-visible');
     checkButton.type = 'button';
     checkButton.textContent = 'Проверить';
     checkButton.disabled = state.resourceMonitor.checking;

@@ -112,6 +112,28 @@ test('main and standalone expose preventive and critical resource latency settin
   }
 });
 
+test('main and standalone expose compact resource monitoring history', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const html = read(name);
+    assert.match(html, /id="resourceMonitorHistory"/);
+    assert.match(html, /id="resourceMonitorHistoryRows"/);
+    assert.match(html, /id="resourceMonitorHistorySummary"/);
+    assert.match(html, /История проверок/);
+  }
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const script = read(name);
+    assert.match(script, /buildResourceMonitorTimeline/);
+    assert.match(script, /RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS = 2 \* 60 \* 60/);
+    assert.match(script, /Сменена \$\{formatResourceMonitorSwitchAge/);
+  }
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.resource-monitor-history-track\s*{/);
+    assert.match(source, /grid-template-columns: repeat\(24, minmax\(0, 1fr\)\)/);
+    assert.match(source, /\.resource-monitor-history-dot\.has-switch/);
+  }
+});
+
 test('main and standalone expose per-resource monitoring switches', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);

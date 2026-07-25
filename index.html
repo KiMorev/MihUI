@@ -499,6 +499,27 @@
                   </button>
                 </div>
               </header>
+              <section id="resourceMonitorHistory" class="resource-monitor-history" aria-labelledby="resourceMonitorHistoryTitle" hidden>
+                <header>
+                  <div>
+                    <span>Последние 24 часа</span>
+                    <h4 id="resourceMonitorHistoryTitle">История проверок</h4>
+                  </div>
+                  <div class="resource-monitor-history-legend" aria-label="Обозначения состояний">
+                    <span><i class="is-available" aria-hidden="true"></i>Доступен</span>
+                    <span><i class="is-warning" aria-hidden="true"></i>Требует внимания</span>
+                    <span><i class="is-error" aria-hidden="true"></i>Недоступен</span>
+                    <span><i class="has-switch" aria-hidden="true"></i>Смена ноды</span>
+                  </div>
+                </header>
+                <div id="resourceMonitorHistoryRows" class="resource-monitor-history-rows" role="list"></div>
+                <div class="resource-monitor-history-axis" aria-hidden="true">
+                  <span>24 часа назад</span>
+                  <span>12 часов назад</span>
+                  <span>Сейчас</span>
+                </div>
+                <p id="resourceMonitorHistorySummary">За последние сутки данных пока нет.</p>
+              </section>
               <div class="resource-monitor-layout">
                 <div class="resource-monitor-table-wrap">
                   <table class="resource-monitor-table">
