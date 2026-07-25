@@ -837,6 +837,16 @@
                 </select>
               </label>
               <label>
+                <span>Критическая задержка</span>
+                <select id="resourceMonitorLatencyThreshold">
+                  <option value="300">300 мс</option>
+                  <option value="400">400 мс</option>
+                  <option value="500">500 мс</option>
+                  <option value="750">750 мс</option>
+                  <option value="1000">1000 мс</option>
+                </select>
+              </label>
+              <label>
                 <span>Исключать ноду на</span>
                 <select id="resourceMonitorQuarantine">
                   <option value="900">15 минут</option>
@@ -845,7 +855,7 @@
                 </select>
               </label>
             </div>
-            <p>Проверка оценивает только доступность и задержку ответа. Тест скорости и загрузка файлов не выполняются.</p>
+            <p>При критической задержке две проверки подряд запускают поиск ноды, которая быстрее минимум на 25%. Тест скорости и загрузка файлов не выполняются.</p>
           </section>
           <p id="resourceMonitorDialogNotice" class="resource-monitor-dialog-notice" hidden></p>
           <section id="resourceMonitorJournal" class="resource-monitor-journal">

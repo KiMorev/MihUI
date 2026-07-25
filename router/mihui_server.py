@@ -47,6 +47,8 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
 RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
 RESOURCE_MONITOR_EVENT_LIMIT = 200
+RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD = 2
+RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO = 0.25
 RESOURCE_MONITOR_GROUP_TYPES = {
     "selector",
     "select",
@@ -2454,6 +2456,7 @@ def default_resource_monitor_settings():
         "enabled": False,
         "intervalSeconds": 300,
         "failureThreshold": 2,
+        "latencyThresholdMs": 400,
         "quarantineSeconds": 1800,
         "maxAlternatives": 3,
         "timeoutMs": 8000,
@@ -2502,7 +2505,15 @@ def load_resource_monitor_settings(app_dir):
     defaults = default_resource_monitor_settings()
     saved = read_json_file(resource_monitor_settings_path(app_dir), {})
     merged = dict(defaults)
-    for key in ("enabled", "intervalSeconds", "failureThreshold", "quarantineSeconds", "maxAlternatives", "timeoutMs"):
+    for key in (
+        "enabled",
+        "intervalSeconds",
+        "failureThreshold",
+        "latencyThresholdMs",
+        "quarantineSeconds",
+        "maxAlternatives",
+        "timeoutMs",
+    ):
         if key in saved:
             merged[key] = saved[key]
 
@@ -2532,6 +2543,7 @@ def validate_resource_monitor_settings(payload):
     ranges = {
         "intervalSeconds": (60, 3600),
         "failureThreshold": (1, 5),
+        "latencyThresholdMs": (100, 5000),
         "quarantineSeconds": (60, 86400),
         "maxAlternatives": (1, 5),
         "timeoutMs": (1000, 30000),
@@ -2577,6 +2589,7 @@ def default_resource_monitor_runtime():
                 "checkedAt": None,
                 "delay": None,
                 "consecutiveFailures": 0,
+                "consecutiveSlowChecks": 0,
                 "message": "Проверка ещё не выполнялась",
                 "lastSwitch": None,
                 "quarantine": {},
@@ -2909,46 +2922,86 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         return
 
     previous_state = item.get("state")
+    previous_slow_checks = int(item.get("consecutiveSlowChecks") or 0)
     result = probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
+    latency_switch = False
+    switch_reason = result["message"]
     if result["ok"]:
+        current_delay = int(result["delay"])
+        if current_delay <= settings["latencyThresholdMs"]:
+            item.update(
+                {
+                    "state": "available",
+                    "delay": current_delay,
+                    "consecutiveFailures": 0,
+                    "consecutiveSlowChecks": 0,
+                    "message": "Ресурс доступен",
+                }
+            )
+            if previous_slow_checks > 0:
+                append_resource_monitor_event(
+                    app_dir,
+                    service,
+                    "latency_recovered",
+                    f"{RESOURCE_MONITOR_SERVICES[service]['title']}: задержка нормализовалась",
+                    node=current,
+                    delay=current_delay,
+                )
+            elif previous_state in {"warning", "error", "needs_sync"}:
+                append_resource_monitor_event(
+                    app_dir,
+                    service,
+                    "recovered",
+                    f"{RESOURCE_MONITOR_SERVICES[service]['title']} снова доступен",
+                    node=current,
+                    delay=current_delay,
+                )
+            return
+
+        slow_checks = previous_slow_checks + 1
         item.update(
             {
-                "state": "available",
-                "delay": result["delay"],
+                "state": "warning",
+                "delay": current_delay,
                 "consecutiveFailures": 0,
-                "message": "Ресурс доступен",
+                "consecutiveSlowChecks": slow_checks,
+                "message": f"Высокая задержка: {current_delay} мс",
             }
         )
-        if previous_state in {"warning", "error", "needs_sync"}:
-            append_resource_monitor_event(
-                app_dir,
-                service,
-                "recovered",
-                f"{RESOURCE_MONITOR_SERVICES[service]['title']} снова доступен",
-                node=current,
-                delay=result["delay"],
-            )
-        return
-
-    failures = int(item.get("consecutiveFailures") or 0) + 1
-    item.update(
-        {
-            "state": "warning" if failures < settings["failureThreshold"] else "error",
-            "delay": None,
-            "consecutiveFailures": failures,
-            "message": result["message"],
-        }
-    )
-    append_resource_monitor_event(
-        app_dir,
-        service,
-        "failure",
-        f"Проверка не пройдена ({failures}/{settings['failureThreshold']})",
-        node=current,
-        detail=result["message"],
-    )
-    if failures < settings["failureThreshold"]:
-        return
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "high_latency",
+            f"Высокая задержка: {current_delay} мс ({slow_checks}/{RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD})",
+            node=current,
+            delay=current_delay,
+            threshold=settings["latencyThresholdMs"],
+        )
+        if slow_checks < RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD:
+            return
+        latency_switch = True
+        switch_reason = f"Высокая задержка: {current_delay} мс"
+    else:
+        item["consecutiveSlowChecks"] = 0
+        failures = int(item.get("consecutiveFailures") or 0) + 1
+        item.update(
+            {
+                "state": "warning" if failures < settings["failureThreshold"] else "error",
+                "delay": None,
+                "consecutiveFailures": failures,
+                "message": result["message"],
+            }
+        )
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "failure",
+            f"Проверка не пройдена ({failures}/{settings['failureThreshold']})",
+            node=current,
+            detail=result["message"],
+        )
+        if failures < settings["failureThreshold"]:
+            return
 
     candidates = resource_monitor_candidates(
         group,
@@ -2963,7 +3016,29 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         if candidate_result["ok"]:
             successful.append((candidate_result["delay"], candidate))
 
-    if not successful:
+    if latency_switch:
+        required_delay = result["delay"] * (1 - RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO)
+        successful = [candidate for candidate in successful if candidate[0] <= required_delay]
+        if not successful:
+            item.update(
+                {
+                    "state": "warning",
+                    "consecutiveSlowChecks": 0,
+                    "message": "Более быстрая нода не найдена",
+                }
+            )
+            append_resource_monitor_event(
+                app_dir,
+                service,
+                "latency_no_better",
+                "Более быстрая нода не найдена",
+                node=current,
+                delay=result["delay"],
+                requiredDelay=int(required_delay),
+                alternatives=candidates,
+            )
+            return
+    elif not successful:
         item["message"] = "Подходящая нода не найдена"
         append_resource_monitor_event(
             app_dir,
@@ -2978,6 +3053,8 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     delay, selected = min(successful)
     selection = select_proxy_group(app_dir, group_name, selected)
     if not selection["ok"]:
+        if latency_switch:
+            item["consecutiveSlowChecks"] = 0
         item["message"] = selection.get("message") or "Mihomo не подтвердил переключение"
         append_resource_monitor_event(
             app_dir,
@@ -2997,12 +3074,13 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             "currentNode": selected,
             "delay": delay,
             "consecutiveFailures": 0,
+            "consecutiveSlowChecks": 0,
             "message": "Ресурс доступен",
             "lastSwitch": {
                 "at": switched_at,
                 "from": current,
                 "to": selected,
-                "reason": result["message"],
+                "reason": switch_reason,
             },
             "quarantine": quarantine,
         }

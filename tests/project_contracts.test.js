@@ -100,6 +100,14 @@ test('main and standalone expose responsive service traffic lights', () => {
   }
 });
 
+test('main and standalone expose the critical resource latency setting', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const html = read(name);
+    assert.match(html, /id="resourceMonitorLatencyThreshold"/);
+    assert.match(html, /<option value="400">400 мс<\/option>/);
+  }
+});
+
 test('main and standalone expose component update markers and one manager flow', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);

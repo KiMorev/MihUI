@@ -630,6 +630,7 @@ const els = {
   resourceMonitorSources: document.querySelector('#resourceMonitorSources'),
   resourceMonitorInterval: document.querySelector('#resourceMonitorInterval'),
   resourceMonitorFailures: document.querySelector('#resourceMonitorFailures'),
+  resourceMonitorLatencyThreshold: document.querySelector('#resourceMonitorLatencyThreshold'),
   resourceMonitorQuarantine: document.querySelector('#resourceMonitorQuarantine'),
   resourceMonitorDialogNotice: document.querySelector('#resourceMonitorDialogNotice'),
   resourceMonitorJournal: document.querySelector('#resourceMonitorJournal'),
@@ -2792,8 +2793,8 @@ function renderResourceMonitorEventList(container, events) {
     const copy = document.createElement('div');
     const title = document.createElement('strong');
     const meta = document.createElement('span');
-    const tone = ['failure', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
-      ? event.type === 'failure' ? 'warning' : 'error'
+    const tone = ['failure', 'high_latency', 'latency_no_better', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
+      ? ['failure', 'high_latency', 'latency_no_better'].includes(event.type) ? 'warning' : 'error'
       : 'success';
     item.className = 'resource-monitor-event';
     dot.className = `resource-monitor-event-dot is-${tone}`;
@@ -2811,6 +2812,7 @@ function defaultResourceMonitorClientSettings() {
     enabled: false,
     intervalSeconds: 300,
     failureThreshold: 2,
+    latencyThresholdMs: 400,
     quarantineSeconds: 1800,
     maxAlternatives: 3,
     timeoutMs: 8000,
@@ -2856,6 +2858,7 @@ function renderResourceMonitorDialog() {
   const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
   els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
   els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
+  els.resourceMonitorLatencyThreshold.value = String(settings.latencyThresholdMs || 400);
   els.resourceMonitorQuarantine.value = String(settings.quarantineSeconds || 1800);
   els.resourceMonitorSources.textContent = '';
   const sources = getResourceMonitorSourceGroups();
@@ -3111,6 +3114,7 @@ function collectResourceMonitorDialogSettings() {
     enabled: true,
     intervalSeconds: Number(els.resourceMonitorInterval.value),
     failureThreshold: Number(els.resourceMonitorFailures.value),
+    latencyThresholdMs: Number(els.resourceMonitorLatencyThreshold.value),
     quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
     maxAlternatives: 3,
     timeoutMs: 8000,

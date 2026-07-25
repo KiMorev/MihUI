@@ -9039,6 +9039,16 @@ button.review-check-card:focus-visible {
                 </select>
               </label>
               <label>
+                <span>Критическая задержка</span>
+                <select id="resourceMonitorLatencyThreshold">
+                  <option value="300">300 мс</option>
+                  <option value="400">400 мс</option>
+                  <option value="500">500 мс</option>
+                  <option value="750">750 мс</option>
+                  <option value="1000">1000 мс</option>
+                </select>
+              </label>
+              <label>
                 <span>Исключать ноду на</span>
                 <select id="resourceMonitorQuarantine">
                   <option value="900">15 минут</option>
@@ -9047,7 +9057,7 @@ button.review-check-card:focus-visible {
                 </select>
               </label>
             </div>
-            <p>Проверка оценивает только доступность и задержку ответа. Тест скорости и загрузка файлов не выполняются.</p>
+            <p>При критической задержке две проверки подряд запускают поиск ноды, которая быстрее минимум на 25%. Тест скорости и загрузка файлов не выполняются.</p>
           </section>
           <p id="resourceMonitorDialogNotice" class="resource-monitor-dialog-notice" hidden></p>
           <section id="resourceMonitorJournal" class="resource-monitor-journal">
@@ -9835,6 +9845,7 @@ const els = {
   resourceMonitorSources: document.querySelector('#resourceMonitorSources'),
   resourceMonitorInterval: document.querySelector('#resourceMonitorInterval'),
   resourceMonitorFailures: document.querySelector('#resourceMonitorFailures'),
+  resourceMonitorLatencyThreshold: document.querySelector('#resourceMonitorLatencyThreshold'),
   resourceMonitorQuarantine: document.querySelector('#resourceMonitorQuarantine'),
   resourceMonitorDialogNotice: document.querySelector('#resourceMonitorDialogNotice'),
   resourceMonitorJournal: document.querySelector('#resourceMonitorJournal'),
@@ -11997,8 +12008,8 @@ function renderResourceMonitorEventList(container, events) {
     const copy = document.createElement('div');
     const title = document.createElement('strong');
     const meta = document.createElement('span');
-    const tone = ['failure', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
-      ? event.type === 'failure' ? 'warning' : 'error'
+    const tone = ['failure', 'high_latency', 'latency_no_better', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
+      ? ['failure', 'high_latency', 'latency_no_better'].includes(event.type) ? 'warning' : 'error'
       : 'success';
     item.className = 'resource-monitor-event';
     dot.className = `resource-monitor-event-dot is-${tone}`;
@@ -12016,6 +12027,7 @@ function defaultResourceMonitorClientSettings() {
     enabled: false,
     intervalSeconds: 300,
     failureThreshold: 2,
+    latencyThresholdMs: 400,
     quarantineSeconds: 1800,
     maxAlternatives: 3,
     timeoutMs: 8000,
@@ -12061,6 +12073,7 @@ function renderResourceMonitorDialog() {
   const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
   els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
   els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
+  els.resourceMonitorLatencyThreshold.value = String(settings.latencyThresholdMs || 400);
   els.resourceMonitorQuarantine.value = String(settings.quarantineSeconds || 1800);
   els.resourceMonitorSources.textContent = '';
   const sources = getResourceMonitorSourceGroups();
@@ -12316,6 +12329,7 @@ function collectResourceMonitorDialogSettings() {
     enabled: true,
     intervalSeconds: Number(els.resourceMonitorInterval.value),
     failureThreshold: Number(els.resourceMonitorFailures.value),
+    latencyThresholdMs: Number(els.resourceMonitorLatencyThreshold.value),
     quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
     maxAlternatives: 3,
     timeoutMs: 8000,
