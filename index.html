@@ -50,6 +50,10 @@
       <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" /></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8m-2 0a2 2 0 0 1 2 -2h9a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-9a2 2 0 0 1 -2 -2z" /><path d="M16 6v-1a2 2 0 0 0 -2 -2h-9a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h1" /></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
+      <symbol id="icon-youtube" viewBox="0 0 24 24"><path d="M3 8a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4z" /><path d="M10 9l5 3l-5 3z" /></symbol>
+      <symbol id="icon-telegram" viewBox="0 0 24 24"><path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4" /></symbol>
+      <symbol id="icon-whatsapp" viewBox="0 0 24 24"><path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9" /><path d="M9 10a.5 .5 0 0 0 1 0v-1a.5 .5 0 0 0 -1 0v1a5 5 0 0 0 5 5h1a.5 .5 0 0 0 0 -1h-1a.5 .5 0 0 0 0 1" /></symbol>
+      <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.6 4.4l4.4 1.6l-4.4 1.6l-1.6 4.4l-1.6 -4.4l-4.4 -1.6l4.4 -1.6z" /><path d="M19 15l.9 2.1l2.1 .9l-2.1 .9l-.9 2.1l-.9 -2.1l-2.1 -.9l2.1 -.9z" /><path d="M5 15l.7 1.3l1.3 .7l-1.3 .7l-.7 1.3l-.7 -1.3l-1.3 -.7l1.3 -.7z" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -474,6 +478,51 @@
 
           <section class="panel node-inventory-panel">
             <div id="nodeGroupSelections" class="node-group-selections empty-state" hidden></div>
+            <section id="resourceMonitorPanel" class="resource-monitor" hidden aria-labelledby="resourceMonitorTitle">
+              <header class="resource-monitor-head">
+                <div>
+                  <h3 id="resourceMonitorTitle">Мониторинг ресурсов</h3>
+                  <p id="resourceMonitorSummary">Получаем состояние проверок…</p>
+                </div>
+                <div class="resource-monitor-head-actions">
+                  <label class="resource-monitor-switch">
+                    <input id="resourceMonitorEnabled" type="checkbox" />
+                    <span aria-hidden="true"></span>
+                    <strong>Включён</strong>
+                  </label>
+                  <button id="resourceMonitorSettingsButton" class="button compact" type="button">
+                    <svg class="button-icon" aria-hidden="true"><use href="#icon-settings"></use></svg>
+                    <span>Настройки</span>
+                  </button>
+                </div>
+              </header>
+              <div class="resource-monitor-layout">
+                <div class="resource-monitor-table-wrap">
+                  <table class="resource-monitor-table">
+                    <thead>
+                      <tr>
+                        <th>Ресурс</th>
+                        <th>Состояние</th>
+                        <th>Текущая нода</th>
+                        <th>Проверено</th>
+                        <th>Задержка</th>
+                        <th><span class="sr-only">Действие</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="resourceMonitorRows"></tbody>
+                  </table>
+                </div>
+                <aside class="resource-monitor-events">
+                  <header>
+                    <strong>Последние события</strong>
+                    <span id="resourceMonitorEventsCount">0</span>
+                  </header>
+                  <div id="resourceMonitorEventsList" class="resource-monitor-events-list"></div>
+                  <button id="resourceMonitorJournalButton" class="button compact" type="button">Открыть журнал</button>
+                </aside>
+              </div>
+              <p id="resourceMonitorNotice" class="resource-monitor-notice" hidden></p>
+            </section>
             <div class="node-inventory-controls">
               <button id="nodeFiltersToggleButton" class="button ghost compact node-filters-toggle" type="button" aria-expanded="true">
                 <span>Фильтры</span>
@@ -749,6 +798,64 @@
             <span id="componentVersionsChecked"></span>
             <button id="checkComponentUpdatesButton" class="button primary compact" type="button">Проверить обновления</button>
           </div>
+        </footer>
+      </section>
+    </dialog>
+
+    <dialog id="resourceMonitorDialog" class="resource-monitor-dialog" aria-labelledby="resourceMonitorDialogTitle">
+      <section class="resource-monitor-dialog-surface">
+        <header class="resource-monitor-dialog-head">
+          <div>
+            <h2 id="resourceMonitorDialogTitle">Мониторинг ресурсов</h2>
+            <p>Выберите уже отфильтрованную группу-источник для каждой цели.</p>
+          </div>
+          <button id="resourceMonitorDialogClose" class="button compact" type="button">Закрыть</button>
+        </header>
+        <div class="resource-monitor-dialog-body">
+          <section>
+            <h3>Группы и проверки</h3>
+            <div id="resourceMonitorSources" class="resource-monitor-sources"></div>
+          </section>
+          <section class="resource-monitor-policy">
+            <h3>Политика переключения</h3>
+            <div class="resource-monitor-policy-grid">
+              <label>
+                <span>Проверять каждые</span>
+                <select id="resourceMonitorInterval">
+                  <option value="60">1 минуту</option>
+                  <option value="300">5 минут</option>
+                  <option value="600">10 минут</option>
+                  <option value="900">15 минут</option>
+                </select>
+              </label>
+              <label>
+                <span>Переключать после</span>
+                <select id="resourceMonitorFailures">
+                  <option value="1">1 ошибки</option>
+                  <option value="2">2 ошибок подряд</option>
+                  <option value="3">3 ошибок подряд</option>
+                </select>
+              </label>
+              <label>
+                <span>Исключать ноду на</span>
+                <select id="resourceMonitorQuarantine">
+                  <option value="900">15 минут</option>
+                  <option value="1800">30 минут</option>
+                  <option value="3600">1 час</option>
+                </select>
+              </label>
+            </div>
+            <p>Проверка оценивает только доступность и задержку ответа. Тест скорости и загрузка файлов не выполняются.</p>
+          </section>
+          <p id="resourceMonitorDialogNotice" class="resource-monitor-dialog-notice" hidden></p>
+          <section id="resourceMonitorJournal" class="resource-monitor-journal">
+            <h3>Журнал</h3>
+            <div id="resourceMonitorJournalList" class="resource-monitor-journal-list"></div>
+          </section>
+        </div>
+        <footer class="resource-monitor-dialog-actions">
+          <button id="resourceMonitorCheckAllButton" class="button compact" type="button">Проверить сейчас</button>
+          <button id="resourceMonitorSaveButton" class="button primary compact" type="button">Сохранить настройки</button>
         </footer>
       </section>
     </dialog>

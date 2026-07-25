@@ -15,9 +15,38 @@ const YAML_HTTP_URL_PATTERN = /https?:\/\/[^\s"'<>[\]{},]+/gi;
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
+const RESOURCE_MONITOR_REFRESH_MS = 30000;
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
+const RESOURCE_MONITOR_DEFINITIONS = {
+  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
+  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
+  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
+  ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
+};
+const RESOURCE_MONITOR_RULES = {
+  youtube: [
+    ['GEOSITE', 'youtube', 'YOUTUBE'],
+  ],
+  telegram: [
+    ['GEOSITE', 'telegram', 'TELEGRAM'],
+    ['GEOIP', 'telegram', 'TELEGRAM', 'no-resolve'],
+  ],
+  whatsapp: [
+    ['DOMAIN-SUFFIX', 'whatsapp.com', 'WHATSAPP'],
+    ['DOMAIN-SUFFIX', 'whatsapp.net', 'WHATSAPP'],
+  ],
+  ai: [
+    ['DOMAIN-SUFFIX', 'chatgpt.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'openai.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'oaistatic.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'oaiusercontent.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'claude.ai', 'AI'],
+    ['DOMAIN-SUFFIX', 'claude.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'anthropic.com', 'AI'],
+  ],
+};
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -343,6 +372,17 @@ const state = {
   },
   nodeFiltersCollapsed: null,
   nodeGroupSelectionsCollapsed: null,
+  resourceMonitor: {
+    loaded: false,
+    loading: false,
+    checking: false,
+    config: null,
+    runtime: null,
+    readiness: null,
+    events: [],
+    pendingSettings: null,
+    pollTimer: 0,
+  },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
   kernelCheckBusy: false,
@@ -569,6 +609,26 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
+  resourceMonitorPanel: document.querySelector('#resourceMonitorPanel'),
+  resourceMonitorSummary: document.querySelector('#resourceMonitorSummary'),
+  resourceMonitorEnabled: document.querySelector('#resourceMonitorEnabled'),
+  resourceMonitorSettingsButton: document.querySelector('#resourceMonitorSettingsButton'),
+  resourceMonitorRows: document.querySelector('#resourceMonitorRows'),
+  resourceMonitorEventsCount: document.querySelector('#resourceMonitorEventsCount'),
+  resourceMonitorEventsList: document.querySelector('#resourceMonitorEventsList'),
+  resourceMonitorJournalButton: document.querySelector('#resourceMonitorJournalButton'),
+  resourceMonitorNotice: document.querySelector('#resourceMonitorNotice'),
+  resourceMonitorDialog: document.querySelector('#resourceMonitorDialog'),
+  resourceMonitorDialogClose: document.querySelector('#resourceMonitorDialogClose'),
+  resourceMonitorSources: document.querySelector('#resourceMonitorSources'),
+  resourceMonitorInterval: document.querySelector('#resourceMonitorInterval'),
+  resourceMonitorFailures: document.querySelector('#resourceMonitorFailures'),
+  resourceMonitorQuarantine: document.querySelector('#resourceMonitorQuarantine'),
+  resourceMonitorDialogNotice: document.querySelector('#resourceMonitorDialogNotice'),
+  resourceMonitorJournal: document.querySelector('#resourceMonitorJournal'),
+  resourceMonitorJournalList: document.querySelector('#resourceMonitorJournalList'),
+  resourceMonitorCheckAllButton: document.querySelector('#resourceMonitorCheckAllButton'),
+  resourceMonitorSaveButton: document.querySelector('#resourceMonitorSaveButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -647,6 +707,12 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
+els.resourceMonitorEnabled.addEventListener('change', toggleResourceMonitor);
+els.resourceMonitorSettingsButton.addEventListener('click', () => openResourceMonitorDialog());
+els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMonitorDialog({ journal: true }));
+els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
+els.resourceMonitorSaveButton.addEventListener('click', saveResourceMonitorDialog);
+els.resourceMonitorCheckAllButton.addEventListener('click', () => checkResourceMonitor(''));
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -905,6 +971,7 @@ function handleFileSelect(event) {
     state.nodeInventoryError = '';
     state.nodeInventoryErrorDetail = '';
     state.nodeGroupSelectionsError = '';
+    state.resourceMonitor.pendingSettings = null;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -927,8 +994,10 @@ function initRouterMode() {
   loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
+  loadResourceMonitor({ silent: true });
   startServiceHealthPolling();
   startProviderStatusPolling();
+  startResourceMonitorPolling();
   checkMihuiUpdate();
 }
 
@@ -949,11 +1018,13 @@ async function loadRouterConfig(options = {}) {
     state.isEditingConfiguration = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    state.resourceMonitor.pendingSettings = null;
     resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
+    await loadResourceMonitor({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
     if (!options.silent) {
@@ -1049,9 +1120,20 @@ async function saveRouterConfig() {
     await loadBackups();
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
+    let monitorSettingsApplied = true;
+    try {
+      await applyPendingResourceMonitorSettings();
+    } catch (error) {
+      monitorSettingsApplied = false;
+      showMessage(`Конфиг сохранён, но мониторинг ещё не включён: ${error?.message || error}`, {
+        severity: 'warning',
+      });
+    }
 
     const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
+    if (monitorSettingsApplied) {
+      showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
+    }
   } catch (error) {
     const result = error?.data || {};
     if (result.stage === 'conflict') {
@@ -1337,7 +1419,14 @@ function groupSnapshotsAreEqual(left, right) {
   return left.name === right.name
     && left.type === right.type
     && left.proxies.join('\n') === right.proxies.join('\n')
-    && left.use.join('\n') === right.use.join('\n');
+    && left.use.join('\n') === right.use.join('\n')
+    && left.includeAll === right.includeAll
+    && left.includeAllProxies === right.includeAllProxies
+    && left.includeAllProviders === right.includeAllProviders
+    && left.filter === right.filter
+    && left.excludeFilter === right.excludeFilter
+    && left.excludeType === right.excludeType
+    && left.monitorSourceGroup === right.monitorSourceGroup;
 }
 
 function confirmHighRiskSave() {
@@ -2534,6 +2623,533 @@ async function loadProviderStatuses(options = {}) {
     state.providerStatusLoading = false;
     render();
   }
+}
+
+async function loadResourceMonitor(options = {}) {
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  state.resourceMonitor.loading = true;
+  renderResourceMonitor();
+  try {
+    const data = await apiJson('/api/resource-monitor');
+    state.resourceMonitor.loaded = true;
+    state.resourceMonitor.config = data.config || null;
+    state.resourceMonitor.runtime = data.runtime || null;
+    state.resourceMonitor.readiness = data.readiness || null;
+    state.resourceMonitor.events = Array.isArray(data.events) ? data.events : [];
+    state.resourceMonitor.checking = Boolean(data.job?.running);
+  } catch (error) {
+    if (!options.silent) {
+      showMessage(`Не удалось получить состояние мониторинга: ${error?.message || error}`, { severity: 'error' });
+    }
+  } finally {
+    state.resourceMonitor.loading = false;
+    renderResourceMonitor();
+  }
+}
+
+function startResourceMonitorPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  if (state.resourceMonitor.pollTimer) window.clearInterval(state.resourceMonitor.pollTimer);
+  state.resourceMonitor.pollTimer = window.setInterval(() => {
+    if (!document.hidden && state.routerApiAvailable) loadResourceMonitor({ silent: true });
+  }, RESOURCE_MONITOR_REFRESH_MS);
+}
+
+function renderResourceMonitor() {
+  if (!els.resourceMonitorPanel) return;
+  const visible = state.routerMode && state.routerApiAvailable;
+  els.resourceMonitorPanel.hidden = !visible;
+  if (!visible) return;
+
+  const config = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  const runtime = state.resourceMonitor.runtime?.services || {};
+  const serviceStates = Object.keys(RESOURCE_MONITOR_DEFINITIONS).map((key) => runtime[key] || {});
+  const availableCount = serviceStates.filter((item) => item.state === 'available').length;
+  const recentSwitches = serviceStates.filter((item) => {
+    const switchedAt = Number(item.lastSwitch?.at || 0);
+    return switchedAt > 0 && Date.now() / 1000 - switchedAt < 24 * 60 * 60;
+  }).length;
+  const summaryParts = [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`];
+  if (recentSwitches > 0) summaryParts.push(`${recentSwitches} ${recentSwitches === 1 ? 'нода недавно переключена' : 'ноды недавно переключены'}`);
+  els.resourceMonitorSummary.textContent = state.resourceMonitor.loading && !state.resourceMonitor.loaded
+    ? 'Получаем состояние проверок…'
+    : summaryParts.join(' · ');
+  els.resourceMonitorEnabled.checked = Boolean(config.enabled);
+  els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
+
+  els.resourceMonitorRows.textContent = '';
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const item = runtime[key] || {};
+    const row = document.createElement('tr');
+    const resourceCell = document.createElement('td');
+    const resource = document.createElement('div');
+    const icon = document.createElement('span');
+    const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    const resourceName = document.createElement('strong');
+    resource.className = 'resource-monitor-resource';
+    icon.className = 'resource-monitor-resource-icon';
+    iconSvg.setAttribute('aria-hidden', 'true');
+    iconUse.setAttribute('href', `#icon-${definition.icon}`);
+    iconSvg.append(iconUse);
+    icon.append(iconSvg);
+    resourceName.textContent = definition.title;
+    resource.append(icon, resourceName);
+    resourceCell.append(resource);
+
+    const statusCell = document.createElement('td');
+    const status = document.createElement('span');
+    const normalizedState = item.state || 'idle';
+    status.className = `resource-monitor-status is-${normalizedState}`;
+    status.textContent = getResourceMonitorStateLabel(normalizedState);
+    statusCell.append(status);
+
+    const nodeCell = document.createElement('td');
+    const node = document.createElement('div');
+    const nodeName = document.createElement('strong');
+    node.className = 'resource-monitor-node';
+    nodeName.textContent = item.currentNode || '—';
+    node.append(nodeName);
+    if (item.lastSwitch?.at) {
+      const note = document.createElement('span');
+      note.textContent = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
+      node.append(note);
+    }
+    nodeCell.append(node);
+
+    const checkedCell = document.createElement('td');
+    checkedCell.textContent = item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
+    const delayCell = document.createElement('td');
+    delayCell.className = 'resource-monitor-delay';
+    delayCell.textContent = Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
+    const actionCell = document.createElement('td');
+    const checkButton = document.createElement('button');
+    checkButton.className = 'button ghost compact';
+    if (item.lastSwitch?.at) checkButton.classList.add('is-visible');
+    checkButton.type = 'button';
+    checkButton.textContent = 'Проверить';
+    checkButton.disabled = state.resourceMonitor.checking;
+    checkButton.addEventListener('click', () => checkResourceMonitor(key));
+    actionCell.append(checkButton);
+    row.append(resourceCell, statusCell, nodeCell, checkedCell, delayCell, actionCell);
+    els.resourceMonitorRows.append(row);
+  });
+
+  const events = state.resourceMonitor.events.slice().reverse();
+  els.resourceMonitorEventsCount.textContent = String(events.length);
+  renderResourceMonitorEventList(els.resourceMonitorEventsList, events.slice(0, 3));
+  renderResourceMonitorEventList(els.resourceMonitorJournalList, events);
+
+  const readiness = state.resourceMonitor.readiness;
+  const needsConfig = readiness && !readiness.ready;
+  els.resourceMonitorNotice.hidden = !needsConfig;
+  els.resourceMonitorNotice.textContent = needsConfig
+    ? 'Группы мониторинга ещё не подготовлены. Откройте настройки, чтобы добавить их в конфиг через обычную проверку и сохранение.'
+    : '';
+}
+
+function getResourceMonitorStateLabel(value) {
+  return {
+    available: 'Доступен',
+    warning: 'Повторная проверка',
+    error: 'Недоступен',
+    needs_sync: 'Нужен конфиг',
+    checking: 'Проверка',
+    idle: 'Нет данных',
+  }[value] || 'Нет данных';
+}
+
+function formatResourceMonitorTime(value) {
+  const date = new Date(Number(value) * 1000);
+  if (Number.isNaN(date.getTime())) return '—';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  return date.toLocaleString('ru-RU', sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderResourceMonitorEventList(container, events) {
+  if (!container) return;
+  container.textContent = '';
+  if (!events.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = 'Событий пока нет';
+    container.append(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const item = document.createElement('article');
+    const dot = document.createElement('span');
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    const meta = document.createElement('span');
+    const tone = ['failure', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
+      ? event.type === 'failure' ? 'warning' : 'error'
+      : 'success';
+    item.className = 'resource-monitor-event';
+    dot.className = `resource-monitor-event-dot is-${tone}`;
+    copy.className = 'resource-monitor-event-copy';
+    title.textContent = event.message || 'Событие мониторинга';
+    meta.textContent = `${RESOURCE_MONITOR_DEFINITIONS[event.service]?.title || event.service || 'Мониторинг'} · ${formatResourceMonitorTime(event.timestamp)}`;
+    copy.append(title, meta);
+    item.append(dot, copy);
+    container.append(item);
+  });
+}
+
+function defaultResourceMonitorClientSettings() {
+  return {
+    enabled: false,
+    intervalSeconds: 300,
+    failureThreshold: 2,
+    quarantineSeconds: 1800,
+    maxAlternatives: 3,
+    timeoutMs: 8000,
+    services: Object.fromEntries(
+      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
+    ),
+  };
+}
+
+async function toggleResourceMonitor() {
+  const enabled = els.resourceMonitorEnabled.checked;
+  if (enabled && (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges())) {
+    els.resourceMonitorEnabled.checked = false;
+    openResourceMonitorDialog();
+    return;
+  }
+  const settings = {
+    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
+    enabled,
+  };
+  try {
+    await postResourceMonitorSettings(settings);
+    showMessage(enabled ? 'Мониторинг ресурсов включён.' : 'Мониторинг ресурсов выключен.', { severity: 'success' });
+  } catch (error) {
+    els.resourceMonitorEnabled.checked = !enabled;
+    showMessage(`Не удалось изменить мониторинг: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+function openResourceMonitorDialog(options = {}) {
+  renderResourceMonitorDialog();
+  els.resourceMonitorDialog.showModal();
+  if (options.journal) {
+    window.setTimeout(() => els.resourceMonitorJournal.scrollIntoView({ block: 'start' }), 0);
+  }
+}
+
+function closeResourceMonitorDialog() {
+  els.resourceMonitorDialog.close();
+}
+
+function renderResourceMonitorDialog() {
+  const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
+  els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
+  els.resourceMonitorQuarantine.value = String(settings.quarantineSeconds || 1800);
+  els.resourceMonitorSources.textContent = '';
+  const sources = getResourceMonitorSourceGroups();
+  const preferred = sources.find((group) => group.name === 'FASTEST') || sources[0];
+
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const target = state.groups.find((group) => group.name === definition.group);
+    const field = document.createElement('label');
+    const label = document.createElement('span');
+    const select = document.createElement('select');
+    const hint = document.createElement('small');
+    field.className = 'resource-monitor-source';
+    select.dataset.resourceMonitorSource = key;
+    label.textContent = definition.title;
+    sources.forEach((group) => {
+      const option = document.createElement('option');
+      option.value = group.name;
+      option.textContent = group.name;
+      select.append(option);
+    });
+    const selected = target?.monitorSourceGroup || state.resourceMonitor.pendingSettings?.sources?.[key] || preferred?.name || '';
+    select.value = selected;
+    select.disabled = Boolean(target && !target.managedMonitoring) || sources.length === 0;
+    hint.textContent = target && !target.managedMonitoring
+      ? `Будет использована существующая группа ${definition.group}`
+      : `В конфиге появится select-группа ${definition.group}`;
+    field.append(label, select, hint);
+    els.resourceMonitorSources.append(field);
+  });
+
+  const issue = getResourceMonitorDialogIssue(sources);
+  els.resourceMonitorDialogNotice.hidden = !issue;
+  els.resourceMonitorDialogNotice.textContent = issue;
+  els.resourceMonitorSaveButton.disabled = Boolean(issue);
+  els.resourceMonitorSaveButton.textContent = resourceMonitorNeedsConfigChanges() ? 'Подготовить конфиг' : 'Сохранить настройки';
+  els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
+    || Boolean(state.resourceMonitor.pendingSettings)
+    || resourceMonitorNeedsConfigChanges();
+  renderResourceMonitorEventList(
+    els.resourceMonitorJournalList,
+    state.resourceMonitor.events.slice().reverse(),
+  );
+}
+
+function getResourceMonitorSourceGroups() {
+  const targetNames = new Set(Object.values(RESOURCE_MONITOR_DEFINITIONS).map((item) => item.group));
+  const groupNames = new Set(state.groups.map((group) => group.name));
+  return state.groups.filter((group) => {
+    if (targetNames.has(group.name)) return false;
+    return group.use.length > 0
+      || group.proxies.some((name) => !isBuiltinProxyName(name) && !groupNames.has(name))
+      || group.includeAll
+      || group.includeAllProxies
+      || group.includeAllProviders;
+  });
+}
+
+function isBuiltinProxyName(name) {
+  return ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(String(name || '').toUpperCase());
+}
+
+function resourceMonitorNeedsConfigChanges(sources = null) {
+  const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    if (!group || !['select', 'selector'].includes(String(group.type || '').toLowerCase())) return true;
+    if (
+      group.proxies.length === 0
+      && group.use.length === 0
+      && !group.includeAll
+      && !group.includeAllProxies
+      && !group.includeAllProviders
+    ) return true;
+    return Boolean(sources && group.managedMonitoring && sources[key] && group.monitorSourceGroup !== sources[key]);
+  });
+  if (groupsNeedChanges) return true;
+  return Object.values(RESOURCE_MONITOR_RULES)
+    .flat()
+    .some((parts) => !hasResourceMonitorRule(parts));
+}
+
+function hasResourceMonitorRule(parts) {
+  const [type, value, target, ...options] = parts;
+  return getActiveRules().some((rule) => (
+    normalizeRuleType(rule.type) === normalizeRuleType(type)
+    && String(rule.value || '') === value
+    && String(rule.target || '') === target
+    && (rule.options || []).join('|') === options.join('|')
+  ));
+}
+
+function prepareResourceMonitorConfig(sources) {
+  const sourceGroups = new Map(getResourceMonitorSourceGroups().map((group) => [group.name, group]));
+  const knownGroupNames = new Set(state.groups.map((group) => group.name));
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const existing = state.groups.find((group) => group.name === definition.group);
+    if (existing && !['select', 'selector'].includes(String(existing.type || '').toLowerCase())) {
+      throw new Error(`Группа ${definition.group} существует и не является select.`);
+    }
+    if (existing && !existing.managedMonitoring) return;
+
+    const source = sourceGroups.get(sources[key]);
+    if (!source) throw new Error(`Не выбрана группа-источник для ${definition.title}.`);
+    const cloned = {
+      type: 'select',
+      proxies: source.proxies.filter((name) => !isBuiltinProxyName(name) && !knownGroupNames.has(name)),
+      use: source.use.slice(),
+      includeAll: Boolean(source.includeAll),
+      includeAllProxies: Boolean(source.includeAllProxies),
+      includeAllProviders: Boolean(source.includeAllProviders),
+      filter: source.filter || '',
+      excludeFilter: source.excludeFilter || '',
+      excludeType: source.excludeType || '',
+      managedMonitoring: true,
+      monitorService: key,
+      monitorSourceGroup: source.name,
+    };
+
+    if (existing) {
+      Object.assign(existing, cloned);
+    } else {
+      state.groups.push({
+        name: definition.group,
+        originalName: definition.group,
+        ...cloned,
+        start: -1,
+        end: -1,
+        proxiesStart: -1,
+        proxiesEnd: -1,
+        useStart: -1,
+        useEnd: -1,
+        isNew: true,
+        deleted: false,
+      });
+    }
+  });
+
+  const matchRule = getActiveRules().find((rule) => normalizeRuleType(rule.type) === 'MATCH');
+  Object.entries(RESOURCE_MONITOR_RULES).forEach(([service, rules]) => {
+    rules.forEach((parts) => {
+      if (hasResourceMonitorRule(parts)) return;
+      const [type, value, target, ...options] = parts;
+      state.rules.push({
+        id: createRuleId(),
+        originalIndex: -1,
+        type,
+        value,
+        target,
+        options,
+        rawParts: [],
+        rawLine: '',
+        comment: `# webmihomo-monitor: ${service}`,
+        indent: '  ',
+        start: -1,
+        insertBeforeRuleId: matchRule?.id || '',
+        isNew: true,
+        deleted: false,
+      });
+    });
+  });
+
+  generateOutput();
+  render();
+}
+
+function getResourceMonitorDialogIssue(sources = getResourceMonitorSourceGroups()) {
+  const conflict = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return group && !['select', 'selector'].includes(String(group.type || '').toLowerCase());
+  });
+  if (conflict) return `Группа ${conflict.group} уже существует, но имеет тип не select. MihUI не будет перезаписывать её автоматически.`;
+  const empty = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return group
+      && !group.managedMonitoring
+      && group.proxies.length === 0
+      && group.use.length === 0
+      && !group.includeAll
+      && !group.includeAllProxies
+      && !group.includeAllProviders;
+  });
+  if (empty) return `Группа ${empty.group} существует, но не содержит нод или подписок. MihUI не будет перезаписывать её автоматически.`;
+  const needsSource = Object.values(RESOURCE_MONITOR_DEFINITIONS).some((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return !group || group.managedMonitoring;
+  });
+  if (needsSource && sources.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
+  return '';
+}
+
+function collectResourceMonitorDialogSettings() {
+  const settings = {
+    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
+    enabled: true,
+    intervalSeconds: Number(els.resourceMonitorInterval.value),
+    failureThreshold: Number(els.resourceMonitorFailures.value),
+    quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
+    maxAlternatives: 3,
+    timeoutMs: 8000,
+    services: Object.fromEntries(
+      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
+    ),
+  };
+  const sources = {};
+  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]').forEach((select) => {
+    sources[select.dataset.resourceMonitorSource] = select.value;
+  });
+  return { settings, sources };
+}
+
+async function saveResourceMonitorDialog() {
+  const { settings, sources } = collectResourceMonitorDialogSettings();
+  if (state.resourceMonitor.pendingSettings && hasUnsavedRouterChanges()) {
+    closeResourceMonitorDialog();
+    setActiveSection('review');
+    showMessage('Сначала сохраните подготовленный конфиг. Мониторинг включится только после подтверждения Mihomo.', {
+      severity: 'warning',
+    });
+    return;
+  }
+  if (resourceMonitorNeedsConfigChanges(sources)) {
+    try {
+      prepareResourceMonitorConfig(sources);
+    } catch (error) {
+      els.resourceMonitorDialogNotice.hidden = false;
+      els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+      return;
+    }
+    state.resourceMonitor.pendingSettings = { ...settings, sources };
+    closeResourceMonitorDialog();
+    setActiveSection('review');
+    showMessage('Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
+      severity: 'warning',
+    });
+    return;
+  }
+
+  try {
+    await postResourceMonitorSettings(settings);
+    state.resourceMonitor.pendingSettings = null;
+    closeResourceMonitorDialog();
+    showMessage('Настройки мониторинга сохранены.', { severity: 'success' });
+  } catch (error) {
+    els.resourceMonitorDialogNotice.hidden = false;
+    els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+  }
+}
+
+async function postResourceMonitorSettings(settings) {
+  const data = await apiJson('/api/resource-monitor/settings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Mihui-Action': 'resource-monitor',
+    },
+    body: JSON.stringify(settings),
+  });
+  state.resourceMonitor.loaded = true;
+  state.resourceMonitor.config = data.config || settings;
+  state.resourceMonitor.runtime = data.runtime || state.resourceMonitor.runtime;
+  state.resourceMonitor.readiness = data.readiness || state.resourceMonitor.readiness;
+  state.resourceMonitor.events = Array.isArray(data.events) ? data.events : state.resourceMonitor.events;
+  renderResourceMonitor();
+}
+
+async function applyPendingResourceMonitorSettings() {
+  const pending = state.resourceMonitor.pendingSettings;
+  if (!pending) return;
+  const settings = { ...pending };
+  delete settings.sources;
+  await postResourceMonitorSettings(settings);
+  state.resourceMonitor.pendingSettings = null;
+}
+
+async function checkResourceMonitor(service) {
+  if (state.resourceMonitor.checking) return;
+  state.resourceMonitor.checking = true;
+  renderResourceMonitor();
+  try {
+    await apiJson('/api/resource-monitor/check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'resource-monitor',
+      },
+      body: JSON.stringify(service ? { service } : {}),
+    });
+    await pollResourceMonitorCheck();
+  } catch (error) {
+    showMessage(`Проверка не запущена: ${error?.message || error}`, { severity: 'error' });
+    state.resourceMonitor.checking = false;
+    renderResourceMonitor();
+  }
+}
+
+async function pollResourceMonitorCheck(attempt = 0) {
+  await new Promise((resolve) => window.setTimeout(resolve, 800));
+  await loadResourceMonitor({ silent: true });
+  if (state.resourceMonitor.checking && attempt < 40) {
+    return pollResourceMonitorCheck(attempt + 1);
+  }
+  renderResourceMonitorDialog();
 }
 
 async function loadNodeInventory(options = {}) {
@@ -4315,6 +4931,21 @@ function collectGroupUseChanges() {
         changes.push(`В группе ${group.name} отключена подписка ${providerName}.`);
       }
     });
+
+    if (
+      group.managedMonitoring
+      && (
+        group.includeAll !== original.includeAll
+        || group.includeAllProxies !== original.includeAllProxies
+        || group.includeAllProviders !== original.includeAllProviders
+        || group.filter !== original.filter
+        || group.excludeFilter !== original.excludeFilter
+        || group.excludeType !== original.excludeType
+        || group.monitorSourceGroup !== original.monitorSourceGroup
+      )
+    ) {
+      changes.push(`Группа ${group.name}: обновлены условия отбора для мониторинга.`);
+    }
   });
 
   state.originalGroups.forEach((group) => {
@@ -4467,6 +5098,15 @@ function snapshotGroup(group) {
     type: group.type || '',
     proxies: group.proxies.slice(),
     use: group.use.slice(),
+    includeAll: Boolean(group.includeAll),
+    includeAllProxies: Boolean(group.includeAllProxies),
+    includeAllProviders: Boolean(group.includeAllProviders),
+    filter: group.filter || '',
+    excludeFilter: group.excludeFilter || '',
+    excludeType: group.excludeType || '',
+    managedMonitoring: Boolean(group.managedMonitoring),
+    monitorService: group.monitorService || '',
+    monitorSourceGroup: group.monitorSourceGroup || '',
   };
 }
 
@@ -5137,6 +5777,7 @@ function renderNodeInventory() {
   els.nodeInventoryPanel.classList.toggle('hidden', !isVisible);
   if (!isVisible) {
     if (els.nodeGroupSelections) els.nodeGroupSelections.hidden = true;
+    if (els.resourceMonitorPanel) els.resourceMonitorPanel.hidden = true;
     return;
   }
 
@@ -5175,6 +5816,7 @@ function renderNodeInventory() {
   renderNodeInventoryStatus(nodes);
 
   renderNodeGroupSelections(nodes);
+  renderResourceMonitor();
   renderNodeInventorySummary(nodes, filtered);
   els.nodeInventoryList.innerHTML = '';
 
@@ -9756,7 +10398,10 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
   const existingRules = state.rules
     .filter((rule) => !rule.isNew && rule.start >= rulesSection.start)
     .map((rule) => {
-      const replacement = rule.deleted ? [] : [serializeRule(rule, renamedGroups)];
+      const anchored = state.rules
+        .filter((item) => item.isNew && !item.deleted && item.insertBeforeRuleId === rule.id)
+        .map((item) => serializeRule(item, renamedGroups));
+      const replacement = rule.deleted ? anchored : [...anchored, serializeRule(rule, renamedGroups)];
       return {
         start: rule.start - rulesSection.start,
         end: rule.start - rulesSection.start + 1,
@@ -9769,7 +10414,7 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
     sectionLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  const newRules = state.rules.filter((rule) => rule.isNew && !rule.deleted);
+  const newRules = state.rules.filter((rule) => rule.isNew && !rule.deleted && !rule.insertBeforeRuleId);
   if (newRules.length > 0) {
     let insertAt = sectionLines.length;
     while (insertAt > 1 && !sectionLines[insertAt - 1].trim()) insertAt -= 1;
@@ -9780,9 +10425,29 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
 }
 
 function createRulesSectionLines(renamedGroups = new Map()) {
-  const activeRules = getActiveRules();
+  const activeRules = getRulesInSerializationOrder();
   if (activeRules.length === 0) return ['rules: []'];
   return ['rules:', ...activeRules.map((rule) => serializeRule(rule, renamedGroups))];
+}
+
+function getRulesInSerializationOrder() {
+  const activeRules = getActiveRules();
+  const anchoredIds = new Set(activeRules.filter((rule) => rule.insertBeforeRuleId).map((rule) => rule.id));
+  const anchored = new Map();
+  activeRules.forEach((rule) => {
+    if (!rule.insertBeforeRuleId) return;
+    if (!anchored.has(rule.insertBeforeRuleId)) anchored.set(rule.insertBeforeRuleId, []);
+    anchored.get(rule.insertBeforeRuleId).push(rule);
+  });
+  const ordered = [];
+  activeRules.forEach((rule) => {
+    if (anchoredIds.has(rule.id)) return;
+    ordered.push(...(anchored.get(rule.id) || []), rule);
+  });
+  activeRules.forEach((rule) => {
+    if (anchoredIds.has(rule.id) && !ordered.includes(rule)) ordered.push(rule);
+  });
+  return ordered;
 }
 
 function serializeRule(rule, renamedGroups = new Map()) {
@@ -9879,28 +10544,46 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     const use = getActiveGroupUse(currentGroup);
     if (use.length > 0) insertGroupListBlock(block, 'use', use);
   }
+  if (currentGroup.managedMonitoring) {
+    setOptionalGroupScalar(block, 'include-all', currentGroup.includeAll ? 'true' : '');
+    setOptionalGroupScalar(block, 'include-all-proxies', currentGroup.includeAllProxies ? 'true' : '');
+    setOptionalGroupScalar(block, 'include-all-providers', currentGroup.includeAllProviders ? 'true' : '');
+    setOptionalGroupScalar(block, 'filter', currentGroup.filter || '');
+    setOptionalGroupScalar(block, 'exclude-filter', currentGroup.excludeFilter || '');
+    setOptionalGroupScalar(block, 'exclude-type', currentGroup.excludeType || '');
+  }
 
   return block;
 }
 
 function createGroupBlock(group) {
   const lines = [
-    `  - name: ${formatScalar(group.name)}`,
+    `  - name: ${formatScalar(group.name)}${group.managedMonitoring ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}` : ''}`,
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
   const use = getActiveGroupUse(group);
   if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
+  if (group.includeAll) lines.push('    include-all: true');
+  if (group.includeAllProxies) lines.push('    include-all-proxies: true');
+  if (group.includeAllProviders) lines.push('    include-all-providers: true');
+  if (group.filter) lines.push(`    filter: ${formatScalar(group.filter)}`);
+  if (group.excludeFilter) lines.push(`    exclude-filter: ${formatScalar(group.excludeFilter)}`);
+  if (group.excludeType) lines.push(`    exclude-type: ${formatScalar(group.excludeType)}`);
   return lines;
 }
 
 function setGroupName(block, group) {
   const indent = block[0].match(/^\s*/)?.[0] || '  ';
-  block[0] = `${indent}- name: ${formatScalar(group.name)}`;
+  const marker = group.managedMonitoring
+    ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}`
+    : '';
+  block[0] = `${indent}- name: ${formatScalar(group.name)}${marker}`;
 }
 
 function setGroupScalar(block, key, value) {
-  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
   const re = new RegExp(`^${escapeRegExp(indent)}${escapeRegExp(key)}\\s*:`);
   const foundIndex = block.findIndex((line) => re.test(line));
 
@@ -9909,14 +10592,33 @@ function setGroupScalar(block, key, value) {
     return;
   }
 
-  block.splice(1, 0, `${indent}${key}: ${formatScalar(value)}`);
+  const headerIndex = block.indexOf(header);
+  block.splice(headerIndex + 1, 0, `${indent}${key}: ${formatScalar(value)}`);
+}
+
+function setOptionalGroupScalar(block, key, value) {
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
+  const re = new RegExp(`^${escapeRegExp(indent)}${escapeRegExp(key)}\\s*:`);
+  const foundIndex = block.findIndex((line) => re.test(line));
+  if (!value) {
+    if (foundIndex !== -1) block.splice(foundIndex, 1);
+    return;
+  }
+  if (foundIndex !== -1) {
+    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    return;
+  }
+  const headerIndex = block.indexOf(header);
+  block.splice(headerIndex + 2, 0, `${indent}${key}: ${formatScalar(value)}`);
 }
 
 function insertGroupListBlock(block, key, items) {
-  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
   const typeRe = new RegExp(`^${escapeRegExp(indent)}type\\s*:`);
   const typeIndex = block.findIndex((line) => typeRe.test(line));
-  block.splice(typeIndex === -1 ? 1 : typeIndex + 1, 0, ...serializeListBlockWithIndent(key, items, indent));
+  block.splice(typeIndex === -1 ? block.indexOf(header) + 1 : typeIndex + 1, 0, ...serializeListBlockWithIndent(key, items, indent));
 }
 
 function serializeUseBlock(group, originalUseLine) {
@@ -10239,6 +10941,7 @@ function parseGroups(lines, section) {
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
     const name = cleanScalar(stripYamlComment(match[2]));
+    const monitorMarker = match[2].match(/#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+source=(.+?)\s*$/i);
     groups.push({
       name,
       originalName: name,
@@ -10248,6 +10951,12 @@ function parseGroups(lines, section) {
       includeAll: readBoolScalar(block, keyIndent, 'include-all'),
       includeAllProxies: readBoolScalar(block, keyIndent, 'include-all-proxies'),
       includeAllProviders: readBoolScalar(block, keyIndent, 'include-all-providers'),
+      filter: readScalar(block, keyIndent, 'filter') || '',
+      excludeFilter: readScalar(block, keyIndent, 'exclude-filter') || '',
+      excludeType: readScalar(block, keyIndent, 'exclude-type') || '',
+      managedMonitoring: Boolean(monitorMarker),
+      monitorService: monitorMarker?.[1] || '',
+      monitorSourceGroup: monitorMarker?.[2]?.trim() || '',
       start,
       end,
       proxiesStart: proxiesMeta.start,

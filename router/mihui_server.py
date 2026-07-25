@@ -45,6 +45,51 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "accept-encoding",
 }
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
+RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
+RESOURCE_MONITOR_EVENT_LIMIT = 200
+RESOURCE_MONITOR_GROUP_TYPES = {
+    "selector",
+    "select",
+    "urltest",
+    "url-test",
+    "fallback",
+    "loadbalance",
+    "load-balance",
+    "relay",
+}
+RESOURCE_MONITOR_BUILTINS = {
+    "DIRECT",
+    "REJECT",
+    "REJECT-DROP",
+    "PASS",
+    "COMPATIBLE",
+    "GLOBAL",
+}
+RESOURCE_MONITOR_SERVICES = {
+    "youtube": {
+        "title": "YouTube",
+        "group": "YOUTUBE",
+        "endpoints": [{"url": "https://www.youtube.com/generate_204", "expected": 204}],
+    },
+    "telegram": {
+        "title": "Telegram",
+        "group": "TELEGRAM",
+        "endpoints": [{"url": "https://telegram.org/", "expected": 200}],
+    },
+    "whatsapp": {
+        "title": "WhatsApp",
+        "group": "WHATSAPP",
+        "endpoints": [{"url": "https://www.whatsapp.com/", "expected": 200}],
+    },
+    "ai": {
+        "title": "AI",
+        "group": "AI",
+        "endpoints": [
+            {"url": "https://chatgpt.com/cdn-cgi/trace", "expected": 200},
+            {"url": "https://claude.ai/cdn-cgi/trace", "expected": 200},
+        ],
+    },
+}
 
 
 update_lock = threading.Lock()
@@ -74,6 +119,14 @@ component_action_state = {
 component_release_cache_lock = threading.Lock()
 component_release_cache = {"checkedAt": 0, "catalog": {}}
 xkeen_files_lock = threading.Lock()
+resource_monitor_lock = threading.Lock()
+resource_monitor_state_lock = threading.Lock()
+resource_monitor_job_state = {
+    "running": False,
+    "services": [],
+    "startedAt": None,
+    "finishedAt": None,
+}
 UI_ASSET_NO_CACHE_PATHS = {"/", "/index.html", "/app.js", "/styles.css", "/mihomo-editor.html"}
 
 
@@ -125,6 +178,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/nodes":
             self.handle_nodes_get()
             return
+        if route == "/api/resource-monitor":
+            self.handle_resource_monitor_get()
+            return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
             return
@@ -156,6 +212,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/groups/select":
             self.handle_group_select()
+            return
+        if route == "/api/resource-monitor/settings":
+            self.handle_resource_monitor_settings()
+            return
+        if route == "/api/resource-monitor/check":
+            self.handle_resource_monitor_check()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -381,6 +443,46 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         else:
             status = HTTPStatus.UNPROCESSABLE_ENTITY
         self.send_json(status, result)
+
+    def handle_resource_monitor_get(self):
+        self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
+
+    def handle_resource_monitor_settings(self):
+        if self.headers.get("X-Mihui-Action") != "resource-monitor":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        try:
+            settings = validate_resource_monitor_settings(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+
+        if settings["enabled"]:
+            readiness = get_resource_monitor_readiness(self.app_dir, settings)
+            if not readiness["ready"]:
+                self.send_json(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    {"ok": False, "message": "resource groups are not ready", "readiness": readiness},
+                )
+                return
+
+        save_resource_monitor_settings(self.app_dir, settings)
+        self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
+
+    def handle_resource_monitor_check(self):
+        if self.headers.get("X-Mihui-Action") != "resource-monitor":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        payload = self.read_json_body()
+        service = str(payload.get("service") or "").strip().casefold()
+        if service and service not in RESOURCE_MONITOR_SERVICES:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "unknown service"})
+            return
+
+        result = start_resource_monitor_check(self.app_dir, [service] if service else None)
+        self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
@@ -2334,6 +2436,587 @@ def get_current_nodes(app_dir):
         return {"ok": False, "message": str(error), "nodes": [], "providers": [], "groups": [], "groupsError": ""}
 
 
+def default_resource_monitor_settings():
+    return {
+        "enabled": False,
+        "intervalSeconds": 300,
+        "failureThreshold": 2,
+        "quarantineSeconds": 1800,
+        "maxAlternatives": 3,
+        "timeoutMs": 8000,
+        "services": {
+            key: {"enabled": True, "group": definition["group"]}
+            for key, definition in RESOURCE_MONITOR_SERVICES.items()
+        },
+    }
+
+
+def resource_monitor_settings_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_MONITOR_SETTINGS_PATH", str(Path(app_dir) / "resource-monitor.json")))
+
+
+def resource_monitor_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_MONITOR_RUNTIME_PATH", str(Path(app_dir) / "resource-monitor-runtime.json")))
+
+
+def resource_monitor_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_MONITOR_LOG_PATH", str(Path(app_dir) / "resource-monitor.jsonl")))
+
+
+def read_json_file(path, fallback):
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return fallback
+    return data if isinstance(data, dict) else fallback
+
+
+def write_json_atomic(path, payload):
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(str(temporary), str(target))
+
+
+def load_resource_monitor_settings(app_dir):
+    defaults = default_resource_monitor_settings()
+    saved = read_json_file(resource_monitor_settings_path(app_dir), {})
+    merged = dict(defaults)
+    for key in ("enabled", "intervalSeconds", "failureThreshold", "quarantineSeconds", "maxAlternatives", "timeoutMs"):
+        if key in saved:
+            merged[key] = saved[key]
+
+    saved_services = saved.get("services")
+    if isinstance(saved_services, dict):
+        services = {}
+        for key, service_defaults in defaults["services"].items():
+            item = saved_services.get(key)
+            services[key] = dict(service_defaults)
+            if isinstance(item, dict):
+                if "enabled" in item:
+                    services[key]["enabled"] = item["enabled"]
+                if "group" in item:
+                    services[key]["group"] = item["group"]
+        merged["services"] = services
+
+    try:
+        return validate_resource_monitor_settings(merged)
+    except (TypeError, ValueError):
+        return defaults
+
+
+def validate_resource_monitor_settings(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("settings must be an object")
+
+    ranges = {
+        "intervalSeconds": (60, 3600),
+        "failureThreshold": (1, 5),
+        "quarantineSeconds": (60, 86400),
+        "maxAlternatives": (1, 5),
+        "timeoutMs": (1000, 30000),
+    }
+    result = {"enabled": bool(payload.get("enabled", False))}
+    for key, (minimum, maximum) in ranges.items():
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+        result[key] = value
+
+    services = payload.get("services")
+    if not isinstance(services, dict):
+        raise ValueError("services must be an object")
+    unknown = set(services) - set(RESOURCE_MONITOR_SERVICES)
+    if unknown:
+        raise ValueError("unknown services: " + ", ".join(sorted(unknown)))
+
+    normalized_services = {}
+    for key, definition in RESOURCE_MONITOR_SERVICES.items():
+        item = services.get(key)
+        if not isinstance(item, dict):
+            raise ValueError(f"service {key} is required")
+        group = str(item.get("group") or "").strip()
+        if not group:
+            raise ValueError(f"group is required for {key}")
+        normalized_services[key] = {"enabled": bool(item.get("enabled", True)), "group": group}
+    result["services"] = normalized_services
+    return result
+
+
+def save_resource_monitor_settings(app_dir, settings):
+    write_json_atomic(resource_monitor_settings_path(app_dir), settings)
+
+
+def default_resource_monitor_runtime():
+    return {
+        "lastCycleAt": None,
+        "services": {
+            key: {
+                "state": "idle",
+                "currentNode": "",
+                "checkedAt": None,
+                "delay": None,
+                "consecutiveFailures": 0,
+                "message": "Проверка ещё не выполнялась",
+                "lastSwitch": None,
+                "quarantine": {},
+            }
+            for key in RESOURCE_MONITOR_SERVICES
+        },
+    }
+
+
+def load_resource_monitor_runtime(app_dir):
+    defaults = default_resource_monitor_runtime()
+    saved = read_json_file(resource_monitor_runtime_path(app_dir), {})
+    runtime = {"lastCycleAt": saved.get("lastCycleAt"), "services": {}}
+    saved_services = saved.get("services")
+    if not isinstance(saved_services, dict):
+        saved_services = {}
+    for key, service_defaults in defaults["services"].items():
+        item = saved_services.get(key)
+        runtime["services"][key] = dict(service_defaults)
+        if isinstance(item, dict):
+            for field in service_defaults:
+                if field in item:
+                    runtime["services"][key][field] = item[field]
+        if not isinstance(runtime["services"][key].get("quarantine"), dict):
+            runtime["services"][key]["quarantine"] = {}
+    return runtime
+
+
+def save_resource_monitor_runtime(app_dir, runtime):
+    write_json_atomic(resource_monitor_runtime_path(app_dir), runtime)
+
+
+def read_resource_monitor_events(app_dir, limit=RESOURCE_MONITOR_EVENT_LIMIT):
+    path = resource_monitor_log_path(app_dir)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    events = []
+    for line in lines[-max(1, int(limit)):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def append_resource_monitor_event(app_dir, service, event_type, message, **details):
+    path = resource_monitor_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    event = {
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "timestamp": int(time.time()),
+        "service": service,
+        "type": event_type,
+        "message": message,
+    }
+    event.update(details)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    try:
+        if path.stat().st_size > RESOURCE_MONITOR_LOG_MAX_BYTES:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            path.write_text("\n".join(lines[-RESOURCE_MONITOR_EVENT_LIMIT:]) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def snapshot_resource_monitor_job():
+    with resource_monitor_state_lock:
+        return dict(resource_monitor_job_state)
+
+
+def get_resource_monitor_readiness(app_dir, settings=None):
+    config = settings or load_resource_monitor_settings(app_dir)
+    items = {}
+    try:
+        data = mihomo_api_request(app_dir, "/proxies", timeout=4)
+        proxies = data.get("proxies", data)
+        if not isinstance(proxies, dict):
+            proxies = {}
+    except Exception as error:
+        return {
+            "ready": False,
+            "message": str(error),
+            "services": {
+                key: {"ready": False, "group": item["group"], "message": "Mihomo недоступен"}
+                for key, item in config["services"].items()
+                if item["enabled"]
+            },
+        }
+
+    ready = True
+    for key, item in config["services"].items():
+        if not item["enabled"]:
+            continue
+        group_name = item["group"]
+        group = proxies.get(group_name)
+        group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+        options = group.get("all") if isinstance(group, dict) else None
+        item_ready = (
+            group_type in {"select", "selector"}
+            and isinstance(options, list)
+            and any(is_resource_monitor_node_candidate(option, proxies) for option in options)
+        )
+        if not item_ready:
+            ready = False
+        items[key] = {
+            "ready": item_ready,
+            "group": group_name,
+            "message": "" if item_ready else "Нужна непустая группа select",
+        }
+    return {"ready": ready, "message": "" if ready else "Не все группы готовы", "services": items}
+
+
+def get_resource_monitor_status(app_dir):
+    config = load_resource_monitor_settings(app_dir)
+    return {
+        "ok": True,
+        "config": config,
+        "runtime": load_resource_monitor_runtime(app_dir),
+        "events": read_resource_monitor_events(app_dir),
+        "readiness": get_resource_monitor_readiness(app_dir, config),
+        "job": snapshot_resource_monitor_job(),
+    }
+
+
+def resource_monitor_delay(app_dir, node, endpoint, timeout_ms):
+    encoded_node = urllib.parse.quote(node, safe="")
+    query = urllib.parse.urlencode(
+        {
+            "url": endpoint["url"],
+            "timeout": timeout_ms,
+            "expected": endpoint["expected"],
+        }
+    )
+    data = mihomo_api_request(
+        app_dir,
+        f"/proxies/{encoded_node}/delay?{query}",
+        timeout=max(2, int(timeout_ms / 1000) + 2),
+    )
+    delay = data.get("delay") if isinstance(data, dict) else None
+    if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
+        raise RuntimeError("Mihomo did not return a valid delay")
+    return int(delay)
+
+
+def probe_resource_node(app_dir, service, node, timeout_ms):
+    delays = []
+    for endpoint in RESOURCE_MONITOR_SERVICES[service]["endpoints"]:
+        try:
+            delays.append(resource_monitor_delay(app_dir, node, endpoint, timeout_ms))
+        except Exception as error:
+            return {
+                "ok": False,
+                "delay": None,
+                "message": f"{urllib.parse.urlsplit(endpoint['url']).hostname}: {error}",
+            }
+    return {"ok": True, "delay": max(delays) if delays else None, "message": ""}
+
+
+def resource_monitor_candidates(group, proxies, current, quarantine, limit):
+    now = int(time.time())
+    candidates = []
+    options = group.get("all") if isinstance(group, dict) else []
+    if not isinstance(options, list):
+        return []
+    for order, option in enumerate(options):
+        name = str(option or "")
+        if not name or name == current or name.upper() in RESOURCE_MONITOR_BUILTINS:
+            continue
+        until = quarantine.get(name)
+        if isinstance(until, (int, float)) and int(until) > now:
+            continue
+        if not is_resource_monitor_node_candidate(name, proxies):
+            continue
+        proxy = proxies[name]
+        known_delay = get_proxy_delay(proxy)
+        candidates.append((known_delay if known_delay is not None else 10**9, order, name))
+    candidates.sort()
+    return [name for _, _, name in candidates[:limit]]
+
+
+def is_resource_monitor_node_candidate(name, proxies):
+    normalized_name = str(name or "")
+    if not normalized_name or normalized_name.upper() in RESOURCE_MONITOR_BUILTINS:
+        return False
+    proxy = proxies.get(normalized_name)
+    if not isinstance(proxy, dict):
+        return False
+    proxy_type = str(proxy.get("type") or "").strip().casefold()
+    return proxy_type not in RESOURCE_MONITOR_GROUP_TYPES and proxy.get("alive") is not False
+
+
+def mark_resource_monitor_drift(app_dir, runtime, service, group_name, message):
+    item = runtime["services"][service]
+    if item.get("state") != "needs_sync" or item.get("message") != message:
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "config_drift",
+            message,
+            group=group_name,
+        )
+    item.update(
+        {
+            "state": "needs_sync",
+            "checkedAt": int(time.time()),
+            "delay": None,
+            "message": message,
+        }
+    )
+
+
+def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
+    service_settings = settings["services"][service]
+    group_name = service_settings["group"]
+    group = proxies.get(group_name)
+    group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+    options = group.get("all") if isinstance(group, dict) else None
+    if (
+        group_type not in {"select", "selector"}
+        or not isinstance(options, list)
+        or not any(is_resource_monitor_node_candidate(option, proxies) for option in options)
+    ):
+        mark_resource_monitor_drift(
+            app_dir,
+            runtime,
+            service,
+            group_name,
+            f"Группа {group_name} отсутствует или не готова",
+        )
+        return
+
+    item = runtime["services"][service]
+    now = int(time.time())
+    quarantine = {
+        name: int(until)
+        for name, until in item.get("quarantine", {}).items()
+        if isinstance(until, (int, float)) and int(until) > now
+    }
+    item["quarantine"] = quarantine
+    current = str(group.get("now") or "")
+    item["currentNode"] = current
+    item["checkedAt"] = now
+    if not current:
+        mark_resource_monitor_drift(app_dir, runtime, service, group_name, f"В группе {group_name} не выбрана нода")
+        return
+
+    previous_state = item.get("state")
+    result = probe_resource_node(app_dir, service, current, settings["timeoutMs"])
+    if result["ok"]:
+        item.update(
+            {
+                "state": "available",
+                "delay": result["delay"],
+                "consecutiveFailures": 0,
+                "message": "Ресурс доступен",
+            }
+        )
+        if previous_state in {"warning", "error", "needs_sync"}:
+            append_resource_monitor_event(
+                app_dir,
+                service,
+                "recovered",
+                f"{RESOURCE_MONITOR_SERVICES[service]['title']} снова доступен",
+                node=current,
+                delay=result["delay"],
+            )
+        return
+
+    failures = int(item.get("consecutiveFailures") or 0) + 1
+    item.update(
+        {
+            "state": "warning" if failures < settings["failureThreshold"] else "error",
+            "delay": None,
+            "consecutiveFailures": failures,
+            "message": result["message"],
+        }
+    )
+    append_resource_monitor_event(
+        app_dir,
+        service,
+        "failure",
+        f"Проверка не пройдена ({failures}/{settings['failureThreshold']})",
+        node=current,
+        detail=result["message"],
+    )
+    if failures < settings["failureThreshold"]:
+        return
+
+    candidates = resource_monitor_candidates(
+        group,
+        proxies,
+        current,
+        quarantine,
+        settings["maxAlternatives"],
+    )
+    successful = []
+    for candidate in candidates:
+        candidate_result = probe_resource_node(app_dir, service, candidate, settings["timeoutMs"])
+        if candidate_result["ok"]:
+            successful.append((candidate_result["delay"], candidate))
+
+    if not successful:
+        item["message"] = "Подходящая нода не найдена"
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "unavailable",
+            "Подходящая нода не найдена",
+            node=current,
+            alternatives=candidates,
+        )
+        return
+
+    delay, selected = min(successful)
+    selection = select_proxy_group(app_dir, group_name, selected)
+    if not selection["ok"]:
+        item["message"] = selection.get("message") or "Mihomo не подтвердил переключение"
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "switch_failed",
+            item["message"],
+            node=current,
+            target=selected,
+        )
+        return
+
+    switched_at = int(time.time())
+    quarantine[current] = switched_at + settings["quarantineSeconds"]
+    item.update(
+        {
+            "state": "available",
+            "currentNode": selected,
+            "delay": delay,
+            "consecutiveFailures": 0,
+            "message": "Ресурс доступен",
+            "lastSwitch": {
+                "at": switched_at,
+                "from": current,
+                "to": selected,
+                "reason": result["message"],
+            },
+            "quarantine": quarantine,
+        }
+    )
+    append_resource_monitor_event(
+        app_dir,
+        service,
+        "switch",
+        f"Нода переключена: {current} → {selected}",
+        node=selected,
+        previousNode=current,
+        delay=delay,
+        quarantineUntil=quarantine[current],
+    )
+
+
+def run_resource_monitor_cycle(app_dir, services=None):
+    with resource_monitor_lock:
+        settings = load_resource_monitor_settings(app_dir)
+        selected_services = services or [
+            key for key, item in settings["services"].items() if item["enabled"]
+        ]
+        runtime = load_resource_monitor_runtime(app_dir)
+        try:
+            data = mihomo_api_request(app_dir, "/proxies", timeout=5)
+            proxies = data.get("proxies", data)
+            if not isinstance(proxies, dict):
+                raise RuntimeError("Mihomo returned an invalid proxy list")
+            for service in selected_services:
+                if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
+                    run_resource_monitor_service(app_dir, settings, runtime, service, proxies)
+        except Exception as error:
+            for service in selected_services:
+                if service in RESOURCE_MONITOR_SERVICES:
+                    mark_resource_monitor_drift(
+                        app_dir,
+                        runtime,
+                        service,
+                        settings["services"][service]["group"],
+                        f"Mihomo недоступен: {error}",
+                    )
+        runtime["lastCycleAt"] = int(time.time())
+        save_resource_monitor_runtime(app_dir, runtime)
+        return runtime
+
+
+def run_resource_monitor_job(app_dir, services=None):
+    try:
+        run_resource_monitor_cycle(app_dir, services)
+    finally:
+        with resource_monitor_state_lock:
+            resource_monitor_job_state.update(
+                {
+                    "running": False,
+                    "services": [],
+                    "finishedAt": int(time.time()),
+                }
+            )
+
+
+def start_resource_monitor_check(app_dir, services=None):
+    with resource_monitor_state_lock:
+        if resource_monitor_job_state["running"]:
+            return {"ok": False, "message": "resource check already running", "job": dict(resource_monitor_job_state)}
+        resource_monitor_job_state.update(
+            {
+                "running": True,
+                "services": list(services or RESOURCE_MONITOR_SERVICES),
+                "startedAt": int(time.time()),
+                "finishedAt": None,
+            }
+        )
+    thread = threading.Thread(
+        target=run_resource_monitor_job,
+        args=(Path(app_dir), services),
+        daemon=True,
+    )
+    thread.start()
+    return {"ok": True, "job": snapshot_resource_monitor_job()}
+
+
+def resource_monitor_worker(app_dir):
+    while True:
+        time.sleep(5)
+        settings = load_resource_monitor_settings(app_dir)
+        if not settings["enabled"] or snapshot_resource_monitor_job()["running"]:
+            continue
+        runtime = load_resource_monitor_runtime(app_dir)
+        now = int(time.time())
+        due = []
+        for service, item in settings["services"].items():
+            if not item["enabled"]:
+                continue
+            checked_at = runtime["services"][service].get("checkedAt")
+            if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:
+                due.append(service)
+        if due:
+            start_resource_monitor_check(app_dir, due)
+
+
+def initialize_resource_monitor(app_dir):
+    thread = threading.Thread(target=resource_monitor_worker, args=(Path(app_dir),), daemon=True)
+    thread.start()
+
+
 def normalize_current_group_selections(proxies):
     if not isinstance(proxies, dict):
         return []
@@ -2784,6 +3467,7 @@ def main():
     app_dir = Path(args.app_dir).resolve()
     www_dir = app_dir / "www"
     initialize_update_state(app_dir)
+    initialize_resource_monitor(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,

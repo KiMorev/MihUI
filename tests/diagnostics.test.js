@@ -160,6 +160,8 @@ globalThis.__app = {
   getProviderRuntimeWarnings,
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
+  prepareResourceMonitorConfig,
+  resourceMonitorNeedsConfigChanges,
   applyNodeProviderRule,
   parseGroups,
   parseRules,
@@ -231,6 +233,54 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: prepares resource monitoring groups and inserts rules before MATCH`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    use:
+      - main
+    filter: "(?i)nl|de"
+    exclude-filter: "(?i)expired"
+  - name: PROXY
+    type: select
+    proxies:
+      - FASTEST
+rules:
+  - MATCH,PROXY
+`);
+
+    app.prepareResourceMonitorConfig({
+      youtube: 'FASTEST',
+      telegram: 'FASTEST',
+      whatsapp: 'FASTEST',
+      ai: 'FASTEST',
+    });
+
+    const output = app.state.outputText;
+    assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
+    assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
+    assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
+    assert.match(output, /exclude-filter: ["']?\(\?i\)expired/);
+    assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
+    assert.ok(output.indexOf('DOMAIN-SUFFIX,anthropic.com,AI') < output.indexOf('MATCH,PROXY'));
+    assert.equal(app.resourceMonitorNeedsConfigChanges(), false);
+
+    const before = output;
+    app.prepareResourceMonitorConfig({
+      youtube: 'FASTEST',
+      telegram: 'FASTEST',
+      whatsapp: 'FASTEST',
+      ai: 'FASTEST',
+    });
+    assert.equal(app.state.outputText, before);
+  });
+
   test(`${source.name}: detects providers without a successful update after the configured interval`, () => {
     const app = loadApp(source);
     const providers = hydrate(app, `

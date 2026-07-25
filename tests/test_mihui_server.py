@@ -6,6 +6,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 import urllib.error
@@ -1197,6 +1198,117 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 422)
         self.assertFalse(result["ok"])
         self.assertEqual(result["message"], "group is not selectable")
+
+    def test_resource_monitor_settings_are_validated_and_persisted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_resource_monitor_settings()
+            settings["intervalSeconds"] = 120
+
+            validated = mihui_server.validate_resource_monitor_settings(settings)
+            mihui_server.save_resource_monitor_settings(app_dir, validated)
+
+            self.assertEqual(mihui_server.load_resource_monitor_settings(app_dir), validated)
+            self.assertEqual(validated["services"]["ai"]["group"], "AI")
+
+            invalid = dict(settings)
+            invalid["intervalSeconds"] = 30
+            with self.assertRaises(ValueError):
+                mihui_server.validate_resource_monitor_settings(invalid)
+
+    def test_resource_monitor_switches_to_fastest_successful_candidate(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["failureThreshold"] = 2
+        settings["maxAlternatives"] = 3
+        runtime = mihui_server.default_resource_monitor_runtime()
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a", "node-b", "node-c", "DIRECT"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "history": [{"delay": 20}]},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "history": [{"delay": 30}]},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "history": [{"delay": 40}]},
+        }
+        probe_results = {
+            "node-a": {"ok": False, "delay": None, "message": "youtube.com: timeout"},
+            "node-b": {"ok": True, "delay": 90, "message": ""},
+            "node-c": {"ok": True, "delay": 55, "message": ""},
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            side_effect=lambda _app, _service, node, _timeout: probe_results[node],
+        ), mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-c"},
+        ) as select:
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+            self.assertEqual(runtime["services"]["youtube"]["state"], "warning")
+            self.assertEqual(runtime["services"]["youtube"]["consecutiveFailures"], 1)
+            select.assert_not_called()
+
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+
+        item = runtime["services"]["youtube"]
+        self.assertEqual(item["state"], "available")
+        self.assertEqual(item["currentNode"], "node-c")
+        self.assertEqual(item["delay"], 55)
+        self.assertGreater(item["quarantine"]["node-a"], int(time.time()))
+        select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-c")
+
+    def test_resource_monitor_delay_uses_mihomo_proxy_probe(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"delay": 47},
+        ) as request:
+            delay = mihui_server.resource_monitor_delay(
+                Path("."),
+                "node name",
+                {"url": "https://example.com/generate_204", "expected": 204},
+                5000,
+            )
+
+        self.assertEqual(delay, 47)
+        path = request.call_args.args[1]
+        self.assertTrue(path.startswith("/proxies/node%20name/delay?"))
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+        self.assertEqual(query["url"], ["https://example.com/generate_204"])
+        self.assertEqual(query["timeout"], ["5000"])
+        self.assertEqual(query["expected"], ["204"])
+
+    def test_resource_monitor_settings_endpoint_requires_action_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, result = self.post_json(
+                    server,
+                    "/api/resource-monitor/settings",
+                    mihui_server.default_resource_monitor_settings(),
+                )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
 
 
 if __name__ == "__main__":

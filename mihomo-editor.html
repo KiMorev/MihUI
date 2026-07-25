@@ -59,6 +59,18 @@ textarea {
   overflow: hidden;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .app-sidebar {
   position: sticky;
   top: 0;
@@ -2939,6 +2951,425 @@ body.component-manager-open {
 
 .node-group-selection-actions .button {
   white-space: nowrap;
+}
+
+.resource-monitor {
+  margin: 14px 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.resource-monitor-head,
+.resource-monitor-dialog-head,
+.resource-monitor-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.resource-monitor-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-monitor-head h3,
+.resource-monitor-dialog-head h2,
+.resource-monitor-dialog-body h3 {
+  margin: 0;
+}
+
+.resource-monitor-head h3 {
+  font-size: 15px;
+}
+
+.resource-monitor-head p,
+.resource-monitor-dialog-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.resource-monitor-head-actions,
+.resource-monitor-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resource-monitor-switch {
+  cursor: pointer;
+}
+
+.resource-monitor-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.resource-monitor-switch > span {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  transition: background 160ms ease;
+}
+
+.resource-monitor-switch > span::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(23, 33, 43, 0.24);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.resource-monitor-switch input:checked + span {
+  background: var(--accent);
+}
+
+.resource-monitor-switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+.resource-monitor-switch input:focus-visible + span {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.resource-monitor-switch strong {
+  font-size: 12px;
+}
+
+.resource-monitor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  min-height: 254px;
+}
+
+.resource-monitor-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.resource-monitor-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.resource-monitor-table th,
+.resource-monitor-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.resource-monitor-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.resource-monitor-table th {
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.resource-monitor-table td {
+  font-size: 12px;
+}
+
+.resource-monitor-resource,
+.resource-monitor-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.resource-monitor-resource-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  color: var(--accent-dark);
+  background: #eaf5f5;
+}
+
+.resource-monitor-resource-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.resource-monitor-resource strong {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.resource-monitor-status {
+  gap: 6px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.resource-monitor-status::before,
+.resource-monitor-event-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.resource-monitor-status.is-available {
+  color: var(--success);
+}
+
+.resource-monitor-status.is-available::before,
+.resource-monitor-event-dot.is-success {
+  background: var(--success);
+}
+
+.resource-monitor-status.is-warning {
+  color: var(--warning);
+}
+
+.resource-monitor-status.is-warning::before,
+.resource-monitor-event-dot.is-warning {
+  background: var(--warning);
+}
+
+.resource-monitor-status.is-error,
+.resource-monitor-status.is-needs_sync {
+  color: var(--danger);
+}
+
+.resource-monitor-status.is-error::before,
+.resource-monitor-status.is-needs_sync::before,
+.resource-monitor-event-dot.is-error {
+  background: var(--danger);
+}
+
+.resource-monitor-node {
+  display: grid;
+  gap: 2px;
+  min-width: 160px;
+}
+
+.resource-monitor-node strong,
+.resource-monitor-node span {
+  overflow: hidden;
+  max-width: 260px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-monitor-node span {
+  color: var(--warning);
+  font-size: 11px;
+}
+
+.resource-monitor-delay {
+  color: var(--success);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.resource-monitor-table td:last-child .button {
+  opacity: 0;
+}
+
+.resource-monitor-table tr:hover td:last-child .button,
+.resource-monitor-table td:last-child .button:focus-visible,
+.resource-monitor-table td:last-child .button.is-visible {
+  opacity: 1;
+}
+
+.resource-monitor-events {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 14px;
+  border-left: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.resource-monitor-events > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.resource-monitor-events > header span {
+  color: var(--muted);
+}
+
+.resource-monitor-events > .button {
+  border-color: transparent;
+  color: var(--accent);
+  background: transparent;
+}
+
+.resource-monitor-events-list,
+.resource-monitor-journal-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.resource-monitor-event {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.resource-monitor-event-dot {
+  margin-top: 5px;
+}
+
+.resource-monitor-event-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.resource-monitor-event-copy strong {
+  font-size: 11px;
+}
+
+.resource-monitor-event-copy span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resource-monitor-notice,
+.resource-monitor-dialog-notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid #ead6a1;
+  color: var(--warning);
+  background: #fffaf0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.resource-monitor-dialog {
+  width: min(760px, calc(100vw - 28px));
+  max-height: min(800px, calc(100vh - 28px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(23, 33, 43, 0.2);
+}
+
+.resource-monitor-dialog::backdrop {
+  background: rgba(23, 33, 43, 0.45);
+}
+
+.resource-monitor-dialog-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: calc(100vh - 30px);
+}
+
+.resource-monitor-dialog-head,
+.resource-monitor-dialog-actions {
+  padding: 16px 18px;
+}
+
+.resource-monitor-dialog-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.resource-monitor-dialog-head h2 {
+  font-size: 18px;
+}
+
+.resource-monitor-dialog-body {
+  display: grid;
+  gap: 20px;
+  overflow-y: auto;
+  padding: 18px;
+}
+
+.resource-monitor-dialog-body section {
+  display: grid;
+  gap: 10px;
+}
+
+.resource-monitor-dialog-body h3 {
+  font-size: 13px;
+}
+
+.resource-monitor-sources,
+.resource-monitor-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.resource-monitor-source,
+.resource-monitor-policy-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.resource-monitor-source span,
+.resource-monitor-policy-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.resource-monitor-source small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.resource-monitor-policy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resource-monitor-journal {
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.resource-monitor-journal-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.resource-monitor-dialog-actions {
+  border-top: 1px solid var(--line);
 }
 
 .node-inventory-list {
@@ -7640,6 +8071,83 @@ button.review-check-card:focus-visible {
 }
 
 @media (max-width: 980px) {
+  .resource-monitor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resource-monitor-events {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .resource-monitor-head,
+  .resource-monitor-dialog-head,
+  .resource-monitor-dialog-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .resource-monitor-head-actions {
+    justify-content: space-between;
+  }
+
+  .resource-monitor-sources,
+  .resource-monitor-policy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resource-monitor-table-wrap {
+    overflow: visible;
+  }
+
+  .resource-monitor-table,
+  .resource-monitor-table tbody {
+    display: grid;
+    min-width: 0;
+  }
+
+  .resource-monitor-table thead {
+    display: none;
+  }
+
+  .resource-monitor-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .resource-monitor-table tr:last-child {
+    border-bottom: 0;
+  }
+
+  .resource-monitor-table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .resource-monitor-table td:nth-child(1),
+  .resource-monitor-table td:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .resource-monitor-table td:nth-child(4) {
+    color: var(--muted);
+  }
+
+  .resource-monitor-table td:last-child {
+    justify-self: end;
+  }
+
+  .resource-monitor-dialog-actions .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 980px) {
   .xkeen-files-grid {
     grid-template-columns: 1fr;
   }
@@ -7742,6 +8250,10 @@ button.review-check-card:focus-visible {
       <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" /><path d="M13.5 6.5l4 4" /></symbol>
       <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8m-2 0a2 2 0 0 1 2 -2h9a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-9a2 2 0 0 1 -2 -2z" /><path d="M16 6v-1a2 2 0 0 0 -2 -2h-9a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h1" /></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
+      <symbol id="icon-youtube" viewBox="0 0 24 24"><path d="M3 8a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4z" /><path d="M10 9l5 3l-5 3z" /></symbol>
+      <symbol id="icon-telegram" viewBox="0 0 24 24"><path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4" /></symbol>
+      <symbol id="icon-whatsapp" viewBox="0 0 24 24"><path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9" /><path d="M9 10a.5 .5 0 0 0 1 0v-1a.5 .5 0 0 0 -1 0v1a5 5 0 0 0 5 5h1a.5 .5 0 0 0 0 -1h-1a.5 .5 0 0 0 0 1" /></symbol>
+      <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.6 4.4l4.4 1.6l-4.4 1.6l-1.6 4.4l-1.6 -4.4l-4.4 -1.6l4.4 -1.6z" /><path d="M19 15l.9 2.1l2.1 .9l-2.1 .9l-.9 2.1l-.9 -2.1l-2.1 -.9l2.1 -.9z" /><path d="M5 15l.7 1.3l1.3 .7l-1.3 .7l-.7 1.3l-.7 -1.3l-1.3 -.7l1.3 -.7z" /></symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -8166,6 +8678,51 @@ button.review-check-card:focus-visible {
 
           <section class="panel node-inventory-panel">
             <div id="nodeGroupSelections" class="node-group-selections empty-state" hidden></div>
+            <section id="resourceMonitorPanel" class="resource-monitor" hidden aria-labelledby="resourceMonitorTitle">
+              <header class="resource-monitor-head">
+                <div>
+                  <h3 id="resourceMonitorTitle">Мониторинг ресурсов</h3>
+                  <p id="resourceMonitorSummary">Получаем состояние проверок…</p>
+                </div>
+                <div class="resource-monitor-head-actions">
+                  <label class="resource-monitor-switch">
+                    <input id="resourceMonitorEnabled" type="checkbox" />
+                    <span aria-hidden="true"></span>
+                    <strong>Включён</strong>
+                  </label>
+                  <button id="resourceMonitorSettingsButton" class="button compact" type="button">
+                    <svg class="button-icon" aria-hidden="true"><use href="#icon-settings"></use></svg>
+                    <span>Настройки</span>
+                  </button>
+                </div>
+              </header>
+              <div class="resource-monitor-layout">
+                <div class="resource-monitor-table-wrap">
+                  <table class="resource-monitor-table">
+                    <thead>
+                      <tr>
+                        <th>Ресурс</th>
+                        <th>Состояние</th>
+                        <th>Текущая нода</th>
+                        <th>Проверено</th>
+                        <th>Задержка</th>
+                        <th><span class="sr-only">Действие</span></th>
+                      </tr>
+                    </thead>
+                    <tbody id="resourceMonitorRows"></tbody>
+                  </table>
+                </div>
+                <aside class="resource-monitor-events">
+                  <header>
+                    <strong>Последние события</strong>
+                    <span id="resourceMonitorEventsCount">0</span>
+                  </header>
+                  <div id="resourceMonitorEventsList" class="resource-monitor-events-list"></div>
+                  <button id="resourceMonitorJournalButton" class="button compact" type="button">Открыть журнал</button>
+                </aside>
+              </div>
+              <p id="resourceMonitorNotice" class="resource-monitor-notice" hidden></p>
+            </section>
             <div class="node-inventory-controls">
               <button id="nodeFiltersToggleButton" class="button ghost compact node-filters-toggle" type="button" aria-expanded="true">
                 <span>Фильтры</span>
@@ -8445,6 +9002,64 @@ button.review-check-card:focus-visible {
       </section>
     </dialog>
 
+    <dialog id="resourceMonitorDialog" class="resource-monitor-dialog" aria-labelledby="resourceMonitorDialogTitle">
+      <section class="resource-monitor-dialog-surface">
+        <header class="resource-monitor-dialog-head">
+          <div>
+            <h2 id="resourceMonitorDialogTitle">Мониторинг ресурсов</h2>
+            <p>Выберите уже отфильтрованную группу-источник для каждой цели.</p>
+          </div>
+          <button id="resourceMonitorDialogClose" class="button compact" type="button">Закрыть</button>
+        </header>
+        <div class="resource-monitor-dialog-body">
+          <section>
+            <h3>Группы и проверки</h3>
+            <div id="resourceMonitorSources" class="resource-monitor-sources"></div>
+          </section>
+          <section class="resource-monitor-policy">
+            <h3>Политика переключения</h3>
+            <div class="resource-monitor-policy-grid">
+              <label>
+                <span>Проверять каждые</span>
+                <select id="resourceMonitorInterval">
+                  <option value="60">1 минуту</option>
+                  <option value="300">5 минут</option>
+                  <option value="600">10 минут</option>
+                  <option value="900">15 минут</option>
+                </select>
+              </label>
+              <label>
+                <span>Переключать после</span>
+                <select id="resourceMonitorFailures">
+                  <option value="1">1 ошибки</option>
+                  <option value="2">2 ошибок подряд</option>
+                  <option value="3">3 ошибок подряд</option>
+                </select>
+              </label>
+              <label>
+                <span>Исключать ноду на</span>
+                <select id="resourceMonitorQuarantine">
+                  <option value="900">15 минут</option>
+                  <option value="1800">30 минут</option>
+                  <option value="3600">1 час</option>
+                </select>
+              </label>
+            </div>
+            <p>Проверка оценивает только доступность и задержку ответа. Тест скорости и загрузка файлов не выполняются.</p>
+          </section>
+          <p id="resourceMonitorDialogNotice" class="resource-monitor-dialog-notice" hidden></p>
+          <section id="resourceMonitorJournal" class="resource-monitor-journal">
+            <h3>Журнал</h3>
+            <div id="resourceMonitorJournalList" class="resource-monitor-journal-list"></div>
+          </section>
+        </div>
+        <footer class="resource-monitor-dialog-actions">
+          <button id="resourceMonitorCheckAllButton" class="button compact" type="button">Проверить сейчас</button>
+          <button id="resourceMonitorSaveButton" class="button primary compact" type="button">Сохранить настройки</button>
+        </footer>
+      </section>
+    </dialog>
+
     <template id="providerTemplate">
       <article class="provider-row">
         <div class="provider-toolbar">
@@ -8603,9 +9218,38 @@ const YAML_HTTP_URL_PATTERN = /https?:\/\/[^\s"'<>[\]{},]+/gi;
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
+const RESOURCE_MONITOR_REFRESH_MS = 30000;
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
+const RESOURCE_MONITOR_DEFINITIONS = {
+  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
+  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
+  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
+  ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
+};
+const RESOURCE_MONITOR_RULES = {
+  youtube: [
+    ['GEOSITE', 'youtube', 'YOUTUBE'],
+  ],
+  telegram: [
+    ['GEOSITE', 'telegram', 'TELEGRAM'],
+    ['GEOIP', 'telegram', 'TELEGRAM', 'no-resolve'],
+  ],
+  whatsapp: [
+    ['DOMAIN-SUFFIX', 'whatsapp.com', 'WHATSAPP'],
+    ['DOMAIN-SUFFIX', 'whatsapp.net', 'WHATSAPP'],
+  ],
+  ai: [
+    ['DOMAIN-SUFFIX', 'chatgpt.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'openai.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'oaistatic.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'oaiusercontent.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'claude.ai', 'AI'],
+    ['DOMAIN-SUFFIX', 'claude.com', 'AI'],
+    ['DOMAIN-SUFFIX', 'anthropic.com', 'AI'],
+  ],
+};
 const CONNECTION_SETTING_DEFS = [
   {
     key: 'global-client-fingerprint',
@@ -8931,6 +9575,17 @@ const state = {
   },
   nodeFiltersCollapsed: null,
   nodeGroupSelectionsCollapsed: null,
+  resourceMonitor: {
+    loaded: false,
+    loading: false,
+    checking: false,
+    config: null,
+    runtime: null,
+    readiness: null,
+    events: [],
+    pendingSettings: null,
+    pollTimer: 0,
+  },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
   kernelCheckBusy: false,
@@ -9157,6 +9812,26 @@ const els = {
   nodeGroupFilter: document.querySelector('#nodeGroupFilter'),
   nodeProtocolFilter: document.querySelector('#nodeProtocolFilter'),
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
+  resourceMonitorPanel: document.querySelector('#resourceMonitorPanel'),
+  resourceMonitorSummary: document.querySelector('#resourceMonitorSummary'),
+  resourceMonitorEnabled: document.querySelector('#resourceMonitorEnabled'),
+  resourceMonitorSettingsButton: document.querySelector('#resourceMonitorSettingsButton'),
+  resourceMonitorRows: document.querySelector('#resourceMonitorRows'),
+  resourceMonitorEventsCount: document.querySelector('#resourceMonitorEventsCount'),
+  resourceMonitorEventsList: document.querySelector('#resourceMonitorEventsList'),
+  resourceMonitorJournalButton: document.querySelector('#resourceMonitorJournalButton'),
+  resourceMonitorNotice: document.querySelector('#resourceMonitorNotice'),
+  resourceMonitorDialog: document.querySelector('#resourceMonitorDialog'),
+  resourceMonitorDialogClose: document.querySelector('#resourceMonitorDialogClose'),
+  resourceMonitorSources: document.querySelector('#resourceMonitorSources'),
+  resourceMonitorInterval: document.querySelector('#resourceMonitorInterval'),
+  resourceMonitorFailures: document.querySelector('#resourceMonitorFailures'),
+  resourceMonitorQuarantine: document.querySelector('#resourceMonitorQuarantine'),
+  resourceMonitorDialogNotice: document.querySelector('#resourceMonitorDialogNotice'),
+  resourceMonitorJournal: document.querySelector('#resourceMonitorJournal'),
+  resourceMonitorJournalList: document.querySelector('#resourceMonitorJournalList'),
+  resourceMonitorCheckAllButton: document.querySelector('#resourceMonitorCheckAllButton'),
+  resourceMonitorSaveButton: document.querySelector('#resourceMonitorSaveButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -9235,6 +9910,12 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
+els.resourceMonitorEnabled.addEventListener('change', toggleResourceMonitor);
+els.resourceMonitorSettingsButton.addEventListener('click', () => openResourceMonitorDialog());
+els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMonitorDialog({ journal: true }));
+els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
+els.resourceMonitorSaveButton.addEventListener('click', saveResourceMonitorDialog);
+els.resourceMonitorCheckAllButton.addEventListener('click', () => checkResourceMonitor(''));
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -9493,6 +10174,7 @@ function handleFileSelect(event) {
     state.nodeInventoryError = '';
     state.nodeInventoryErrorDetail = '';
     state.nodeGroupSelectionsError = '';
+    state.resourceMonitor.pendingSettings = null;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -9515,8 +10197,10 @@ function initRouterMode() {
   loadXkeenNetworkFiles({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
+  loadResourceMonitor({ silent: true });
   startServiceHealthPolling();
   startProviderStatusPolling();
+  startResourceMonitorPolling();
   checkMihuiUpdate();
 }
 
@@ -9537,11 +10221,13 @@ async function loadRouterConfig(options = {}) {
     state.isEditingConfiguration = false;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    state.resourceMonitor.pendingSettings = null;
     resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
+    await loadResourceMonitor({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
     if (!options.silent) {
@@ -9637,9 +10323,20 @@ async function saveRouterConfig() {
     await loadBackups();
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
+    let monitorSettingsApplied = true;
+    try {
+      await applyPendingResourceMonitorSettings();
+    } catch (error) {
+      monitorSettingsApplied = false;
+      showMessage(`Конфиг сохранён, но мониторинг ещё не включён: ${error?.message || error}`, {
+        severity: 'warning',
+      });
+    }
 
     const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
+    if (monitorSettingsApplied) {
+      showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
+    }
   } catch (error) {
     const result = error?.data || {};
     if (result.stage === 'conflict') {
@@ -9925,7 +10622,14 @@ function groupSnapshotsAreEqual(left, right) {
   return left.name === right.name
     && left.type === right.type
     && left.proxies.join('\n') === right.proxies.join('\n')
-    && left.use.join('\n') === right.use.join('\n');
+    && left.use.join('\n') === right.use.join('\n')
+    && left.includeAll === right.includeAll
+    && left.includeAllProxies === right.includeAllProxies
+    && left.includeAllProviders === right.includeAllProviders
+    && left.filter === right.filter
+    && left.excludeFilter === right.excludeFilter
+    && left.excludeType === right.excludeType
+    && left.monitorSourceGroup === right.monitorSourceGroup;
 }
 
 function confirmHighRiskSave() {
@@ -11122,6 +11826,533 @@ async function loadProviderStatuses(options = {}) {
     state.providerStatusLoading = false;
     render();
   }
+}
+
+async function loadResourceMonitor(options = {}) {
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  state.resourceMonitor.loading = true;
+  renderResourceMonitor();
+  try {
+    const data = await apiJson('/api/resource-monitor');
+    state.resourceMonitor.loaded = true;
+    state.resourceMonitor.config = data.config || null;
+    state.resourceMonitor.runtime = data.runtime || null;
+    state.resourceMonitor.readiness = data.readiness || null;
+    state.resourceMonitor.events = Array.isArray(data.events) ? data.events : [];
+    state.resourceMonitor.checking = Boolean(data.job?.running);
+  } catch (error) {
+    if (!options.silent) {
+      showMessage(`Не удалось получить состояние мониторинга: ${error?.message || error}`, { severity: 'error' });
+    }
+  } finally {
+    state.resourceMonitor.loading = false;
+    renderResourceMonitor();
+  }
+}
+
+function startResourceMonitorPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  if (state.resourceMonitor.pollTimer) window.clearInterval(state.resourceMonitor.pollTimer);
+  state.resourceMonitor.pollTimer = window.setInterval(() => {
+    if (!document.hidden && state.routerApiAvailable) loadResourceMonitor({ silent: true });
+  }, RESOURCE_MONITOR_REFRESH_MS);
+}
+
+function renderResourceMonitor() {
+  if (!els.resourceMonitorPanel) return;
+  const visible = state.routerMode && state.routerApiAvailable;
+  els.resourceMonitorPanel.hidden = !visible;
+  if (!visible) return;
+
+  const config = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  const runtime = state.resourceMonitor.runtime?.services || {};
+  const serviceStates = Object.keys(RESOURCE_MONITOR_DEFINITIONS).map((key) => runtime[key] || {});
+  const availableCount = serviceStates.filter((item) => item.state === 'available').length;
+  const recentSwitches = serviceStates.filter((item) => {
+    const switchedAt = Number(item.lastSwitch?.at || 0);
+    return switchedAt > 0 && Date.now() / 1000 - switchedAt < 24 * 60 * 60;
+  }).length;
+  const summaryParts = [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`];
+  if (recentSwitches > 0) summaryParts.push(`${recentSwitches} ${recentSwitches === 1 ? 'нода недавно переключена' : 'ноды недавно переключены'}`);
+  els.resourceMonitorSummary.textContent = state.resourceMonitor.loading && !state.resourceMonitor.loaded
+    ? 'Получаем состояние проверок…'
+    : summaryParts.join(' · ');
+  els.resourceMonitorEnabled.checked = Boolean(config.enabled);
+  els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
+
+  els.resourceMonitorRows.textContent = '';
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const item = runtime[key] || {};
+    const row = document.createElement('tr');
+    const resourceCell = document.createElement('td');
+    const resource = document.createElement('div');
+    const icon = document.createElement('span');
+    const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const iconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    const resourceName = document.createElement('strong');
+    resource.className = 'resource-monitor-resource';
+    icon.className = 'resource-monitor-resource-icon';
+    iconSvg.setAttribute('aria-hidden', 'true');
+    iconUse.setAttribute('href', `#icon-${definition.icon}`);
+    iconSvg.append(iconUse);
+    icon.append(iconSvg);
+    resourceName.textContent = definition.title;
+    resource.append(icon, resourceName);
+    resourceCell.append(resource);
+
+    const statusCell = document.createElement('td');
+    const status = document.createElement('span');
+    const normalizedState = item.state || 'idle';
+    status.className = `resource-monitor-status is-${normalizedState}`;
+    status.textContent = getResourceMonitorStateLabel(normalizedState);
+    statusCell.append(status);
+
+    const nodeCell = document.createElement('td');
+    const node = document.createElement('div');
+    const nodeName = document.createElement('strong');
+    node.className = 'resource-monitor-node';
+    nodeName.textContent = item.currentNode || '—';
+    node.append(nodeName);
+    if (item.lastSwitch?.at) {
+      const note = document.createElement('span');
+      note.textContent = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
+      node.append(note);
+    }
+    nodeCell.append(node);
+
+    const checkedCell = document.createElement('td');
+    checkedCell.textContent = item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
+    const delayCell = document.createElement('td');
+    delayCell.className = 'resource-monitor-delay';
+    delayCell.textContent = Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
+    const actionCell = document.createElement('td');
+    const checkButton = document.createElement('button');
+    checkButton.className = 'button ghost compact';
+    if (item.lastSwitch?.at) checkButton.classList.add('is-visible');
+    checkButton.type = 'button';
+    checkButton.textContent = 'Проверить';
+    checkButton.disabled = state.resourceMonitor.checking;
+    checkButton.addEventListener('click', () => checkResourceMonitor(key));
+    actionCell.append(checkButton);
+    row.append(resourceCell, statusCell, nodeCell, checkedCell, delayCell, actionCell);
+    els.resourceMonitorRows.append(row);
+  });
+
+  const events = state.resourceMonitor.events.slice().reverse();
+  els.resourceMonitorEventsCount.textContent = String(events.length);
+  renderResourceMonitorEventList(els.resourceMonitorEventsList, events.slice(0, 3));
+  renderResourceMonitorEventList(els.resourceMonitorJournalList, events);
+
+  const readiness = state.resourceMonitor.readiness;
+  const needsConfig = readiness && !readiness.ready;
+  els.resourceMonitorNotice.hidden = !needsConfig;
+  els.resourceMonitorNotice.textContent = needsConfig
+    ? 'Группы мониторинга ещё не подготовлены. Откройте настройки, чтобы добавить их в конфиг через обычную проверку и сохранение.'
+    : '';
+}
+
+function getResourceMonitorStateLabel(value) {
+  return {
+    available: 'Доступен',
+    warning: 'Повторная проверка',
+    error: 'Недоступен',
+    needs_sync: 'Нужен конфиг',
+    checking: 'Проверка',
+    idle: 'Нет данных',
+  }[value] || 'Нет данных';
+}
+
+function formatResourceMonitorTime(value) {
+  const date = new Date(Number(value) * 1000);
+  if (Number.isNaN(date.getTime())) return '—';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  return date.toLocaleString('ru-RU', sameDay
+    ? { hour: '2-digit', minute: '2-digit' }
+    : { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderResourceMonitorEventList(container, events) {
+  if (!container) return;
+  container.textContent = '';
+  if (!events.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = 'Событий пока нет';
+    container.append(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const item = document.createElement('article');
+    const dot = document.createElement('span');
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    const meta = document.createElement('span');
+    const tone = ['failure', 'unavailable', 'switch_failed', 'config_drift'].includes(event.type)
+      ? event.type === 'failure' ? 'warning' : 'error'
+      : 'success';
+    item.className = 'resource-monitor-event';
+    dot.className = `resource-monitor-event-dot is-${tone}`;
+    copy.className = 'resource-monitor-event-copy';
+    title.textContent = event.message || 'Событие мониторинга';
+    meta.textContent = `${RESOURCE_MONITOR_DEFINITIONS[event.service]?.title || event.service || 'Мониторинг'} · ${formatResourceMonitorTime(event.timestamp)}`;
+    copy.append(title, meta);
+    item.append(dot, copy);
+    container.append(item);
+  });
+}
+
+function defaultResourceMonitorClientSettings() {
+  return {
+    enabled: false,
+    intervalSeconds: 300,
+    failureThreshold: 2,
+    quarantineSeconds: 1800,
+    maxAlternatives: 3,
+    timeoutMs: 8000,
+    services: Object.fromEntries(
+      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
+    ),
+  };
+}
+
+async function toggleResourceMonitor() {
+  const enabled = els.resourceMonitorEnabled.checked;
+  if (enabled && (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges())) {
+    els.resourceMonitorEnabled.checked = false;
+    openResourceMonitorDialog();
+    return;
+  }
+  const settings = {
+    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
+    enabled,
+  };
+  try {
+    await postResourceMonitorSettings(settings);
+    showMessage(enabled ? 'Мониторинг ресурсов включён.' : 'Мониторинг ресурсов выключен.', { severity: 'success' });
+  } catch (error) {
+    els.resourceMonitorEnabled.checked = !enabled;
+    showMessage(`Не удалось изменить мониторинг: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+function openResourceMonitorDialog(options = {}) {
+  renderResourceMonitorDialog();
+  els.resourceMonitorDialog.showModal();
+  if (options.journal) {
+    window.setTimeout(() => els.resourceMonitorJournal.scrollIntoView({ block: 'start' }), 0);
+  }
+}
+
+function closeResourceMonitorDialog() {
+  els.resourceMonitorDialog.close();
+}
+
+function renderResourceMonitorDialog() {
+  const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
+  els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
+  els.resourceMonitorQuarantine.value = String(settings.quarantineSeconds || 1800);
+  els.resourceMonitorSources.textContent = '';
+  const sources = getResourceMonitorSourceGroups();
+  const preferred = sources.find((group) => group.name === 'FASTEST') || sources[0];
+
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const target = state.groups.find((group) => group.name === definition.group);
+    const field = document.createElement('label');
+    const label = document.createElement('span');
+    const select = document.createElement('select');
+    const hint = document.createElement('small');
+    field.className = 'resource-monitor-source';
+    select.dataset.resourceMonitorSource = key;
+    label.textContent = definition.title;
+    sources.forEach((group) => {
+      const option = document.createElement('option');
+      option.value = group.name;
+      option.textContent = group.name;
+      select.append(option);
+    });
+    const selected = target?.monitorSourceGroup || state.resourceMonitor.pendingSettings?.sources?.[key] || preferred?.name || '';
+    select.value = selected;
+    select.disabled = Boolean(target && !target.managedMonitoring) || sources.length === 0;
+    hint.textContent = target && !target.managedMonitoring
+      ? `Будет использована существующая группа ${definition.group}`
+      : `В конфиге появится select-группа ${definition.group}`;
+    field.append(label, select, hint);
+    els.resourceMonitorSources.append(field);
+  });
+
+  const issue = getResourceMonitorDialogIssue(sources);
+  els.resourceMonitorDialogNotice.hidden = !issue;
+  els.resourceMonitorDialogNotice.textContent = issue;
+  els.resourceMonitorSaveButton.disabled = Boolean(issue);
+  els.resourceMonitorSaveButton.textContent = resourceMonitorNeedsConfigChanges() ? 'Подготовить конфиг' : 'Сохранить настройки';
+  els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
+    || Boolean(state.resourceMonitor.pendingSettings)
+    || resourceMonitorNeedsConfigChanges();
+  renderResourceMonitorEventList(
+    els.resourceMonitorJournalList,
+    state.resourceMonitor.events.slice().reverse(),
+  );
+}
+
+function getResourceMonitorSourceGroups() {
+  const targetNames = new Set(Object.values(RESOURCE_MONITOR_DEFINITIONS).map((item) => item.group));
+  const groupNames = new Set(state.groups.map((group) => group.name));
+  return state.groups.filter((group) => {
+    if (targetNames.has(group.name)) return false;
+    return group.use.length > 0
+      || group.proxies.some((name) => !isBuiltinProxyName(name) && !groupNames.has(name))
+      || group.includeAll
+      || group.includeAllProxies
+      || group.includeAllProviders;
+  });
+}
+
+function isBuiltinProxyName(name) {
+  return ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(String(name || '').toUpperCase());
+}
+
+function resourceMonitorNeedsConfigChanges(sources = null) {
+  const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    if (!group || !['select', 'selector'].includes(String(group.type || '').toLowerCase())) return true;
+    if (
+      group.proxies.length === 0
+      && group.use.length === 0
+      && !group.includeAll
+      && !group.includeAllProxies
+      && !group.includeAllProviders
+    ) return true;
+    return Boolean(sources && group.managedMonitoring && sources[key] && group.monitorSourceGroup !== sources[key]);
+  });
+  if (groupsNeedChanges) return true;
+  return Object.values(RESOURCE_MONITOR_RULES)
+    .flat()
+    .some((parts) => !hasResourceMonitorRule(parts));
+}
+
+function hasResourceMonitorRule(parts) {
+  const [type, value, target, ...options] = parts;
+  return getActiveRules().some((rule) => (
+    normalizeRuleType(rule.type) === normalizeRuleType(type)
+    && String(rule.value || '') === value
+    && String(rule.target || '') === target
+    && (rule.options || []).join('|') === options.join('|')
+  ));
+}
+
+function prepareResourceMonitorConfig(sources) {
+  const sourceGroups = new Map(getResourceMonitorSourceGroups().map((group) => [group.name, group]));
+  const knownGroupNames = new Set(state.groups.map((group) => group.name));
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const existing = state.groups.find((group) => group.name === definition.group);
+    if (existing && !['select', 'selector'].includes(String(existing.type || '').toLowerCase())) {
+      throw new Error(`Группа ${definition.group} существует и не является select.`);
+    }
+    if (existing && !existing.managedMonitoring) return;
+
+    const source = sourceGroups.get(sources[key]);
+    if (!source) throw new Error(`Не выбрана группа-источник для ${definition.title}.`);
+    const cloned = {
+      type: 'select',
+      proxies: source.proxies.filter((name) => !isBuiltinProxyName(name) && !knownGroupNames.has(name)),
+      use: source.use.slice(),
+      includeAll: Boolean(source.includeAll),
+      includeAllProxies: Boolean(source.includeAllProxies),
+      includeAllProviders: Boolean(source.includeAllProviders),
+      filter: source.filter || '',
+      excludeFilter: source.excludeFilter || '',
+      excludeType: source.excludeType || '',
+      managedMonitoring: true,
+      monitorService: key,
+      monitorSourceGroup: source.name,
+    };
+
+    if (existing) {
+      Object.assign(existing, cloned);
+    } else {
+      state.groups.push({
+        name: definition.group,
+        originalName: definition.group,
+        ...cloned,
+        start: -1,
+        end: -1,
+        proxiesStart: -1,
+        proxiesEnd: -1,
+        useStart: -1,
+        useEnd: -1,
+        isNew: true,
+        deleted: false,
+      });
+    }
+  });
+
+  const matchRule = getActiveRules().find((rule) => normalizeRuleType(rule.type) === 'MATCH');
+  Object.entries(RESOURCE_MONITOR_RULES).forEach(([service, rules]) => {
+    rules.forEach((parts) => {
+      if (hasResourceMonitorRule(parts)) return;
+      const [type, value, target, ...options] = parts;
+      state.rules.push({
+        id: createRuleId(),
+        originalIndex: -1,
+        type,
+        value,
+        target,
+        options,
+        rawParts: [],
+        rawLine: '',
+        comment: `# webmihomo-monitor: ${service}`,
+        indent: '  ',
+        start: -1,
+        insertBeforeRuleId: matchRule?.id || '',
+        isNew: true,
+        deleted: false,
+      });
+    });
+  });
+
+  generateOutput();
+  render();
+}
+
+function getResourceMonitorDialogIssue(sources = getResourceMonitorSourceGroups()) {
+  const conflict = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return group && !['select', 'selector'].includes(String(group.type || '').toLowerCase());
+  });
+  if (conflict) return `Группа ${conflict.group} уже существует, но имеет тип не select. MihUI не будет перезаписывать её автоматически.`;
+  const empty = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return group
+      && !group.managedMonitoring
+      && group.proxies.length === 0
+      && group.use.length === 0
+      && !group.includeAll
+      && !group.includeAllProxies
+      && !group.includeAllProviders;
+  });
+  if (empty) return `Группа ${empty.group} существует, но не содержит нод или подписок. MihUI не будет перезаписывать её автоматически.`;
+  const needsSource = Object.values(RESOURCE_MONITOR_DEFINITIONS).some((definition) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return !group || group.managedMonitoring;
+  });
+  if (needsSource && sources.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
+  return '';
+}
+
+function collectResourceMonitorDialogSettings() {
+  const settings = {
+    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
+    enabled: true,
+    intervalSeconds: Number(els.resourceMonitorInterval.value),
+    failureThreshold: Number(els.resourceMonitorFailures.value),
+    quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
+    maxAlternatives: 3,
+    timeoutMs: 8000,
+    services: Object.fromEntries(
+      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
+    ),
+  };
+  const sources = {};
+  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]').forEach((select) => {
+    sources[select.dataset.resourceMonitorSource] = select.value;
+  });
+  return { settings, sources };
+}
+
+async function saveResourceMonitorDialog() {
+  const { settings, sources } = collectResourceMonitorDialogSettings();
+  if (state.resourceMonitor.pendingSettings && hasUnsavedRouterChanges()) {
+    closeResourceMonitorDialog();
+    setActiveSection('review');
+    showMessage('Сначала сохраните подготовленный конфиг. Мониторинг включится только после подтверждения Mihomo.', {
+      severity: 'warning',
+    });
+    return;
+  }
+  if (resourceMonitorNeedsConfigChanges(sources)) {
+    try {
+      prepareResourceMonitorConfig(sources);
+    } catch (error) {
+      els.resourceMonitorDialogNotice.hidden = false;
+      els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+      return;
+    }
+    state.resourceMonitor.pendingSettings = { ...settings, sources };
+    closeResourceMonitorDialog();
+    setActiveSection('review');
+    showMessage('Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
+      severity: 'warning',
+    });
+    return;
+  }
+
+  try {
+    await postResourceMonitorSettings(settings);
+    state.resourceMonitor.pendingSettings = null;
+    closeResourceMonitorDialog();
+    showMessage('Настройки мониторинга сохранены.', { severity: 'success' });
+  } catch (error) {
+    els.resourceMonitorDialogNotice.hidden = false;
+    els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+  }
+}
+
+async function postResourceMonitorSettings(settings) {
+  const data = await apiJson('/api/resource-monitor/settings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Mihui-Action': 'resource-monitor',
+    },
+    body: JSON.stringify(settings),
+  });
+  state.resourceMonitor.loaded = true;
+  state.resourceMonitor.config = data.config || settings;
+  state.resourceMonitor.runtime = data.runtime || state.resourceMonitor.runtime;
+  state.resourceMonitor.readiness = data.readiness || state.resourceMonitor.readiness;
+  state.resourceMonitor.events = Array.isArray(data.events) ? data.events : state.resourceMonitor.events;
+  renderResourceMonitor();
+}
+
+async function applyPendingResourceMonitorSettings() {
+  const pending = state.resourceMonitor.pendingSettings;
+  if (!pending) return;
+  const settings = { ...pending };
+  delete settings.sources;
+  await postResourceMonitorSettings(settings);
+  state.resourceMonitor.pendingSettings = null;
+}
+
+async function checkResourceMonitor(service) {
+  if (state.resourceMonitor.checking) return;
+  state.resourceMonitor.checking = true;
+  renderResourceMonitor();
+  try {
+    await apiJson('/api/resource-monitor/check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'resource-monitor',
+      },
+      body: JSON.stringify(service ? { service } : {}),
+    });
+    await pollResourceMonitorCheck();
+  } catch (error) {
+    showMessage(`Проверка не запущена: ${error?.message || error}`, { severity: 'error' });
+    state.resourceMonitor.checking = false;
+    renderResourceMonitor();
+  }
+}
+
+async function pollResourceMonitorCheck(attempt = 0) {
+  await new Promise((resolve) => window.setTimeout(resolve, 800));
+  await loadResourceMonitor({ silent: true });
+  if (state.resourceMonitor.checking && attempt < 40) {
+    return pollResourceMonitorCheck(attempt + 1);
+  }
+  renderResourceMonitorDialog();
 }
 
 async function loadNodeInventory(options = {}) {
@@ -12903,6 +14134,21 @@ function collectGroupUseChanges() {
         changes.push(`В группе ${group.name} отключена подписка ${providerName}.`);
       }
     });
+
+    if (
+      group.managedMonitoring
+      && (
+        group.includeAll !== original.includeAll
+        || group.includeAllProxies !== original.includeAllProxies
+        || group.includeAllProviders !== original.includeAllProviders
+        || group.filter !== original.filter
+        || group.excludeFilter !== original.excludeFilter
+        || group.excludeType !== original.excludeType
+        || group.monitorSourceGroup !== original.monitorSourceGroup
+      )
+    ) {
+      changes.push(`Группа ${group.name}: обновлены условия отбора для мониторинга.`);
+    }
   });
 
   state.originalGroups.forEach((group) => {
@@ -13055,6 +14301,15 @@ function snapshotGroup(group) {
     type: group.type || '',
     proxies: group.proxies.slice(),
     use: group.use.slice(),
+    includeAll: Boolean(group.includeAll),
+    includeAllProxies: Boolean(group.includeAllProxies),
+    includeAllProviders: Boolean(group.includeAllProviders),
+    filter: group.filter || '',
+    excludeFilter: group.excludeFilter || '',
+    excludeType: group.excludeType || '',
+    managedMonitoring: Boolean(group.managedMonitoring),
+    monitorService: group.monitorService || '',
+    monitorSourceGroup: group.monitorSourceGroup || '',
   };
 }
 
@@ -13725,6 +14980,7 @@ function renderNodeInventory() {
   els.nodeInventoryPanel.classList.toggle('hidden', !isVisible);
   if (!isVisible) {
     if (els.nodeGroupSelections) els.nodeGroupSelections.hidden = true;
+    if (els.resourceMonitorPanel) els.resourceMonitorPanel.hidden = true;
     return;
   }
 
@@ -13763,6 +15019,7 @@ function renderNodeInventory() {
   renderNodeInventoryStatus(nodes);
 
   renderNodeGroupSelections(nodes);
+  renderResourceMonitor();
   renderNodeInventorySummary(nodes, filtered);
   els.nodeInventoryList.innerHTML = '';
 
@@ -18344,7 +19601,10 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
   const existingRules = state.rules
     .filter((rule) => !rule.isNew && rule.start >= rulesSection.start)
     .map((rule) => {
-      const replacement = rule.deleted ? [] : [serializeRule(rule, renamedGroups)];
+      const anchored = state.rules
+        .filter((item) => item.isNew && !item.deleted && item.insertBeforeRuleId === rule.id)
+        .map((item) => serializeRule(item, renamedGroups));
+      const replacement = rule.deleted ? anchored : [...anchored, serializeRule(rule, renamedGroups)];
       return {
         start: rule.start - rulesSection.start,
         end: rule.start - rulesSection.start + 1,
@@ -18357,7 +19617,7 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
     sectionLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  const newRules = state.rules.filter((rule) => rule.isNew && !rule.deleted);
+  const newRules = state.rules.filter((rule) => rule.isNew && !rule.deleted && !rule.insertBeforeRuleId);
   if (newRules.length > 0) {
     let insertAt = sectionLines.length;
     while (insertAt > 1 && !sectionLines[insertAt - 1].trim()) insertAt -= 1;
@@ -18368,9 +19628,29 @@ function serializeRulesSection(lines, rulesSection, renamedGroups) {
 }
 
 function createRulesSectionLines(renamedGroups = new Map()) {
-  const activeRules = getActiveRules();
+  const activeRules = getRulesInSerializationOrder();
   if (activeRules.length === 0) return ['rules: []'];
   return ['rules:', ...activeRules.map((rule) => serializeRule(rule, renamedGroups))];
+}
+
+function getRulesInSerializationOrder() {
+  const activeRules = getActiveRules();
+  const anchoredIds = new Set(activeRules.filter((rule) => rule.insertBeforeRuleId).map((rule) => rule.id));
+  const anchored = new Map();
+  activeRules.forEach((rule) => {
+    if (!rule.insertBeforeRuleId) return;
+    if (!anchored.has(rule.insertBeforeRuleId)) anchored.set(rule.insertBeforeRuleId, []);
+    anchored.get(rule.insertBeforeRuleId).push(rule);
+  });
+  const ordered = [];
+  activeRules.forEach((rule) => {
+    if (anchoredIds.has(rule.id)) return;
+    ordered.push(...(anchored.get(rule.id) || []), rule);
+  });
+  activeRules.forEach((rule) => {
+    if (anchoredIds.has(rule.id) && !ordered.includes(rule)) ordered.push(rule);
+  });
+  return ordered;
 }
 
 function serializeRule(rule, renamedGroups = new Map()) {
@@ -18467,28 +19747,46 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     const use = getActiveGroupUse(currentGroup);
     if (use.length > 0) insertGroupListBlock(block, 'use', use);
   }
+  if (currentGroup.managedMonitoring) {
+    setOptionalGroupScalar(block, 'include-all', currentGroup.includeAll ? 'true' : '');
+    setOptionalGroupScalar(block, 'include-all-proxies', currentGroup.includeAllProxies ? 'true' : '');
+    setOptionalGroupScalar(block, 'include-all-providers', currentGroup.includeAllProviders ? 'true' : '');
+    setOptionalGroupScalar(block, 'filter', currentGroup.filter || '');
+    setOptionalGroupScalar(block, 'exclude-filter', currentGroup.excludeFilter || '');
+    setOptionalGroupScalar(block, 'exclude-type', currentGroup.excludeType || '');
+  }
 
   return block;
 }
 
 function createGroupBlock(group) {
   const lines = [
-    `  - name: ${formatScalar(group.name)}`,
+    `  - name: ${formatScalar(group.name)}${group.managedMonitoring ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}` : ''}`,
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
   const use = getActiveGroupUse(group);
   if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
+  if (group.includeAll) lines.push('    include-all: true');
+  if (group.includeAllProxies) lines.push('    include-all-proxies: true');
+  if (group.includeAllProviders) lines.push('    include-all-providers: true');
+  if (group.filter) lines.push(`    filter: ${formatScalar(group.filter)}`);
+  if (group.excludeFilter) lines.push(`    exclude-filter: ${formatScalar(group.excludeFilter)}`);
+  if (group.excludeType) lines.push(`    exclude-type: ${formatScalar(group.excludeType)}`);
   return lines;
 }
 
 function setGroupName(block, group) {
   const indent = block[0].match(/^\s*/)?.[0] || '  ';
-  block[0] = `${indent}- name: ${formatScalar(group.name)}`;
+  const marker = group.managedMonitoring
+    ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}`
+    : '';
+  block[0] = `${indent}- name: ${formatScalar(group.name)}${marker}`;
 }
 
 function setGroupScalar(block, key, value) {
-  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
   const re = new RegExp(`^${escapeRegExp(indent)}${escapeRegExp(key)}\\s*:`);
   const foundIndex = block.findIndex((line) => re.test(line));
 
@@ -18497,14 +19795,33 @@ function setGroupScalar(block, key, value) {
     return;
   }
 
-  block.splice(1, 0, `${indent}${key}: ${formatScalar(value)}`);
+  const headerIndex = block.indexOf(header);
+  block.splice(headerIndex + 1, 0, `${indent}${key}: ${formatScalar(value)}`);
+}
+
+function setOptionalGroupScalar(block, key, value) {
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
+  const re = new RegExp(`^${escapeRegExp(indent)}${escapeRegExp(key)}\\s*:`);
+  const foundIndex = block.findIndex((line) => re.test(line));
+  if (!value) {
+    if (foundIndex !== -1) block.splice(foundIndex, 1);
+    return;
+  }
+  if (foundIndex !== -1) {
+    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    return;
+  }
+  const headerIndex = block.indexOf(header);
+  block.splice(headerIndex + 2, 0, `${indent}${key}: ${formatScalar(value)}`);
 }
 
 function insertGroupListBlock(block, key, items) {
-  const indent = `${block[0].match(/^\s*/)?.[0] || ''}  `;
+  const header = block.find((line) => /^\s*-\s+name\s*:/.test(line)) || block[0];
+  const indent = `${header.match(/^\s*/)?.[0] || ''}  `;
   const typeRe = new RegExp(`^${escapeRegExp(indent)}type\\s*:`);
   const typeIndex = block.findIndex((line) => typeRe.test(line));
-  block.splice(typeIndex === -1 ? 1 : typeIndex + 1, 0, ...serializeListBlockWithIndent(key, items, indent));
+  block.splice(typeIndex === -1 ? block.indexOf(header) + 1 : typeIndex + 1, 0, ...serializeListBlockWithIndent(key, items, indent));
 }
 
 function serializeUseBlock(group, originalUseLine) {
@@ -18827,6 +20144,7 @@ function parseGroups(lines, section) {
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
     const name = cleanScalar(stripYamlComment(match[2]));
+    const monitorMarker = match[2].match(/#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+source=(.+?)\s*$/i);
     groups.push({
       name,
       originalName: name,
@@ -18836,6 +20154,12 @@ function parseGroups(lines, section) {
       includeAll: readBoolScalar(block, keyIndent, 'include-all'),
       includeAllProxies: readBoolScalar(block, keyIndent, 'include-all-proxies'),
       includeAllProviders: readBoolScalar(block, keyIndent, 'include-all-providers'),
+      filter: readScalar(block, keyIndent, 'filter') || '',
+      excludeFilter: readScalar(block, keyIndent, 'exclude-filter') || '',
+      excludeType: readScalar(block, keyIndent, 'exclude-type') || '',
+      managedMonitoring: Boolean(monitorMarker),
+      monitorService: monitorMarker?.[1] || '',
+      monitorSourceGroup: monitorMarker?.[2]?.trim() || '',
       start,
       end,
       proxiesStart: proxiesMeta.start,

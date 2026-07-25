@@ -35,3 +35,39 @@ No actionable P0, P1 or P2 findings remain in the changed YAML-highlighting scop
 - Browser URL interaction: passed.
 
 final result: passed
+
+---
+
+# Design QA — мониторинг ресурсов
+
+- Source visual truth: `C:\Users\morev\.codex\generated_images\019f959d-eabb-7c50-b841-e4dc59a7e805\call_y6CB6PWEAi3ek6aDfXs419m4.png`
+- Implementation screenshot: `C:\Users\morev\.codex\visualizations\2026\07\24\019f959d-eabb-7c50-b841-e4dc59a7e805\resource-monitor-implementation.png`
+- Combined comparison: `C:\Users\morev\.codex\visualizations\2026\07\24\019f959d-eabb-7c50-b841-e4dc59a7e805\resource-monitor-comparison.png`
+- State: router mock, nodes page, monitoring enabled, one recent AI switch.
+
+## Findings
+
+No actionable P0, P1 or P2 findings remain in the resource-monitoring scope.
+
+- Layout: passed. The monitoring card sits between current group selections and node filters, with the status table and event journal matching the selected direction.
+- States: passed. Available, warning, error, configuration drift, recent switch and checking states have distinct copy and color.
+- Interaction: passed. Settings open as a modal, the four source groups are shown, and preparing the config moves to the existing review flow.
+- Safety: passed. Runtime settings remain pending until the YAML is checked, saved and confirmed by Mihomo.
+- Responsiveness: passed. The card collapses to one column below 980 px and the dialog to one column below 560 px.
+- Overflow: passed. The visually hidden switch input no longer expands the document width.
+- Console: passed. No browser warnings or errors were recorded.
+
+## Intentional differences from the source visual
+
+- Existing WebMihomo typography, density, node cards and navigation remain unchanged.
+- The browser fixture contains seven configured groups, while the source visual shows three; the monitoring block itself keeps the selected structure.
+- Resource checks expose a per-row action on hover or focus; the recently switched row keeps it visible.
+
+## Verification
+
+- `npm.cmd test`: 148/148 passed.
+- `python -m unittest tests.test_mihui_server -v`: 58/58 passed.
+- Main/standalone synchronization: passed.
+- Browser desktop state and settings workflow: passed.
+
+final result: passed
