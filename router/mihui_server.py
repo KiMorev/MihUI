@@ -2668,6 +2668,8 @@ def validate_resource_monitor_settings(payload):
         if not group:
             raise ValueError(f"group is required for {key}")
         normalized_services[key] = {"enabled": bool(item.get("enabled", True)), "group": group}
+    if result["enabled"] and not any(item["enabled"] for item in normalized_services.values()):
+        raise ValueError("at least one service must be enabled")
     result["services"] = normalized_services
     return result
 

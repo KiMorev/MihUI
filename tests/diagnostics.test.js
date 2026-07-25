@@ -290,6 +290,50 @@ rules:
     assert.equal(app.state.outputText, before);
   });
 
+  test(`${source.name}: keeps only enabled resource routing in the config`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    use:
+      - main
+  - name: PROXY
+    type: select
+    proxies:
+      - FASTEST
+rules:
+  - MATCH,PROXY
+`);
+    const sources = {
+      youtube: 'FASTEST',
+      telegram: 'FASTEST',
+      whatsapp: 'FASTEST',
+      ai: 'FASTEST',
+    };
+    const services = {
+      youtube: { enabled: true, group: 'YOUTUBE' },
+      telegram: { enabled: false, group: 'TELEGRAM' },
+      whatsapp: { enabled: false, group: 'WHATSAPP' },
+      ai: { enabled: false, group: 'AI' },
+    };
+
+    app.prepareResourceMonitorConfig(sources);
+    app.prepareResourceMonitorConfig(sources, services);
+
+    const output = app.state.outputText;
+    assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
+    assert.match(output, /GEOSITE,youtube,YOUTUBE/);
+    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: AI/);
+    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,AI(?:,|$)/m);
+    assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+  });
+
   test(`${source.name}: enables selection persistence without changing profile siblings`, () => {
     const app = loadApp(source);
     hydrate(app, `

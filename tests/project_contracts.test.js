@@ -112,6 +112,15 @@ test('main and standalone expose preventive and critical resource latency settin
   }
 });
 
+test('main and standalone expose per-resource monitoring switches', () => {
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /dataset\.resourceMonitorEnabled = key/);
+    assert.match(source, /collectResourceMonitorDialogServices/);
+    assert.match(source, /getEnabledResourceMonitorEntries/);
+  }
+});
+
 test('main and standalone expose component update markers and one manager flow', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);

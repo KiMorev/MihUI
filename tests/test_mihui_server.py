@@ -1225,6 +1225,21 @@ class ProviderAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mihui_server.validate_resource_monitor_settings(invalid)
 
+            only_youtube = mihui_server.default_resource_monitor_settings()
+            only_youtube["enabled"] = True
+            for key, service in only_youtube["services"].items():
+                service["enabled"] = key == "youtube"
+            validated = mihui_server.validate_resource_monitor_settings(only_youtube)
+            self.assertTrue(validated["services"]["youtube"]["enabled"])
+            self.assertFalse(validated["services"]["telegram"]["enabled"])
+
+            none_enabled = mihui_server.default_resource_monitor_settings()
+            none_enabled["enabled"] = True
+            for service in none_enabled["services"].values():
+                service["enabled"] = False
+            with self.assertRaises(ValueError):
+                mihui_server.validate_resource_monitor_settings(none_enabled)
+
     def test_whitelist_monitor_settings_are_validated_and_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

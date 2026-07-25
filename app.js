@@ -762,6 +762,7 @@ els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMon
 els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
 els.resourceMonitorSaveButton.addEventListener('click', saveResourceMonitorDialog);
 els.resourceMonitorCheckAllButton.addEventListener('click', () => checkResourceMonitor(''));
+els.resourceMonitorSources.addEventListener('change', handleResourceMonitorDialogChange);
 els.resourceMonitorProactiveEnabled.addEventListener('change', syncResourceMonitorProactiveControls);
 els.resourceMonitorLatencyThreshold.addEventListener('change', syncResourceMonitorProactiveControls);
 els.whitelistMonitorEnabled.addEventListener('change', toggleWhitelistMonitor);
@@ -2735,7 +2736,9 @@ function renderResourceMonitor() {
 
   const config = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
   const runtime = state.resourceMonitor.runtime?.services || {};
-  const serviceStates = Object.keys(RESOURCE_MONITOR_DEFINITIONS).map((key) => runtime[key] || {});
+  const enabledEntries = getEnabledResourceMonitorEntries(config.services);
+  const enabledKeys = new Set(enabledEntries.map(([key]) => key));
+  const serviceStates = enabledEntries.map(([key]) => runtime[key] || {});
   const availableCount = serviceStates.filter((item) => item.state === 'available').length;
   const recentSwitches = serviceStates.filter((item) => {
     const switchedAt = Number(item.lastSwitch?.at || 0);
@@ -2750,7 +2753,7 @@ function renderResourceMonitor() {
   els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
 
   els.resourceMonitorRows.textContent = '';
-  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+  enabledEntries.forEach(([key, definition]) => {
     const item = runtime[key] || {};
     const row = document.createElement('tr');
     const resourceCell = document.createElement('td');
@@ -2807,10 +2810,11 @@ function renderResourceMonitor() {
     els.resourceMonitorRows.append(row);
   });
 
-  const events = state.resourceMonitor.events.slice().reverse();
+  const journalEvents = state.resourceMonitor.events.slice().reverse();
+  const events = journalEvents.filter((event) => enabledKeys.has(event.service));
   els.resourceMonitorEventsCount.textContent = String(events.length);
   renderResourceMonitorEventList(els.resourceMonitorEventsList, events.slice(0, 3));
-  renderResourceMonitorEventList(els.resourceMonitorJournalList, events);
+  renderResourceMonitorEventList(els.resourceMonitorJournalList, journalEvents);
 
   const readiness = state.resourceMonitor.readiness;
   const needsConfig = readiness && !readiness.ready;
@@ -2889,6 +2893,14 @@ function defaultResourceMonitorClientSettings() {
   };
 }
 
+function getEnabledResourceMonitorEntries(services = null) {
+  const currentServices = services
+    || state.resourceMonitor.config?.services
+    || defaultResourceMonitorClientSettings().services;
+  return Object.entries(RESOURCE_MONITOR_DEFINITIONS)
+    .filter(([key]) => currentServices[key]?.enabled !== false);
+}
+
 async function toggleResourceMonitor() {
   const enabled = els.resourceMonitorEnabled.checked;
   if (enabled && (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges())) {
@@ -2953,13 +2965,34 @@ function renderResourceMonitorDialog() {
 
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     const target = state.groups.find((group) => group.name === definition.group);
-    const field = document.createElement('label');
-    const label = document.createElement('span');
+    const enabled = settings.services?.[key]?.enabled !== false;
+    const field = document.createElement('article');
+    const head = document.createElement('div');
+    const title = document.createElement('strong');
+    const toggle = document.createElement('label');
+    const checkbox = document.createElement('input');
+    const track = document.createElement('span');
+    const toggleState = document.createElement('strong');
+    const sourceLabel = document.createElement('label');
+    const sourceTitle = document.createElement('span');
     const select = document.createElement('select');
     const hint = document.createElement('small');
     field.className = 'resource-monitor-source';
+    field.classList.toggle('is-disabled', !enabled);
+    head.className = 'resource-monitor-source-head';
+    title.textContent = definition.title;
+    toggle.className = 'resource-monitor-switch';
+    checkbox.type = 'checkbox';
+    checkbox.checked = enabled;
+    checkbox.dataset.resourceMonitorEnabled = key;
+    checkbox.setAttribute('aria-label', `Мониторинг ${definition.title}`);
+    toggleState.dataset.resourceMonitorEnabledState = key;
+    toggleState.textContent = enabled ? 'Включена' : 'Выключена';
+    toggle.append(checkbox, track, toggleState);
+    head.append(title, toggle);
+    sourceLabel.className = 'resource-monitor-source-select';
+    sourceTitle.textContent = 'Группа-источник';
     select.dataset.resourceMonitorSource = key;
-    label.textContent = definition.title;
     sources.forEach((group) => {
       const option = document.createElement('option');
       option.value = group.name;
@@ -2968,26 +3001,79 @@ function renderResourceMonitorDialog() {
     });
     const selected = target?.monitorSourceGroup || state.resourceMonitor.pendingSettings?.sources?.[key] || preferred?.name || '';
     select.value = selected;
-    select.disabled = Boolean(target && !target.managedMonitoring) || sources.length === 0;
-    hint.textContent = target && !target.managedMonitoring
-      ? `Будет использована существующая группа ${definition.group}`
-      : `В конфиге появится select-группа ${definition.group}`;
-    field.append(label, select, hint);
+    select.dataset.resourceMonitorLocked = String(Boolean(target && !target.managedMonitoring) || sources.length === 0);
+    select.disabled = !enabled || select.dataset.resourceMonitorLocked === 'true';
+    hint.textContent = getResourceMonitorSourceHint(definition, target, enabled);
+    sourceLabel.append(sourceTitle, select);
+    field.append(head, sourceLabel, hint);
     els.resourceMonitorSources.append(field);
   });
 
-  const issue = getResourceMonitorDialogIssue(sources);
-  els.resourceMonitorDialogNotice.hidden = !issue;
-  els.resourceMonitorDialogNotice.textContent = issue;
-  els.resourceMonitorSaveButton.disabled = Boolean(issue);
-  els.resourceMonitorSaveButton.textContent = resourceMonitorNeedsConfigChanges() ? 'Подготовить конфиг' : 'Сохранить настройки';
-  els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
-    || Boolean(state.resourceMonitor.pendingSettings)
-    || resourceMonitorNeedsConfigChanges();
+  updateResourceMonitorDialogActions();
   renderResourceMonitorEventList(
     els.resourceMonitorJournalList,
     state.resourceMonitor.events.slice().reverse(),
   );
+}
+
+function getResourceMonitorSourceHint(definition, target, enabled) {
+  if (!enabled) {
+    return target?.managedMonitoring
+      ? `Группа ${definition.group} и её правила будут удалены из конфига`
+      : `Правила ${definition.group} будут удалены; трафик пойдёт по общим правилам`;
+  }
+  return target && !target.managedMonitoring
+    ? `Будет использована существующая группа ${definition.group}`
+    : `В конфиге появится select-группа ${definition.group}`;
+}
+
+function handleResourceMonitorDialogChange(event) {
+  const checkbox = event.target.closest?.('[data-resource-monitor-enabled]');
+  if (checkbox) {
+    const key = checkbox.dataset.resourceMonitorEnabled;
+    const definition = RESOURCE_MONITOR_DEFINITIONS[key];
+    const target = state.groups.find((group) => group.name === definition.group);
+    const field = checkbox.closest('.resource-monitor-source');
+    const select = field?.querySelector('[data-resource-monitor-source]');
+    const hint = field?.querySelector('small');
+    const toggleState = field?.querySelector('[data-resource-monitor-enabled-state]');
+    field?.classList.toggle('is-disabled', !checkbox.checked);
+    if (select) select.disabled = !checkbox.checked || select.dataset.resourceMonitorLocked === 'true';
+    if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, checkbox.checked);
+    if (toggleState) toggleState.textContent = checkbox.checked ? 'Включена' : 'Выключена';
+  }
+  updateResourceMonitorDialogActions();
+}
+
+function collectResourceMonitorDialogServices() {
+  return Object.fromEntries(
+    Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => {
+      const checkbox = els.resourceMonitorSources.querySelector(`[data-resource-monitor-enabled="${key}"]`);
+      return [key, { enabled: checkbox?.checked !== false, group: item.group }];
+    }),
+  );
+}
+
+function collectResourceMonitorDialogSources() {
+  const sources = {};
+  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]').forEach((select) => {
+    sources[select.dataset.resourceMonitorSource] = select.value;
+  });
+  return sources;
+}
+
+function updateResourceMonitorDialogActions() {
+  const services = collectResourceMonitorDialogServices();
+  const sources = collectResourceMonitorDialogSources();
+  const issue = getResourceMonitorDialogIssue(sources, services);
+  const needsConfig = resourceMonitorNeedsConfigChanges(sources, services);
+  els.resourceMonitorDialogNotice.hidden = !issue;
+  els.resourceMonitorDialogNotice.textContent = issue;
+  els.resourceMonitorSaveButton.disabled = Boolean(issue);
+  els.resourceMonitorSaveButton.textContent = needsConfig ? 'Подготовить конфиг' : 'Сохранить настройки';
+  els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
+    || Boolean(state.resourceMonitor.pendingSettings)
+    || needsConfig;
 }
 
 function getResourceMonitorSourceGroups() {
@@ -3007,9 +3093,12 @@ function isBuiltinProxyName(name) {
   return ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(String(name || '').toUpperCase());
 }
 
-function resourceMonitorNeedsConfigChanges(sources = null) {
+function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
+  const enabledEntries = getEnabledResourceMonitorEntries(services);
+  const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
+    if (!enabledKeys.has(key)) return Boolean(group?.managedMonitoring);
     if (!group || !['select', 'selector'].includes(String(group.type || '').toLowerCase())) return true;
     if (
       group.proxies.length === 0
@@ -3022,12 +3111,12 @@ function resourceMonitorNeedsConfigChanges(sources = null) {
   });
   if (groupsNeedChanges) return true;
   if (
-    state.groups.some((group) => group.managedMonitoring)
+    state.groups.some((group) => group.managedMonitoring && enabledKeys.has(group.monitorService))
     && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
   ) return true;
-  return Object.values(RESOURCE_MONITOR_RULES)
-    .flat()
-    .some((parts) => !hasResourceMonitorRule(parts));
+  return Object.entries(RESOURCE_MONITOR_RULES).some(([service, rules]) => (
+    rules.some((parts) => enabledKeys.has(service) !== hasResourceMonitorRule(parts))
+  ));
 }
 
 function isResourceMonitorSelectionPersistenceEnabled(text) {
@@ -3086,19 +3175,38 @@ function createResourceMonitorProfileReplacement(lines, groupsSection) {
 }
 
 function hasResourceMonitorRule(parts) {
+  return getActiveRules().some((rule) => resourceMonitorRuleMatches(rule, parts));
+}
+
+function resourceMonitorRuleMatches(rule, parts) {
   const [type, value, target, ...options] = parts;
-  return getActiveRules().some((rule) => (
+  return (
     normalizeRuleType(rule.type) === normalizeRuleType(type)
     && String(rule.value || '') === value
     && String(rule.target || '') === target
     && (rule.options || []).join('|') === options.join('|')
-  ));
+  );
 }
 
-function prepareResourceMonitorConfig(sources) {
+function prepareResourceMonitorConfig(sources, services = null) {
+  const enabledEntries = getEnabledResourceMonitorEntries(services);
+  const enabledKeys = new Set(enabledEntries.map(([key]) => key));
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    if (enabledKeys.has(key)) return;
+    const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
+    if (managedGroup) state.groups.splice(state.groups.indexOf(managedGroup), 1);
+    (RESOURCE_MONITOR_RULES[key] || []).forEach((parts) => {
+      getActiveRules()
+        .filter((rule) => resourceMonitorRuleMatches(rule, parts))
+        .forEach((rule) => {
+          rule.deleted = true;
+        });
+    });
+  });
+
   const sourceGroups = new Map(getResourceMonitorSourceGroups().map((group) => [group.name, group]));
   const knownGroupNames = new Set(state.groups.map((group) => group.name));
-  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+  enabledEntries.forEach(([key, definition]) => {
     const existing = state.groups.find((group) => group.name === definition.group);
     if (existing && !['select', 'selector'].includes(String(existing.type || '').toLowerCase())) {
       throw new Error(`Группа ${definition.group} существует и не является select.`);
@@ -3144,6 +3252,7 @@ function prepareResourceMonitorConfig(sources) {
 
   const matchRule = getActiveRules().find((rule) => normalizeRuleType(rule.type) === 'MATCH');
   Object.entries(RESOURCE_MONITOR_RULES).forEach(([service, rules]) => {
+    if (!enabledKeys.has(service)) return;
     rules.forEach((parts) => {
       if (hasResourceMonitorRule(parts)) return;
       const [type, value, target, ...options] = parts;
@@ -3170,13 +3279,19 @@ function prepareResourceMonitorConfig(sources) {
   render();
 }
 
-function getResourceMonitorDialogIssue(sources = getResourceMonitorSourceGroups()) {
-  const conflict = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+function getResourceMonitorDialogIssue(
+  sources = getResourceMonitorSourceGroups(),
+  services = null,
+) {
+  const enabledEntries = getEnabledResourceMonitorEntries(services);
+  if (enabledEntries.length === 0) return 'Включите хотя бы один ресурс.';
+  const enabledDefinitions = enabledEntries.map(([, definition]) => definition);
+  const conflict = enabledDefinitions.find((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
     return group && !['select', 'selector'].includes(String(group.type || '').toLowerCase());
   });
   if (conflict) return `Группа ${conflict.group} уже существует, но имеет тип не select. MihUI не будет перезаписывать её автоматически.`;
-  const empty = Object.values(RESOURCE_MONITOR_DEFINITIONS).find((definition) => {
+  const empty = enabledDefinitions.find((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
     return group
       && !group.managedMonitoring
@@ -3187,7 +3302,7 @@ function getResourceMonitorDialogIssue(sources = getResourceMonitorSourceGroups(
       && !group.includeAllProviders;
   });
   if (empty) return `Группа ${empty.group} существует, но не содержит нод или подписок. MihUI не будет перезаписывать её автоматически.`;
-  const needsSource = Object.values(RESOURCE_MONITOR_DEFINITIONS).some((definition) => {
+  const needsSource = enabledDefinitions.some((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
     return !group || group.managedMonitoring;
   });
@@ -3196,6 +3311,7 @@ function getResourceMonitorDialogIssue(sources = getResourceMonitorSourceGroups(
 }
 
 function collectResourceMonitorDialogSettings() {
+  const services = collectResourceMonitorDialogServices();
   const settings = {
     ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
     enabled: true,
@@ -3208,14 +3324,9 @@ function collectResourceMonitorDialogSettings() {
     quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
     maxAlternatives: 3,
     timeoutMs: 8000,
-    services: Object.fromEntries(
-      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
-    ),
+    services,
   };
-  const sources = {};
-  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]').forEach((select) => {
-    sources[select.dataset.resourceMonitorSource] = select.value;
-  });
+  const sources = collectResourceMonitorDialogSources();
   return { settings, sources };
 }
 
@@ -3229,9 +3340,9 @@ async function saveResourceMonitorDialog() {
     });
     return;
   }
-  if (resourceMonitorNeedsConfigChanges(sources)) {
+  if (resourceMonitorNeedsConfigChanges(sources, settings.services)) {
     try {
-      prepareResourceMonitorConfig(sources);
+      prepareResourceMonitorConfig(sources, settings.services);
     } catch (error) {
       els.resourceMonitorDialogNotice.hidden = false;
       els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
