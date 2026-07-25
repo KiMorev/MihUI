@@ -3398,6 +3398,354 @@ body.component-manager-open {
   border-top: 1px solid var(--line);
 }
 
+.whitelist-monitor-section {
+  display: grid;
+  gap: 14px;
+}
+
+.whitelist-monitor-page-head,
+.whitelist-monitor-block-head,
+.whitelist-monitor-actions,
+.whitelist-monitor-actions > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.whitelist-monitor-page-head h2,
+.whitelist-monitor-page-head p,
+.whitelist-monitor-block-head h3,
+.whitelist-monitor-block-head p,
+.whitelist-monitor-intro h3,
+.whitelist-monitor-intro p,
+.whitelist-monitor-state-copy h3,
+.whitelist-monitor-state-copy p {
+  margin: 0;
+}
+
+.whitelist-monitor-page-head h2 {
+  font-size: 20px;
+}
+
+.whitelist-monitor-page-head p,
+.whitelist-monitor-block-head p,
+.whitelist-monitor-intro p,
+.whitelist-monitor-state-copy p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.whitelist-monitor-main-switch {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.whitelist-monitor-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+}
+
+.whitelist-monitor-intro > svg {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: 10px;
+  color: var(--accent-dark);
+  background: #eaf5f5;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.whitelist-monitor-intro h3,
+.whitelist-monitor-block-head h3,
+.whitelist-monitor-state-copy h3 {
+  font-size: 14px;
+}
+
+.whitelist-monitor-details {
+  display: grid;
+  gap: 14px;
+}
+
+.whitelist-monitor-status-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+}
+
+.whitelist-monitor-state-copy {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.whitelist-monitor-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.whitelist-monitor-state::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.whitelist-monitor-state.is-normal {
+  color: var(--success);
+  background: #edf9f1;
+}
+
+.whitelist-monitor-state.is-normal::before,
+.whitelist-monitor-result.is-success::before {
+  background: var(--success);
+}
+
+.whitelist-monitor-state.is-suspected,
+.whitelist-monitor-state.is-unknown {
+  color: var(--warning);
+  background: #fff8e8;
+}
+
+.whitelist-monitor-state.is-suspected::before,
+.whitelist-monitor-state.is-unknown::before,
+.whitelist-monitor-result.is-warning::before {
+  background: var(--warning);
+}
+
+.whitelist-monitor-state.is-confirmed,
+.whitelist-monitor-state.is-error {
+  color: var(--danger);
+  background: #fff1f1;
+}
+
+.whitelist-monitor-state.is-confirmed::before,
+.whitelist-monitor-state.is-error::before,
+.whitelist-monitor-result.is-error::before {
+  background: var(--danger);
+}
+
+.whitelist-monitor-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(105px, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.whitelist-monitor-metrics div {
+  display: grid;
+  gap: 2px;
+}
+
+.whitelist-monitor-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.whitelist-monitor-metrics dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.whitelist-monitor-settings,
+.whitelist-monitor-endpoints,
+.whitelist-monitor-journal {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.whitelist-monitor-block-head {
+  align-items: flex-start;
+}
+
+.whitelist-monitor-block-head > div {
+  min-width: 0;
+}
+
+.whitelist-monitor-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.whitelist-monitor-policy-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.whitelist-monitor-policy-grid label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.whitelist-monitor-policy-grid input,
+.whitelist-monitor-policy-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-list {
+  display: grid;
+  gap: 8px;
+}
+
+.whitelist-monitor-endpoint {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) minmax(220px, auto) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.whitelist-monitor-endpoint.is-disabled {
+  opacity: 0.62;
+}
+
+.whitelist-monitor-endpoint-enabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.whitelist-monitor-endpoint-enabled input {
+  width: 16px;
+  height: 16px;
+}
+
+.whitelist-monitor-endpoint-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.34fr) minmax(190px, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-results {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+}
+
+.whitelist-monitor-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.whitelist-monitor-result::before {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.whitelist-monitor-result.is-success {
+  color: var(--success);
+}
+
+.whitelist-monitor-result.is-warning {
+  color: var(--warning);
+}
+
+.whitelist-monitor-result.is-error {
+  color: var(--danger);
+}
+
+.whitelist-monitor-remove {
+  width: 34px;
+  min-width: 34px;
+  padding-inline: 0;
+  color: var(--muted);
+}
+
+.whitelist-monitor-event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.whitelist-monitor-event {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.whitelist-monitor-event:last-child {
+  border-bottom: 0;
+}
+
+.whitelist-monitor-event-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.whitelist-monitor-event-copy strong {
+  font-size: 12px;
+}
+
+.whitelist-monitor-event-copy span,
+.whitelist-monitor-event time,
+.whitelist-monitor-block-head > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.whitelist-monitor-actions {
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+
+.whitelist-monitor-actions > p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .node-inventory-list {
   display: grid;
   align-items: start;
@@ -8105,6 +8453,33 @@ button.review-check-card:focus-visible {
     border-top: 1px solid var(--line);
     border-left: 0;
   }
+
+  .whitelist-monitor-status-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .whitelist-monitor-status-card > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .whitelist-monitor-policy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .whitelist-monitor-endpoint {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .whitelist-monitor-endpoint-results {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .whitelist-monitor-remove {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }
 
 @media (max-width: 560px) {
@@ -8175,6 +8550,52 @@ button.review-check-card:focus-visible {
 
   .resource-monitor-dialog-actions .button {
     width: 100%;
+  }
+
+  .whitelist-monitor-page-head,
+  .whitelist-monitor-block-head,
+  .whitelist-monitor-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .whitelist-monitor-main-switch {
+    justify-content: center;
+  }
+
+  .whitelist-monitor-status-card,
+  .whitelist-monitor-policy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .whitelist-monitor-endpoint {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .whitelist-monitor-endpoint-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-actions > div {
+    display: grid;
+    width: 100%;
+  }
+
+  .whitelist-monitor-actions .button {
+    width: 100%;
+  }
+
+  .whitelist-monitor-event {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-event time {
+    grid-column: 2;
   }
 }
 
@@ -8273,6 +8694,7 @@ button.review-check-card:focus-visible {
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /></symbol>
       <symbol id="icon-direct" viewBox="0 0 24 24"><path d="M17 7l-10 10" /><path d="M8 7l9 0l0 9" /></symbol>
       <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
+      <symbol id="icon-shield-lock" viewBox="0 0 24 24"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" /><path d="M9 13h6v4h-6z" /><path d="M10 13v-2a2 2 0 1 1 4 0v2" /></symbol>
       <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6" /></symbol>
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></symbol>
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
@@ -8303,6 +8725,7 @@ button.review-check-card:focus-visible {
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -8336,6 +8759,7 @@ button.review-check-card:focus-visible {
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -8799,6 +9223,128 @@ button.review-check-card:focus-visible {
               </div>
             </div>
           </section>
+        </div>
+      </section>
+
+      <section class="app-section whitelist-monitor-section" data-section-panel="whitelist" hidden>
+        <header class="whitelist-monitor-page-head">
+          <div>
+            <h2>Белые списки оператора</h2>
+            <p>Наблюдение за ограничением доступа без автоматического изменения конфигурации</p>
+          </div>
+          <label class="resource-monitor-switch whitelist-monitor-main-switch">
+            <input id="whitelistMonitorEnabled" type="checkbox" />
+            <span aria-hidden="true"></span>
+            <strong id="whitelistMonitorEnabledLabel">Выключено</strong>
+          </label>
+        </header>
+
+        <article id="whitelistMonitorIntro" class="panel whitelist-monitor-intro">
+          <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
+          <div>
+            <h3>Режим только наблюдает</h3>
+            <p>MihUI сравнивает доступность небольших HTTPS-адресов напрямую и через выбранную прокси-группу. Маршрутизация и YAML не меняются.</p>
+          </div>
+        </article>
+
+        <div id="whitelistMonitorDetails" class="whitelist-monitor-details" hidden>
+          <section class="panel whitelist-monitor-status-card" aria-live="polite">
+            <div class="whitelist-monitor-state-copy">
+              <span id="whitelistMonitorStateBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+              <h3 id="whitelistMonitorStateTitle">Проверка ещё не выполнялась</h3>
+              <p id="whitelistMonitorStateMessage">Запустите проверку вручную или дождитесь очередного цикла.</p>
+            </div>
+            <dl class="whitelist-monitor-metrics">
+              <div><dt>Проверено</dt><dd id="whitelistMonitorCheckedAt">—</dd></div>
+              <div><dt>Доступны через DIRECT</dt><dd id="whitelistMonitorPositiveCount">0</dd></div>
+              <div><dt>Сбоев DIRECT</dt><dd id="whitelistMonitorDirectFailures">0</dd></div>
+              <div><dt>Работают через PROXY</dt><dd id="whitelistMonitorProxyRecoveries">0</dd></div>
+            </dl>
+            <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
+          </section>
+
+          <section class="panel whitelist-monitor-settings">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Политика проверки</h3>
+                <p>Подозрение подтверждается, когда работают разрешённые адреса, не менее двух контрольных недоступны напрямую и доступны через прокси.</p>
+              </div>
+            </header>
+            <div class="whitelist-monitor-policy-grid">
+              <label>
+                <span>Проверять каждые</span>
+                <select id="whitelistMonitorInterval">
+                  <option value="60">1 минуту</option>
+                  <option value="300">5 минут</option>
+                  <option value="600">10 минут</option>
+                  <option value="1800">30 минут</option>
+                </select>
+              </label>
+              <label>
+                <span>Подтвердить после</span>
+                <select id="whitelistMonitorConfirmations">
+                  <option value="2">2 цикла подряд</option>
+                  <option value="3">3 цикла подряд</option>
+                  <option value="4">4 цикла подряд</option>
+                  <option value="5">5 циклов подряд</option>
+                </select>
+              </label>
+              <label>
+                <span>Тайм-аут адреса</span>
+                <select id="whitelistMonitorTimeout">
+                  <option value="3000">3 секунды</option>
+                  <option value="5000">5 секунд</option>
+                  <option value="8000">8 секунд</option>
+                  <option value="10000">10 секунд</option>
+                </select>
+              </label>
+              <label>
+                <span>Прокси-группа</span>
+                <input id="whitelistMonitorProxyGroup" type="text" value="PROXY" maxlength="128" autocomplete="off" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel whitelist-monitor-endpoints">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Предположительно разрешённые</h3>
+                <p>Достаточно одного успешного ответа через DIRECT, чтобы исключить общий обрыв связи.</p>
+              </div>
+              <button class="button compact" type="button" data-whitelist-add="positive">+ Добавить адрес</button>
+            </header>
+            <div id="whitelistMonitorPositiveEndpoints" class="whitelist-monitor-endpoint-list"></div>
+          </section>
+
+          <section class="panel whitelist-monitor-endpoints">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Контроль вне белых списков</h3>
+                <p>Не менее двух адресов должны одновременно не работать через DIRECT и отвечать через выбранную прокси-группу.</p>
+              </div>
+              <button class="button compact" type="button" data-whitelist-add="control">+ Добавить адрес</button>
+            </header>
+            <div id="whitelistMonitorControlEndpoints" class="whitelist-monitor-endpoint-list"></div>
+          </section>
+
+          <section class="panel whitelist-monitor-journal">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Журнал</h3>
+                <p>Записываются включение режима и изменения классификации.</p>
+              </div>
+              <span id="whitelistMonitorEventsCount">0 событий</span>
+            </header>
+            <div id="whitelistMonitorEvents" class="whitelist-monitor-event-list"></div>
+          </section>
+
+          <footer class="panel whitelist-monitor-actions">
+            <p id="whitelistMonitorNotice" hidden></p>
+            <div>
+              <button id="whitelistMonitorRestoreButton" class="button" type="button">Вернуть адреса по умолчанию</button>
+              <button id="whitelistMonitorSaveButton" class="button primary" type="button">Сохранить настройки</button>
+            </div>
+          </footer>
         </div>
       </section>
 
@@ -9279,7 +9825,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'whitelist', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -9289,6 +9835,7 @@ const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
 const RESOURCE_MONITOR_REFRESH_MS = 30000;
+const WHITELIST_MONITOR_REFRESH_MS = 30000;
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
@@ -9663,6 +10210,18 @@ const state = {
     pendingSettings: null,
     pollTimer: 0,
   },
+  whitelistMonitor: {
+    loaded: false,
+    loading: false,
+    checking: false,
+    error: '',
+    config: null,
+    runtime: null,
+    events: [],
+    draft: null,
+    dirty: false,
+    pollTimer: 0,
+  },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
   kernelCheckBusy: false,
@@ -9914,6 +10473,30 @@ const els = {
   resourceMonitorJournalList: document.querySelector('#resourceMonitorJournalList'),
   resourceMonitorCheckAllButton: document.querySelector('#resourceMonitorCheckAllButton'),
   resourceMonitorSaveButton: document.querySelector('#resourceMonitorSaveButton'),
+  whitelistMonitorEnabled: document.querySelector('#whitelistMonitorEnabled'),
+  whitelistMonitorEnabledLabel: document.querySelector('#whitelistMonitorEnabledLabel'),
+  whitelistMonitorIntro: document.querySelector('#whitelistMonitorIntro'),
+  whitelistMonitorDetails: document.querySelector('#whitelistMonitorDetails'),
+  whitelistMonitorStateBadge: document.querySelector('#whitelistMonitorStateBadge'),
+  whitelistMonitorStateTitle: document.querySelector('#whitelistMonitorStateTitle'),
+  whitelistMonitorStateMessage: document.querySelector('#whitelistMonitorStateMessage'),
+  whitelistMonitorCheckedAt: document.querySelector('#whitelistMonitorCheckedAt'),
+  whitelistMonitorPositiveCount: document.querySelector('#whitelistMonitorPositiveCount'),
+  whitelistMonitorDirectFailures: document.querySelector('#whitelistMonitorDirectFailures'),
+  whitelistMonitorProxyRecoveries: document.querySelector('#whitelistMonitorProxyRecoveries'),
+  whitelistMonitorCheckButton: document.querySelector('#whitelistMonitorCheckButton'),
+  whitelistMonitorInterval: document.querySelector('#whitelistMonitorInterval'),
+  whitelistMonitorConfirmations: document.querySelector('#whitelistMonitorConfirmations'),
+  whitelistMonitorTimeout: document.querySelector('#whitelistMonitorTimeout'),
+  whitelistMonitorProxyGroup: document.querySelector('#whitelistMonitorProxyGroup'),
+  whitelistMonitorPositiveEndpoints: document.querySelector('#whitelistMonitorPositiveEndpoints'),
+  whitelistMonitorControlEndpoints: document.querySelector('#whitelistMonitorControlEndpoints'),
+  whitelistMonitorAddButtons: document.querySelectorAll('[data-whitelist-add]'),
+  whitelistMonitorEventsCount: document.querySelector('#whitelistMonitorEventsCount'),
+  whitelistMonitorEvents: document.querySelector('#whitelistMonitorEvents'),
+  whitelistMonitorNotice: document.querySelector('#whitelistMonitorNotice'),
+  whitelistMonitorRestoreButton: document.querySelector('#whitelistMonitorRestoreButton'),
+  whitelistMonitorSaveButton: document.querySelector('#whitelistMonitorSaveButton'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -10000,6 +10583,21 @@ els.resourceMonitorSaveButton.addEventListener('click', saveResourceMonitorDialo
 els.resourceMonitorCheckAllButton.addEventListener('click', () => checkResourceMonitor(''));
 els.resourceMonitorProactiveEnabled.addEventListener('change', syncResourceMonitorProactiveControls);
 els.resourceMonitorLatencyThreshold.addEventListener('change', syncResourceMonitorProactiveControls);
+els.whitelistMonitorEnabled.addEventListener('change', toggleWhitelistMonitor);
+els.whitelistMonitorCheckButton.addEventListener('click', checkWhitelistMonitor);
+els.whitelistMonitorSaveButton.addEventListener('click', saveWhitelistMonitorSettings);
+els.whitelistMonitorRestoreButton.addEventListener('click', restoreWhitelistMonitorDefaults);
+els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('click', addWhitelistMonitorEndpoint));
+[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup]
+  .forEach((control) => {
+    control.addEventListener('input', handleWhitelistMonitorPolicyInput);
+    control.addEventListener('change', handleWhitelistMonitorPolicyInput);
+  });
+[els.whitelistMonitorPositiveEndpoints, els.whitelistMonitorControlEndpoints].forEach((container) => {
+  container.addEventListener('input', handleWhitelistMonitorEndpointInput);
+  container.addEventListener('change', handleWhitelistMonitorEndpointInput);
+  container.addEventListener('click', handleWhitelistMonitorEndpointClick);
+});
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -10101,6 +10699,9 @@ function setActiveSection(section, options = {}) {
   const switchSection = () => {
     state.activeSection = section;
     renderSectionTabs();
+    if (section === 'whitelist' && state.routerApiAvailable) {
+      loadWhitelistMonitor({ silent: true });
+    }
     updateMobileSectionTabsVisibility();
     centerActiveMobileSectionTab();
   };
@@ -10282,9 +10883,11 @@ function initRouterMode() {
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   loadResourceMonitor({ silent: true });
+  loadWhitelistMonitor({ silent: true });
   startServiceHealthPolling();
   startProviderStatusPolling();
   startResourceMonitorPolling();
+  startWhitelistMonitorPolling();
   checkMihuiUpdate();
 }
 
@@ -10312,6 +10915,7 @@ async function loadRouterConfig(options = {}) {
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
     await loadResourceMonitor({ silent: true });
+    await loadWhitelistMonitor({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
     if (!options.silent) {
@@ -12528,6 +13132,479 @@ async function pollResourceMonitorCheck(attempt = 0) {
   renderResourceMonitorDialog();
 }
 
+function defaultWhitelistMonitorClientSettings() {
+  return {
+    enabled: false,
+    intervalSeconds: 300,
+    confirmationThreshold: 3,
+    controlFailureThreshold: 2,
+    timeoutMs: 5000,
+    proxyGroup: 'PROXY',
+    positiveEndpoints: [
+      { id: 'allowed-ya', name: 'Яндекс', url: 'https://ya.ru/', enabled: true },
+      { id: 'allowed-gosuslugi', name: 'Госуслуги', url: 'https://www.gosuslugi.ru/', enabled: true },
+    ],
+    controlEndpoints: [
+      {
+        id: 'control-truenetwork',
+        name: 'TrueNetwork mirror',
+        url: 'https://mirror.truenetwork.ru/robots.txt',
+        enabled: true,
+      },
+      {
+        id: 'control-neftm',
+        name: 'Neftm mirror',
+        url: 'https://mirror.neftm.ru/debian/project/trace/mirror.neftm.ru',
+        enabled: true,
+      },
+      {
+        id: 'control-selectel',
+        name: 'Selectel Speedtest',
+        url: 'https://speedtest.selectel.ru/robots.txt',
+        enabled: true,
+      },
+    ],
+  };
+}
+
+function cloneWhitelistMonitorSettings(settings) {
+  return JSON.parse(JSON.stringify(settings || defaultWhitelistMonitorClientSettings()));
+}
+
+function getWhitelistMonitorDraft() {
+  if (!state.whitelistMonitor.draft) {
+    state.whitelistMonitor.draft = cloneWhitelistMonitorSettings(
+      state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings(),
+    );
+  }
+  return state.whitelistMonitor.draft;
+}
+
+async function loadWhitelistMonitor(options = {}) {
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  state.whitelistMonitor.loading = true;
+  renderWhitelistMonitor();
+  try {
+    const data = await apiJson('/api/whitelist-monitor');
+    state.whitelistMonitor.loaded = true;
+    state.whitelistMonitor.config = data.config || defaultWhitelistMonitorClientSettings();
+    state.whitelistMonitor.runtime = data.runtime || null;
+    state.whitelistMonitor.events = Array.isArray(data.events) ? data.events : [];
+    state.whitelistMonitor.checking = Boolean(data.job?.running);
+    state.whitelistMonitor.error = '';
+    if (!state.whitelistMonitor.dirty) {
+      state.whitelistMonitor.draft = cloneWhitelistMonitorSettings(state.whitelistMonitor.config);
+    }
+  } catch (error) {
+    state.whitelistMonitor.error = error?.message || String(error);
+    if (!options.silent) {
+      showMessage(`Не удалось получить состояние режима белых списков: ${state.whitelistMonitor.error}`, {
+        severity: 'error',
+      });
+    }
+  } finally {
+    state.whitelistMonitor.loading = false;
+    renderWhitelistMonitor();
+  }
+}
+
+function startWhitelistMonitorPolling() {
+  if (typeof window.setInterval !== 'function') return;
+  if (state.whitelistMonitor.pollTimer) window.clearInterval(state.whitelistMonitor.pollTimer);
+  state.whitelistMonitor.pollTimer = window.setInterval(() => {
+    const shouldRefresh = state.activeSection === 'whitelist' || state.whitelistMonitor.config?.enabled;
+    if (!document.hidden && state.routerApiAvailable && shouldRefresh) {
+      loadWhitelistMonitor({ silent: true });
+    }
+  }, WHITELIST_MONITOR_REFRESH_MS);
+}
+
+function getWhitelistMonitorStatePresentation(value) {
+  return {
+    normal: { label: 'Норма', title: 'Ограничения не обнаружены' },
+    suspected: { label: 'Подозрение', title: 'Нужно повторное подтверждение' },
+    confirmed: { label: 'Вероятно включён', title: 'Обнаружены признаки белых списков' },
+    unknown: { label: 'Недостаточно данных', title: 'Результат нельзя классифицировать' },
+    error: { label: 'Ошибка', title: 'Проверка не завершена' },
+    idle: { label: 'Нет данных', title: 'Проверка ещё не выполнялась' },
+  }[value] || { label: 'Нет данных', title: 'Проверка ещё не выполнялась' };
+}
+
+function renderWhitelistMonitor() {
+  if (!els.whitelistMonitorEnabled) return;
+  const apiAvailable = state.routerMode && state.routerApiAvailable;
+  const config = state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings();
+  const enabled = apiAvailable && Boolean(config.enabled);
+  const runtime = state.whitelistMonitor.runtime || {};
+  const runtimeState = runtime.state || 'idle';
+  const presentation = getWhitelistMonitorStatePresentation(runtimeState);
+
+  els.whitelistMonitorEnabled.checked = enabled;
+  els.whitelistMonitorEnabled.disabled = !apiAvailable
+    || state.whitelistMonitor.loading
+    || state.whitelistMonitor.checking;
+  els.whitelistMonitorEnabledLabel.textContent = apiAvailable
+    ? enabled ? 'Включено' : 'Выключено'
+    : 'Только в MihUI';
+  els.whitelistMonitorIntro.hidden = enabled;
+  els.whitelistMonitorDetails.hidden = !enabled;
+  if (!enabled) return;
+
+  els.whitelistMonitorStateBadge.className = `whitelist-monitor-state is-${runtimeState}`;
+  els.whitelistMonitorStateBadge.textContent = presentation.label;
+  els.whitelistMonitorStateTitle.textContent = presentation.title;
+  els.whitelistMonitorStateMessage.textContent = runtime.message
+    || 'Запустите проверку вручную или дождитесь очередного цикла.';
+  els.whitelistMonitorCheckedAt.textContent = runtime.checkedAt
+    ? formatResourceMonitorTime(runtime.checkedAt)
+    : '—';
+  els.whitelistMonitorPositiveCount.textContent = String(runtime.positiveDirectSuccesses || 0);
+  els.whitelistMonitorDirectFailures.textContent = String(runtime.controlDirectFailures || 0);
+  els.whitelistMonitorProxyRecoveries.textContent = String(runtime.controlProxyRecoveries || 0);
+  els.whitelistMonitorCheckButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
+  els.whitelistMonitorCheckButton.textContent = state.whitelistMonitor.checking
+    ? 'Проверяем…'
+    : 'Проверить сейчас';
+
+  if (!state.whitelistMonitor.dirty || !els.whitelistMonitorPositiveEndpoints.childElementCount) {
+    renderWhitelistMonitorForm();
+  } else {
+    updateWhitelistMonitorEndpointResults();
+  }
+  renderWhitelistMonitorEvents();
+  els.whitelistMonitorNotice.hidden = !state.whitelistMonitor.error;
+  els.whitelistMonitorNotice.textContent = state.whitelistMonitor.error;
+  els.whitelistMonitorSaveButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
+}
+
+function renderWhitelistMonitorForm() {
+  const settings = getWhitelistMonitorDraft();
+  els.whitelistMonitorInterval.value = String(settings.intervalSeconds);
+  els.whitelistMonitorConfirmations.value = String(settings.confirmationThreshold);
+  els.whitelistMonitorTimeout.value = String(settings.timeoutMs);
+  els.whitelistMonitorProxyGroup.value = settings.proxyGroup || 'PROXY';
+  renderWhitelistMonitorEndpointList('positive');
+  renderWhitelistMonitorEndpointList('control');
+}
+
+function renderWhitelistMonitorEndpointList(kind) {
+  const settings = getWhitelistMonitorDraft();
+  const key = kind === 'positive' ? 'positiveEndpoints' : 'controlEndpoints';
+  const container = kind === 'positive'
+    ? els.whitelistMonitorPositiveEndpoints
+    : els.whitelistMonitorControlEndpoints;
+  container.textContent = '';
+  settings[key].forEach((endpoint) => {
+    const row = document.createElement('article');
+    const enabledLabel = document.createElement('label');
+    const enabledInput = document.createElement('input');
+    const fields = document.createElement('div');
+    const nameInput = document.createElement('input');
+    const urlInput = document.createElement('input');
+    const results = document.createElement('div');
+    const direct = document.createElement('span');
+    const remove = document.createElement('button');
+    row.className = `whitelist-monitor-endpoint${endpoint.enabled ? '' : ' is-disabled'}`;
+    row.dataset.whitelistEndpointId = endpoint.id;
+    row.dataset.whitelistEndpointKind = kind;
+    enabledLabel.className = 'whitelist-monitor-endpoint-enabled';
+    enabledLabel.title = endpoint.enabled ? 'Адрес участвует в проверке' : 'Адрес выключен';
+    enabledInput.type = 'checkbox';
+    enabledInput.checked = endpoint.enabled;
+    enabledInput.dataset.whitelistField = 'enabled';
+    enabledInput.setAttribute('aria-label', `Использовать адрес ${endpoint.name}`);
+    enabledLabel.append(enabledInput);
+    fields.className = 'whitelist-monitor-endpoint-fields';
+    nameInput.type = 'text';
+    nameInput.value = endpoint.name;
+    nameInput.maxLength = 80;
+    nameInput.dataset.whitelistField = 'name';
+    nameInput.setAttribute('aria-label', 'Название адреса');
+    urlInput.type = 'url';
+    urlInput.value = endpoint.url;
+    urlInput.maxLength = 2048;
+    urlInput.dataset.whitelistField = 'url';
+    urlInput.setAttribute('aria-label', `HTTPS-адрес ${endpoint.name}`);
+    fields.append(nameInput, urlInput);
+    results.className = 'whitelist-monitor-endpoint-results';
+    direct.className = 'whitelist-monitor-result';
+    direct.dataset.whitelistResult = 'direct';
+    results.append(direct);
+    if (kind === 'control') {
+      const proxy = document.createElement('span');
+      proxy.className = 'whitelist-monitor-result';
+      proxy.dataset.whitelistResult = 'proxy';
+      results.append(proxy);
+    }
+    remove.className = 'button ghost compact whitelist-monitor-remove';
+    remove.type = 'button';
+    remove.textContent = '×';
+    remove.title = 'Удалить адрес';
+    remove.setAttribute('aria-label', `Удалить адрес ${endpoint.name}`);
+    remove.dataset.whitelistRemove = endpoint.id;
+    row.append(enabledLabel, fields, results, remove);
+    container.append(row);
+  });
+  updateWhitelistMonitorEndpointResults();
+}
+
+function updateWhitelistMonitorEndpointResults() {
+  const runtime = state.whitelistMonitor.runtime?.endpoints || {};
+  document.querySelectorAll('[data-whitelist-endpoint-id]').forEach((row) => {
+    const result = runtime[row.dataset.whitelistEndpointId] || {};
+    updateWhitelistMonitorResult(row.querySelector('[data-whitelist-result="direct"]'), result.direct, 'DIRECT');
+    updateWhitelistMonitorResult(row.querySelector('[data-whitelist-result="proxy"]'), result.proxy, 'PROXY');
+  });
+}
+
+function updateWhitelistMonitorResult(element, result, label) {
+  if (!element) return;
+  element.className = 'whitelist-monitor-result';
+  element.title = result?.message || '';
+  if (result?.ok === true) {
+    element.classList.add('is-success');
+    element.textContent = `${label}: ${Number(result.delay)} мс`;
+  } else if (result?.ok === false) {
+    element.classList.add('is-error');
+    element.textContent = `${label}: сбой`;
+  } else {
+    element.textContent = `${label}: не проверен`;
+  }
+}
+
+function renderWhitelistMonitorEvents() {
+  const events = state.whitelistMonitor.events.slice().reverse();
+  els.whitelistMonitorEventsCount.textContent = formatRouteCount(events.length, 'событие', 'события', 'событий');
+  els.whitelistMonitorEvents.textContent = '';
+  if (!events.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = 'Событий пока нет';
+    els.whitelistMonitorEvents.append(empty);
+    return;
+  }
+  events.slice(0, 20).forEach((event) => {
+    const item = document.createElement('article');
+    const dot = document.createElement('span');
+    const copy = document.createElement('div');
+    const title = document.createElement('strong');
+    const details = document.createElement('span');
+    const date = document.createElement('time');
+    const tone = event.type === 'confirmed'
+      ? 'error'
+      : ['suspected', 'unknown'].includes(event.type)
+        ? 'warning'
+        : event.type === 'disabled' ? '' : 'success';
+    item.className = 'whitelist-monitor-event';
+    dot.className = `resource-monitor-event-dot${tone ? ` is-${tone}` : ''}`;
+    copy.className = 'whitelist-monitor-event-copy';
+    title.textContent = event.message || 'Событие наблюдения';
+    details.textContent = formatWhitelistMonitorEventDetails(event);
+    date.dateTime = event.at || '';
+    date.textContent = formatResourceMonitorTime(event.timestamp);
+    copy.append(title);
+    if (details.textContent) copy.append(details);
+    item.append(dot, copy, date);
+    els.whitelistMonitorEvents.append(item);
+  });
+}
+
+function formatWhitelistMonitorEventDetails(event) {
+  if (!['normal', 'suspected', 'confirmed', 'unknown'].includes(event.type)) return '';
+  return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено`;
+}
+
+function handleWhitelistMonitorPolicyInput() {
+  const draft = getWhitelistMonitorDraft();
+  draft.intervalSeconds = Number(els.whitelistMonitorInterval.value);
+  draft.confirmationThreshold = Number(els.whitelistMonitorConfirmations.value);
+  draft.timeoutMs = Number(els.whitelistMonitorTimeout.value);
+  draft.proxyGroup = els.whitelistMonitorProxyGroup.value;
+  state.whitelistMonitor.dirty = true;
+  state.whitelistMonitor.error = '';
+}
+
+function handleWhitelistMonitorEndpointInput(event) {
+  const field = event.target.dataset.whitelistField;
+  const row = event.target.closest('[data-whitelist-endpoint-id]');
+  if (!field || !row) return;
+  const draft = getWhitelistMonitorDraft();
+  const key = row.dataset.whitelistEndpointKind === 'positive'
+    ? 'positiveEndpoints'
+    : 'controlEndpoints';
+  const endpoint = draft[key].find((item) => item.id === row.dataset.whitelistEndpointId);
+  if (!endpoint) return;
+  endpoint[field] = field === 'enabled' ? event.target.checked : event.target.value;
+  row.classList.toggle('is-disabled', !endpoint.enabled);
+  state.whitelistMonitor.dirty = true;
+  state.whitelistMonitor.error = '';
+}
+
+function handleWhitelistMonitorEndpointClick(event) {
+  const endpointId = event.target.dataset.whitelistRemove;
+  if (!endpointId) return;
+  const row = event.target.closest('[data-whitelist-endpoint-kind]');
+  const key = row?.dataset.whitelistEndpointKind === 'positive'
+    ? 'positiveEndpoints'
+    : 'controlEndpoints';
+  const draft = getWhitelistMonitorDraft();
+  if (draft[key].length <= 1) {
+    state.whitelistMonitor.error = 'В каждой группе должен остаться хотя бы один адрес.';
+    renderWhitelistMonitor();
+    return;
+  }
+  draft[key] = draft[key].filter((item) => item.id !== endpointId);
+  state.whitelistMonitor.dirty = true;
+  state.whitelistMonitor.error = '';
+  renderWhitelistMonitorEndpointList(row.dataset.whitelistEndpointKind);
+}
+
+function addWhitelistMonitorEndpoint(event) {
+  const kind = event.currentTarget.dataset.whitelistAdd;
+  const key = kind === 'positive' ? 'positiveEndpoints' : 'controlEndpoints';
+  const draft = getWhitelistMonitorDraft();
+  if (draft[key].length >= 10) {
+    state.whitelistMonitor.error = 'В одной группе можно указать не более 10 адресов.';
+    renderWhitelistMonitor();
+    return;
+  }
+  const id = `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  draft[key].push({ id, name: 'Новый адрес', url: 'https://', enabled: true });
+  state.whitelistMonitor.dirty = true;
+  state.whitelistMonitor.error = '';
+  renderWhitelistMonitorEndpointList(kind);
+  const row = document.querySelector(`[data-whitelist-endpoint-id="${id}"]`);
+  row?.querySelector('[data-whitelist-field="name"]')?.select();
+}
+
+function restoreWhitelistMonitorDefaults() {
+  const enabled = Boolean(state.whitelistMonitor.config?.enabled);
+  state.whitelistMonitor.draft = { ...defaultWhitelistMonitorClientSettings(), enabled };
+  state.whitelistMonitor.dirty = true;
+  state.whitelistMonitor.error = '';
+  renderWhitelistMonitorForm();
+}
+
+function validateWhitelistMonitorDraft(settings) {
+  if (!settings.proxyGroup.trim()) return 'Укажите прокси-группу.';
+  if (!settings.positiveEndpoints.some((item) => item.enabled)) {
+    return 'Включите хотя бы один предположительно разрешённый адрес.';
+  }
+  if (settings.controlEndpoints.filter((item) => item.enabled).length < settings.controlFailureThreshold) {
+    return 'Для сравнения должны быть включены хотя бы два контрольных адреса.';
+  }
+  const endpoints = [...settings.positiveEndpoints, ...settings.controlEndpoints];
+  for (const endpoint of endpoints) {
+    if (!endpoint.name.trim()) return 'У каждого адреса должно быть название.';
+    try {
+      const parsed = new URL(endpoint.url);
+      if (parsed.protocol !== 'https:' || !parsed.hostname) throw new Error('invalid URL');
+    } catch {
+      return `Укажите корректный HTTPS-адрес для «${endpoint.name || 'Без названия'}».`;
+    }
+  }
+  return '';
+}
+
+async function postWhitelistMonitorSettings(settings) {
+  const data = await apiJson('/api/whitelist-monitor/settings', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Mihui-Action': 'whitelist-monitor',
+    },
+    body: JSON.stringify(settings),
+  });
+  state.whitelistMonitor.loaded = true;
+  state.whitelistMonitor.config = data.config || settings;
+  state.whitelistMonitor.runtime = data.runtime || state.whitelistMonitor.runtime;
+  state.whitelistMonitor.events = Array.isArray(data.events) ? data.events : state.whitelistMonitor.events;
+  state.whitelistMonitor.checking = Boolean(data.job?.running);
+  state.whitelistMonitor.draft = cloneWhitelistMonitorSettings(state.whitelistMonitor.config);
+  state.whitelistMonitor.dirty = false;
+  state.whitelistMonitor.error = '';
+  renderWhitelistMonitor();
+}
+
+async function toggleWhitelistMonitor() {
+  const enabled = els.whitelistMonitorEnabled.checked;
+  const settings = cloneWhitelistMonitorSettings(
+    state.whitelistMonitor.dirty
+      ? getWhitelistMonitorDraft()
+      : state.whitelistMonitor.config || defaultWhitelistMonitorClientSettings(),
+  );
+  settings.enabled = enabled;
+  const issue = validateWhitelistMonitorDraft(settings);
+  if (issue) {
+    els.whitelistMonitorEnabled.checked = !enabled;
+    state.whitelistMonitor.error = issue;
+    renderWhitelistMonitor();
+    return;
+  }
+  try {
+    await postWhitelistMonitorSettings(settings);
+    showMessage(enabled ? 'Наблюдение за белыми списками включено.' : 'Наблюдение выключено.', {
+      severity: 'success',
+    });
+    if (enabled) await checkWhitelistMonitor({ silent: true });
+  } catch (error) {
+    els.whitelistMonitorEnabled.checked = !enabled;
+    state.whitelistMonitor.error = error?.message || String(error);
+    renderWhitelistMonitor();
+  }
+}
+
+async function saveWhitelistMonitorSettings() {
+  const settings = cloneWhitelistMonitorSettings(getWhitelistMonitorDraft());
+  settings.enabled = true;
+  const issue = validateWhitelistMonitorDraft(settings);
+  if (issue) {
+    state.whitelistMonitor.error = issue;
+    renderWhitelistMonitor();
+    return;
+  }
+  try {
+    await postWhitelistMonitorSettings(settings);
+    showMessage('Настройки наблюдения сохранены.', { severity: 'success' });
+  } catch (error) {
+    state.whitelistMonitor.error = error?.message || String(error);
+    renderWhitelistMonitor();
+  }
+}
+
+async function checkWhitelistMonitor(options = {}) {
+  if (state.whitelistMonitor.checking || !state.whitelistMonitor.config?.enabled) return;
+  state.whitelistMonitor.checking = true;
+  state.whitelistMonitor.error = '';
+  renderWhitelistMonitor();
+  try {
+    await apiJson('/api/whitelist-monitor/check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'whitelist-monitor',
+      },
+      body: '{}',
+    });
+    await pollWhitelistMonitorCheck();
+  } catch (error) {
+    state.whitelistMonitor.checking = false;
+    state.whitelistMonitor.error = error?.message || String(error);
+    renderWhitelistMonitor();
+    if (!options.silent) {
+      showMessage(`Проверка не запущена: ${state.whitelistMonitor.error}`, { severity: 'error' });
+    }
+  }
+}
+
+async function pollWhitelistMonitorCheck(attempt = 0) {
+  await new Promise((resolve) => window.setTimeout(resolve, 800));
+  await loadWhitelistMonitor({ silent: true });
+  if (state.whitelistMonitor.checking && attempt < 40) {
+    return pollWhitelistMonitorCheck(attempt + 1);
+  }
+}
+
 async function loadNodeInventory(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
   state.nodeInventoryLoading = true;
@@ -12793,6 +13870,7 @@ function render() {
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
+  renderWhitelistMonitor();
 }
 
 function renderShellStatus(diagnostics) {

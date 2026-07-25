@@ -3390,6 +3390,354 @@ body.component-manager-open {
   border-top: 1px solid var(--line);
 }
 
+.whitelist-monitor-section {
+  display: grid;
+  gap: 14px;
+}
+
+.whitelist-monitor-page-head,
+.whitelist-monitor-block-head,
+.whitelist-monitor-actions,
+.whitelist-monitor-actions > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.whitelist-monitor-page-head h2,
+.whitelist-monitor-page-head p,
+.whitelist-monitor-block-head h3,
+.whitelist-monitor-block-head p,
+.whitelist-monitor-intro h3,
+.whitelist-monitor-intro p,
+.whitelist-monitor-state-copy h3,
+.whitelist-monitor-state-copy p {
+  margin: 0;
+}
+
+.whitelist-monitor-page-head h2 {
+  font-size: 20px;
+}
+
+.whitelist-monitor-page-head p,
+.whitelist-monitor-block-head p,
+.whitelist-monitor-intro p,
+.whitelist-monitor-state-copy p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.whitelist-monitor-main-switch {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.whitelist-monitor-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+}
+
+.whitelist-monitor-intro > svg {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  padding: 8px;
+  border-radius: 10px;
+  color: var(--accent-dark);
+  background: #eaf5f5;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.whitelist-monitor-intro h3,
+.whitelist-monitor-block-head h3,
+.whitelist-monitor-state-copy h3 {
+  font-size: 14px;
+}
+
+.whitelist-monitor-details {
+  display: grid;
+  gap: 14px;
+}
+
+.whitelist-monitor-status-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 18px;
+}
+
+.whitelist-monitor-state-copy {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.whitelist-monitor-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.whitelist-monitor-state::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.whitelist-monitor-state.is-normal {
+  color: var(--success);
+  background: #edf9f1;
+}
+
+.whitelist-monitor-state.is-normal::before,
+.whitelist-monitor-result.is-success::before {
+  background: var(--success);
+}
+
+.whitelist-monitor-state.is-suspected,
+.whitelist-monitor-state.is-unknown {
+  color: var(--warning);
+  background: #fff8e8;
+}
+
+.whitelist-monitor-state.is-suspected::before,
+.whitelist-monitor-state.is-unknown::before,
+.whitelist-monitor-result.is-warning::before {
+  background: var(--warning);
+}
+
+.whitelist-monitor-state.is-confirmed,
+.whitelist-monitor-state.is-error {
+  color: var(--danger);
+  background: #fff1f1;
+}
+
+.whitelist-monitor-state.is-confirmed::before,
+.whitelist-monitor-state.is-error::before,
+.whitelist-monitor-result.is-error::before {
+  background: var(--danger);
+}
+
+.whitelist-monitor-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(105px, 1fr));
+  gap: 12px 18px;
+  margin: 0;
+}
+
+.whitelist-monitor-metrics div {
+  display: grid;
+  gap: 2px;
+}
+
+.whitelist-monitor-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.whitelist-monitor-metrics dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.whitelist-monitor-settings,
+.whitelist-monitor-endpoints,
+.whitelist-monitor-journal {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.whitelist-monitor-block-head {
+  align-items: flex-start;
+}
+
+.whitelist-monitor-block-head > div {
+  min-width: 0;
+}
+
+.whitelist-monitor-policy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.whitelist-monitor-policy-grid label {
+  display: grid;
+  gap: 5px;
+}
+
+.whitelist-monitor-policy-grid label > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.whitelist-monitor-policy-grid input,
+.whitelist-monitor-policy-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-list {
+  display: grid;
+  gap: 8px;
+}
+
+.whitelist-monitor-endpoint {
+  display: grid;
+  grid-template-columns: auto minmax(280px, 1fr) minmax(220px, auto) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.whitelist-monitor-endpoint.is-disabled {
+  opacity: 0.62;
+}
+
+.whitelist-monitor-endpoint-enabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.whitelist-monitor-endpoint-enabled input {
+  width: 16px;
+  height: 16px;
+}
+
+.whitelist-monitor-endpoint-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.34fr) minmax(190px, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-fields input {
+  width: 100%;
+  min-width: 0;
+}
+
+.whitelist-monitor-endpoint-results {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+}
+
+.whitelist-monitor-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.whitelist-monitor-result::before {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.whitelist-monitor-result.is-success {
+  color: var(--success);
+}
+
+.whitelist-monitor-result.is-warning {
+  color: var(--warning);
+}
+
+.whitelist-monitor-result.is-error {
+  color: var(--danger);
+}
+
+.whitelist-monitor-remove {
+  width: 34px;
+  min-width: 34px;
+  padding-inline: 0;
+  color: var(--muted);
+}
+
+.whitelist-monitor-event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.whitelist-monitor-event {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.whitelist-monitor-event:last-child {
+  border-bottom: 0;
+}
+
+.whitelist-monitor-event-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.whitelist-monitor-event-copy strong {
+  font-size: 12px;
+}
+
+.whitelist-monitor-event-copy span,
+.whitelist-monitor-event time,
+.whitelist-monitor-block-head > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.whitelist-monitor-actions {
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+
+.whitelist-monitor-actions > p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .node-inventory-list {
   display: grid;
   align-items: start;
@@ -8097,6 +8445,33 @@ button.review-check-card:focus-visible {
     border-top: 1px solid var(--line);
     border-left: 0;
   }
+
+  .whitelist-monitor-status-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .whitelist-monitor-status-card > .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .whitelist-monitor-policy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .whitelist-monitor-endpoint {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .whitelist-monitor-endpoint-results {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+
+  .whitelist-monitor-remove {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }
 
 @media (max-width: 560px) {
@@ -8167,6 +8542,52 @@ button.review-check-card:focus-visible {
 
   .resource-monitor-dialog-actions .button {
     width: 100%;
+  }
+
+  .whitelist-monitor-page-head,
+  .whitelist-monitor-block-head,
+  .whitelist-monitor-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .whitelist-monitor-main-switch {
+    justify-content: center;
+  }
+
+  .whitelist-monitor-status-card,
+  .whitelist-monitor-policy-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .whitelist-monitor-endpoint {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .whitelist-monitor-endpoint-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-actions > div {
+    display: grid;
+    width: 100%;
+  }
+
+  .whitelist-monitor-actions .button {
+    width: 100%;
+  }
+
+  .whitelist-monitor-event {
+    grid-template-columns: 8px minmax(0, 1fr);
+  }
+
+  .whitelist-monitor-event time {
+    grid-column: 2;
   }
 }
 

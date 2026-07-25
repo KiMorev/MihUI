@@ -42,6 +42,7 @@
       <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /></symbol>
       <symbol id="icon-direct" viewBox="0 0 24 24"><path d="M17 7l-10 10" /><path d="M8 7l9 0l0 9" /></symbol>
       <symbol id="icon-warning" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
+      <symbol id="icon-shield-lock" viewBox="0 0 24 24"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" /><path d="M9 13h6v4h-6z" /><path d="M10 13v-2a2 2 0 1 1 4 0v2" /></symbol>
       <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6" /></symbol>
       <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></symbol>
       <symbol id="icon-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 0 .5 -4m-.5 -4v4h4" /></symbol>
@@ -72,6 +73,7 @@
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -105,6 +107,7 @@
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -568,6 +571,128 @@
               </div>
             </div>
           </section>
+        </div>
+      </section>
+
+      <section class="app-section whitelist-monitor-section" data-section-panel="whitelist" hidden>
+        <header class="whitelist-monitor-page-head">
+          <div>
+            <h2>Белые списки оператора</h2>
+            <p>Наблюдение за ограничением доступа без автоматического изменения конфигурации</p>
+          </div>
+          <label class="resource-monitor-switch whitelist-monitor-main-switch">
+            <input id="whitelistMonitorEnabled" type="checkbox" />
+            <span aria-hidden="true"></span>
+            <strong id="whitelistMonitorEnabledLabel">Выключено</strong>
+          </label>
+        </header>
+
+        <article id="whitelistMonitorIntro" class="panel whitelist-monitor-intro">
+          <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
+          <div>
+            <h3>Режим только наблюдает</h3>
+            <p>MihUI сравнивает доступность небольших HTTPS-адресов напрямую и через выбранную прокси-группу. Маршрутизация и YAML не меняются.</p>
+          </div>
+        </article>
+
+        <div id="whitelistMonitorDetails" class="whitelist-monitor-details" hidden>
+          <section class="panel whitelist-monitor-status-card" aria-live="polite">
+            <div class="whitelist-monitor-state-copy">
+              <span id="whitelistMonitorStateBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+              <h3 id="whitelistMonitorStateTitle">Проверка ещё не выполнялась</h3>
+              <p id="whitelistMonitorStateMessage">Запустите проверку вручную или дождитесь очередного цикла.</p>
+            </div>
+            <dl class="whitelist-monitor-metrics">
+              <div><dt>Проверено</dt><dd id="whitelistMonitorCheckedAt">—</dd></div>
+              <div><dt>Доступны через DIRECT</dt><dd id="whitelistMonitorPositiveCount">0</dd></div>
+              <div><dt>Сбоев DIRECT</dt><dd id="whitelistMonitorDirectFailures">0</dd></div>
+              <div><dt>Работают через PROXY</dt><dd id="whitelistMonitorProxyRecoveries">0</dd></div>
+            </dl>
+            <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
+          </section>
+
+          <section class="panel whitelist-monitor-settings">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Политика проверки</h3>
+                <p>Подозрение подтверждается, когда работают разрешённые адреса, не менее двух контрольных недоступны напрямую и доступны через прокси.</p>
+              </div>
+            </header>
+            <div class="whitelist-monitor-policy-grid">
+              <label>
+                <span>Проверять каждые</span>
+                <select id="whitelistMonitorInterval">
+                  <option value="60">1 минуту</option>
+                  <option value="300">5 минут</option>
+                  <option value="600">10 минут</option>
+                  <option value="1800">30 минут</option>
+                </select>
+              </label>
+              <label>
+                <span>Подтвердить после</span>
+                <select id="whitelistMonitorConfirmations">
+                  <option value="2">2 цикла подряд</option>
+                  <option value="3">3 цикла подряд</option>
+                  <option value="4">4 цикла подряд</option>
+                  <option value="5">5 циклов подряд</option>
+                </select>
+              </label>
+              <label>
+                <span>Тайм-аут адреса</span>
+                <select id="whitelistMonitorTimeout">
+                  <option value="3000">3 секунды</option>
+                  <option value="5000">5 секунд</option>
+                  <option value="8000">8 секунд</option>
+                  <option value="10000">10 секунд</option>
+                </select>
+              </label>
+              <label>
+                <span>Прокси-группа</span>
+                <input id="whitelistMonitorProxyGroup" type="text" value="PROXY" maxlength="128" autocomplete="off" />
+              </label>
+            </div>
+          </section>
+
+          <section class="panel whitelist-monitor-endpoints">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Предположительно разрешённые</h3>
+                <p>Достаточно одного успешного ответа через DIRECT, чтобы исключить общий обрыв связи.</p>
+              </div>
+              <button class="button compact" type="button" data-whitelist-add="positive">+ Добавить адрес</button>
+            </header>
+            <div id="whitelistMonitorPositiveEndpoints" class="whitelist-monitor-endpoint-list"></div>
+          </section>
+
+          <section class="panel whitelist-monitor-endpoints">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Контроль вне белых списков</h3>
+                <p>Не менее двух адресов должны одновременно не работать через DIRECT и отвечать через выбранную прокси-группу.</p>
+              </div>
+              <button class="button compact" type="button" data-whitelist-add="control">+ Добавить адрес</button>
+            </header>
+            <div id="whitelistMonitorControlEndpoints" class="whitelist-monitor-endpoint-list"></div>
+          </section>
+
+          <section class="panel whitelist-monitor-journal">
+            <header class="whitelist-monitor-block-head">
+              <div>
+                <h3>Журнал</h3>
+                <p>Записываются включение режима и изменения классификации.</p>
+              </div>
+              <span id="whitelistMonitorEventsCount">0 событий</span>
+            </header>
+            <div id="whitelistMonitorEvents" class="whitelist-monitor-event-list"></div>
+          </section>
+
+          <footer class="panel whitelist-monitor-actions">
+            <p id="whitelistMonitorNotice" hidden></p>
+            <div>
+              <button id="whitelistMonitorRestoreButton" class="button" type="button">Вернуть адреса по умолчанию</button>
+              <button id="whitelistMonitorSaveButton" class="button primary" type="button">Сохранить настройки</button>
+            </div>
+          </footer>
         </div>
       </section>
 

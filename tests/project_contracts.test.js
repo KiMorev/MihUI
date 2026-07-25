@@ -394,6 +394,23 @@ test('main and standalone expose the editorial shell without a dedicated routing
   }
 });
 
+test('main and standalone expose observation-only whitelist monitoring', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const html = read(name);
+    assert.match(html, /data-section="whitelist"/);
+    assert.match(html, /data-section-panel="whitelist"/);
+    assert.match(html, /id="whitelistMonitorEnabled"/);
+    assert.match(html, /id="whitelistMonitorPositiveEndpoints"/);
+    assert.match(html, /id="whitelistMonitorControlEndpoints"/);
+    assert.match(html, /Маршрутизация и YAML не меняются/);
+  }
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const script = read(name);
+    assert.match(script, /\/api\/whitelist-monitor/);
+    assert.match(script, /controlFailureThreshold: 2/);
+  }
+});
+
 test('standalone editor exactly mirrors the main html, styles and script', () => {
   const expected = read('index.html')
     .replace('    <link rel="stylesheet" href="./styles.css" />', () => `    <style>\n${read('styles.css')}\n    </style>`)

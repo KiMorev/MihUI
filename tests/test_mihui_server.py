@@ -1225,6 +1225,102 @@ class ProviderAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mihui_server.validate_resource_monitor_settings(invalid)
 
+    def test_whitelist_monitor_settings_are_validated_and_persisted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["enabled"] = True
+            settings["intervalSeconds"] = 120
+            settings["proxyGroup"] = "FASTEST"
+
+            validated = mihui_server.validate_whitelist_monitor_settings(settings)
+            mihui_server.save_whitelist_monitor_settings(app_dir, validated)
+
+            self.assertEqual(mihui_server.load_whitelist_monitor_settings(app_dir), validated)
+            self.assertEqual(len(validated["positiveEndpoints"]), 2)
+            self.assertEqual(len(validated["controlEndpoints"]), 3)
+
+            invalid = mihui_server.default_whitelist_monitor_settings()
+            invalid["positiveEndpoints"][0]["url"] = "http://ya.ru/"
+            with self.assertRaises(ValueError):
+                mihui_server.validate_whitelist_monitor_settings(invalid)
+
+            invalid = mihui_server.default_whitelist_monitor_settings()
+            invalid["controlEndpoints"][1]["enabled"] = False
+            invalid["controlEndpoints"][2]["enabled"] = False
+            with self.assertRaises(ValueError):
+                mihui_server.validate_whitelist_monitor_settings(invalid)
+
+    def test_whitelist_monitor_requires_repeated_direct_failures_recovered_by_proxy(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime["consecutiveSuspicions"] = 2
+        positive_results = {
+            "allowed-ya": {"ok": True, "delay": 30, "message": ""},
+            "allowed-gosuslugi": {"ok": False, "delay": None, "message": "timeout"},
+        }
+        control_results = {
+            "control-truenetwork": {
+                "direct": {"ok": False, "delay": None, "message": "timeout"},
+                "proxy": {"ok": True, "delay": 90, "message": ""},
+            },
+            "control-neftm": {
+                "direct": {"ok": False, "delay": None, "message": "timeout"},
+                "proxy": {"ok": True, "delay": 95, "message": ""},
+            },
+            "control-selectel": {
+                "direct": {"ok": True, "delay": 40, "message": ""},
+                "proxy": None,
+            },
+        }
+
+        result = mihui_server.classify_whitelist_monitor_results(
+            settings,
+            runtime,
+            positive_results,
+            control_results,
+        )
+
+        self.assertEqual(result["state"], "confirmed")
+        self.assertEqual(result["consecutiveSuspicions"], 3)
+        self.assertEqual(result["positiveDirectSuccesses"], 1)
+        self.assertEqual(result["controlDirectFailures"], 2)
+        self.assertEqual(result["controlProxyRecoveries"], 2)
+
+    def test_whitelist_monitor_does_not_confirm_unrecovered_direct_failures(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime["consecutiveSuspicions"] = 1
+        result = mihui_server.classify_whitelist_monitor_results(
+            settings,
+            runtime,
+            {"allowed-ya": {"ok": True}},
+            {
+                "control-truenetwork": {"direct": {"ok": False}, "proxy": {"ok": True}},
+                "control-neftm": {"direct": {"ok": False}, "proxy": {"ok": False}},
+                "control-selectel": {"direct": {"ok": True}, "proxy": None},
+            },
+        )
+
+        self.assertEqual(result["state"], "unknown")
+        self.assertEqual(result["consecutiveSuspicions"], 0)
+
+    def test_whitelist_monitor_handles_missing_proxy_results_when_direct_baseline_fails(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        result = mihui_server.classify_whitelist_monitor_results(
+            settings,
+            mihui_server.default_whitelist_monitor_runtime(),
+            {"allowed-ya": {"ok": False}},
+            {
+                "control-truenetwork": {"direct": {"ok": False}, "proxy": None},
+                "control-neftm": {"direct": {"ok": False}, "proxy": None},
+                "control-selectel": {"direct": {"ok": True}, "proxy": None},
+            },
+        )
+
+        self.assertEqual(result["state"], "unknown")
+        self.assertEqual(result["controlProxyRecoveries"], 0)
+
     def test_resource_monitor_immediately_switches_to_first_ranked_working_candidate(self):
         settings = mihui_server.default_resource_monitor_settings()
         settings["failureThreshold"] = 2
@@ -1772,6 +1868,28 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
+
+    def test_whitelist_monitor_endpoint_saves_settings_without_checking_mihomo(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["intervalSeconds"] = 120
+            try:
+                with mock.patch.object(mihui_server, "mihomo_api_request") as request:
+                    status, result = self.post_json(
+                        server,
+                        "/api/whitelist-monitor/settings",
+                        settings,
+                        headers={"X-Mihui-Action": "whitelist-monitor"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["config"]["intervalSeconds"], 120)
+        request.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -94,6 +94,33 @@ RESOURCE_MONITOR_SERVICES = {
         ],
     },
 }
+WHITELIST_MONITOR_LOG_MAX_BYTES = 256 * 1024
+WHITELIST_MONITOR_EVENT_LIMIT = 200
+WHITELIST_MONITOR_ENDPOINT_LIMIT = 10
+WHITELIST_MONITOR_POSITIVE_ENDPOINTS = [
+    {"id": "allowed-ya", "name": "Яндекс", "url": "https://ya.ru/", "enabled": True},
+    {"id": "allowed-gosuslugi", "name": "Госуслуги", "url": "https://www.gosuslugi.ru/", "enabled": True},
+]
+WHITELIST_MONITOR_CONTROL_ENDPOINTS = [
+    {
+        "id": "control-truenetwork",
+        "name": "TrueNetwork mirror",
+        "url": "https://mirror.truenetwork.ru/robots.txt",
+        "enabled": True,
+    },
+    {
+        "id": "control-neftm",
+        "name": "Neftm mirror",
+        "url": "https://mirror.neftm.ru/debian/project/trace/mirror.neftm.ru",
+        "enabled": True,
+    },
+    {
+        "id": "control-selectel",
+        "name": "Selectel Speedtest",
+        "url": "https://speedtest.selectel.ru/robots.txt",
+        "enabled": True,
+    },
+]
 
 
 update_lock = threading.Lock()
@@ -128,6 +155,13 @@ resource_monitor_state_lock = threading.Lock()
 resource_monitor_job_state = {
     "running": False,
     "services": [],
+    "startedAt": None,
+    "finishedAt": None,
+}
+whitelist_monitor_lock = threading.Lock()
+whitelist_monitor_state_lock = threading.Lock()
+whitelist_monitor_job_state = {
+    "running": False,
     "startedAt": None,
     "finishedAt": None,
 }
@@ -185,6 +219,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/resource-monitor":
             self.handle_resource_monitor_get()
             return
+        if route == "/api/whitelist-monitor":
+            self.handle_whitelist_monitor_get()
+            return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
             return
@@ -222,6 +259,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/resource-monitor/check":
             self.handle_resource_monitor_check()
+            return
+        if route == "/api/whitelist-monitor/settings":
+            self.handle_whitelist_monitor_settings()
+            return
+        if route == "/api/whitelist-monitor/check":
+            self.handle_whitelist_monitor_check()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -500,6 +543,44 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         result = start_resource_monitor_check(self.app_dir, [service] if service else None)
         self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
+
+    def handle_whitelist_monitor_get(self):
+        self.send_json(HTTPStatus.OK, get_whitelist_monitor_status(self.app_dir))
+
+    def handle_whitelist_monitor_settings(self):
+        if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        try:
+            settings = validate_whitelist_monitor_settings(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+
+        previous = load_whitelist_monitor_settings(self.app_dir)
+        save_whitelist_monitor_settings(self.app_dir, settings)
+        if previous["enabled"] != settings["enabled"]:
+            append_whitelist_monitor_event(
+                self.app_dir,
+                "enabled" if settings["enabled"] else "disabled",
+                "Наблюдение включено" if settings["enabled"] else "Наблюдение выключено",
+            )
+        self.send_json(HTTPStatus.OK, get_whitelist_monitor_status(self.app_dir))
+
+    def handle_whitelist_monitor_check(self):
+        if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        result = start_whitelist_monitor_check(self.app_dir)
+        if result["ok"]:
+            status = HTTPStatus.ACCEPTED
+        elif result.get("disabled"):
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.CONFLICT
+        self.send_json(status, result)
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
@@ -3324,6 +3405,493 @@ def initialize_resource_monitor(app_dir):
     thread.start()
 
 
+def default_whitelist_monitor_settings():
+    return {
+        "enabled": False,
+        "intervalSeconds": 300,
+        "confirmationThreshold": 3,
+        "controlFailureThreshold": 2,
+        "timeoutMs": 5000,
+        "proxyGroup": "PROXY",
+        "positiveEndpoints": [dict(item) for item in WHITELIST_MONITOR_POSITIVE_ENDPOINTS],
+        "controlEndpoints": [dict(item) for item in WHITELIST_MONITOR_CONTROL_ENDPOINTS],
+    }
+
+
+def whitelist_monitor_settings_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_MONITOR_SETTINGS_PATH",
+            str(Path(app_dir) / "whitelist-monitor.json"),
+        )
+    )
+
+
+def whitelist_monitor_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_MONITOR_RUNTIME_PATH",
+            str(Path(app_dir) / "whitelist-monitor-runtime.json"),
+        )
+    )
+
+
+def whitelist_monitor_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_MONITOR_LOG_PATH",
+            str(Path(app_dir) / "whitelist-monitor.jsonl"),
+        )
+    )
+
+
+def validate_whitelist_monitor_endpoint(item, kind, index):
+    if not isinstance(item, dict):
+        raise ValueError(f"{kind} endpoint {index + 1} must be an object")
+    endpoint_id = str(item.get("id") or "").strip()
+    name = str(item.get("name") or "").strip()
+    url = str(item.get("url") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", endpoint_id):
+        raise ValueError(f"{kind} endpoint {index + 1} has an invalid id")
+    if not name or len(name) > 80:
+        raise ValueError(f"{kind} endpoint {index + 1} must have a name")
+    if len(url) > 2048:
+        raise ValueError(f"{kind} endpoint {index + 1} URL is too long")
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError(f"{kind} endpoint {index + 1} must use an HTTPS URL")
+    return {
+        "id": endpoint_id,
+        "name": name,
+        "url": url,
+        "enabled": bool(item.get("enabled", True)),
+    }
+
+
+def validate_whitelist_monitor_settings(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("settings must be an object")
+
+    ranges = {
+        "intervalSeconds": (60, 3600),
+        "confirmationThreshold": (2, 6),
+        "controlFailureThreshold": (1, 5),
+        "timeoutMs": (1000, 15000),
+    }
+    result = {"enabled": bool(payload.get("enabled", False))}
+    for key, (minimum, maximum) in ranges.items():
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+        result[key] = value
+
+    proxy_group = str(payload.get("proxyGroup") or "").strip()
+    if not proxy_group or len(proxy_group) > 128:
+        raise ValueError("proxyGroup is required")
+    result["proxyGroup"] = proxy_group
+
+    all_ids = set()
+    for source_key, kind in (
+        ("positiveEndpoints", "positive"),
+        ("controlEndpoints", "control"),
+    ):
+        items = payload.get(source_key)
+        if not isinstance(items, list) or not 1 <= len(items) <= WHITELIST_MONITOR_ENDPOINT_LIMIT:
+            raise ValueError(
+                f"{source_key} must contain between 1 and {WHITELIST_MONITOR_ENDPOINT_LIMIT} endpoints"
+            )
+        normalized = []
+        for index, item in enumerate(items):
+            endpoint = validate_whitelist_monitor_endpoint(item, kind, index)
+            if endpoint["id"] in all_ids:
+                raise ValueError("endpoint ids must be unique")
+            all_ids.add(endpoint["id"])
+            normalized.append(endpoint)
+        result[source_key] = normalized
+
+    enabled_positive = sum(item["enabled"] for item in result["positiveEndpoints"])
+    enabled_controls = sum(item["enabled"] for item in result["controlEndpoints"])
+    if enabled_positive < 1:
+        raise ValueError("at least one positive endpoint must be enabled")
+    if enabled_controls < result["controlFailureThreshold"]:
+        raise ValueError("not enough control endpoints are enabled")
+    return result
+
+
+def load_whitelist_monitor_settings(app_dir):
+    defaults = default_whitelist_monitor_settings()
+    saved = read_json_file(whitelist_monitor_settings_path(app_dir), {})
+    merged = dict(defaults)
+    for key in (
+        "enabled",
+        "intervalSeconds",
+        "confirmationThreshold",
+        "controlFailureThreshold",
+        "timeoutMs",
+        "proxyGroup",
+        "positiveEndpoints",
+        "controlEndpoints",
+    ):
+        if key in saved:
+            merged[key] = saved[key]
+    try:
+        return validate_whitelist_monitor_settings(merged)
+    except (TypeError, ValueError):
+        return defaults
+
+
+def save_whitelist_monitor_settings(app_dir, settings):
+    write_json_atomic(whitelist_monitor_settings_path(app_dir), settings)
+
+
+def default_whitelist_monitor_runtime():
+    return {
+        "state": "idle",
+        "message": "Проверка ещё не выполнялась",
+        "checkedAt": None,
+        "consecutiveSuspicions": 0,
+        "positiveDirectSuccesses": 0,
+        "controlDirectFailures": 0,
+        "controlProxyRecoveries": 0,
+        "endpoints": {},
+    }
+
+
+def load_whitelist_monitor_runtime(app_dir, settings=None):
+    defaults = default_whitelist_monitor_runtime()
+    saved = read_json_file(whitelist_monitor_runtime_path(app_dir), {})
+    runtime = dict(defaults)
+    for field in defaults:
+        if field in saved:
+            runtime[field] = saved[field]
+    if not isinstance(runtime.get("endpoints"), dict):
+        runtime["endpoints"] = {}
+
+    config = settings or load_whitelist_monitor_settings(app_dir)
+    current_urls = {
+        item["id"]: item["url"]
+        for item in config["positiveEndpoints"] + config["controlEndpoints"]
+    }
+    runtime["endpoints"] = {
+        endpoint_id: result
+        for endpoint_id, result in runtime["endpoints"].items()
+        if endpoint_id in current_urls
+        and isinstance(result, dict)
+        and result.get("url") == current_urls[endpoint_id]
+    }
+    return runtime
+
+
+def save_whitelist_monitor_runtime(app_dir, runtime):
+    write_json_atomic(whitelist_monitor_runtime_path(app_dir), runtime)
+
+
+def read_whitelist_monitor_events(app_dir, limit=WHITELIST_MONITOR_EVENT_LIMIT):
+    path = whitelist_monitor_log_path(app_dir)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+    events = []
+    for line in lines[-max(1, int(limit)):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def append_whitelist_monitor_event(app_dir, event_type, message, **details):
+    path = whitelist_monitor_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    event = {
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "timestamp": int(time.time()),
+        "type": event_type,
+        "message": message,
+    }
+    event.update(details)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    try:
+        if path.stat().st_size > WHITELIST_MONITOR_LOG_MAX_BYTES:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            path.write_text(
+                "\n".join(lines[-WHITELIST_MONITOR_EVENT_LIMIT:]) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+
+
+def snapshot_whitelist_monitor_job():
+    with whitelist_monitor_state_lock:
+        return dict(whitelist_monitor_job_state)
+
+
+def get_whitelist_monitor_status(app_dir):
+    config = load_whitelist_monitor_settings(app_dir)
+    return {
+        "ok": True,
+        "config": config,
+        "runtime": load_whitelist_monitor_runtime(app_dir, config),
+        "events": read_whitelist_monitor_events(app_dir),
+        "job": snapshot_whitelist_monitor_job(),
+    }
+
+
+def probe_whitelist_monitor_endpoint(app_dir, route, endpoint, timeout_ms):
+    encoded_route = urllib.parse.quote(str(route), safe="")
+    query = urllib.parse.urlencode(
+        {
+            "url": endpoint["url"],
+            "timeout": timeout_ms,
+            "expected": 200,
+        }
+    )
+    try:
+        data = mihomo_api_request(
+            app_dir,
+            f"/proxies/{encoded_route}/delay?{query}",
+            timeout=max(2, int(timeout_ms / 1000) + 2),
+        )
+        delay = data.get("delay") if isinstance(data, dict) else None
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
+            raise RuntimeError("Mihomo did not return a valid delay")
+        return {"ok": True, "delay": int(delay), "message": ""}
+    except Exception as error:
+        return {"ok": False, "delay": None, "message": str(error)}
+
+
+def run_whitelist_probe_batch(app_dir, route, endpoints, timeout_ms):
+    results = {}
+    if not endpoints:
+        return results
+    with ThreadPoolExecutor(max_workers=min(3, len(endpoints))) as executor:
+        futures = {
+            endpoint["id"]: executor.submit(
+                probe_whitelist_monitor_endpoint,
+                app_dir,
+                route,
+                endpoint,
+                timeout_ms,
+            )
+            for endpoint in endpoints
+        }
+        for endpoint_id, future in futures.items():
+            try:
+                results[endpoint_id] = future.result()
+            except Exception as error:
+                results[endpoint_id] = {"ok": False, "delay": None, "message": str(error)}
+    return results
+
+
+def classify_whitelist_monitor_results(settings, runtime, positive_results, control_results):
+    positive_successes = sum(result.get("ok") is True for result in positive_results.values())
+    direct_failures = [
+        endpoint_id
+        for endpoint_id, result in control_results.items()
+        if result.get("direct", {}).get("ok") is not True
+    ]
+    proxy_recoveries = sum(
+        isinstance(result.get("proxy"), dict) and result["proxy"].get("ok") is True
+        for endpoint_id, result in control_results.items()
+        if endpoint_id in direct_failures
+    )
+    previous_suspicions = int(runtime.get("consecutiveSuspicions") or 0)
+
+    if positive_successes < 1:
+        state = "unknown"
+        message = "Не подтверждена прямая доступность разрешённых ресурсов"
+        consecutive = 0
+    elif len(direct_failures) >= settings["controlFailureThreshold"]:
+        if proxy_recoveries >= settings["controlFailureThreshold"]:
+            consecutive = previous_suspicions + 1
+            if consecutive >= settings["confirmationThreshold"]:
+                state = "confirmed"
+                message = "Вероятно, оператор включил режим белых списков"
+            else:
+                state = "suspected"
+                message = (
+                    "Наблюдается признак белых списков "
+                    f"({consecutive}/{settings['confirmationThreshold']})"
+                )
+        else:
+            state = "unknown"
+            message = "Сбой контрольных адресов не подтверждён через прокси"
+            consecutive = 0
+    else:
+        state = "normal"
+        message = "Признаки режима белых списков не обнаружены"
+        consecutive = 0
+
+    return {
+        "state": state,
+        "message": message,
+        "consecutiveSuspicions": consecutive,
+        "positiveDirectSuccesses": positive_successes,
+        "controlDirectFailures": len(direct_failures),
+        "controlProxyRecoveries": proxy_recoveries,
+    }
+
+
+def run_whitelist_monitor_cycle(app_dir):
+    with whitelist_monitor_lock:
+        settings = load_whitelist_monitor_settings(app_dir)
+        runtime = load_whitelist_monitor_runtime(app_dir, settings)
+        if not settings["enabled"]:
+            return runtime
+
+        positive_endpoints = [item for item in settings["positiveEndpoints"] if item["enabled"]]
+        control_endpoints = [item for item in settings["controlEndpoints"] if item["enabled"]]
+        positive_results = run_whitelist_probe_batch(
+            app_dir,
+            "DIRECT",
+            positive_endpoints,
+            settings["timeoutMs"],
+        )
+        direct_controls = run_whitelist_probe_batch(
+            app_dir,
+            "DIRECT",
+            control_endpoints,
+            settings["timeoutMs"],
+        )
+        failed_controls = [
+            item
+            for item in control_endpoints
+            if direct_controls.get(item["id"], {}).get("ok") is not True
+        ]
+        proxy_controls = {}
+        if (
+            sum(result.get("ok") is True for result in positive_results.values()) >= 1
+            and len(failed_controls) >= settings["controlFailureThreshold"]
+        ):
+            proxy_controls = run_whitelist_probe_batch(
+                app_dir,
+                settings["proxyGroup"],
+                failed_controls,
+                settings["timeoutMs"],
+            )
+
+        checked_at = int(time.time())
+        endpoint_runtime = {}
+        for item in positive_endpoints:
+            endpoint_runtime[item["id"]] = {
+                "url": item["url"],
+                "kind": "positive",
+                "checkedAt": checked_at,
+                "direct": positive_results.get(item["id"]),
+                "proxy": None,
+            }
+        control_results = {}
+        for item in control_endpoints:
+            result = {
+                "direct": direct_controls.get(item["id"]),
+                "proxy": proxy_controls.get(item["id"]),
+            }
+            control_results[item["id"]] = result
+            endpoint_runtime[item["id"]] = {
+                "url": item["url"],
+                "kind": "control",
+                "checkedAt": checked_at,
+                **result,
+            }
+
+        previous_state = runtime.get("state")
+        classification = classify_whitelist_monitor_results(
+            settings,
+            runtime,
+            positive_results,
+            control_results,
+        )
+        runtime.update(classification)
+        runtime["checkedAt"] = checked_at
+        runtime["endpoints"] = endpoint_runtime
+        save_whitelist_monitor_runtime(app_dir, runtime)
+
+        if previous_state != runtime["state"]:
+            append_whitelist_monitor_event(
+                app_dir,
+                runtime["state"],
+                runtime["message"],
+                positiveDirectSuccesses=runtime["positiveDirectSuccesses"],
+                controlDirectFailures=runtime["controlDirectFailures"],
+                controlProxyRecoveries=runtime["controlProxyRecoveries"],
+                consecutiveSuspicions=runtime["consecutiveSuspicions"],
+            )
+        return runtime
+
+
+def run_whitelist_monitor_job(app_dir):
+    try:
+        run_whitelist_monitor_cycle(app_dir)
+    finally:
+        with whitelist_monitor_state_lock:
+            whitelist_monitor_job_state.update(
+                {
+                    "running": False,
+                    "finishedAt": int(time.time()),
+                }
+            )
+
+
+def start_whitelist_monitor_check(app_dir):
+    settings = load_whitelist_monitor_settings(app_dir)
+    if not settings["enabled"]:
+        return {
+            "ok": False,
+            "disabled": True,
+            "message": "whitelist monitor is disabled",
+            "job": snapshot_whitelist_monitor_job(),
+        }
+    with whitelist_monitor_state_lock:
+        if whitelist_monitor_job_state["running"]:
+            return {
+                "ok": False,
+                "message": "whitelist check already running",
+                "job": dict(whitelist_monitor_job_state),
+            }
+        whitelist_monitor_job_state.update(
+            {
+                "running": True,
+                "startedAt": int(time.time()),
+                "finishedAt": None,
+            }
+        )
+    thread = threading.Thread(
+        target=run_whitelist_monitor_job,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    thread.start()
+    return {"ok": True, "job": snapshot_whitelist_monitor_job()}
+
+
+def whitelist_monitor_worker(app_dir):
+    while True:
+        time.sleep(5)
+        settings = load_whitelist_monitor_settings(app_dir)
+        if not settings["enabled"] or snapshot_whitelist_monitor_job()["running"]:
+            continue
+        runtime = load_whitelist_monitor_runtime(app_dir, settings)
+        checked_at = runtime.get("checkedAt")
+        now = int(time.time())
+        if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:
+            start_whitelist_monitor_check(app_dir)
+
+
+def initialize_whitelist_monitor(app_dir):
+    thread = threading.Thread(target=whitelist_monitor_worker, args=(Path(app_dir),), daemon=True)
+    thread.start()
+
+
 def normalize_current_group_selections(proxies):
     if not isinstance(proxies, dict):
         return []
@@ -3775,6 +4343,7 @@ def main():
     www_dir = app_dir / "www"
     initialize_update_state(app_dir)
     initialize_resource_monitor(app_dir)
+    initialize_whitelist_monitor(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,
