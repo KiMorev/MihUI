@@ -2722,7 +2722,7 @@ def load_resource_monitor_proxies(app_dir):
         providers = provider_data.get("providers", provider_data)
         if not isinstance(providers, dict):
             return proxies
-        for provider in providers.values():
+        for provider_name, provider in providers.items():
             provider_proxies = provider.get("proxies") if isinstance(provider, dict) else None
             if not isinstance(provider_proxies, list):
                 continue
@@ -2731,29 +2731,36 @@ def load_resource_monitor_proxies(app_dir):
                     continue
                 name = str(proxy.get("name") or "")
                 if name and name not in proxies:
-                    proxies[name] = proxy
-                elif name and isinstance(proxies.get(name), dict) and get_proxy_delay(proxies[name]) is None:
+                    proxies[name] = {**proxy, "_mihui_provider": str(provider_name)}
+                elif name and isinstance(proxies.get(name), dict):
+                    proxy_type = str(proxies[name].get("type") or "").strip().casefold()
+                    if proxy_type in RESOURCE_MONITOR_GROUP_TYPES:
+                        continue
+                    merged = {**proxies[name], "_mihui_provider": str(provider_name)}
                     provider_delay = get_proxy_delay(proxy)
-                    if provider_delay is not None:
-                        proxies[name] = {**proxies[name], "delay": provider_delay}
+                    if get_proxy_delay(merged) is None and provider_delay is not None:
+                        merged["delay"] = provider_delay
+                    proxies[name] = merged
     except Exception:
         pass
 
     return proxies
 
 
-def resource_monitor_delay(app_dir, node, endpoint, timeout_ms):
+def resource_monitor_delay(app_dir, node, endpoint, timeout_ms, proxy=None):
     encoded_node = urllib.parse.quote(node, safe="")
-    query = urllib.parse.urlencode(
-        {
-            "url": endpoint["url"],
-            "timeout": timeout_ms,
-            "expected": endpoint["expected"],
-        }
-    )
+    provider = str(proxy.get("_mihui_provider") or "") if isinstance(proxy, dict) else ""
+    query_params = {"url": endpoint["url"], "timeout": timeout_ms}
+    if provider:
+        encoded_provider = urllib.parse.quote(provider, safe="")
+        path = f"/providers/proxies/{encoded_provider}/{encoded_node}/healthcheck"
+    else:
+        query_params["expected"] = endpoint["expected"]
+        path = f"/proxies/{encoded_node}/delay"
+    query = urllib.parse.urlencode(query_params)
     data = mihomo_api_request(
         app_dir,
-        f"/proxies/{encoded_node}/delay?{query}",
+        f"{path}?{query}",
         timeout=max(2, int(timeout_ms / 1000) + 2),
     )
     delay = data.get("delay") if isinstance(data, dict) else None
@@ -2762,11 +2769,12 @@ def resource_monitor_delay(app_dir, node, endpoint, timeout_ms):
     return int(delay)
 
 
-def probe_resource_node(app_dir, service, node, timeout_ms):
+def probe_resource_node(app_dir, service, node, timeout_ms, proxies=None):
     delays = []
+    proxy = proxies.get(node) if isinstance(proxies, dict) else None
     for endpoint in RESOURCE_MONITOR_SERVICES[service]["endpoints"]:
         try:
-            delays.append(resource_monitor_delay(app_dir, node, endpoint, timeout_ms))
+            delays.append(resource_monitor_delay(app_dir, node, endpoint, timeout_ms, proxy))
         except Exception as error:
             return {
                 "ok": False,
@@ -2903,7 +2911,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         return
 
     previous_state = item.get("state")
-    result = probe_resource_node(app_dir, service, current, settings["timeoutMs"])
+    result = probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
     if result["ok"]:
         item.update(
             {
@@ -2953,7 +2961,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     )
     successful = []
     for candidate in candidates:
-        candidate_result = probe_resource_node(app_dir, service, candidate, settings["timeoutMs"])
+        candidate_result = probe_resource_node(app_dir, service, candidate, settings["timeoutMs"], proxies)
         if candidate_result["ok"]:
             successful.append((candidate_result["delay"], candidate))
 

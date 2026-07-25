@@ -1241,7 +1241,7 @@ class ProviderAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             mihui_server,
             "probe_resource_node",
-            side_effect=lambda _app, _service, node, _timeout: probe_results[node],
+            side_effect=lambda _app, _service, node, _timeout, _proxies=None: probe_results[node],
         ), mock.patch.object(
             mihui_server,
             "select_proxy_group",
@@ -1354,6 +1354,7 @@ class ProviderAdapterTests(unittest.TestCase):
             mihui_server.resource_monitor_candidates(group, proxies, "", {}, 3),
             ["node-b", "node-c", "node-a"],
         )
+        self.assertEqual(proxies["node-b"]["_mihui_provider"], "main")
         select.assert_called_once_with(Path("."), "YOUTUBE", "node-b")
 
     def test_resource_monitor_keeps_current_node_without_mihomo_delay(self):
@@ -1438,6 +1439,32 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(query["url"], ["https://example.com/generate_204"])
         self.assertEqual(query["timeout"], ["5000"])
         self.assertEqual(query["expected"], ["204"])
+
+    def test_resource_monitor_delay_uses_provider_healthcheck_for_provider_node(self):
+        with mock.patch.object(
+            mihui_server,
+            "mihomo_api_request",
+            return_value={"delay": 53},
+        ) as request:
+            delay = mihui_server.resource_monitor_delay(
+                Path("."),
+                "node name",
+                {"url": "https://example.com/generate_204", "expected": 204},
+                5000,
+                {"_mihui_provider": "main provider"},
+            )
+
+        self.assertEqual(delay, 53)
+        path = request.call_args.args[1]
+        self.assertTrue(
+            path.startswith(
+                "/providers/proxies/main%20provider/node%20name/healthcheck?"
+            )
+        )
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+        self.assertEqual(query["url"], ["https://example.com/generate_204"])
+        self.assertEqual(query["timeout"], ["5000"])
+        self.assertNotIn("expected", query)
 
     def test_resource_monitor_settings_endpoint_requires_action_header(self):
         with tempfile.TemporaryDirectory() as temp_dir:
