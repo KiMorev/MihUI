@@ -162,6 +162,7 @@ globalThis.__app = {
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
+  buildWhitelistMonitorTimeline,
   prepareWhitelistFallbackConfig,
   prepareWhitelistMonitorDisable,
   removeWhitelistFallbackConfig,
@@ -388,6 +389,46 @@ rules:
     assert.match(app.state.outputText, /DOMAIN-SUFFIX,ru,DIRECT/);
     assert.equal(app.isWhitelistFallbackConfigActive(), false);
     assert.equal(app.state.whitelistMonitor.pendingSettings.enabled, false);
+  });
+
+  test(`${source.name}: builds a 24-hour whitelist state timeline from state changes`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 24 * 60 * 60 * 1000;
+    const at = (offsetHours) => Math.floor((start + offsetHours * 60 * 60 * 1000) / 1000);
+    const timeline = app.buildWhitelistMonitorTimeline([
+      { type: 'normal', timestamp: at(-1) },
+      { type: 'suspected', timestamp: at(16) },
+      { type: 'confirmed', timestamp: at(19) },
+      { type: 'normal', timestamp: at(22) },
+    ], {
+      state: 'normal',
+      checkedAt: at(23.9),
+    }, now);
+    const counts = timeline.reduce((result, item) => {
+      result[item.state] = (result[item.state] || 0) + 1;
+      return result;
+    }, {});
+
+    assert.equal(timeline.length, 24);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(counts)),
+      { normal: 18, disputed: 3, confirmed: 3 },
+    );
+    assert.equal(timeline[23].state, 'normal');
+  });
+
+  test(`${source.name}: keeps the most serious state seen within an hour`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 60 * 60 * 1000;
+    const timeline = app.buildWhitelistMonitorTimeline([
+      { type: 'normal', timestamp: Math.floor((start - 1000) / 1000) },
+      { type: 'confirmed', timestamp: Math.floor((start + 10 * 60 * 1000) / 1000) },
+      { type: 'normal', timestamp: Math.floor((start + 20 * 60 * 1000) / 1000) },
+    ], null, now, 1);
+
+    assert.equal(timeline[0].state, 'confirmed');
   });
 
   test(`${source.name}: enables selection persistence without changing profile siblings`, () => {

@@ -3466,6 +3466,131 @@ body.component-manager-open {
   background: #fff;
 }
 
+.whitelist-monitor-history {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(8, 124, 128, 0.08), transparent 34%),
+    #fff;
+}
+
+.whitelist-monitor-history > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.whitelist-monitor-history > header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.whitelist-monitor-history > header > div:first-child > span {
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.whitelist-monitor-history h3,
+.whitelist-monitor-history p {
+  margin: 0;
+}
+
+.whitelist-monitor-history h3 {
+  font-size: 14px;
+}
+
+.whitelist-monitor-history-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+
+.whitelist-monitor-history-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.whitelist-monitor-history-legend i,
+.whitelist-monitor-timeline-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.whitelist-monitor-history-legend i.is-normal,
+.whitelist-monitor-timeline-dot.is-normal {
+  background: var(--success);
+}
+
+.whitelist-monitor-history-legend i.is-disputed,
+.whitelist-monitor-timeline-dot.is-disputed {
+  background: var(--warning);
+}
+
+.whitelist-monitor-history-legend i.is-confirmed,
+.whitelist-monitor-timeline-dot.is-confirmed {
+  background: var(--danger);
+}
+
+.whitelist-monitor-timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  align-items: center;
+  min-height: 18px;
+}
+
+.whitelist-monitor-timeline::before {
+  position: absolute;
+  right: 1%;
+  left: 1%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--line);
+  content: "";
+}
+
+.whitelist-monitor-timeline-dot {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  border: 2px solid #fff;
+  background: var(--line-strong);
+  box-shadow: 0 0 0 1px rgba(24, 34, 52, 0.08);
+}
+
+.whitelist-monitor-timeline-dot.is-confirmed {
+  box-shadow:
+    0 0 0 1px rgba(194, 51, 42, 0.16),
+    0 0 0 4px rgba(194, 51, 42, 0.08);
+}
+
+.whitelist-monitor-history-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.whitelist-monitor-history > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .whitelist-monitor-intro {
   display: flex;
   align-items: flex-start;
@@ -8632,6 +8757,25 @@ button.review-check-card:focus-visible {
 
   .whitelist-monitor-main-switch {
     justify-content: center;
+  }
+
+  .whitelist-monitor-history {
+    padding-inline: 14px;
+  }
+
+  .whitelist-monitor-history > header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .whitelist-monitor-history-legend {
+    justify-content: flex-start;
+  }
+
+  .whitelist-monitor-timeline-dot {
+    width: 8px;
+    height: 8px;
   }
 
   .whitelist-monitor-status-card,

@@ -3474,6 +3474,131 @@ body.component-manager-open {
   background: #fff;
 }
 
+.whitelist-monitor-history {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(8, 124, 128, 0.08), transparent 34%),
+    #fff;
+}
+
+.whitelist-monitor-history > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.whitelist-monitor-history > header > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.whitelist-monitor-history > header > div:first-child > span {
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.whitelist-monitor-history h3,
+.whitelist-monitor-history p {
+  margin: 0;
+}
+
+.whitelist-monitor-history h3 {
+  font-size: 14px;
+}
+
+.whitelist-monitor-history-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+
+.whitelist-monitor-history-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.whitelist-monitor-history-legend i,
+.whitelist-monitor-timeline-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.whitelist-monitor-history-legend i.is-normal,
+.whitelist-monitor-timeline-dot.is-normal {
+  background: var(--success);
+}
+
+.whitelist-monitor-history-legend i.is-disputed,
+.whitelist-monitor-timeline-dot.is-disputed {
+  background: var(--warning);
+}
+
+.whitelist-monitor-history-legend i.is-confirmed,
+.whitelist-monitor-timeline-dot.is-confirmed {
+  background: var(--danger);
+}
+
+.whitelist-monitor-timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  align-items: center;
+  min-height: 18px;
+}
+
+.whitelist-monitor-timeline::before {
+  position: absolute;
+  right: 1%;
+  left: 1%;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--line);
+  content: "";
+}
+
+.whitelist-monitor-timeline-dot {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  border: 2px solid #fff;
+  background: var(--line-strong);
+  box-shadow: 0 0 0 1px rgba(24, 34, 52, 0.08);
+}
+
+.whitelist-monitor-timeline-dot.is-confirmed {
+  box-shadow:
+    0 0 0 1px rgba(194, 51, 42, 0.16),
+    0 0 0 4px rgba(194, 51, 42, 0.08);
+}
+
+.whitelist-monitor-history-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.whitelist-monitor-history > p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .whitelist-monitor-intro {
   display: flex;
   align-items: flex-start;
@@ -8642,6 +8767,25 @@ button.review-check-card:focus-visible {
     justify-content: center;
   }
 
+  .whitelist-monitor-history {
+    padding-inline: 14px;
+  }
+
+  .whitelist-monitor-history > header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .whitelist-monitor-history-legend {
+    justify-content: flex-start;
+  }
+
+  .whitelist-monitor-timeline-dot {
+    width: 8px;
+    height: 8px;
+  }
+
   .whitelist-monitor-status-card,
   .whitelist-monitor-policy-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -9321,6 +9465,27 @@ button.review-check-card:focus-visible {
             <strong id="whitelistMonitorEnabledLabel">Выключено</strong>
           </label>
         </header>
+
+        <section class="panel whitelist-monitor-history" aria-labelledby="whitelistMonitorHistoryTitle">
+          <header>
+            <div>
+              <span>Последние 24 часа</span>
+              <h3 id="whitelistMonitorHistoryTitle">История состояния</h3>
+            </div>
+            <div class="whitelist-monitor-history-legend" aria-label="Обозначения состояний">
+              <span><i class="is-normal" aria-hidden="true"></i>Норма</span>
+              <span><i class="is-disputed" aria-hidden="true"></i>Спорно</span>
+              <span><i class="is-confirmed" aria-hidden="true"></i>Белые списки</span>
+            </div>
+          </header>
+          <div id="whitelistMonitorTimeline" class="whitelist-monitor-timeline" role="list" aria-label="Состояние по часовым интервалам"></div>
+          <div class="whitelist-monitor-history-axis" aria-hidden="true">
+            <span>24 часа назад</span>
+            <span>12 часов назад</span>
+            <span>Сейчас</span>
+          </div>
+          <p id="whitelistMonitorHistorySummary">За последние сутки данных пока нет.</p>
+        </section>
 
         <article id="whitelistMonitorIntro" class="panel whitelist-monitor-intro">
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
@@ -10576,6 +10741,8 @@ const els = {
   resourceMonitorSaveButton: document.querySelector('#resourceMonitorSaveButton'),
   whitelistMonitorEnabled: document.querySelector('#whitelistMonitorEnabled'),
   whitelistMonitorEnabledLabel: document.querySelector('#whitelistMonitorEnabledLabel'),
+  whitelistMonitorTimeline: document.querySelector('#whitelistMonitorTimeline'),
+  whitelistMonitorHistorySummary: document.querySelector('#whitelistMonitorHistorySummary'),
   whitelistMonitorIntro: document.querySelector('#whitelistMonitorIntro'),
   whitelistMonitorDetails: document.querySelector('#whitelistMonitorDetails'),
   whitelistMonitorStateBadge: document.querySelector('#whitelistMonitorStateBadge'),
@@ -13463,6 +13630,111 @@ function getWhitelistMonitorStatePresentation(value) {
   }[value] || { label: 'Нет данных', title: 'Проверка ещё не выполнялась' };
 }
 
+function getWhitelistMonitorHistoryTimestamp(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeWhitelistMonitorHistoryState(value) {
+  if (value === 'normal') return 'normal';
+  if (value === 'confirmed') return 'confirmed';
+  if (['suspected', 'unknown', 'error'].includes(value)) return 'disputed';
+  return 'idle';
+}
+
+function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hours = 24) {
+  const hourMs = 60 * 60 * 1000;
+  const totalHours = Math.max(1, Number(hours) || 24);
+  const windowEnd = Number(nowMs);
+  const windowStart = windowEnd - totalHours * hourMs;
+  const transitions = (Array.isArray(events) ? events : [])
+    .map((event) => ({
+      at: getWhitelistMonitorHistoryTimestamp(event.timestamp ?? event.at),
+      state: normalizeWhitelistMonitorHistoryState(event.type),
+    }))
+    .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd);
+  const runtimeAt = getWhitelistMonitorHistoryTimestamp(runtime?.checkedAt);
+  if (Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
+    transitions.push({
+      at: runtimeAt,
+      state: normalizeWhitelistMonitorHistoryState(runtime?.state),
+    });
+  }
+  transitions.sort((left, right) => left.at - right.at);
+
+  let currentState = 'idle';
+  let transitionIndex = 0;
+  while (transitionIndex < transitions.length && transitions[transitionIndex].at <= windowStart) {
+    currentState = transitions[transitionIndex].state;
+    transitionIndex += 1;
+  }
+
+  const priority = { idle: 0, normal: 1, disputed: 2, confirmed: 3 };
+  const result = [];
+  for (let index = 0; index < totalHours; index += 1) {
+    const start = windowStart + index * hourMs;
+    const end = start + hourMs;
+    while (transitionIndex < transitions.length && transitions[transitionIndex].at <= start) {
+      currentState = transitions[transitionIndex].state;
+      transitionIndex += 1;
+    }
+    const states = [currentState];
+    while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
+      currentState = transitions[transitionIndex].state;
+      states.push(currentState);
+      transitionIndex += 1;
+    }
+    const state = states.reduce(
+      (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
+      'idle',
+    );
+    result.push({ start, end, state });
+  }
+  return result;
+}
+
+function getWhitelistMonitorHistoryStateLabel(value) {
+  return {
+    normal: 'Норма',
+    disputed: 'Спорный результат',
+    confirmed: 'Режим белых списков',
+    idle: 'Нет данных',
+  }[value] || 'Нет данных';
+}
+
+function renderWhitelistMonitorHistory(runtime) {
+  if (!els.whitelistMonitorTimeline || !els.whitelistMonitorHistorySummary) return;
+  const timeline = buildWhitelistMonitorTimeline(state.whitelistMonitor.events, runtime);
+  const counts = { normal: 0, disputed: 0, confirmed: 0, idle: 0 };
+  els.whitelistMonitorTimeline.textContent = '';
+  timeline.forEach((item) => {
+    const dot = document.createElement('span');
+    const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const label = `${start}–${end} · ${getWhitelistMonitorHistoryStateLabel(item.state)}`;
+    counts[item.state] += 1;
+    dot.className = `whitelist-monitor-timeline-dot is-${item.state}`;
+    dot.title = label;
+    dot.setAttribute('role', 'listitem');
+    dot.setAttribute('aria-label', label);
+    els.whitelistMonitorTimeline.append(dot);
+  });
+
+  const knownCount = counts.normal + counts.disputed + counts.confirmed;
+  els.whitelistMonitorHistorySummary.textContent = knownCount
+    ? `Часовые интервалы: ${[
+      `норма — ${counts.normal}`,
+      `спорно — ${counts.disputed}`,
+      `белые списки — ${counts.confirmed}`,
+      counts.idle ? `нет данных — ${counts.idle}` : '',
+    ].filter(Boolean).join(' · ')}`
+    : 'За последние сутки данных пока нет.';
+}
+
 function renderWhitelistMonitor() {
   if (!els.whitelistMonitorEnabled) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
@@ -13481,6 +13753,7 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorEnabledLabel.textContent = apiAvailable
     ? disabling ? 'Отключится после сохранения' : enabled ? 'Включено' : 'Выключено'
     : 'Только в MihUI';
+  renderWhitelistMonitorHistory(runtime);
   els.whitelistMonitorIntro.hidden = enabled;
   els.whitelistMonitorDetails.hidden = !enabled;
   if (!enabled) return;

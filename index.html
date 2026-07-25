@@ -587,6 +587,27 @@
           </label>
         </header>
 
+        <section class="panel whitelist-monitor-history" aria-labelledby="whitelistMonitorHistoryTitle">
+          <header>
+            <div>
+              <span>Последние 24 часа</span>
+              <h3 id="whitelistMonitorHistoryTitle">История состояния</h3>
+            </div>
+            <div class="whitelist-monitor-history-legend" aria-label="Обозначения состояний">
+              <span><i class="is-normal" aria-hidden="true"></i>Норма</span>
+              <span><i class="is-disputed" aria-hidden="true"></i>Спорно</span>
+              <span><i class="is-confirmed" aria-hidden="true"></i>Белые списки</span>
+            </div>
+          </header>
+          <div id="whitelistMonitorTimeline" class="whitelist-monitor-timeline" role="list" aria-label="Состояние по часовым интервалам"></div>
+          <div class="whitelist-monitor-history-axis" aria-hidden="true">
+            <span>24 часа назад</span>
+            <span>12 часов назад</span>
+            <span>Сейчас</span>
+          </div>
+          <p id="whitelistMonitorHistorySummary">За последние сутки данных пока нет.</p>
+        </section>
+
         <article id="whitelistMonitorIntro" class="panel whitelist-monitor-intro">
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
           <div>

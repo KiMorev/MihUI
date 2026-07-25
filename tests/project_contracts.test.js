@@ -411,6 +411,9 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(html, /id="whitelistMonitorEnabled"/);
     assert.match(html, /id="whitelistMonitorActionMode"/);
     assert.match(html, /id="whitelistMonitorProposal"/);
+    assert.match(html, /id="whitelistMonitorTimeline"/);
+    assert.match(html, /id="whitelistMonitorHistorySummary"/);
+    assert.match(html, /Последние 24 часа/);
     assert.match(html, /value="observe"/);
     assert.match(html, /value="suggest"/);
     assert.match(html, /id="whitelistMonitorPositiveEndpoints"/);
@@ -422,10 +425,17 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(script, /\/api\/whitelist-monitor/);
     assert.match(script, /controlFailureThreshold: 2/);
     assert.match(script, /prepareWhitelistFallbackConfig/);
+    assert.match(script, /buildWhitelistMonitorTimeline/);
     assert.match(script, /prepareWhitelistMonitorDisable/);
     assert.match(script, /applyPendingWhitelistMonitorSettings/);
     assert.match(script, /Отключится после сохранения/);
     assert.match(script, /webmihomo-whitelist:/);
+  }
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.whitelist-monitor-timeline\s*{/);
+    assert.match(source, /grid-template-columns: repeat\(24, minmax\(0, 1fr\)\)/);
+    assert.match(source, /\.whitelist-monitor-timeline-dot\.is-confirmed/);
   }
 });
 

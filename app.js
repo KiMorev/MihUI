@@ -658,6 +658,8 @@ const els = {
   resourceMonitorSaveButton: document.querySelector('#resourceMonitorSaveButton'),
   whitelistMonitorEnabled: document.querySelector('#whitelistMonitorEnabled'),
   whitelistMonitorEnabledLabel: document.querySelector('#whitelistMonitorEnabledLabel'),
+  whitelistMonitorTimeline: document.querySelector('#whitelistMonitorTimeline'),
+  whitelistMonitorHistorySummary: document.querySelector('#whitelistMonitorHistorySummary'),
   whitelistMonitorIntro: document.querySelector('#whitelistMonitorIntro'),
   whitelistMonitorDetails: document.querySelector('#whitelistMonitorDetails'),
   whitelistMonitorStateBadge: document.querySelector('#whitelistMonitorStateBadge'),
@@ -3545,6 +3547,111 @@ function getWhitelistMonitorStatePresentation(value) {
   }[value] || { label: 'Нет данных', title: 'Проверка ещё не выполнялась' };
 }
 
+function getWhitelistMonitorHistoryTimestamp(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeWhitelistMonitorHistoryState(value) {
+  if (value === 'normal') return 'normal';
+  if (value === 'confirmed') return 'confirmed';
+  if (['suspected', 'unknown', 'error'].includes(value)) return 'disputed';
+  return 'idle';
+}
+
+function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hours = 24) {
+  const hourMs = 60 * 60 * 1000;
+  const totalHours = Math.max(1, Number(hours) || 24);
+  const windowEnd = Number(nowMs);
+  const windowStart = windowEnd - totalHours * hourMs;
+  const transitions = (Array.isArray(events) ? events : [])
+    .map((event) => ({
+      at: getWhitelistMonitorHistoryTimestamp(event.timestamp ?? event.at),
+      state: normalizeWhitelistMonitorHistoryState(event.type),
+    }))
+    .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd);
+  const runtimeAt = getWhitelistMonitorHistoryTimestamp(runtime?.checkedAt);
+  if (Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
+    transitions.push({
+      at: runtimeAt,
+      state: normalizeWhitelistMonitorHistoryState(runtime?.state),
+    });
+  }
+  transitions.sort((left, right) => left.at - right.at);
+
+  let currentState = 'idle';
+  let transitionIndex = 0;
+  while (transitionIndex < transitions.length && transitions[transitionIndex].at <= windowStart) {
+    currentState = transitions[transitionIndex].state;
+    transitionIndex += 1;
+  }
+
+  const priority = { idle: 0, normal: 1, disputed: 2, confirmed: 3 };
+  const result = [];
+  for (let index = 0; index < totalHours; index += 1) {
+    const start = windowStart + index * hourMs;
+    const end = start + hourMs;
+    while (transitionIndex < transitions.length && transitions[transitionIndex].at <= start) {
+      currentState = transitions[transitionIndex].state;
+      transitionIndex += 1;
+    }
+    const states = [currentState];
+    while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
+      currentState = transitions[transitionIndex].state;
+      states.push(currentState);
+      transitionIndex += 1;
+    }
+    const state = states.reduce(
+      (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
+      'idle',
+    );
+    result.push({ start, end, state });
+  }
+  return result;
+}
+
+function getWhitelistMonitorHistoryStateLabel(value) {
+  return {
+    normal: 'Норма',
+    disputed: 'Спорный результат',
+    confirmed: 'Режим белых списков',
+    idle: 'Нет данных',
+  }[value] || 'Нет данных';
+}
+
+function renderWhitelistMonitorHistory(runtime) {
+  if (!els.whitelistMonitorTimeline || !els.whitelistMonitorHistorySummary) return;
+  const timeline = buildWhitelistMonitorTimeline(state.whitelistMonitor.events, runtime);
+  const counts = { normal: 0, disputed: 0, confirmed: 0, idle: 0 };
+  els.whitelistMonitorTimeline.textContent = '';
+  timeline.forEach((item) => {
+    const dot = document.createElement('span');
+    const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const label = `${start}–${end} · ${getWhitelistMonitorHistoryStateLabel(item.state)}`;
+    counts[item.state] += 1;
+    dot.className = `whitelist-monitor-timeline-dot is-${item.state}`;
+    dot.title = label;
+    dot.setAttribute('role', 'listitem');
+    dot.setAttribute('aria-label', label);
+    els.whitelistMonitorTimeline.append(dot);
+  });
+
+  const knownCount = counts.normal + counts.disputed + counts.confirmed;
+  els.whitelistMonitorHistorySummary.textContent = knownCount
+    ? `Часовые интервалы: ${[
+      `норма — ${counts.normal}`,
+      `спорно — ${counts.disputed}`,
+      `белые списки — ${counts.confirmed}`,
+      counts.idle ? `нет данных — ${counts.idle}` : '',
+    ].filter(Boolean).join(' · ')}`
+    : 'За последние сутки данных пока нет.';
+}
+
 function renderWhitelistMonitor() {
   if (!els.whitelistMonitorEnabled) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
@@ -3563,6 +3670,7 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorEnabledLabel.textContent = apiAvailable
     ? disabling ? 'Отключится после сохранения' : enabled ? 'Включено' : 'Выключено'
     : 'Только в MihUI';
+  renderWhitelistMonitorHistory(runtime);
   els.whitelistMonitorIntro.hidden = enabled;
   els.whitelistMonitorDetails.hidden = !enabled;
   if (!enabled) return;
