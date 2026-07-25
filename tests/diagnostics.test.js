@@ -265,6 +265,7 @@ rules:
     });
 
     const output = app.state.outputText;
+    assert.match(output, /profile:\n  store-selected: true/);
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
     assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
@@ -287,6 +288,36 @@ rules:
       ai: 'FASTEST',
     });
     assert.equal(app.state.outputText, before);
+  });
+
+  test(`${source.name}: enables selection persistence without changing profile siblings`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+profile:
+  store-selected: false
+  store-fake-ip: true
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/sub
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    use:
+      - main
+rules:
+  - MATCH,FASTEST
+`);
+
+    app.prepareResourceMonitorConfig({
+      youtube: 'FASTEST',
+      telegram: 'FASTEST',
+      whatsapp: 'FASTEST',
+      ai: 'FASTEST',
+    });
+
+    assert.match(app.state.outputText, /profile:\n  store-selected: true\n  store-fake-ip: true/);
+    assert.equal((app.state.outputText.match(/store-selected:/g) || []).length, 1);
   });
 
   test(`${source.name}: detects providers without a successful update after the configured interval`, () => {

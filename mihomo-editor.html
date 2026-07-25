@@ -12136,9 +12136,68 @@ function resourceMonitorNeedsConfigChanges(sources = null) {
     return Boolean(sources && group.managedMonitoring && sources[key] && group.monitorSourceGroup !== sources[key]);
   });
   if (groupsNeedChanges) return true;
+  if (
+    state.groups.some((group) => group.managedMonitoring)
+    && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
+  ) return true;
   return Object.values(RESOURCE_MONITOR_RULES)
     .flat()
     .some((parts) => !hasResourceMonitorRule(parts));
+}
+
+function isResourceMonitorSelectionPersistenceEnabled(text) {
+  const lines = splitLines(text);
+  const profile = findTopSection(lines, 'profile');
+  if (!profile) return false;
+  const entry = parseTopLevelKeyValueLine(lines[profile.start]);
+  const inlineMap = parseInlineMap(entry?.value);
+  if (inlineMap?.has('store-selected')) {
+    return cleanScalar(inlineMap.get('store-selected')).toLowerCase() === 'true';
+  }
+  return lines
+    .slice(profile.start + 1, profile.end)
+    .some((line) => {
+      const item = parseKeyValueLine(line, 2);
+      return item?.key === 'store-selected' && cleanScalar(item.value).toLowerCase() === 'true';
+    });
+}
+
+function createResourceMonitorProfileReplacement(lines, groupsSection) {
+  if (!state.groups.some((group) => group.requiresSelectionPersistence)) return null;
+  const profile = findTopSection(lines, 'profile');
+  if (!profile) {
+    return {
+      start: groupsSection.start,
+      end: groupsSection.start,
+      lines: ['profile:', '  store-selected: true', ''],
+    };
+  }
+
+  const header = parseTopLevelKeyValueLine(lines[profile.start]);
+  const inlineMap = parseInlineMap(header?.value);
+  if (inlineMap) {
+    inlineMap.set('store-selected', 'true');
+    const comment = splitYamlHighlightComment(lines[profile.start]).comment;
+    return {
+      start: profile.start,
+      end: profile.start + 1,
+      lines: [
+        `profile: {${[...inlineMap.entries()].map(([key, value]) => `${formatKey(key)}: ${value}`).join(', ')}}${comment ? ` ${comment.trim()}` : ''}`,
+      ],
+    };
+  }
+
+  const block = lines.slice(profile.start, profile.end);
+  const selectedIndex = block.findIndex((line, index) => (
+    index > 0 && parseKeyValueLine(line, 2)?.key === 'store-selected'
+  ));
+  if (selectedIndex === -1) {
+    block.splice(1, 0, '  store-selected: true');
+  } else {
+    const comment = splitYamlHighlightComment(block[selectedIndex]).comment;
+    block[selectedIndex] = `  store-selected: true${comment ? ` ${comment.trim()}` : ''}`;
+  }
+  return { start: profile.start, end: profile.end, lines: block };
 }
 
 function hasResourceMonitorRule(parts) {
@@ -12176,6 +12235,7 @@ function prepareResourceMonitorConfig(sources) {
       managedMonitoring: true,
       monitorService: key,
       monitorSourceGroup: source.name,
+      requiresSelectionPersistence: true,
     };
 
     if (existing) {
@@ -18803,6 +18863,8 @@ function generateOutput() {
       lines: serializeGroupsSection(lines, groupsSection),
     },
   ];
+  const resourceMonitorProfileReplacement = createResourceMonitorProfileReplacement(lines, groupsSection);
+  if (resourceMonitorProfileReplacement) replacements.push(resourceMonitorProfileReplacement);
   const hasActiveProviders = state.providers.some((provider) => !provider.deleted);
   const hasActiveRules = getActiveRules().length > 0;
 

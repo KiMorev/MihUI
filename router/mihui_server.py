@@ -467,20 +467,18 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
-            previous_settings = load_resource_monitor_settings(self.app_dir)
-            if not previous_settings["enabled"]:
-                proxies = load_resource_monitor_proxies(self.app_dir)
-                selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
-                if not selection["ok"]:
-                    self.send_json(
-                        HTTPStatus.BAD_GATEWAY,
-                        {
-                            "ok": False,
-                            "message": "Mihomo did not apply the fastest resource nodes",
-                            "selection": selection,
-                        },
-                    )
-                    return
+            proxies = load_resource_monitor_proxies(self.app_dir)
+            selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
+            if not selection["ok"]:
+                self.send_json(
+                    HTTPStatus.BAD_GATEWAY,
+                    {
+                        "ok": False,
+                        "message": "Mihomo did not apply the fastest resource nodes",
+                        "selection": selection,
+                    },
+                )
+                return
 
         save_resource_monitor_settings(self.app_dir, settings)
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))

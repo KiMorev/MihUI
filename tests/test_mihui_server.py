@@ -1380,13 +1380,14 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(result["services"]["youtube"]["now"], "node-a")
         select.assert_not_called()
 
-    def test_resource_monitor_enable_applies_fastest_mihomo_nodes(self):
+    def test_resource_monitor_enabled_settings_apply_fastest_mihomo_nodes(self):
         settings = mihui_server.default_resource_monitor_settings()
         settings["enabled"] = True
         proxies = {"YOUTUBE": {"type": "Selector", "now": "node-a", "all": ["node-a"]}}
 
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
+            mihui_server.save_resource_monitor_settings(app_dir, settings)
             server, thread = self.start_mihui_server(app_dir)
             try:
                 with mock.patch.object(
