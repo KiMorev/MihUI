@@ -9233,7 +9233,14 @@ const RESOURCE_MONITOR_RULES = {
     ['GEOSITE', 'youtube', 'YOUTUBE'],
   ],
   telegram: [
-    ['GEOSITE', 'telegram', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'telegram.org', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 't.me', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'telegram.me', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'telegram.dog', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'telegra.ph', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'tdesktop.com', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'cdn-telegram.org', 'TELEGRAM'],
+    ['DOMAIN-SUFFIX', 'telegram-cdn.org', 'TELEGRAM'],
     ['GEOIP', 'telegram', 'TELEGRAM', 'no-resolve'],
   ],
   whatsapp: [
@@ -19656,7 +19663,7 @@ function getRulesInSerializationOrder() {
 function serializeRule(rule, renamedGroups = new Map()) {
   const target = renamedGroups.get(rule.target) || rule.target;
   const nextRule = { ...rule, target };
-  const body = buildRuleParts(nextRule).map((part) => formatScalar(part)).join(',');
+  const body = buildRuleParts(nextRule).join(',');
   const comment = rule.comment ? ` ${rule.comment}` : '';
   return `${rule.indent || '  '}- ${body}${comment}`;
 }

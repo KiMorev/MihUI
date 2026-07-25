@@ -252,6 +252,8 @@ proxy-groups:
     proxies:
       - FASTEST
 rules:
+  - RULE-SET,category-gov-ru@domain,DIRECT
+  - RULE-SET,netbios@inline,REJECT
   - MATCH,PROXY
 `);
 
@@ -267,7 +269,13 @@ rules:
     assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
     assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
     assert.match(output, /exclude-filter: ["']?\(\?i\)expired/);
+    assert.match(output, /RULE-SET,category-gov-ru@domain,DIRECT/);
+    assert.match(output, /RULE-SET,netbios@inline,REJECT/);
+    assert.doesNotMatch(output, /RULE-SET,"[^"]+@[^"]+"/);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
+    assert.doesNotMatch(output, /GEOSITE,telegram,TELEGRAM/);
+    assert.ok(output.indexOf('DOMAIN-SUFFIX,telegram.org,TELEGRAM') < output.indexOf('MATCH,PROXY'));
+    assert.ok(output.indexOf('GEOIP,telegram,TELEGRAM,no-resolve') < output.indexOf('MATCH,PROXY'));
     assert.ok(output.indexOf('DOMAIN-SUFFIX,anthropic.com,AI') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(), false);
 
