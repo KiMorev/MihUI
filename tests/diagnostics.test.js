@@ -163,6 +163,7 @@ globalThis.__app = {
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
   buildResourceMonitorTimeline,
+  getResourceMonitorHistoryTooltipContent,
   isRecentResourceMonitorSwitch,
   formatResourceMonitorSwitchAge,
   buildWhitelistMonitorTimeline,
@@ -462,6 +463,7 @@ rules:
     );
     assert.equal(timeline[11].hasSwitch, true);
     assert.equal(timeline[12].hasSwitch, false);
+    assert.equal(timeline[11].events[0].type, 'switch');
   });
 
   test(`${source.name}: keeps the serious resource state when a switch succeeds in the same hour`, () => {
@@ -476,6 +478,45 @@ rules:
 
     assert.equal(timeline[0].state, 'warning');
     assert.equal(timeline[0].hasSwitch, true);
+  });
+
+  test(`${source.name}: describes latency and node changes in the resource history tooltip`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 60 * 60 * 1000;
+    const at = (offsetMinutes) => Math.floor((start + offsetMinutes * 60 * 1000) / 1000);
+    const [item] = app.buildResourceMonitorTimeline([
+      {
+        service: 'youtube',
+        type: 'high_latency',
+        timestamp: at(10),
+        message: 'Высокая задержка: 826 мс (2/2)',
+        node: 'Амстердам',
+        delay: 826,
+        threshold: 400,
+      },
+      {
+        service: 'youtube',
+        type: 'switch',
+        timestamp: at(12),
+        message: 'Нода переключена: Амстердам → Финляндия',
+        previousNode: 'Амстердам',
+        node: 'Финляндия',
+        delay: 44,
+        previousDelay: 826,
+        threshold: 400,
+        reason: 'Высокая задержка: 826 мс',
+      },
+    ], null, 'youtube', now, 1);
+    const tooltip = app.getResourceMonitorHistoryTooltipContent({ title: 'YouTube' }, item);
+
+    assert.equal(tooltip.state, 'warning');
+    assert.equal(tooltip.node, 'Амстердам → Финляндия');
+    assert.equal(tooltip.delay, 'до смены 826 мс · лимит 400 мс · после 44 мс');
+    assert.equal(tooltip.reason, 'Высокая задержка: 826 мс');
+    assert.equal(tooltip.eventLines.length, 2);
+    assert.match(tooltip.eventLines[0], /Высокая задержка: 826 мс \(2\/2\)$/);
+    assert.match(tooltip.eventLines[1], /Нода переключена: Амстердам → Финляндия$/);
   });
 
   test(`${source.name}: expires the compact switch note after two hours`, () => {

@@ -29,6 +29,8 @@ const RESOURCE_MONITOR_DEFINITIONS = {
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
   ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
 };
+let resourceMonitorHistoryTooltipTarget = null;
+let resourceMonitorHistoryTooltipPinned = false;
 const RESOURCE_MONITOR_RULES = {
   youtube: [
     ['GEOSITE', 'youtube', 'YOUTUBE'],
@@ -644,6 +646,7 @@ const els = {
   resourceMonitorHistory: document.querySelector('#resourceMonitorHistory'),
   resourceMonitorHistoryRows: document.querySelector('#resourceMonitorHistoryRows'),
   resourceMonitorHistorySummary: document.querySelector('#resourceMonitorHistorySummary'),
+  resourceMonitorHistoryTooltip: document.querySelector('#resourceMonitorHistoryTooltip'),
   resourceMonitorRows: document.querySelector('#resourceMonitorRows'),
   resourceMonitorEventsCount: document.querySelector('#resourceMonitorEventsCount'),
   resourceMonitorEventsList: document.querySelector('#resourceMonitorEventsList'),
@@ -814,6 +817,7 @@ window.addEventListener?.('beforeunload', handleBeforeUnload);
 window.addEventListener?.('keydown', handleYamlUrlModifierState);
 window.addEventListener?.('keyup', handleYamlUrlModifierState);
 window.addEventListener?.('blur', clearYamlUrlNavigationMode);
+document.addEventListener?.('click', handleResourceMonitorHistoryOutsideClick);
 els.xkeenFileEditors.forEach((editor) => {
   editor.addEventListener('input', handleXkeenNetworkFileInput);
   editor.addEventListener('scroll', syncXkeenFileHighlightScroll);
@@ -2788,6 +2792,7 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
       at: getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at),
       state: normalizeResourceMonitorHistoryState(event.type),
       hasSwitch: event.type === 'switch',
+      event,
     }))
     .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd && event.state !== 'idle');
   const runtimeAt = getResourceMonitorHistoryTimestamp(runtime?.checkedAt);
@@ -2796,14 +2801,23 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
       at: runtimeAt,
       state: normalizeResourceMonitorHistoryState(runtime?.state),
       hasSwitch: false,
+      event: {
+        timestamp: runtime.checkedAt,
+        type: 'runtime',
+        message: runtime.message || '',
+        node: runtime.currentNode || '',
+        delay: runtime.delay,
+      },
     });
   }
   transitions.sort((left, right) => left.at - right.at);
 
   let currentState = 'idle';
+  let currentContext = null;
   let transitionIndex = 0;
   while (transitionIndex < transitions.length && transitions[transitionIndex].at < windowStart) {
     currentState = transitions[transitionIndex].state;
+    currentContext = transitions[transitionIndex].event;
     transitionIndex += 1;
   }
 
@@ -2813,18 +2827,28 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
     const start = windowStart + index * hourMs;
     const end = start + hourMs;
     const states = [currentState];
+    const intervalEvents = [];
     let hasSwitch = false;
     while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
       currentState = transitions[transitionIndex].state;
+      currentContext = transitions[transitionIndex].event;
       states.push(currentState);
       hasSwitch ||= transitions[transitionIndex].hasSwitch;
+      intervalEvents.push(transitions[transitionIndex].event);
       transitionIndex += 1;
     }
     const stateValue = states.reduce(
       (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
       'idle',
     );
-    result.push({ start, end, state: stateValue, hasSwitch });
+    result.push({
+      start,
+      end,
+      state: stateValue,
+      hasSwitch,
+      events: intervalEvents,
+      context: currentContext,
+    });
   }
   return result;
 }
@@ -2838,14 +2862,134 @@ function getResourceMonitorHistoryStateLabel(value) {
   }[value] || 'Нет данных';
 }
 
+function getResourceMonitorHistoryTooltipContent(definition, item) {
+  const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const events = (Array.isArray(item.events) ? item.events : []).filter(Boolean);
+  const recordedEvents = events.filter((event) => event.type !== 'runtime');
+  const latest = events.at(-1) || null;
+  const switchEvent = [...recordedEvents].reverse().find((event) => event.type === 'switch') || null;
+  const node = switchEvent?.previousNode && switchEvent?.node
+    ? `${switchEvent.previousNode} → ${switchEvent.node}`
+    : latest?.node || '';
+  const delay = Number(latest?.delay);
+  const previousDelay = Number(switchEvent?.previousDelay);
+  const threshold = Number(switchEvent?.threshold ?? latest?.threshold);
+  const eventLines = recordedEvents.slice(-3).map((event) => {
+    const timestamp = getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at);
+    const time = Number.isFinite(timestamp)
+      ? new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `${time ? `${time} · ` : ''}${event.message || getResourceMonitorHistoryStateLabel(normalizeResourceMonitorHistoryState(event.type))}`;
+  });
+  if (recordedEvents.length > 3) {
+    eventLines.unshift(`Ещё событий: ${recordedEvents.length - 3}`);
+  }
+  if (eventLines.length === 0) {
+    eventLines.push(
+      item.state === 'idle'
+        ? 'За этот час мониторинг не сохранил данных.'
+        : latest?.message || 'Новых событий в этом интервале нет.',
+    );
+  }
+
+  return {
+    title: `${definition.title} · ${start}–${end}`,
+    state: item.state,
+    stateLabel: getResourceMonitorHistoryStateLabel(item.state),
+    node,
+    delay: Number.isFinite(previousDelay) && Number.isFinite(delay)
+      ? `до смены ${previousDelay} мс${Number.isFinite(threshold) ? ` · лимит ${threshold} мс` : ''} · после ${delay} мс`
+      : Number.isFinite(delay)
+        ? `${delay} мс${Number.isFinite(threshold) ? ` · лимит ${threshold} мс` : ''}`
+        : '',
+    reason: switchEvent?.reason || latest?.detail || '',
+    eventLines,
+  };
+}
+
+function hideResourceMonitorHistoryTooltip() {
+  if (!els.resourceMonitorHistoryTooltip) return;
+  resourceMonitorHistoryTooltipTarget?.classList.remove('is-selected');
+  resourceMonitorHistoryTooltipTarget = null;
+  resourceMonitorHistoryTooltipPinned = false;
+  els.resourceMonitorHistoryTooltip.hidden = true;
+}
+
+function showResourceMonitorHistoryTooltip(target, content, options = {}) {
+  if (!els.resourceMonitorHistoryTooltip || !target) return;
+  resourceMonitorHistoryTooltipTarget?.classList.remove('is-selected');
+  resourceMonitorHistoryTooltipTarget = target;
+  resourceMonitorHistoryTooltipPinned = Boolean(options.pinned);
+  target.classList.toggle('is-selected', resourceMonitorHistoryTooltipPinned);
+
+  const tooltip = els.resourceMonitorHistoryTooltip;
+  const header = document.createElement('div');
+  const title = document.createElement('strong');
+  const stateLabel = document.createElement('span');
+  const metrics = document.createElement('dl');
+  const events = document.createElement('div');
+  header.className = 'resource-monitor-history-tooltip-head';
+  title.textContent = content.title;
+  stateLabel.className = `resource-monitor-history-tooltip-state is-${content.state}`;
+  stateLabel.textContent = content.stateLabel;
+  header.append(title, stateLabel);
+  metrics.className = 'resource-monitor-history-tooltip-metrics';
+  [
+    ['Нода', content.node],
+    ['Задержка', content.delay],
+    ['Причина', content.reason],
+  ].filter(([, value]) => value).forEach(([label, value]) => {
+    const row = document.createElement('div');
+    const term = document.createElement('dt');
+    const detail = document.createElement('dd');
+    term.textContent = label;
+    detail.textContent = value;
+    row.append(term, detail);
+    metrics.append(row);
+  });
+  events.className = 'resource-monitor-history-tooltip-events';
+  content.eventLines.forEach((line) => {
+    const event = document.createElement('span');
+    event.textContent = line;
+    events.append(event);
+  });
+  tooltip.textContent = '';
+  tooltip.append(header);
+  if (metrics.children.length > 0) tooltip.append(metrics);
+  tooltip.append(events);
+  tooltip.hidden = false;
+
+  const targetRect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const viewportPadding = 10;
+  const left = Math.min(
+    Math.max(viewportPadding, targetRect.left + targetRect.width / 2 - tooltipRect.width / 2),
+    window.innerWidth - tooltipRect.width - viewportPadding,
+  );
+  const fitsBelow = targetRect.bottom + 8 + tooltipRect.height <= window.innerHeight - viewportPadding;
+  const top = fitsBelow
+    ? targetRect.bottom + 8
+    : Math.max(viewportPadding, targetRect.top - tooltipRect.height - 8);
+  tooltip.style.left = `${Math.round(left)}px`;
+  tooltip.style.top = `${Math.round(top)}px`;
+}
+
+function handleResourceMonitorHistoryOutsideClick(event) {
+  if (!resourceMonitorHistoryTooltipPinned) return;
+  if (event.target?.closest?.('.resource-monitor-history-segment')) return;
+  hideResourceMonitorHistoryTooltip();
+}
+
 function renderResourceMonitorHistory(enabledEntries, runtime) {
   if (!els.resourceMonitorHistory || !els.resourceMonitorHistoryRows || !els.resourceMonitorHistorySummary) return;
+  hideResourceMonitorHistoryTooltip();
   const visible = state.resourceMonitor.loaded && enabledEntries.length > 0;
   els.resourceMonitorHistory.hidden = !visible;
   els.resourceMonitorHistoryRows.textContent = '';
   if (!visible) return;
 
-  let knownIntervals = 0;
+  const intervalCounts = { available: 0, warning: 0, error: 0, idle: 0 };
   enabledEntries.forEach(([key, definition]) => {
     const row = document.createElement('article');
     const title = document.createElement('strong');
@@ -2863,17 +3007,44 @@ function renderResourceMonitorHistory(enabledEntries, runtime) {
     track.setAttribute('aria-label', `История проверок ${definition.title}`);
 
     timeline.forEach((item) => {
-      const dot = document.createElement('span');
-      const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      const switchLabel = item.hasSwitch ? ' · Нода переключена' : '';
-      const label = `${start}–${end} · ${getResourceMonitorHistoryStateLabel(item.state)}${switchLabel}`;
-      if (item.state !== 'idle') knownIntervals += 1;
-      dot.className = `resource-monitor-history-dot is-${item.state}${item.hasSwitch ? ' has-switch' : ''}`;
-      dot.title = label;
-      dot.setAttribute('role', 'listitem');
-      dot.setAttribute('aria-label', label);
-      track.append(dot);
+      const segment = document.createElement('button');
+      const content = getResourceMonitorHistoryTooltipContent(definition, item);
+      const accessibleLabel = [
+        content.title,
+        content.stateLabel,
+        content.node ? `Нода: ${content.node}` : '',
+        content.delay ? `Задержка: ${content.delay}` : '',
+        content.reason ? `Причина: ${content.reason}` : '',
+        ...content.eventLines,
+      ].filter(Boolean).join('. ');
+      intervalCounts[item.state] += 1;
+      segment.className = `resource-monitor-history-segment is-${item.state}${item.hasSwitch ? ' has-switch' : ''}`;
+      segment.type = 'button';
+      segment.setAttribute('role', 'listitem');
+      segment.setAttribute('aria-label', accessibleLabel);
+      segment.addEventListener('mouseenter', () => {
+        if (!resourceMonitorHistoryTooltipPinned) showResourceMonitorHistoryTooltip(segment, content);
+      });
+      segment.addEventListener('mouseleave', () => {
+        if (!resourceMonitorHistoryTooltipPinned) hideResourceMonitorHistoryTooltip();
+      });
+      segment.addEventListener('focus', () => showResourceMonitorHistoryTooltip(segment, content));
+      segment.addEventListener('blur', () => {
+        if (!resourceMonitorHistoryTooltipPinned) hideResourceMonitorHistoryTooltip();
+      });
+      segment.addEventListener('click', () => {
+        const shouldClose = resourceMonitorHistoryTooltipPinned
+          && resourceMonitorHistoryTooltipTarget === segment;
+        if (shouldClose) {
+          hideResourceMonitorHistoryTooltip();
+        } else {
+          showResourceMonitorHistoryTooltip(segment, content, { pinned: true });
+        }
+      });
+      segment.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hideResourceMonitorHistoryTooltip();
+      });
+      track.append(segment);
     });
     row.append(title, track);
     els.resourceMonitorHistoryRows.append(row);
@@ -2886,8 +3057,10 @@ function renderResourceMonitorHistory(enabledEntries, runtime) {
     && enabledKeys.has(event.service)
     && Number(getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at)) >= windowStart
   )).length;
+  const knownIntervals = intervalCounts.available + intervalCounts.warning + intervalCounts.error;
+  const totalIntervals = knownIntervals + intervalCounts.idle;
   els.resourceMonitorHistorySummary.textContent = knownIntervals
-    ? `Ресурсов: ${enabledEntries.length} · смен нод за сутки: ${switchCount}`
+    ? `Данные: ${knownIntervals} из ${totalIntervals} интервалов · внимание: ${intervalCounts.warning} · недоступно: ${intervalCounts.error} · смен нод: ${switchCount}`
     : 'За последние сутки данных пока нет.';
 }
 

@@ -118,11 +118,15 @@ test('main and standalone expose compact resource monitoring history', () => {
     assert.match(html, /id="resourceMonitorHistory"/);
     assert.match(html, /id="resourceMonitorHistoryRows"/);
     assert.match(html, /id="resourceMonitorHistorySummary"/);
+    assert.match(html, /id="resourceMonitorHistoryTooltip"[^>]+role="tooltip"/);
     assert.match(html, /История проверок/);
+    assert.match(html, /class="is-idle"[^>]*><\/i>Нет данных/);
   }
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const script = read(name);
     assert.match(script, /buildResourceMonitorTimeline/);
+    assert.match(script, /getResourceMonitorHistoryTooltipContent/);
+    assert.match(script, /showResourceMonitorHistoryTooltip/);
     assert.match(script, /RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS = 2 \* 60 \* 60/);
     assert.match(script, /Сменена \$\{formatResourceMonitorSwitchAge/);
   }
@@ -130,7 +134,8 @@ test('main and standalone expose compact resource monitoring history', () => {
     const source = read(name);
     assert.match(source, /\.resource-monitor-history-track\s*{/);
     assert.match(source, /grid-template-columns: repeat\(24, minmax\(0, 1fr\)\)/);
-    assert.match(source, /\.resource-monitor-history-dot\.has-switch/);
+    assert.match(source, /\.resource-monitor-history-segment\.has-switch/);
+    assert.match(source, /\.resource-monitor-history-tooltip\s*{/);
   }
 });
 

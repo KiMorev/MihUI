@@ -1395,7 +1395,6 @@ class ProviderAdapterTests(unittest.TestCase):
                 "youtube",
                 proxies,
             )
-
         item = runtime["services"]["youtube"]
         self.assertEqual(item["state"], "available")
         self.assertEqual(item["currentNode"], "node-b")
@@ -1470,6 +1469,11 @@ class ProviderAdapterTests(unittest.TestCase):
                 "youtube",
                 proxies,
             )
+            switch_event = next(
+                event
+                for event in mihui_server.read_resource_monitor_events(Path(temp_dir))
+                if event["type"] == "switch"
+            )
 
         item = runtime["services"]["youtube"]
         self.assertEqual(item["state"], "available")
@@ -1477,6 +1481,9 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(item["delay"], 380)
         self.assertEqual(item["consecutiveSlowChecks"], 0)
         self.assertIn("Высокая задержка", item["lastSwitch"]["reason"])
+        self.assertIn("Высокая задержка", switch_event["reason"])
+        self.assertEqual(switch_event["previousDelay"], 600)
+        self.assertEqual(switch_event["threshold"], 400)
         select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-b")
 
     def test_resource_monitor_proactively_switches_after_two_checks_and_100ms_gain(self):

@@ -3108,6 +3108,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
 
     latency_switch = False
     proactive_switch = False
+    latency_threshold = None
     switch_reason = result["message"]
     if result["ok"]:
         current_delay = int(result["delay"])
@@ -3304,6 +3305,9 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         node=selected,
         previousNode=current,
         delay=delay,
+        previousDelay=result["delay"] if latency_switch else None,
+        threshold=latency_threshold,
+        reason=switch_reason,
         quarantineUntil=quarantine[current],
     )
 

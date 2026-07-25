@@ -3134,26 +3134,34 @@ body.component-manager-open {
 }
 
 .resource-monitor-history-legend i,
-.resource-monitor-history-dot {
+.resource-monitor-history-segment {
   box-sizing: border-box;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  border-radius: 3px;
 }
 
 .resource-monitor-history-legend i.is-available,
-.resource-monitor-history-dot.is-available {
+.resource-monitor-history-segment.is-available {
   background: var(--success);
 }
 
 .resource-monitor-history-legend i.is-warning,
-.resource-monitor-history-dot.is-warning {
+.resource-monitor-history-segment.is-warning {
   background: var(--warning);
 }
 
 .resource-monitor-history-legend i.is-error,
-.resource-monitor-history-dot.is-error {
+.resource-monitor-history-segment.is-error {
   background: var(--danger);
+}
+
+.resource-monitor-history-legend i.is-idle,
+.resource-monitor-history-segment.is-idle {
+  background: var(--line-strong);
+}
+
+.resource-monitor-history-legend i {
+  width: 8px;
+  height: 8px;
 }
 
 .resource-monitor-history-legend i.has-switch {
@@ -3182,36 +3190,40 @@ body.component-manager-open {
 }
 
 .resource-monitor-history-track {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(24, minmax(0, 1fr));
   align-items: center;
-  min-height: 14px;
+  gap: 2px;
+  min-height: 18px;
 }
 
-.resource-monitor-history-track::before {
-  position: absolute;
-  right: 1%;
-  left: 1%;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--line);
-  content: "";
+.resource-monitor-history-segment {
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  padding: 0;
+  border: 1px solid #fff;
+  cursor: pointer;
+  opacity: 0.92;
 }
 
-.resource-monitor-history-dot {
-  position: relative;
-  z-index: 1;
-  justify-self: center;
-  border: 2px solid #fff;
-  background: var(--line-strong);
-  box-shadow: 0 0 0 1px rgba(24, 34, 52, 0.08);
+.resource-monitor-history-segment:hover,
+.resource-monitor-history-segment:focus-visible,
+.resource-monitor-history-segment.is-selected {
+  opacity: 1;
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
 }
 
-.resource-monitor-history-dot.has-switch {
-  box-shadow:
-    0 0 0 1px #fff,
-    0 0 0 3px color-mix(in srgb, var(--accent) 58%, transparent);
+.resource-monitor-history-segment.has-switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.resource-monitor-history-segment.has-switch:hover,
+.resource-monitor-history-segment.has-switch:focus-visible,
+.resource-monitor-history-segment.has-switch.is-selected {
+  outline-color: var(--accent-dark);
 }
 
 .resource-monitor-history-axis {
@@ -3227,6 +3239,102 @@ body.component-manager-open {
   margin-left: 82px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.resource-monitor-history-tooltip {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 9px;
+  width: min(340px, calc(100vw - 20px));
+  padding: 12px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(24, 34, 52, 0.18);
+  pointer-events: none;
+}
+
+.resource-monitor-history-tooltip[hidden] {
+  display: none;
+}
+
+.resource-monitor-history-tooltip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-monitor-history-tooltip-head > strong {
+  font-size: 12px;
+}
+
+.resource-monitor-history-tooltip-state {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.resource-monitor-history-tooltip-state.is-available {
+  color: var(--success);
+  background: #edf9f1;
+}
+
+.resource-monitor-history-tooltip-state.is-warning {
+  color: var(--warning);
+  background: #fff8e8;
+}
+
+.resource-monitor-history-tooltip-state.is-error {
+  color: var(--danger);
+  background: #fff1f1;
+}
+
+.resource-monitor-history-tooltip-metrics {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.resource-monitor-history-tooltip-metrics > div {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.resource-monitor-history-tooltip-metrics dt,
+.resource-monitor-history-tooltip-metrics dd {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.resource-monitor-history-tooltip-metrics dt {
+  color: var(--muted);
+}
+
+.resource-monitor-history-tooltip-metrics dd {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.resource-monitor-history-tooltip-events {
+  display: grid;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.resource-monitor-history-tooltip-events span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .resource-monitor-head-actions,
@@ -8964,9 +9072,8 @@ button.review-check-card:focus-visible {
     gap: 7px;
   }
 
-  .resource-monitor-history-dot {
-    width: 7px;
-    height: 7px;
+  .resource-monitor-history-segment {
+    height: 16px;
   }
 
   .resource-monitor-history-axis,
@@ -9680,6 +9787,7 @@ button.review-check-card:focus-visible {
                     <span><i class="is-available" aria-hidden="true"></i>Доступен</span>
                     <span><i class="is-warning" aria-hidden="true"></i>Требует внимания</span>
                     <span><i class="is-error" aria-hidden="true"></i>Недоступен</span>
+                    <span><i class="is-idle" aria-hidden="true"></i>Нет данных</span>
                     <span><i class="has-switch" aria-hidden="true"></i>Смена ноды</span>
                   </div>
                 </header>
@@ -10393,6 +10501,8 @@ button.review-check-card:focus-visible {
       </article>
     </template>
 
+    <div id="resourceMonitorHistoryTooltip" class="resource-monitor-history-tooltip" role="tooltip" hidden></div>
+
     <script>
 const DEFAULT_HEALTH_URL = 'https://www.gstatic.com/generate_204';
 const DEFAULT_GENERATED_USER_AGENT = 'ClashMeta/1.19.24; mihomo/1.19.24';
@@ -10425,6 +10535,8 @@ const RESOURCE_MONITOR_DEFINITIONS = {
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
   ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
 };
+let resourceMonitorHistoryTooltipTarget = null;
+let resourceMonitorHistoryTooltipPinned = false;
 const RESOURCE_MONITOR_RULES = {
   youtube: [
     ['GEOSITE', 'youtube', 'YOUTUBE'],
@@ -11040,6 +11152,7 @@ const els = {
   resourceMonitorHistory: document.querySelector('#resourceMonitorHistory'),
   resourceMonitorHistoryRows: document.querySelector('#resourceMonitorHistoryRows'),
   resourceMonitorHistorySummary: document.querySelector('#resourceMonitorHistorySummary'),
+  resourceMonitorHistoryTooltip: document.querySelector('#resourceMonitorHistoryTooltip'),
   resourceMonitorRows: document.querySelector('#resourceMonitorRows'),
   resourceMonitorEventsCount: document.querySelector('#resourceMonitorEventsCount'),
   resourceMonitorEventsList: document.querySelector('#resourceMonitorEventsList'),
@@ -11210,6 +11323,7 @@ window.addEventListener?.('beforeunload', handleBeforeUnload);
 window.addEventListener?.('keydown', handleYamlUrlModifierState);
 window.addEventListener?.('keyup', handleYamlUrlModifierState);
 window.addEventListener?.('blur', clearYamlUrlNavigationMode);
+document.addEventListener?.('click', handleResourceMonitorHistoryOutsideClick);
 els.xkeenFileEditors.forEach((editor) => {
   editor.addEventListener('input', handleXkeenNetworkFileInput);
   editor.addEventListener('scroll', syncXkeenFileHighlightScroll);
@@ -13184,6 +13298,7 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
       at: getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at),
       state: normalizeResourceMonitorHistoryState(event.type),
       hasSwitch: event.type === 'switch',
+      event,
     }))
     .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd && event.state !== 'idle');
   const runtimeAt = getResourceMonitorHistoryTimestamp(runtime?.checkedAt);
@@ -13192,14 +13307,23 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
       at: runtimeAt,
       state: normalizeResourceMonitorHistoryState(runtime?.state),
       hasSwitch: false,
+      event: {
+        timestamp: runtime.checkedAt,
+        type: 'runtime',
+        message: runtime.message || '',
+        node: runtime.currentNode || '',
+        delay: runtime.delay,
+      },
     });
   }
   transitions.sort((left, right) => left.at - right.at);
 
   let currentState = 'idle';
+  let currentContext = null;
   let transitionIndex = 0;
   while (transitionIndex < transitions.length && transitions[transitionIndex].at < windowStart) {
     currentState = transitions[transitionIndex].state;
+    currentContext = transitions[transitionIndex].event;
     transitionIndex += 1;
   }
 
@@ -13209,18 +13333,28 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
     const start = windowStart + index * hourMs;
     const end = start + hourMs;
     const states = [currentState];
+    const intervalEvents = [];
     let hasSwitch = false;
     while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
       currentState = transitions[transitionIndex].state;
+      currentContext = transitions[transitionIndex].event;
       states.push(currentState);
       hasSwitch ||= transitions[transitionIndex].hasSwitch;
+      intervalEvents.push(transitions[transitionIndex].event);
       transitionIndex += 1;
     }
     const stateValue = states.reduce(
       (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
       'idle',
     );
-    result.push({ start, end, state: stateValue, hasSwitch });
+    result.push({
+      start,
+      end,
+      state: stateValue,
+      hasSwitch,
+      events: intervalEvents,
+      context: currentContext,
+    });
   }
   return result;
 }
@@ -13234,14 +13368,134 @@ function getResourceMonitorHistoryStateLabel(value) {
   }[value] || 'Нет данных';
 }
 
+function getResourceMonitorHistoryTooltipContent(definition, item) {
+  const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const events = (Array.isArray(item.events) ? item.events : []).filter(Boolean);
+  const recordedEvents = events.filter((event) => event.type !== 'runtime');
+  const latest = events.at(-1) || null;
+  const switchEvent = [...recordedEvents].reverse().find((event) => event.type === 'switch') || null;
+  const node = switchEvent?.previousNode && switchEvent?.node
+    ? `${switchEvent.previousNode} → ${switchEvent.node}`
+    : latest?.node || '';
+  const delay = Number(latest?.delay);
+  const previousDelay = Number(switchEvent?.previousDelay);
+  const threshold = Number(switchEvent?.threshold ?? latest?.threshold);
+  const eventLines = recordedEvents.slice(-3).map((event) => {
+    const timestamp = getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at);
+    const time = Number.isFinite(timestamp)
+      ? new Date(timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `${time ? `${time} · ` : ''}${event.message || getResourceMonitorHistoryStateLabel(normalizeResourceMonitorHistoryState(event.type))}`;
+  });
+  if (recordedEvents.length > 3) {
+    eventLines.unshift(`Ещё событий: ${recordedEvents.length - 3}`);
+  }
+  if (eventLines.length === 0) {
+    eventLines.push(
+      item.state === 'idle'
+        ? 'За этот час мониторинг не сохранил данных.'
+        : latest?.message || 'Новых событий в этом интервале нет.',
+    );
+  }
+
+  return {
+    title: `${definition.title} · ${start}–${end}`,
+    state: item.state,
+    stateLabel: getResourceMonitorHistoryStateLabel(item.state),
+    node,
+    delay: Number.isFinite(previousDelay) && Number.isFinite(delay)
+      ? `до смены ${previousDelay} мс${Number.isFinite(threshold) ? ` · лимит ${threshold} мс` : ''} · после ${delay} мс`
+      : Number.isFinite(delay)
+        ? `${delay} мс${Number.isFinite(threshold) ? ` · лимит ${threshold} мс` : ''}`
+        : '',
+    reason: switchEvent?.reason || latest?.detail || '',
+    eventLines,
+  };
+}
+
+function hideResourceMonitorHistoryTooltip() {
+  if (!els.resourceMonitorHistoryTooltip) return;
+  resourceMonitorHistoryTooltipTarget?.classList.remove('is-selected');
+  resourceMonitorHistoryTooltipTarget = null;
+  resourceMonitorHistoryTooltipPinned = false;
+  els.resourceMonitorHistoryTooltip.hidden = true;
+}
+
+function showResourceMonitorHistoryTooltip(target, content, options = {}) {
+  if (!els.resourceMonitorHistoryTooltip || !target) return;
+  resourceMonitorHistoryTooltipTarget?.classList.remove('is-selected');
+  resourceMonitorHistoryTooltipTarget = target;
+  resourceMonitorHistoryTooltipPinned = Boolean(options.pinned);
+  target.classList.toggle('is-selected', resourceMonitorHistoryTooltipPinned);
+
+  const tooltip = els.resourceMonitorHistoryTooltip;
+  const header = document.createElement('div');
+  const title = document.createElement('strong');
+  const stateLabel = document.createElement('span');
+  const metrics = document.createElement('dl');
+  const events = document.createElement('div');
+  header.className = 'resource-monitor-history-tooltip-head';
+  title.textContent = content.title;
+  stateLabel.className = `resource-monitor-history-tooltip-state is-${content.state}`;
+  stateLabel.textContent = content.stateLabel;
+  header.append(title, stateLabel);
+  metrics.className = 'resource-monitor-history-tooltip-metrics';
+  [
+    ['Нода', content.node],
+    ['Задержка', content.delay],
+    ['Причина', content.reason],
+  ].filter(([, value]) => value).forEach(([label, value]) => {
+    const row = document.createElement('div');
+    const term = document.createElement('dt');
+    const detail = document.createElement('dd');
+    term.textContent = label;
+    detail.textContent = value;
+    row.append(term, detail);
+    metrics.append(row);
+  });
+  events.className = 'resource-monitor-history-tooltip-events';
+  content.eventLines.forEach((line) => {
+    const event = document.createElement('span');
+    event.textContent = line;
+    events.append(event);
+  });
+  tooltip.textContent = '';
+  tooltip.append(header);
+  if (metrics.children.length > 0) tooltip.append(metrics);
+  tooltip.append(events);
+  tooltip.hidden = false;
+
+  const targetRect = target.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const viewportPadding = 10;
+  const left = Math.min(
+    Math.max(viewportPadding, targetRect.left + targetRect.width / 2 - tooltipRect.width / 2),
+    window.innerWidth - tooltipRect.width - viewportPadding,
+  );
+  const fitsBelow = targetRect.bottom + 8 + tooltipRect.height <= window.innerHeight - viewportPadding;
+  const top = fitsBelow
+    ? targetRect.bottom + 8
+    : Math.max(viewportPadding, targetRect.top - tooltipRect.height - 8);
+  tooltip.style.left = `${Math.round(left)}px`;
+  tooltip.style.top = `${Math.round(top)}px`;
+}
+
+function handleResourceMonitorHistoryOutsideClick(event) {
+  if (!resourceMonitorHistoryTooltipPinned) return;
+  if (event.target?.closest?.('.resource-monitor-history-segment')) return;
+  hideResourceMonitorHistoryTooltip();
+}
+
 function renderResourceMonitorHistory(enabledEntries, runtime) {
   if (!els.resourceMonitorHistory || !els.resourceMonitorHistoryRows || !els.resourceMonitorHistorySummary) return;
+  hideResourceMonitorHistoryTooltip();
   const visible = state.resourceMonitor.loaded && enabledEntries.length > 0;
   els.resourceMonitorHistory.hidden = !visible;
   els.resourceMonitorHistoryRows.textContent = '';
   if (!visible) return;
 
-  let knownIntervals = 0;
+  const intervalCounts = { available: 0, warning: 0, error: 0, idle: 0 };
   enabledEntries.forEach(([key, definition]) => {
     const row = document.createElement('article');
     const title = document.createElement('strong');
@@ -13259,17 +13513,44 @@ function renderResourceMonitorHistory(enabledEntries, runtime) {
     track.setAttribute('aria-label', `История проверок ${definition.title}`);
 
     timeline.forEach((item) => {
-      const dot = document.createElement('span');
-      const start = new Date(item.start).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      const end = new Date(item.end).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-      const switchLabel = item.hasSwitch ? ' · Нода переключена' : '';
-      const label = `${start}–${end} · ${getResourceMonitorHistoryStateLabel(item.state)}${switchLabel}`;
-      if (item.state !== 'idle') knownIntervals += 1;
-      dot.className = `resource-monitor-history-dot is-${item.state}${item.hasSwitch ? ' has-switch' : ''}`;
-      dot.title = label;
-      dot.setAttribute('role', 'listitem');
-      dot.setAttribute('aria-label', label);
-      track.append(dot);
+      const segment = document.createElement('button');
+      const content = getResourceMonitorHistoryTooltipContent(definition, item);
+      const accessibleLabel = [
+        content.title,
+        content.stateLabel,
+        content.node ? `Нода: ${content.node}` : '',
+        content.delay ? `Задержка: ${content.delay}` : '',
+        content.reason ? `Причина: ${content.reason}` : '',
+        ...content.eventLines,
+      ].filter(Boolean).join('. ');
+      intervalCounts[item.state] += 1;
+      segment.className = `resource-monitor-history-segment is-${item.state}${item.hasSwitch ? ' has-switch' : ''}`;
+      segment.type = 'button';
+      segment.setAttribute('role', 'listitem');
+      segment.setAttribute('aria-label', accessibleLabel);
+      segment.addEventListener('mouseenter', () => {
+        if (!resourceMonitorHistoryTooltipPinned) showResourceMonitorHistoryTooltip(segment, content);
+      });
+      segment.addEventListener('mouseleave', () => {
+        if (!resourceMonitorHistoryTooltipPinned) hideResourceMonitorHistoryTooltip();
+      });
+      segment.addEventListener('focus', () => showResourceMonitorHistoryTooltip(segment, content));
+      segment.addEventListener('blur', () => {
+        if (!resourceMonitorHistoryTooltipPinned) hideResourceMonitorHistoryTooltip();
+      });
+      segment.addEventListener('click', () => {
+        const shouldClose = resourceMonitorHistoryTooltipPinned
+          && resourceMonitorHistoryTooltipTarget === segment;
+        if (shouldClose) {
+          hideResourceMonitorHistoryTooltip();
+        } else {
+          showResourceMonitorHistoryTooltip(segment, content, { pinned: true });
+        }
+      });
+      segment.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') hideResourceMonitorHistoryTooltip();
+      });
+      track.append(segment);
     });
     row.append(title, track);
     els.resourceMonitorHistoryRows.append(row);
@@ -13282,8 +13563,10 @@ function renderResourceMonitorHistory(enabledEntries, runtime) {
     && enabledKeys.has(event.service)
     && Number(getResourceMonitorHistoryTimestamp(event.timestamp ?? event.at)) >= windowStart
   )).length;
+  const knownIntervals = intervalCounts.available + intervalCounts.warning + intervalCounts.error;
+  const totalIntervals = knownIntervals + intervalCounts.idle;
   els.resourceMonitorHistorySummary.textContent = knownIntervals
-    ? `Ресурсов: ${enabledEntries.length} · смен нод за сутки: ${switchCount}`
+    ? `Данные: ${knownIntervals} из ${totalIntervals} интервалов · внимание: ${intervalCounts.warning} · недоступно: ${intervalCounts.error} · смен нод: ${switchCount}`
     : 'За последние сутки данных пока нет.';
 }
 

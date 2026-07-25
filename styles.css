@@ -3126,26 +3126,34 @@ body.component-manager-open {
 }
 
 .resource-monitor-history-legend i,
-.resource-monitor-history-dot {
+.resource-monitor-history-segment {
   box-sizing: border-box;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  border-radius: 3px;
 }
 
 .resource-monitor-history-legend i.is-available,
-.resource-monitor-history-dot.is-available {
+.resource-monitor-history-segment.is-available {
   background: var(--success);
 }
 
 .resource-monitor-history-legend i.is-warning,
-.resource-monitor-history-dot.is-warning {
+.resource-monitor-history-segment.is-warning {
   background: var(--warning);
 }
 
 .resource-monitor-history-legend i.is-error,
-.resource-monitor-history-dot.is-error {
+.resource-monitor-history-segment.is-error {
   background: var(--danger);
+}
+
+.resource-monitor-history-legend i.is-idle,
+.resource-monitor-history-segment.is-idle {
+  background: var(--line-strong);
+}
+
+.resource-monitor-history-legend i {
+  width: 8px;
+  height: 8px;
 }
 
 .resource-monitor-history-legend i.has-switch {
@@ -3174,36 +3182,40 @@ body.component-manager-open {
 }
 
 .resource-monitor-history-track {
-  position: relative;
   display: grid;
   grid-template-columns: repeat(24, minmax(0, 1fr));
   align-items: center;
-  min-height: 14px;
+  gap: 2px;
+  min-height: 18px;
 }
 
-.resource-monitor-history-track::before {
-  position: absolute;
-  right: 1%;
-  left: 1%;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--line);
-  content: "";
+.resource-monitor-history-segment {
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  padding: 0;
+  border: 1px solid #fff;
+  cursor: pointer;
+  opacity: 0.92;
 }
 
-.resource-monitor-history-dot {
-  position: relative;
-  z-index: 1;
-  justify-self: center;
-  border: 2px solid #fff;
-  background: var(--line-strong);
-  box-shadow: 0 0 0 1px rgba(24, 34, 52, 0.08);
+.resource-monitor-history-segment:hover,
+.resource-monitor-history-segment:focus-visible,
+.resource-monitor-history-segment.is-selected {
+  opacity: 1;
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
 }
 
-.resource-monitor-history-dot.has-switch {
-  box-shadow:
-    0 0 0 1px #fff,
-    0 0 0 3px color-mix(in srgb, var(--accent) 58%, transparent);
+.resource-monitor-history-segment.has-switch {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.resource-monitor-history-segment.has-switch:hover,
+.resource-monitor-history-segment.has-switch:focus-visible,
+.resource-monitor-history-segment.has-switch.is-selected {
+  outline-color: var(--accent-dark);
 }
 
 .resource-monitor-history-axis {
@@ -3219,6 +3231,102 @@ body.component-manager-open {
   margin-left: 82px;
   color: var(--muted);
   font-size: 10px;
+}
+
+.resource-monitor-history-tooltip {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  gap: 9px;
+  width: min(340px, calc(100vw - 20px));
+  padding: 12px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--text);
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(24, 34, 52, 0.18);
+  pointer-events: none;
+}
+
+.resource-monitor-history-tooltip[hidden] {
+  display: none;
+}
+
+.resource-monitor-history-tooltip-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resource-monitor-history-tooltip-head > strong {
+  font-size: 12px;
+}
+
+.resource-monitor-history-tooltip-state {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.resource-monitor-history-tooltip-state.is-available {
+  color: var(--success);
+  background: #edf9f1;
+}
+
+.resource-monitor-history-tooltip-state.is-warning {
+  color: var(--warning);
+  background: #fff8e8;
+}
+
+.resource-monitor-history-tooltip-state.is-error {
+  color: var(--danger);
+  background: #fff1f1;
+}
+
+.resource-monitor-history-tooltip-metrics {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.resource-monitor-history-tooltip-metrics > div {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.resource-monitor-history-tooltip-metrics dt,
+.resource-monitor-history-tooltip-metrics dd {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.resource-monitor-history-tooltip-metrics dt {
+  color: var(--muted);
+}
+
+.resource-monitor-history-tooltip-metrics dd {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.resource-monitor-history-tooltip-events {
+  display: grid;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.resource-monitor-history-tooltip-events span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
 }
 
 .resource-monitor-head-actions,
@@ -8956,9 +9064,8 @@ button.review-check-card:focus-visible {
     gap: 7px;
   }
 
-  .resource-monitor-history-dot {
-    width: 7px;
-    height: 7px;
+  .resource-monitor-history-segment {
+    height: 16px;
   }
 
   .resource-monitor-history-axis,
