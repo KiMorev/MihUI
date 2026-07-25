@@ -631,6 +631,10 @@ const els = {
   resourceMonitorInterval: document.querySelector('#resourceMonitorInterval'),
   resourceMonitorFailures: document.querySelector('#resourceMonitorFailures'),
   resourceMonitorLatencyThreshold: document.querySelector('#resourceMonitorLatencyThreshold'),
+  resourceMonitorProactiveEnabled: document.querySelector('#resourceMonitorProactiveEnabled'),
+  resourceMonitorProactiveState: document.querySelector('#resourceMonitorProactiveState'),
+  resourceMonitorProactiveThreshold: document.querySelector('#resourceMonitorProactiveThreshold'),
+  resourceMonitorMinimumImprovement: document.querySelector('#resourceMonitorMinimumImprovement'),
   resourceMonitorQuarantine: document.querySelector('#resourceMonitorQuarantine'),
   resourceMonitorDialogNotice: document.querySelector('#resourceMonitorDialogNotice'),
   resourceMonitorJournal: document.querySelector('#resourceMonitorJournal'),
@@ -721,6 +725,8 @@ els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMon
 els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
 els.resourceMonitorSaveButton.addEventListener('click', saveResourceMonitorDialog);
 els.resourceMonitorCheckAllButton.addEventListener('click', () => checkResourceMonitor(''));
+els.resourceMonitorProactiveEnabled.addEventListener('change', syncResourceMonitorProactiveControls);
+els.resourceMonitorLatencyThreshold.addEventListener('change', syncResourceMonitorProactiveControls);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -2813,6 +2819,9 @@ function defaultResourceMonitorClientSettings() {
     intervalSeconds: 300,
     failureThreshold: 2,
     latencyThresholdMs: 400,
+    proactiveSwitchEnabled: true,
+    proactiveLatencyThresholdMs: 250,
+    minimumLatencyImprovementMs: 100,
     quarantineSeconds: 1800,
     maxAlternatives: 3,
     timeoutMs: 8000,
@@ -2854,12 +2863,32 @@ function closeResourceMonitorDialog() {
   els.resourceMonitorDialog.close();
 }
 
+function syncResourceMonitorProactiveControls() {
+  const enabled = els.resourceMonitorProactiveEnabled.checked;
+  const criticalThreshold = Number(els.resourceMonitorLatencyThreshold.value);
+  const thresholdOptions = [...els.resourceMonitorProactiveThreshold.options];
+  thresholdOptions.forEach((option) => {
+    option.disabled = Number(option.value) >= criticalThreshold;
+  });
+  if (Number(els.resourceMonitorProactiveThreshold.value) >= criticalThreshold) {
+    const fallback = thresholdOptions.filter((option) => !option.disabled).at(-1);
+    els.resourceMonitorProactiveThreshold.value = fallback?.value || '';
+  }
+  els.resourceMonitorProactiveThreshold.disabled = !enabled;
+  els.resourceMonitorMinimumImprovement.disabled = !enabled;
+  els.resourceMonitorProactiveState.textContent = enabled ? 'Включена' : 'Выключена';
+}
+
 function renderResourceMonitorDialog() {
   const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
   els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
   els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
   els.resourceMonitorLatencyThreshold.value = String(settings.latencyThresholdMs || 400);
+  els.resourceMonitorProactiveEnabled.checked = settings.proactiveSwitchEnabled !== false;
+  els.resourceMonitorProactiveThreshold.value = String(settings.proactiveLatencyThresholdMs || 250);
+  els.resourceMonitorMinimumImprovement.value = String(settings.minimumLatencyImprovementMs || 100);
   els.resourceMonitorQuarantine.value = String(settings.quarantineSeconds || 1800);
+  syncResourceMonitorProactiveControls();
   els.resourceMonitorSources.textContent = '';
   const sources = getResourceMonitorSourceGroups();
   const preferred = sources.find((group) => group.name === 'FASTEST') || sources[0];
@@ -3115,6 +3144,9 @@ function collectResourceMonitorDialogSettings() {
     intervalSeconds: Number(els.resourceMonitorInterval.value),
     failureThreshold: Number(els.resourceMonitorFailures.value),
     latencyThresholdMs: Number(els.resourceMonitorLatencyThreshold.value),
+    proactiveSwitchEnabled: els.resourceMonitorProactiveEnabled.checked,
+    proactiveLatencyThresholdMs: Number(els.resourceMonitorProactiveThreshold.value),
+    minimumLatencyImprovementMs: Number(els.resourceMonitorMinimumImprovement.value),
     quarantineSeconds: Number(els.resourceMonitorQuarantine.value),
     maxAlternatives: 3,
     timeoutMs: 8000,

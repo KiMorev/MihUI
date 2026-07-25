@@ -2459,6 +2459,9 @@ def default_resource_monitor_settings():
         "intervalSeconds": 300,
         "failureThreshold": 2,
         "latencyThresholdMs": 400,
+        "proactiveSwitchEnabled": True,
+        "proactiveLatencyThresholdMs": 250,
+        "minimumLatencyImprovementMs": 100,
         "quarantineSeconds": 1800,
         "maxAlternatives": 3,
         "timeoutMs": 8000,
@@ -2512,6 +2515,9 @@ def load_resource_monitor_settings(app_dir):
         "intervalSeconds",
         "failureThreshold",
         "latencyThresholdMs",
+        "proactiveSwitchEnabled",
+        "proactiveLatencyThresholdMs",
+        "minimumLatencyImprovementMs",
         "quarantineSeconds",
         "maxAlternatives",
         "timeoutMs",
@@ -2546,16 +2552,24 @@ def validate_resource_monitor_settings(payload):
         "intervalSeconds": (60, 3600),
         "failureThreshold": (1, 5),
         "latencyThresholdMs": (100, 5000),
+        "proactiveLatencyThresholdMs": (100, 4999),
+        "minimumLatencyImprovementMs": (25, 2000),
         "quarantineSeconds": (60, 86400),
         "maxAlternatives": (1, 5),
         "timeoutMs": (1000, 30000),
     }
-    result = {"enabled": bool(payload.get("enabled", False))}
+    result = {
+        "enabled": bool(payload.get("enabled", False)),
+        "proactiveSwitchEnabled": bool(payload.get("proactiveSwitchEnabled", True)),
+    }
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
             raise ValueError(f"{key} must be between {minimum} and {maximum}")
         result[key] = value
+
+    if result["proactiveLatencyThresholdMs"] >= result["latencyThresholdMs"]:
+        raise ValueError("proactiveLatencyThresholdMs must be below latencyThresholdMs")
 
     services = payload.get("services")
     if not isinstance(services, dict):
@@ -3010,10 +3024,24 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         result = probe_resource_node(app_dir, service, current, failover_timeout_ms, proxies)
 
     latency_switch = False
+    proactive_switch = False
     switch_reason = result["message"]
     if result["ok"]:
         current_delay = int(result["delay"])
-        if current_delay <= settings["latencyThresholdMs"]:
+        critical_latency = current_delay > settings["latencyThresholdMs"]
+        last_switch = item.get("lastSwitch")
+        proactive_cooldown = (
+            isinstance(last_switch, dict)
+            and isinstance(last_switch.get("at"), (int, float))
+            and int(last_switch["at"]) + settings["quarantineSeconds"] > now
+        )
+        proactive_latency = (
+            settings["proactiveSwitchEnabled"]
+            and not proactive_cooldown
+            and settings["proactiveLatencyThresholdMs"] <= current_delay
+            and not critical_latency
+        )
+        if not critical_latency and not proactive_latency:
             item.update(
                 {
                     "state": "available",
@@ -3044,28 +3072,39 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             return
 
         slow_checks = previous_slow_checks + 1
+        latency_label = "Высокая задержка" if critical_latency else "Повышенная задержка"
+        latency_threshold = (
+            settings["latencyThresholdMs"]
+            if critical_latency
+            else settings["proactiveLatencyThresholdMs"]
+        )
         item.update(
             {
                 "state": "warning",
                 "delay": current_delay,
                 "consecutiveFailures": 0,
                 "consecutiveSlowChecks": slow_checks,
-                "message": f"Высокая задержка: {current_delay} мс",
+                "message": f"{latency_label}: {current_delay} мс",
             }
         )
         append_resource_monitor_event(
             app_dir,
             service,
             "high_latency",
-            f"Высокая задержка: {current_delay} мс ({slow_checks}/{RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD})",
+            f"{latency_label}: {current_delay} мс ({slow_checks}/{RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD})",
             node=current,
             delay=current_delay,
-            threshold=settings["latencyThresholdMs"],
+            threshold=latency_threshold,
         )
         if slow_checks < RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD:
             return
         latency_switch = True
-        switch_reason = f"Высокая задержка: {current_delay} мс"
+        proactive_switch = proactive_latency
+        switch_reason = (
+            f"Упреждающая замена: {current_delay} мс"
+            if proactive_switch
+            else f"Высокая задержка: {current_delay} мс"
+        )
 
     if not result["ok"]:
         try:
@@ -3090,6 +3129,8 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         quarantine,
         settings["maxAlternatives"],
     )
+    if proactive_switch:
+        candidates = candidates[:1]
     successful = []
     candidate_timeout_ms = settings["timeoutMs"] if latency_switch else failover_timeout_ms
     for candidate in candidates:
@@ -3100,7 +3141,11 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
                 break
 
     if latency_switch:
-        required_delay = result["delay"] * (1 - RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO)
+        required_delay = (
+            result["delay"] - settings["minimumLatencyImprovementMs"]
+            if proactive_switch
+            else result["delay"] * (1 - RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO)
+        )
         successful = [candidate for candidate in successful if candidate[0] <= required_delay]
         if not successful:
             item.update(

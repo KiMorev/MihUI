@@ -100,11 +100,15 @@ test('main and standalone expose responsive service traffic lights', () => {
   }
 });
 
-test('main and standalone expose the critical resource latency setting', () => {
+test('main and standalone expose preventive and critical resource latency settings', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
+    assert.match(html, /id="resourceMonitorProactiveEnabled"/);
+    assert.match(html, /id="resourceMonitorProactiveThreshold"/);
+    assert.match(html, /id="resourceMonitorMinimumImprovement"/);
     assert.match(html, /id="resourceMonitorLatencyThreshold"/);
     assert.match(html, /<option value="400">400 мс<\/option>/);
+    assert.match(html, /Минимальное улучшение/);
   }
 });
 

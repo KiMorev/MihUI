@@ -1205,15 +1205,23 @@ class ProviderAdapterTests(unittest.TestCase):
             settings = mihui_server.default_resource_monitor_settings()
             settings["intervalSeconds"] = 120
             settings["latencyThresholdMs"] = 400
+            settings["proactiveLatencyThresholdMs"] = 250
+            settings["minimumLatencyImprovementMs"] = 100
 
             validated = mihui_server.validate_resource_monitor_settings(settings)
             mihui_server.save_resource_monitor_settings(app_dir, validated)
 
             self.assertEqual(mihui_server.load_resource_monitor_settings(app_dir), validated)
             self.assertEqual(validated["services"]["ai"]["group"], "AI")
+            self.assertTrue(validated["proactiveSwitchEnabled"])
 
             invalid = dict(settings)
             invalid["intervalSeconds"] = 30
+            with self.assertRaises(ValueError):
+                mihui_server.validate_resource_monitor_settings(invalid)
+
+            invalid = dict(settings)
+            invalid["proactiveLatencyThresholdMs"] = 400
             with self.assertRaises(ValueError):
                 mihui_server.validate_resource_monitor_settings(invalid)
 
@@ -1352,6 +1360,112 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(item["consecutiveSlowChecks"], 0)
         self.assertIn("Высокая задержка", item["lastSwitch"]["reason"])
         select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-b")
+
+    def test_resource_monitor_proactively_switches_after_two_checks_and_100ms_gain(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["proactiveSwitchEnabled"] = True
+        settings["proactiveLatencyThresholdMs"] = 250
+        settings["minimumLatencyImprovementMs"] = 100
+        runtime = mihui_server.default_resource_monitor_runtime()
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a", "node-b", "node-c"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 295},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 30},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 40},
+        }
+        probe_results = {
+            "node-a": {"ok": True, "delay": 295, "message": ""},
+            "node-b": {"ok": True, "delay": 180, "message": ""},
+            "node-c": {"ok": True, "delay": 120, "message": ""},
+        }
+        probe_order = []
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            side_effect=lambda _app, _service, node, _timeout, _proxies=None: (
+                probe_order.append(node) or probe_results[node]
+            ),
+        ), mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-b"},
+        ) as select:
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+            select.assert_not_called()
+
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+
+        item = runtime["services"]["youtube"]
+        self.assertEqual(probe_order, ["node-a", "node-a", "node-b"])
+        self.assertEqual(item["currentNode"], "node-b")
+        self.assertEqual(item["delay"], 180)
+        self.assertIn("Упреждающая замена", item["lastSwitch"]["reason"])
+        select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-b")
+
+    def test_resource_monitor_keeps_node_when_proactive_gain_is_below_limit(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["proactiveSwitchEnabled"] = True
+        settings["proactiveLatencyThresholdMs"] = 250
+        settings["minimumLatencyImprovementMs"] = 100
+        runtime = mihui_server.default_resource_monitor_runtime()
+        runtime["services"]["youtube"]["consecutiveSlowChecks"] = 1
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a", "node-b", "node-c"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 295},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 30},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 40},
+        }
+        probe_results = {
+            "node-a": {"ok": True, "delay": 295, "message": ""},
+            "node-b": {"ok": True, "delay": 210, "message": ""},
+            "node-c": {"ok": True, "delay": 120, "message": ""},
+        }
+        probe_order = []
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            side_effect=lambda _app, _service, node, _timeout, _proxies=None: (
+                probe_order.append(node) or probe_results[node]
+            ),
+        ), mock.patch.object(mihui_server, "select_proxy_group") as select:
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+
+        item = runtime["services"]["youtube"]
+        self.assertEqual(probe_order, ["node-a", "node-b"])
+        self.assertEqual(item["currentNode"], "node-a")
+        self.assertEqual(item["consecutiveSlowChecks"], 0)
+        self.assertEqual(item["message"], "Более быстрая нода не найдена")
+        select.assert_not_called()
 
     def test_resource_monitor_accepts_provider_nodes_omitted_from_proxies_map(self):
         settings = mihui_server.default_resource_monitor_settings()

@@ -3321,6 +3321,30 @@ body.component-manager-open {
   font-size: 13px;
 }
 
+.resource-monitor-proactive-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.resource-monitor-proactive-toggle > div {
+  display: grid;
+  gap: 3px;
+}
+
+.resource-monitor-proactive-toggle > div > strong {
+  font-size: 12px;
+}
+
+.resource-monitor-proactive-toggle small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .resource-monitor-sources,
 .resource-monitor-policy-grid {
   display: grid;
@@ -8090,6 +8114,11 @@ button.review-check-card:focus-visible {
   .resource-monitor-sources,
   .resource-monitor-policy-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .resource-monitor-proactive-toggle {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .resource-monitor-table-wrap {
