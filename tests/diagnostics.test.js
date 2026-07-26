@@ -343,6 +343,69 @@ rules:
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
   });
 
+  test(`${source.name}: combines several resource monitoring source groups`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/main
+  backup:
+    type: http
+    url: https://example.com/backup
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    use:
+      - main
+    filter: "(?i)nl|de"
+  - name: FALLBACK
+    type: fallback
+    use:
+      - main
+      - backup
+    filter: "(?i)fi|kz"
+  - name: PROXY
+    type: select
+    proxies:
+      - FASTEST
+      - FALLBACK
+rules:
+  - MATCH,PROXY
+`);
+    const sources = {
+      youtube: ['FASTEST', 'FALLBACK'],
+      telegram: [],
+      whatsapp: [],
+      ai: [],
+    };
+    const services = {
+      youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
+      telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      ai: { enabled: false, group: 'AI', sources: [] },
+    };
+
+    app.prepareResourceMonitorConfig(sources, services);
+
+    const target = app.state.groups.find((group) => group.name === 'YOUTUBE');
+    assert.deepEqual(Array.from(target.monitorSourceGroups), ['FASTEST', 'FALLBACK']);
+    assert.deepEqual(Array.from(target.use), ['main', 'backup']);
+    assert.equal(target.filter, '');
+    assert.match(
+      app.state.outputText,
+      /name: YOUTUBE # webmihomo-monitor: group youtube sources=FASTEST,FALLBACK/,
+    );
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+
+    const reparsed = loadApp(source);
+    hydrate(reparsed, app.state.outputText);
+    assert.deepEqual(
+      Array.from(reparsed.state.groups.find((group) => group.name === 'YOUTUBE').monitorSourceGroups),
+      ['FASTEST', 'FALLBACK'],
+    );
+  });
+
   test(`${source.name}: prepares and removes a reversible whitelist fallback`, () => {
     const app = loadApp(source);
     hydrate(app, `

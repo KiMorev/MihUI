@@ -2547,7 +2547,7 @@ def default_resource_monitor_settings():
         "maxAlternatives": 3,
         "timeoutMs": 8000,
         "services": {
-            key: {"enabled": True, "group": definition["group"]}
+            key: {"enabled": True, "group": definition["group"], "sources": []}
             for key, definition in RESOURCE_MONITOR_SERVICES.items()
         },
     }
@@ -2617,6 +2617,8 @@ def load_resource_monitor_settings(app_dir):
                     services[key]["enabled"] = item["enabled"]
                 if "group" in item:
                     services[key]["group"] = item["group"]
+                if "sources" in item:
+                    services[key]["sources"] = item["sources"]
         merged["services"] = services
 
     try:
@@ -2667,7 +2669,23 @@ def validate_resource_monitor_settings(payload):
         group = str(item.get("group") or "").strip()
         if not group:
             raise ValueError(f"group is required for {key}")
-        normalized_services[key] = {"enabled": bool(item.get("enabled", True)), "group": group}
+        sources = item.get("sources", [])
+        if not isinstance(sources, list):
+            raise ValueError(f"sources must be an array for {key}")
+        normalized_sources = []
+        for source in sources:
+            if not isinstance(source, str):
+                raise ValueError(f"source names must be strings for {key}")
+            name = source.strip()
+            if not name:
+                raise ValueError(f"source names must not be empty for {key}")
+            if name not in normalized_sources:
+                normalized_sources.append(name)
+        normalized_services[key] = {
+            "enabled": bool(item.get("enabled", True)),
+            "group": group,
+            "sources": normalized_sources,
+        }
     if result["enabled"] and not any(item["enabled"] for item in normalized_services.values()):
         raise ValueError("at least one service must be enabled")
     result["services"] = normalized_services
@@ -2793,10 +2811,15 @@ def get_resource_monitor_readiness(app_dir, settings=None):
         group = proxies.get(group_name)
         group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
         options = group.get("all") if isinstance(group, dict) else None
+        allowed = resource_monitor_source_nodes(item, proxies)
         item_ready = (
             group_type in {"select", "selector"}
             and isinstance(options, list)
-            and any(is_resource_monitor_node_candidate(option, proxies) for option in options)
+            and any(
+                is_resource_monitor_node_candidate(option, proxies)
+                and (allowed is None or str(option or "") in allowed)
+                for option in options
+            )
         )
         if not item_ready:
             ready = False
@@ -2894,7 +2917,24 @@ def probe_resource_node(app_dir, service, node, timeout_ms, proxies=None):
     return {"ok": True, "delay": max(delays) if delays else None, "message": ""}
 
 
-def resource_monitor_candidates(group, proxies, current, quarantine, limit):
+def resource_monitor_source_nodes(service_settings, proxies):
+    source_names = service_settings.get("sources") if isinstance(service_settings, dict) else None
+    if not isinstance(source_names, list) or not source_names:
+        return None
+    allowed = set()
+    for source_name in source_names:
+        source = proxies.get(str(source_name or ""))
+        options = source.get("all") if isinstance(source, dict) else None
+        if not isinstance(options, list):
+            continue
+        for option in options:
+            name = str(option or "")
+            if is_resource_monitor_node_candidate(name, proxies):
+                allowed.add(name)
+    return allowed
+
+
+def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None):
     now = int(time.time())
     candidates = []
     options = group.get("all") if isinstance(group, dict) else []
@@ -2908,6 +2948,8 @@ def resource_monitor_candidates(group, proxies, current, quarantine, limit):
         if isinstance(until, (int, float)) and int(until) > now:
             continue
         if not is_resource_monitor_node_candidate(name, proxies):
+            continue
+        if allowed is not None and name not in allowed:
             continue
         proxy = proxies.get(name, {})
         known_delay = get_proxy_delay(proxy)
@@ -2925,18 +2967,21 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
         group_name = service_settings["group"]
         group = proxies.get(group_name)
         options = group.get("all") if isinstance(group, dict) else []
+        allowed = resource_monitor_source_nodes(service_settings, proxies)
         candidates = resource_monitor_candidates(
             group,
             proxies,
             "",
             {},
             len(options) if isinstance(options, list) else 0,
+            allowed,
         )
         selected = candidates[0] if candidates else ""
         selected_proxy = proxies.get(selected)
         current = str(group.get("now") or "") if isinstance(group, dict) else ""
         selected_delay = get_proxy_delay(selected_proxy) if isinstance(selected_proxy, dict) else None
-        if not selected or selected_delay is None:
+        current_allowed = allowed is None or current in allowed
+        if not selected or (selected_delay is None and current_allowed):
             results[service] = {"ok": True, "changed": False, "now": current}
             continue
         if current == selected:
@@ -2960,8 +3005,13 @@ def refresh_resource_monitor_provider_delays(app_dir, settings, proxies, service
             continue
         group = proxies.get(service_settings["group"])
         options = group.get("all") if isinstance(group, dict) else None
+        allowed = resource_monitor_source_nodes(service_settings, proxies)
         if isinstance(options, list):
-            monitored_nodes.update(str(option or "") for option in options)
+            monitored_nodes.update(
+                str(option or "")
+                for option in options
+                if allowed is None or str(option or "") in allowed
+            )
 
     data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
     providers = data.get("providers", data)
@@ -3049,10 +3099,15 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     group = proxies.get(group_name)
     group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
     options = group.get("all") if isinstance(group, dict) else None
+    allowed = resource_monitor_source_nodes(service_settings, proxies)
     if (
         group_type not in {"select", "selector"}
         or not isinstance(options, list)
-        or not any(is_resource_monitor_node_candidate(option, proxies) for option in options)
+        or not any(
+            is_resource_monitor_node_candidate(option, proxies)
+            and (allowed is None or str(option or "") in allowed)
+            for option in options
+        )
     ):
         mark_resource_monitor_drift(
             app_dir,
@@ -3080,7 +3135,15 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
 
     previous_state = item.get("state")
     previous_slow_checks = int(item.get("consecutiveSlowChecks") or 0)
-    result = probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
+    result = (
+        probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
+        if allowed is None or current in allowed
+        else {
+            "ok": False,
+            "delay": None,
+            "message": "Текущая нода не входит в выбранные группы-источники",
+        }
+    )
     failover_timeout_ms = min(settings["timeoutMs"], RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS)
     failures = int(item.get("consecutiveFailures") or 0)
     while not result["ok"]:
@@ -3203,6 +3266,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             if isinstance(refreshed_group, dict):
                 proxies = refreshed_proxies
                 group = refreshed_group
+                allowed = resource_monitor_source_nodes(service_settings, proxies)
         except Exception:
             pass
 
@@ -3212,6 +3276,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         current,
         quarantine,
         settings["maxAlternatives"],
+        allowed,
     )
     if proactive_switch:
         candidates = candidates[:1]

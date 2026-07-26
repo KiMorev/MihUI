@@ -1207,12 +1207,14 @@ class ProviderAdapterTests(unittest.TestCase):
             settings["latencyThresholdMs"] = 400
             settings["proactiveLatencyThresholdMs"] = 250
             settings["minimumLatencyImprovementMs"] = 100
+            settings["services"]["youtube"]["sources"] = ["FASTEST", "FALLBACK"]
 
             validated = mihui_server.validate_resource_monitor_settings(settings)
             mihui_server.save_resource_monitor_settings(app_dir, validated)
 
             self.assertEqual(mihui_server.load_resource_monitor_settings(app_dir), validated)
             self.assertEqual(validated["services"]["ai"]["group"], "AI")
+            self.assertEqual(validated["services"]["youtube"]["sources"], ["FASTEST", "FALLBACK"])
             self.assertTrue(validated["proactiveSwitchEnabled"])
 
             invalid = dict(settings)
@@ -1685,6 +1687,44 @@ class ProviderAdapterTests(unittest.TestCase):
         )
         self.assertEqual(proxies["node-b"]["_mihui_provider"], "main")
         self.assertEqual(mihui_server.get_proxy_delay(proxies["node-b"]), 25)
+        select.assert_called_once_with(Path("."), "YOUTUBE", "node-b")
+
+    def test_resource_monitor_limits_candidates_to_selected_source_groups(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        for service in settings["services"].values():
+            service["enabled"] = False
+        settings["services"]["youtube"].update(
+            {
+                "enabled": True,
+                "sources": ["FASTEST", "WHITE-RU"],
+            }
+        )
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-c",
+                "all": ["node-a", "node-b", "node-c"],
+            },
+            "FASTEST": {"name": "FASTEST", "type": "URLTest", "all": ["node-a"]},
+            "WHITE-RU": {"name": "WHITE-RU", "type": "Selector", "all": ["node-b"]},
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 35},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 25},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 5},
+        }
+
+        with mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-b"},
+        ) as select:
+            result = mihui_server.select_resource_monitor_fastest_nodes(Path("."), settings, proxies)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            mihui_server.resource_monitor_source_nodes(settings["services"]["youtube"], proxies),
+            {"node-a", "node-b"},
+        )
         select.assert_called_once_with(Path("."), "YOUTUBE", "node-b")
 
     def test_resource_monitor_keeps_current_node_without_mihomo_delay(self):

@@ -1536,7 +1536,7 @@ function groupSnapshotsAreEqual(left, right) {
     && left.filter === right.filter
     && left.excludeFilter === right.excludeFilter
     && left.excludeType === right.excludeType
-    && left.monitorSourceGroup === right.monitorSourceGroup;
+    && left.monitorSourceGroups.join('\n') === right.monitorSourceGroups.join('\n');
 }
 
 function confirmHighRiskSave() {
@@ -3243,7 +3243,10 @@ function defaultResourceMonitorClientSettings() {
     maxAlternatives: 3,
     timeoutMs: 8000,
     services: Object.fromEntries(
-      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [key, { enabled: true, group: item.group }]),
+      Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => [
+        key,
+        { enabled: true, group: item.group, sources: [] },
+      ]),
     ),
   };
 }
@@ -3328,9 +3331,14 @@ function renderResourceMonitorDialog() {
     const checkbox = document.createElement('input');
     const track = document.createElement('span');
     const toggleState = document.createElement('strong');
-    const sourceLabel = document.createElement('label');
+    const sourceField = document.createElement('div');
     const sourceTitle = document.createElement('span');
-    const select = document.createElement('select');
+    const sourcePicker = document.createElement('details');
+    const sourceSummary = document.createElement('summary');
+    const sourceSummaryText = document.createElement('span');
+    const sourceIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const sourceIconUse = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    const sourceMenu = document.createElement('div');
     const hint = document.createElement('small');
     field.className = 'resource-monitor-source';
     field.classList.toggle('is-disabled', !enabled);
@@ -3345,22 +3353,66 @@ function renderResourceMonitorDialog() {
     toggleState.textContent = enabled ? 'Включена' : 'Выключена';
     toggle.append(checkbox, track, toggleState);
     head.append(title, toggle);
-    sourceLabel.className = 'resource-monitor-source-select';
-    sourceTitle.textContent = 'Группа-источник';
-    select.dataset.resourceMonitorSource = key;
+    sourceField.className = 'resource-monitor-source-select';
+    sourceTitle.textContent = 'Группы-источники';
+    const configuredSources = getResourceMonitorGroupSourceNames(target);
+    const pendingSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.pendingSettings?.sources?.[key]);
+    const savedSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.config?.services?.[key]?.sources);
+    const locked = Boolean(target && !target.managedMonitoring) || sources.length === 0;
+    const selectedSources = target && !target.managedMonitoring
+      ? []
+      : configuredSources.length > 0
+        ? configuredSources
+        : pendingSources.length > 0
+          ? pendingSources
+          : savedSources.length > 0
+          ? savedSources
+          : preferred
+            ? [preferred.name]
+            : [];
+    sourcePicker.className = 'resource-monitor-source-picker';
+    sourcePicker.classList.toggle('is-disabled', !enabled || locked);
+    sourcePicker.dataset.resourceMonitorLocked = String(locked);
+    sourceSummary.setAttribute('aria-label', `Выбрать группы-источники ${definition.title}`);
+    sourceSummary.setAttribute('aria-disabled', String(!enabled || locked));
+    sourceSummary.tabIndex = !enabled || locked ? -1 : 0;
+    sourceSummaryText.dataset.resourceMonitorSourceSummary = key;
+    sourceIcon.classList.add('resource-monitor-source-chevron');
+    sourceIcon.setAttribute('aria-hidden', 'true');
+    sourceIconUse.setAttribute('href', '#icon-chevron-down');
+    sourceIcon.append(sourceIconUse);
+    sourceSummary.append(sourceSummaryText, sourceIcon);
+    sourceMenu.className = 'resource-monitor-source-menu';
+    sourceMenu.setAttribute('role', 'group');
+    sourceMenu.setAttribute('aria-label', `Группы-источники ${definition.title}`);
     sources.forEach((group) => {
-      const option = document.createElement('option');
-      option.value = group.name;
-      option.textContent = group.name;
-      select.append(option);
+      const option = document.createElement('label');
+      const input = document.createElement('input');
+      const name = document.createElement('span');
+      option.className = 'resource-monitor-source-option';
+      input.type = 'checkbox';
+      input.value = group.name;
+      input.checked = selectedSources.includes(group.name);
+      input.disabled = !enabled || locked;
+      input.dataset.resourceMonitorSource = key;
+      name.textContent = group.name;
+      option.append(input, name);
+      sourceMenu.append(option);
     });
-    const selected = target?.monitorSourceGroup || state.resourceMonitor.pendingSettings?.sources?.[key] || preferred?.name || '';
-    select.value = selected;
-    select.dataset.resourceMonitorLocked = String(Boolean(target && !target.managedMonitoring) || sources.length === 0);
-    select.disabled = !enabled || select.dataset.resourceMonitorLocked === 'true';
+    sourcePicker.append(sourceSummary, sourceMenu);
+    sourcePicker.addEventListener('toggle', () => {
+      if (!sourcePicker.open) return;
+      els.resourceMonitorSources.querySelectorAll('.resource-monitor-source-picker[open]').forEach((other) => {
+        if (other !== sourcePicker) other.open = false;
+      });
+    });
+    sourceSummary.addEventListener('click', (event) => {
+      if (sourcePicker.classList.contains('is-disabled')) event.preventDefault();
+    });
+    updateResourceMonitorSourcePickerSummary(sourcePicker);
     hint.textContent = getResourceMonitorSourceHint(definition, target, enabled);
-    sourceLabel.append(sourceTitle, select);
-    field.append(head, sourceLabel, hint);
+    sourceField.append(sourceTitle, sourcePicker);
+    field.append(head, sourceField, hint);
     els.resourceMonitorSources.append(field);
   });
 
@@ -3382,6 +3434,20 @@ function getResourceMonitorSourceHint(definition, target, enabled) {
     : `В конфиге появится select-группа ${definition.group}`;
 }
 
+function updateResourceMonitorSourcePickerSummary(sourcePicker) {
+  const summary = sourcePicker?.querySelector('[data-resource-monitor-source-summary]');
+  if (!summary) return;
+  const selected = [...sourcePicker.querySelectorAll('[data-resource-monitor-source]:checked')]
+    .map((input) => input.value);
+  const text = selected.length > 0
+    ? selected.join(', ')
+    : sourcePicker.dataset.resourceMonitorLocked === 'true'
+      ? 'Выбор недоступен'
+      : 'Выберите группы';
+  summary.textContent = text;
+  summary.title = text;
+}
+
 function handleResourceMonitorDialogChange(event) {
   const checkbox = event.target.closest?.('[data-resource-monitor-enabled]');
   if (checkbox) {
@@ -3389,13 +3455,29 @@ function handleResourceMonitorDialogChange(event) {
     const definition = RESOURCE_MONITOR_DEFINITIONS[key];
     const target = state.groups.find((group) => group.name === definition.group);
     const field = checkbox.closest('.resource-monitor-source');
-    const select = field?.querySelector('[data-resource-monitor-source]');
+    const sourceInputs = field?.querySelectorAll('[data-resource-monitor-source]') || [];
+    const sourcePicker = field?.querySelector('.resource-monitor-source-picker');
+    const sourceSummary = sourcePicker?.querySelector('summary');
+    const locked = sourcePicker?.dataset.resourceMonitorLocked === 'true';
     const hint = field?.querySelector('small');
     const toggleState = field?.querySelector('[data-resource-monitor-enabled-state]');
     field?.classList.toggle('is-disabled', !checkbox.checked);
-    if (select) select.disabled = !checkbox.checked || select.dataset.resourceMonitorLocked === 'true';
+    sourceInputs.forEach((input) => {
+      input.disabled = !checkbox.checked || locked;
+    });
+    sourcePicker?.classList.toggle('is-disabled', !checkbox.checked || locked);
+    if (sourcePicker && !checkbox.checked) sourcePicker.open = false;
+    if (sourceSummary) {
+      const disabled = !checkbox.checked || locked;
+      sourceSummary.setAttribute('aria-disabled', String(disabled));
+      sourceSummary.tabIndex = disabled ? -1 : 0;
+    }
     if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, checkbox.checked);
     if (toggleState) toggleState.textContent = checkbox.checked ? 'Включена' : 'Выключена';
+  }
+  const sourceCheckbox = event.target.closest?.('[data-resource-monitor-source]');
+  if (sourceCheckbox) {
+    updateResourceMonitorSourcePickerSummary(sourceCheckbox.closest('.resource-monitor-source-picker'));
   }
   updateResourceMonitorDialogActions();
 }
@@ -3410,9 +3492,11 @@ function collectResourceMonitorDialogServices() {
 }
 
 function collectResourceMonitorDialogSources() {
-  const sources = {};
-  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]').forEach((select) => {
-    sources[select.dataset.resourceMonitorSource] = select.value;
+  const sources = Object.fromEntries(
+    Object.keys(RESOURCE_MONITOR_DEFINITIONS).map((key) => [key, []]),
+  );
+  els.resourceMonitorSources.querySelectorAll('[data-resource-monitor-source]:checked').forEach((input) => {
+    sources[input.dataset.resourceMonitorSource].push(input.value);
   });
   return sources;
 }
@@ -3448,6 +3532,52 @@ function isBuiltinProxyName(name) {
   return ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(String(name || '').toUpperCase());
 }
 
+function normalizeResourceMonitorSourceNames(value) {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(values.map((item) => String(item || '').trim()).filter(Boolean))];
+}
+
+function getResourceMonitorGroupSourceNames(group) {
+  const stored = normalizeResourceMonitorSourceNames(group?.monitorSourceGroups);
+  return stored.length > 0
+    ? stored
+    : normalizeResourceMonitorSourceNames(group?.monitorSourceGroup);
+}
+
+function resourceMonitorSourceNamesEqual(left, right) {
+  return normalizeResourceMonitorSourceNames(left).join('\n')
+    === normalizeResourceMonitorSourceNames(right).join('\n');
+}
+
+function formatResourceMonitorGroupMarker(group) {
+  if (!group.managedMonitoring) return '';
+  const sources = getResourceMonitorGroupSourceNames(group);
+  const sourceMarker = sources.length <= 1
+    ? `source=${sources[0] || ''}`
+    : `sources=${sources.map((name) => encodeURIComponent(name)).join(',')}`;
+  return ` # webmihomo-monitor: group ${group.monitorService || ''} ${sourceMarker}`;
+}
+
+function parseResourceMonitorGroupMarker(value) {
+  const marker = String(value || '').match(
+    /#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+(source|sources)=(.+?)\s*$/i,
+  );
+  if (!marker) return null;
+  const sources = marker[2].toLowerCase() === 'sources'
+    ? marker[3].split(',').map((name) => {
+      try {
+        return decodeURIComponent(name);
+      } catch (error) {
+        return name;
+      }
+    })
+    : [marker[3]];
+  return {
+    service: marker[1],
+    sources: normalizeResourceMonitorSourceNames(sources),
+  };
+}
+
 function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
@@ -3462,7 +3592,11 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
       && !group.includeAllProxies
       && !group.includeAllProviders
     ) return true;
-    return Boolean(sources && group.managedMonitoring && sources[key] && group.monitorSourceGroup !== sources[key]);
+    return Boolean(
+      sources
+      && group.managedMonitoring
+      && !resourceMonitorSourceNamesEqual(getResourceMonitorGroupSourceNames(group), sources[key]),
+    );
   });
   if (groupsNeedChanges) return true;
   if (
@@ -3543,6 +3677,34 @@ function resourceMonitorRuleMatches(rule, parts) {
   );
 }
 
+function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGroupNames) {
+  const selected = normalizeResourceMonitorSourceNames(sourceNames).map((name) => {
+    const source = sourceGroups.get(name);
+    if (!source) throw new Error(`Группа-источник ${name} больше не существует.`);
+    return source;
+  });
+  if (selected.length === 0) throw new Error('Не выбрана группа-источник.');
+
+  const sharedValue = (key) => (
+    selected.every((source) => String(source[key] || '') === String(selected[0][key] || ''))
+      ? selected[0][key] || ''
+      : ''
+  );
+  return {
+    names: selected.map((source) => source.name),
+    proxies: [...new Set(selected.flatMap((source) => (
+      source.proxies.filter((name) => !isBuiltinProxyName(name) && !knownGroupNames.has(name))
+    )))],
+    use: [...new Set(selected.flatMap((source) => source.use))],
+    includeAll: selected.some((source) => source.includeAll),
+    includeAllProxies: selected.some((source) => source.includeAllProxies),
+    includeAllProviders: selected.some((source) => source.includeAllProviders),
+    filter: sharedValue('filter'),
+    excludeFilter: sharedValue('excludeFilter'),
+    excludeType: sharedValue('excludeType'),
+  };
+}
+
 function prepareResourceMonitorConfig(sources, services = null) {
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
@@ -3568,21 +3730,21 @@ function prepareResourceMonitorConfig(sources, services = null) {
     }
     if (existing && !existing.managedMonitoring) return;
 
-    const source = sourceGroups.get(sources[key]);
-    if (!source) throw new Error(`Не выбрана группа-источник для ${definition.title}.`);
+    const combined = combineResourceMonitorSourceGroups(sources[key], sourceGroups, knownGroupNames);
     const cloned = {
       type: 'select',
-      proxies: source.proxies.filter((name) => !isBuiltinProxyName(name) && !knownGroupNames.has(name)),
-      use: source.use.slice(),
-      includeAll: Boolean(source.includeAll),
-      includeAllProxies: Boolean(source.includeAllProxies),
-      includeAllProviders: Boolean(source.includeAllProviders),
-      filter: source.filter || '',
-      excludeFilter: source.excludeFilter || '',
-      excludeType: source.excludeType || '',
+      proxies: combined.proxies,
+      use: combined.use,
+      includeAll: combined.includeAll,
+      includeAllProxies: combined.includeAllProxies,
+      includeAllProviders: combined.includeAllProviders,
+      filter: combined.filter,
+      excludeFilter: combined.excludeFilter,
+      excludeType: combined.excludeType,
       managedMonitoring: true,
       monitorService: key,
-      monitorSourceGroup: source.name,
+      monitorSourceGroup: combined.names[0],
+      monitorSourceGroups: combined.names,
       requiresSelectionPersistence: true,
     };
 
@@ -3635,7 +3797,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
 }
 
 function getResourceMonitorDialogIssue(
-  sources = getResourceMonitorSourceGroups(),
+  sources = null,
   services = null,
 ) {
   const enabledEntries = getEnabledResourceMonitorEntries(services);
@@ -3661,7 +3823,21 @@ function getResourceMonitorDialogIssue(
     const group = state.groups.find((item) => item.name === definition.group);
     return !group || group.managedMonitoring;
   });
-  if (needsSource && sources.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
+  const sourceGroups = getResourceMonitorSourceGroups();
+  if (needsSource && sourceGroups.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
+  const sourceNames = new Set(sourceGroups.map((group) => group.name));
+  const missingSource = enabledEntries.find(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return (!group || group.managedMonitoring)
+      && normalizeResourceMonitorSourceNames(sources?.[key]).length === 0;
+  });
+  if (missingSource) return `Выберите хотя бы одну группу-источник для ${missingSource[1].title}.`;
+  const unknownSource = enabledEntries.find(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    return (!group || group.managedMonitoring)
+      && normalizeResourceMonitorSourceNames(sources?.[key]).some((name) => !sourceNames.has(name));
+  });
+  if (unknownSource) return `Одна из групп-источников для ${unknownSource[1].title} больше не существует.`;
   return '';
 }
 
@@ -3682,6 +3858,9 @@ function collectResourceMonitorDialogSettings() {
     services,
   };
   const sources = collectResourceMonitorDialogSources();
+  Object.entries(services).forEach(([key, item]) => {
+    item.sources = normalizeResourceMonitorSourceNames(sources[key]);
+  });
   return { settings, sources };
 }
 
@@ -6365,7 +6544,10 @@ function collectGroupUseChanges() {
         || group.filter !== original.filter
         || group.excludeFilter !== original.excludeFilter
         || group.excludeType !== original.excludeType
-        || group.monitorSourceGroup !== original.monitorSourceGroup
+        || !resourceMonitorSourceNamesEqual(
+          getResourceMonitorGroupSourceNames(group),
+          getResourceMonitorGroupSourceNames(original),
+        )
       )
     ) {
       changes.push(`Группа ${group.name}: обновлены условия отбора для мониторинга.`);
@@ -6530,7 +6712,8 @@ function snapshotGroup(group) {
     excludeType: group.excludeType || '',
     managedMonitoring: Boolean(group.managedMonitoring),
     monitorService: group.monitorService || '',
-    monitorSourceGroup: group.monitorSourceGroup || '',
+    monitorSourceGroup: getResourceMonitorGroupSourceNames(group)[0] || '',
+    monitorSourceGroups: getResourceMonitorGroupSourceNames(group),
   };
 }
 
@@ -11984,7 +12167,7 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
 
 function createGroupBlock(group) {
   const lines = [
-    `  - name: ${formatScalar(group.name)}${group.managedMonitoring ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}` : ''}`,
+    `  - name: ${formatScalar(group.name)}${formatResourceMonitorGroupMarker(group)}`,
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
@@ -12001,9 +12184,7 @@ function createGroupBlock(group) {
 
 function setGroupName(block, group) {
   const indent = block[0].match(/^\s*/)?.[0] || '  ';
-  const marker = group.managedMonitoring
-    ? ` # webmihomo-monitor: group ${group.monitorService || ''} source=${group.monitorSourceGroup || ''}`
-    : '';
+  const marker = formatResourceMonitorGroupMarker(group);
   block[0] = `${indent}- name: ${formatScalar(group.name)}${marker}`;
 }
 
@@ -12367,7 +12548,7 @@ function parseGroups(lines, section) {
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
     const name = cleanScalar(stripYamlComment(match[2]));
-    const monitorMarker = match[2].match(/#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+source=(.+?)\s*$/i);
+    const monitorMarker = parseResourceMonitorGroupMarker(match[2]);
     groups.push({
       name,
       originalName: name,
@@ -12381,8 +12562,9 @@ function parseGroups(lines, section) {
       excludeFilter: readScalar(block, keyIndent, 'exclude-filter') || '',
       excludeType: readScalar(block, keyIndent, 'exclude-type') || '',
       managedMonitoring: Boolean(monitorMarker),
-      monitorService: monitorMarker?.[1] || '',
-      monitorSourceGroup: monitorMarker?.[2]?.trim() || '',
+      monitorService: monitorMarker?.service || '',
+      monitorSourceGroup: monitorMarker?.sources?.[0] || '',
+      monitorSourceGroups: monitorMarker?.sources || [],
       start,
       end,
       proxiesStart: proxiesMeta.start,

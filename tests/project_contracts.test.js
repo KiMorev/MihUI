@@ -143,8 +143,16 @@ test('main and standalone expose per-resource monitoring switches', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /dataset\.resourceMonitorEnabled = key/);
+    assert.match(source, /dataset\.resourceMonitorSource = key/);
     assert.match(source, /collectResourceMonitorDialogServices/);
+    assert.match(source, /normalizeResourceMonitorSourceNames/);
     assert.match(source, /getEnabledResourceMonitorEntries/);
+  }
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.resource-monitor-source-picker\s*{/);
+    assert.match(source, /\.resource-monitor-source-menu\s*{/);
+    assert.match(source, /\.resource-monitor-source-option:has\(input:checked\)/);
   }
 });
 

@@ -3737,6 +3737,110 @@ body.component-manager-open {
   font-weight: 700;
 }
 
+.resource-monitor-source-picker {
+  min-width: 0;
+}
+
+.resource-monitor-source-picker > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+
+.resource-monitor-source-picker > summary::-webkit-details-marker {
+  display: none;
+}
+
+.resource-monitor-source-picker > summary::marker {
+  content: "";
+}
+
+.resource-monitor-source-picker > summary:hover,
+.resource-monitor-source-picker[open] > summary {
+  border-color: rgba(8, 124, 128, 0.42);
+}
+
+.resource-monitor-source-picker > summary:focus-visible {
+  outline: 2px solid rgba(8, 124, 128, 0.24);
+  outline-offset: 2px;
+}
+
+.resource-monitor-source-picker > summary > span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resource-monitor-source-chevron {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.resource-monitor-source-picker[open] .resource-monitor-source-chevron {
+  transform: rotate(180deg);
+}
+
+.resource-monitor-source-picker.is-disabled > summary {
+  background: #eef2f7;
+  color: var(--muted);
+  cursor: default;
+}
+
+.resource-monitor-source-menu {
+  display: grid;
+  gap: 2px;
+  margin-top: 5px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.resource-monitor-source-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.resource-monitor-source-option:hover,
+.resource-monitor-source-option:has(input:focus-visible),
+.resource-monitor-source-option:has(input:checked) {
+  background: var(--accent-soft);
+}
+
+.resource-monitor-source-option:has(input:checked) {
+  color: var(--accent-strong);
+}
+
+.resource-monitor-source-option input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .resource-monitor-source small {
   color: var(--muted);
   font-size: 10px;
