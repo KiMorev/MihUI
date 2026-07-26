@@ -162,6 +162,7 @@ globalThis.__app = {
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
+  getResourceMonitorSourceGroups,
   buildResourceMonitorTimeline,
   getResourceMonitorHistoryTooltipContent,
   isRecentResourceMonitorSwitch,
@@ -403,6 +404,64 @@ rules:
     assert.deepEqual(
       Array.from(reparsed.state.groups.find((group) => group.name === 'YOUTUBE').monitorSourceGroups),
       ['FASTEST', 'FALLBACK'],
+    );
+  });
+
+  test(`${source.name}: expands a parent resource monitoring group`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  main:
+    type: http
+    url: https://example.com/main
+  backup:
+    type: http
+    url: https://example.com/backup
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    use:
+      - main
+  - name: FALLBACK
+    type: fallback
+    use:
+      - backup
+  - name: WHITE-RU
+    type: select
+    proxies:
+      - white-node
+  - name: PROXY
+    type: fallback
+    proxies:
+      - FASTEST
+      - FALLBACK
+      - WHITE-RU
+rules:
+  - MATCH,PROXY
+`);
+    const sources = {
+      youtube: ['PROXY'],
+      telegram: [],
+      whatsapp: [],
+      ai: [],
+    };
+    const services = {
+      youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
+      telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      ai: { enabled: false, group: 'AI', sources: [] },
+    };
+
+    assert.ok(app.getResourceMonitorSourceGroups().some((group) => group.name === 'PROXY'));
+    app.prepareResourceMonitorConfig(sources, services);
+
+    const target = app.state.groups.find((group) => group.name === 'YOUTUBE');
+    assert.deepEqual(Array.from(target.monitorSourceGroups), ['PROXY']);
+    assert.deepEqual(Array.from(target.use), ['main', 'backup']);
+    assert.deepEqual(Array.from(target.proxies), ['white-node']);
+    assert.match(
+      app.state.outputText,
+      /name: YOUTUBE # webmihomo-monitor: group youtube source=PROXY/,
     );
   });
 

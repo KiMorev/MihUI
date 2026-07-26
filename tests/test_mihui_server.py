@@ -1696,7 +1696,7 @@ class ProviderAdapterTests(unittest.TestCase):
         settings["services"]["youtube"].update(
             {
                 "enabled": True,
-                "sources": ["FASTEST", "WHITE-RU"],
+                "sources": ["PROXY"],
             }
         )
         proxies = {
@@ -1708,6 +1708,11 @@ class ProviderAdapterTests(unittest.TestCase):
             },
             "FASTEST": {"name": "FASTEST", "type": "URLTest", "all": ["node-a"]},
             "WHITE-RU": {"name": "WHITE-RU", "type": "Selector", "all": ["node-b"]},
+            "PROXY": {
+                "name": "PROXY",
+                "type": "Fallback",
+                "all": ["FASTEST", "WHITE-RU"],
+            },
             "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 35},
             "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 25},
             "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 5},
@@ -1725,7 +1730,160 @@ class ProviderAdapterTests(unittest.TestCase):
             mihui_server.resource_monitor_source_nodes(settings["services"]["youtube"], proxies),
             {"node-a", "node-b"},
         )
-        select.assert_called_once_with(Path("."), "YOUTUBE", "node-b")
+        self.assertEqual(
+            [
+                (tier["name"], tier["nodes"])
+                for tier in mihui_server.resource_monitor_source_tiers(
+                    settings["services"]["youtube"],
+                    proxies,
+                )
+            ],
+            [("FASTEST", {"node-a"}), ("WHITE-RU", {"node-b"})],
+        )
+        select.assert_called_once_with(Path("."), "YOUTUBE", "node-a")
+
+    def test_resource_monitor_exhausts_first_source_tier_before_next(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["failureThreshold"] = 1
+        settings["services"]["youtube"]["sources"] = ["PROXY"]
+        runtime = mihui_server.default_resource_monitor_runtime()
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a", "node-b", "node-c"],
+            },
+            "PROXY": {
+                "name": "PROXY",
+                "type": "Fallback",
+                "all": ["FASTEST", "WHITE-RU"],
+            },
+            "FASTEST": {
+                "name": "FASTEST",
+                "type": "URLTest",
+                "all": ["node-a", "node-b"],
+            },
+            "WHITE-RU": {
+                "name": "WHITE-RU",
+                "type": "Selector",
+                "all": ["node-c"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 20},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 30},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 10},
+        }
+        probe_results = {
+            "node-a": {"ok": False, "delay": None, "message": "timeout"},
+            "node-b": {"ok": True, "delay": 60, "message": ""},
+            "node-c": {"ok": True, "delay": 25, "message": ""},
+        }
+        probe_order = []
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            side_effect=lambda _app, _service, node, _timeout, _proxies=None: (
+                probe_order.append(node) or probe_results[node]
+            ),
+        ), mock.patch.object(
+            mihui_server,
+            "refresh_resource_monitor_provider_delays",
+            return_value=[],
+        ), mock.patch.object(
+            mihui_server,
+            "load_resource_monitor_proxies",
+            return_value=proxies,
+        ), mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-b"},
+        ) as select:
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+
+        self.assertEqual(probe_order, ["node-a", "node-b"])
+        self.assertEqual(runtime["services"]["youtube"]["currentNode"], "node-b")
+        select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-b")
+
+    def test_resource_monitor_returns_to_first_working_source_tier(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["services"]["youtube"]["sources"] = ["PROXY"]
+        runtime = mihui_server.default_resource_monitor_runtime()
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-c",
+                "all": ["node-a", "node-b", "node-c"],
+            },
+            "PROXY": {
+                "name": "PROXY",
+                "type": "Fallback",
+                "all": ["FASTEST", "WHITE-RU"],
+            },
+            "FASTEST": {
+                "name": "FASTEST",
+                "type": "URLTest",
+                "all": ["node-a", "node-b"],
+            },
+            "WHITE-RU": {
+                "name": "WHITE-RU",
+                "type": "Selector",
+                "all": ["node-c"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True, "delay": 30},
+            "node-b": {"name": "node-b", "type": "VLESS", "alive": True, "delay": 40},
+            "node-c": {"name": "node-c", "type": "VLESS", "alive": True, "delay": 20},
+        }
+        probe_results = {
+            "node-a": {"ok": True, "delay": 55, "message": ""},
+            "node-b": {"ok": True, "delay": 65, "message": ""},
+            "node-c": {"ok": True, "delay": 45, "message": ""},
+        }
+        probe_order = []
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            side_effect=lambda _app, _service, node, _timeout, _proxies=None: (
+                probe_order.append(node) or probe_results[node]
+            ),
+        ), mock.patch.object(
+            mihui_server,
+            "select_proxy_group",
+            return_value={"ok": True, "changed": True, "group": "YOUTUBE", "now": "node-a"},
+        ) as select:
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+            select.assert_not_called()
+            self.assertEqual(runtime["services"]["youtube"]["priorityRecoveryChecks"], 1)
+
+            mihui_server.run_resource_monitor_service(
+                Path(temp_dir),
+                settings,
+                runtime,
+                "youtube",
+                proxies,
+            )
+
+        item = runtime["services"]["youtube"]
+        self.assertEqual(probe_order, ["node-c", "node-a", "node-c", "node-a"])
+        self.assertEqual(item["currentNode"], "node-a")
+        self.assertEqual(item["priorityRecoveryChecks"], 0)
+        self.assertNotIn("node-c", item["quarantine"])
+        self.assertIn("FASTEST", item["lastSwitch"]["reason"])
+        select.assert_called_once_with(Path(temp_dir), "YOUTUBE", "node-a")
 
     def test_resource_monitor_keeps_current_node_without_mihomo_delay(self):
         settings = mihui_server.default_resource_monitor_settings()

@@ -48,6 +48,7 @@ DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
 RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
 RESOURCE_MONITOR_EVENT_LIMIT = 200
 RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD = 2
+RESOURCE_MONITOR_PRIORITY_RECOVERY_THRESHOLD = 2
 RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO = 0.25
 RESOURCE_MONITOR_STARTUP_WARMUP_SECONDS = 15
 RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS = 3000
@@ -2707,6 +2708,8 @@ def default_resource_monitor_runtime():
                 "delay": None,
                 "consecutiveFailures": 0,
                 "consecutiveSlowChecks": 0,
+                "priorityRecoveryCandidate": "",
+                "priorityRecoveryChecks": 0,
                 "message": "Проверка ещё не выполнялась",
                 "lastSwitch": None,
                 "quarantine": {},
@@ -2917,21 +2920,113 @@ def probe_resource_node(app_dir, service, node, timeout_ms, proxies=None):
     return {"ok": True, "delay": max(delays) if delays else None, "message": ""}
 
 
-def resource_monitor_source_nodes(service_settings, proxies):
+def resource_monitor_group_leaf_nodes(group_name, proxies, visiting=None):
+    name = str(group_name or "")
+    if not name:
+        return []
+    path = set(visiting or ())
+    if name in path:
+        return []
+    path.add(name)
+    proxy = proxies.get(name)
+    proxy_type = str(proxy.get("type") or "").strip().casefold() if isinstance(proxy, dict) else ""
+    if proxy_type not in RESOURCE_MONITOR_GROUP_TYPES:
+        return [name] if is_resource_monitor_node_candidate(name, proxies) else []
+    options = proxy.get("all") if isinstance(proxy, dict) else None
+    if not isinstance(options, list):
+        return []
+    nodes = []
+    for option in options:
+        option_name = str(option or "")
+        for node in resource_monitor_group_leaf_nodes(option_name, proxies, path):
+            if node not in nodes:
+                nodes.append(node)
+    return nodes
+
+
+def resource_monitor_source_tiers(service_settings, proxies):
     source_names = service_settings.get("sources") if isinstance(service_settings, dict) else None
     if not isinstance(source_names, list) or not source_names:
         return None
-    allowed = set()
+    tiers = []
+    assigned = set()
     for source_name in source_names:
-        source = proxies.get(str(source_name or ""))
+        normalized_source = str(source_name or "")
+        source = proxies.get(normalized_source)
         options = source.get("all") if isinstance(source, dict) else None
-        if not isinstance(options, list):
-            continue
-        for option in options:
-            name = str(option or "")
-            if is_resource_monitor_node_candidate(name, proxies):
-                allowed.add(name)
+        nested = (
+            isinstance(options, list)
+            and any(
+                str((proxies.get(str(option or "")) or {}).get("type") or "").strip().casefold()
+                in RESOURCE_MONITOR_GROUP_TYPES
+                for option in options
+                if isinstance(proxies.get(str(option or "")), dict)
+            )
+        )
+        entries = options if nested and isinstance(options, list) else [normalized_source]
+        for entry in entries:
+            tier_name = str(entry or "")
+            nodes = [
+                node
+                for node in resource_monitor_group_leaf_nodes(tier_name, proxies)
+                if node not in assigned
+            ]
+            if not nodes:
+                continue
+            assigned.update(nodes)
+            tiers.append({"name": tier_name, "nodes": set(nodes)})
+    return tiers
+
+
+def resource_monitor_source_nodes(service_settings, proxies):
+    tiers = resource_monitor_source_tiers(service_settings, proxies)
+    if tiers is None:
+        return None
+    allowed = set()
+    for tier in tiers:
+        allowed.update(tier["nodes"])
     return allowed
+
+
+def resource_monitor_node_tier_index(node, tiers):
+    if tiers is None:
+        return 0
+    for index, tier in enumerate(tiers):
+        if node in tier["nodes"]:
+            return index
+    return None
+
+
+def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit, tiers):
+    if tiers is None:
+        return [
+            {
+                "name": "",
+                "nodes": None,
+                "candidates": resource_monitor_candidates(
+                    group,
+                    proxies,
+                    current,
+                    quarantine,
+                    limit,
+                ),
+            }
+        ]
+    return [
+        {
+            "name": tier["name"],
+            "nodes": tier["nodes"],
+            "candidates": resource_monitor_candidates(
+                group,
+                proxies,
+                current,
+                quarantine,
+                limit,
+                tier["nodes"],
+            ),
+        }
+        for tier in tiers
+    ]
 
 
 def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None):
@@ -2967,19 +3062,24 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
         group_name = service_settings["group"]
         group = proxies.get(group_name)
         options = group.get("all") if isinstance(group, dict) else []
-        allowed = resource_monitor_source_nodes(service_settings, proxies)
-        candidates = resource_monitor_candidates(
+        tiers = resource_monitor_source_tiers(service_settings, proxies)
+        candidate_tiers = resource_monitor_candidate_tiers(
             group,
             proxies,
             "",
             {},
             len(options) if isinstance(options, list) else 0,
-            allowed,
+            tiers,
+        )
+        candidates = next(
+            (tier["candidates"] for tier in candidate_tiers if tier["candidates"]),
+            [],
         )
         selected = candidates[0] if candidates else ""
         selected_proxy = proxies.get(selected)
         current = str(group.get("now") or "") if isinstance(group, dict) else ""
         selected_delay = get_proxy_delay(selected_proxy) if isinstance(selected_proxy, dict) else None
+        allowed = resource_monitor_source_nodes(service_settings, proxies)
         current_allowed = allowed is None or current in allowed
         if not selected or (selected_delay is None and current_allowed):
             results[service] = {"ok": True, "changed": False, "now": current}
@@ -3093,12 +3193,83 @@ def mark_resource_monitor_drift(app_dir, runtime, service, group_name, message):
     )
 
 
+def switch_resource_monitor_node(
+    app_dir,
+    settings,
+    item,
+    service,
+    group_name,
+    current,
+    selected,
+    delay,
+    reason,
+    quarantine,
+    previous_delay=None,
+    threshold=None,
+    quarantine_current=True,
+):
+    selection = select_proxy_group(app_dir, group_name, selected)
+    if not selection["ok"]:
+        item["message"] = selection.get("message") or "Mihomo не подтвердил переключение"
+        append_resource_monitor_event(
+            app_dir,
+            service,
+            "switch_failed",
+            item["message"],
+            node=current,
+            target=selected,
+        )
+        return False
+
+    switched_at = int(time.time())
+    if quarantine_current:
+        quarantine[current] = switched_at + settings["quarantineSeconds"]
+    item.update(
+        {
+            "state": "available",
+            "currentNode": selected,
+            "delay": delay,
+            "consecutiveFailures": 0,
+            "consecutiveSlowChecks": 0,
+            "priorityRecoveryCandidate": "",
+            "priorityRecoveryChecks": 0,
+            "message": "Ресурс доступен",
+            "lastSwitch": {
+                "at": switched_at,
+                "from": current,
+                "to": selected,
+                "reason": reason,
+            },
+            "quarantine": quarantine,
+        }
+    )
+    event = {
+        "node": selected,
+        "previousNode": current,
+        "delay": delay,
+        "previousDelay": previous_delay,
+        "threshold": threshold,
+        "reason": reason,
+    }
+    if quarantine_current:
+        event["quarantineUntil"] = quarantine[current]
+    append_resource_monitor_event(
+        app_dir,
+        service,
+        "switch",
+        f"Нода переключена: {current} → {selected}",
+        **event,
+    )
+    return True
+
+
 def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     service_settings = settings["services"][service]
     group_name = service_settings["group"]
     group = proxies.get(group_name)
     group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
     options = group.get("all") if isinstance(group, dict) else None
+    tiers = resource_monitor_source_tiers(service_settings, proxies)
     allowed = resource_monitor_source_nodes(service_settings, proxies)
     if (
         group_type not in {"select", "selector"}
@@ -3127,6 +3298,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     }
     item["quarantine"] = quarantine
     current = str(group.get("now") or "")
+    current_tier_index = resource_monitor_node_tier_index(current, tiers)
     item["currentNode"] = current
     item["checkedAt"] = now
     if not current:
@@ -3175,6 +3347,81 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
     switch_reason = result["message"]
     if result["ok"]:
         current_delay = int(result["delay"])
+        if tiers is not None and isinstance(current_tier_index, int) and current_tier_index > 0:
+            preferred_tiers = resource_monitor_candidate_tiers(
+                group,
+                proxies,
+                current,
+                quarantine,
+                settings["maxAlternatives"],
+                tiers[:current_tier_index],
+            )
+            preferred = None
+            for tier in preferred_tiers:
+                for candidate in tier["candidates"]:
+                    candidate_result = probe_resource_node(
+                        app_dir,
+                        service,
+                        candidate,
+                        settings["timeoutMs"],
+                        proxies,
+                    )
+                    if candidate_result["ok"]:
+                        preferred = (
+                            tier["name"],
+                            candidate,
+                            int(candidate_result["delay"]),
+                        )
+                        break
+                if preferred:
+                    break
+
+            if preferred:
+                preferred_group, preferred_node, preferred_delay = preferred
+                recovery_key = f"{preferred_group}\n{preferred_node}"
+                recovery_checks = (
+                    int(item.get("priorityRecoveryChecks") or 0) + 1
+                    if item.get("priorityRecoveryCandidate") == recovery_key
+                    else 1
+                )
+                item["priorityRecoveryCandidate"] = recovery_key
+                item["priorityRecoveryChecks"] = recovery_checks
+                if recovery_checks < RESOURCE_MONITOR_PRIORITY_RECOVERY_THRESHOLD:
+                    item.update(
+                        {
+                            "state": "available",
+                            "delay": current_delay,
+                            "consecutiveFailures": 0,
+                            "consecutiveSlowChecks": 0,
+                            "message": (
+                                f"Проверяется возврат к {preferred_group} "
+                                f"({recovery_checks}/{RESOURCE_MONITOR_PRIORITY_RECOVERY_THRESHOLD})"
+                            ),
+                        }
+                    )
+                    return
+                switch_resource_monitor_node(
+                    app_dir,
+                    settings,
+                    item,
+                    service,
+                    group_name,
+                    current,
+                    preferred_node,
+                    preferred_delay,
+                    f"Возврат к приоритетной группе {preferred_group}",
+                    quarantine,
+                    previous_delay=current_delay,
+                    quarantine_current=False,
+                )
+                return
+
+            item["priorityRecoveryCandidate"] = ""
+            item["priorityRecoveryChecks"] = 0
+        else:
+            item["priorityRecoveryCandidate"] = ""
+            item["priorityRecoveryChecks"] = 0
+
         critical_latency = current_delay > settings["latencyThresholdMs"]
         last_switch = item.get("lastSwitch")
         proactive_cooldown = (
@@ -3266,28 +3513,47 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             if isinstance(refreshed_group, dict):
                 proxies = refreshed_proxies
                 group = refreshed_group
+                tiers = resource_monitor_source_tiers(service_settings, proxies)
                 allowed = resource_monitor_source_nodes(service_settings, proxies)
         except Exception:
             pass
 
-    candidates = resource_monitor_candidates(
+    candidate_tiers = resource_monitor_candidate_tiers(
         group,
         proxies,
         current,
         quarantine,
         settings["maxAlternatives"],
-        allowed,
+        tiers,
     )
+    if latency_switch and tiers is not None:
+        refreshed_tier_index = resource_monitor_node_tier_index(current, tiers)
+        candidate_tiers = (
+            [candidate_tiers[refreshed_tier_index]]
+            if isinstance(refreshed_tier_index, int) and refreshed_tier_index < len(candidate_tiers)
+            else []
+        )
     if proactive_switch:
-        candidates = candidates[:1]
+        for tier in candidate_tiers:
+            tier["candidates"] = tier["candidates"][:1]
+    candidates = [
+        candidate
+        for tier in candidate_tiers
+        for candidate in tier["candidates"]
+    ]
     successful = []
     candidate_timeout_ms = settings["timeoutMs"] if latency_switch else failover_timeout_ms
-    for candidate in candidates:
-        candidate_result = probe_resource_node(app_dir, service, candidate, candidate_timeout_ms, proxies)
-        if candidate_result["ok"]:
-            successful.append((candidate_result["delay"], candidate))
-            if not latency_switch:
-                break
+    for tier in candidate_tiers:
+        tier_successful = []
+        for candidate in tier["candidates"]:
+            candidate_result = probe_resource_node(app_dir, service, candidate, candidate_timeout_ms, proxies)
+            if candidate_result["ok"]:
+                tier_successful.append((candidate_result["delay"], candidate))
+                if not latency_switch:
+                    break
+        if tier_successful:
+            successful = tier_successful
+            break
 
     if latency_switch:
         required_delay = (
@@ -3328,53 +3594,22 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         return
 
     delay, selected = min(successful)
-    selection = select_proxy_group(app_dir, group_name, selected)
-    if not selection["ok"]:
-        if latency_switch:
-            item["consecutiveSlowChecks"] = 0
-        item["message"] = selection.get("message") or "Mihomo не подтвердил переключение"
-        append_resource_monitor_event(
-            app_dir,
-            service,
-            "switch_failed",
-            item["message"],
-            node=current,
-            target=selected,
-        )
-        return
-
-    switched_at = int(time.time())
-    quarantine[current] = switched_at + settings["quarantineSeconds"]
-    item.update(
-        {
-            "state": "available",
-            "currentNode": selected,
-            "delay": delay,
-            "consecutiveFailures": 0,
-            "consecutiveSlowChecks": 0,
-            "message": "Ресурс доступен",
-            "lastSwitch": {
-                "at": switched_at,
-                "from": current,
-                "to": selected,
-                "reason": switch_reason,
-            },
-            "quarantine": quarantine,
-        }
-    )
-    append_resource_monitor_event(
+    switched = switch_resource_monitor_node(
         app_dir,
+        settings,
+        item,
         service,
-        "switch",
-        f"Нода переключена: {current} → {selected}",
-        node=selected,
-        previousNode=current,
-        delay=delay,
-        previousDelay=result["delay"] if latency_switch else None,
+        group_name,
+        current,
+        selected,
+        delay,
+        switch_reason,
+        quarantine,
+        previous_delay=result["delay"] if latency_switch else None,
         threshold=latency_threshold,
-        reason=switch_reason,
-        quarantineUntil=quarantine[current],
     )
+    if not switched and latency_switch:
+        item["consecutiveSlowChecks"] = 0
 
 
 def run_resource_monitor_cycle(app_dir, services=None, proxies=None):

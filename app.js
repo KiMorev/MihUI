@@ -3354,7 +3354,7 @@ function renderResourceMonitorDialog() {
     toggle.append(checkbox, track, toggleState);
     head.append(title, toggle);
     sourceField.className = 'resource-monitor-source-select';
-    sourceTitle.textContent = 'Группы-источники';
+    sourceTitle.textContent = 'Приоритетные группы-источники';
     const configuredSources = getResourceMonitorGroupSourceNames(target);
     const pendingSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.pendingSettings?.sources?.[key]);
     const savedSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.config?.services?.[key]?.sources);
@@ -3384,7 +3384,7 @@ function renderResourceMonitorDialog() {
     sourceSummary.append(sourceSummaryText, sourceIcon);
     sourceMenu.className = 'resource-monitor-source-menu';
     sourceMenu.setAttribute('role', 'group');
-    sourceMenu.setAttribute('aria-label', `Группы-источники ${definition.title}`);
+    sourceMenu.setAttribute('aria-label', `Приоритетные группы-источники ${definition.title}`);
     sources.forEach((group) => {
       const option = document.createElement('label');
       const input = document.createElement('input');
@@ -3440,7 +3440,7 @@ function updateResourceMonitorSourcePickerSummary(sourcePicker) {
   const selected = [...sourcePicker.querySelectorAll('[data-resource-monitor-source]:checked')]
     .map((input) => input.value);
   const text = selected.length > 0
-    ? selected.join(', ')
+    ? selected.join(' → ')
     : sourcePicker.dataset.resourceMonitorLocked === 'true'
       ? 'Выбор недоступен'
       : 'Выберите группы';
@@ -3517,11 +3517,10 @@ function updateResourceMonitorDialogActions() {
 
 function getResourceMonitorSourceGroups() {
   const targetNames = new Set(Object.values(RESOURCE_MONITOR_DEFINITIONS).map((item) => item.group));
-  const groupNames = new Set(state.groups.map((group) => group.name));
   return state.groups.filter((group) => {
     if (targetNames.has(group.name)) return false;
     return group.use.length > 0
-      || group.proxies.some((name) => !isBuiltinProxyName(name) && !groupNames.has(name))
+      || group.proxies.some((name) => !isBuiltinProxyName(name))
       || group.includeAll
       || group.includeAllProxies
       || group.includeAllProviders;
@@ -3685,20 +3684,32 @@ function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGrou
   });
   if (selected.length === 0) throw new Error('Не выбрана группа-источник.');
 
+  const expanded = [];
+  const visited = new Set();
+  const visit = (source) => {
+    if (!source || visited.has(source.name)) return;
+    visited.add(source.name);
+    expanded.push(source);
+    source.proxies.forEach((name) => {
+      if (knownGroupNames.has(name)) visit(sourceGroups.get(name));
+    });
+  };
+  selected.forEach(visit);
+
   const sharedValue = (key) => (
-    selected.every((source) => String(source[key] || '') === String(selected[0][key] || ''))
-      ? selected[0][key] || ''
+    expanded.every((source) => String(source[key] || '') === String(expanded[0][key] || ''))
+      ? expanded[0][key] || ''
       : ''
   );
   return {
     names: selected.map((source) => source.name),
-    proxies: [...new Set(selected.flatMap((source) => (
+    proxies: [...new Set(expanded.flatMap((source) => (
       source.proxies.filter((name) => !isBuiltinProxyName(name) && !knownGroupNames.has(name))
     )))],
-    use: [...new Set(selected.flatMap((source) => source.use))],
-    includeAll: selected.some((source) => source.includeAll),
-    includeAllProxies: selected.some((source) => source.includeAllProxies),
-    includeAllProviders: selected.some((source) => source.includeAllProviders),
+    use: [...new Set(expanded.flatMap((source) => source.use))],
+    includeAll: expanded.some((source) => source.includeAll),
+    includeAllProxies: expanded.some((source) => source.includeAllProxies),
+    includeAllProviders: expanded.some((source) => source.includeAllProviders),
     filter: sharedValue('filter'),
     excludeFilter: sharedValue('excludeFilter'),
     excludeType: sharedValue('excludeType'),
