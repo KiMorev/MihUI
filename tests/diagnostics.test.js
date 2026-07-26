@@ -162,6 +162,8 @@ globalThis.__app = {
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
   resourceMonitorNeedsConfigChanges,
+  getResourceMonitorDialogIssue,
+  toggleResourceMonitor,
   getResourceMonitorSourceGroups,
   buildResourceMonitorTimeline,
   getResourceMonitorHistoryTooltipContent,
@@ -342,6 +344,96 @@ rules:
     assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+
+    const disabledServices = Object.fromEntries(
+      Object.entries(services).map(([key, service]) => [
+        key,
+        { ...service, enabled: false },
+      ]),
+    );
+    app.prepareResourceMonitorConfig(sources, disabledServices);
+
+    const disabledOutput = app.state.outputText;
+    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: AI/);
+    assert.doesNotMatch(disabledOutput, /webmihomo-monitor/);
+    assert.match(disabledOutput, /MATCH,PROXY/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, disabledServices), false);
+    assert.equal(app.getResourceMonitorDialogIssue(sources, disabledServices), '');
+  });
+
+  test(`${source.name}: preserves user-owned resource routing when monitoring is disabled`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    proxies:
+      - node-a
+  - name: YOUTUBE
+    type: select
+    proxies:
+      - FASTEST
+  - name: PROXY
+    type: select
+    proxies:
+      - FASTEST
+rules:
+  - GEOSITE,youtube,YOUTUBE
+  - MATCH,PROXY
+`);
+    const disabledServices = {
+      youtube: { enabled: false, group: 'YOUTUBE' },
+      telegram: { enabled: false, group: 'TELEGRAM' },
+      whatsapp: { enabled: false, group: 'WHATSAPP' },
+      ai: { enabled: false, group: 'AI' },
+    };
+
+    app.prepareResourceMonitorConfig({}, disabledServices);
+
+    assert.match(app.state.outputText, /name: YOUTUBE/);
+    assert.match(app.state.outputText, /GEOSITE,youtube,YOUTUBE/);
+    assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, disabledServices), false);
+  });
+
+  test(`${source.name}: global resource monitor switch prepares full config cleanup`, async () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    proxies:
+      - node-a
+  - name: PROXY
+    type: select
+    proxies:
+      - FASTEST
+rules:
+  - MATCH,PROXY
+`);
+    const sources = {
+      youtube: ['FASTEST'],
+      telegram: ['FASTEST'],
+      whatsapp: ['FASTEST'],
+      ai: ['FASTEST'],
+    };
+    const services = Object.fromEntries(
+      Object.entries(sources).map(([key, selected]) => [
+        key,
+        { enabled: true, group: key === 'ai' ? 'AI' : key.toUpperCase(), sources: selected },
+      ]),
+    );
+    app.prepareResourceMonitorConfig(sources, services);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    app.els.resourceMonitorEnabled.checked = false;
+
+    await app.toggleResourceMonitor();
+
+    assert.equal(app.els.resourceMonitorEnabled.checked, true);
+    assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
+    assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
+    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: AI/);
+    assert.match(app.state.outputText, /MATCH,PROXY/);
   });
 
   test(`${source.name}: combines several resource monitoring source groups`, () => {

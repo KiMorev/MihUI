@@ -13881,6 +13881,25 @@ async function toggleResourceMonitor() {
     ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
     enabled,
   };
+  if (!enabled) {
+    const disabledServices = Object.fromEntries(
+      Object.entries(settings.services || {}).map(([key, service]) => [
+        key,
+        { ...service, enabled: false },
+      ]),
+    );
+    if (resourceMonitorNeedsConfigChanges(null, disabledServices)) {
+      prepareResourceMonitorConfig(null, disabledServices);
+      state.resourceMonitor.pendingSettings = settings;
+      els.resourceMonitorEnabled.checked = true;
+      renderResourceMonitor();
+      setActiveSection('review');
+      showMessage('Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.', {
+        severity: 'warning',
+      });
+      return;
+    }
+  }
   try {
     await postResourceMonitorSettings(settings);
     showMessage(enabled ? 'Мониторинг ресурсов включён.' : 'Мониторинг ресурсов выключен.', { severity: 'success' });
@@ -14117,10 +14136,13 @@ function updateResourceMonitorDialogActions() {
   const sources = collectResourceMonitorDialogSources();
   const issue = getResourceMonitorDialogIssue(sources, services);
   const needsConfig = resourceMonitorNeedsConfigChanges(sources, services);
+  const removingAll = !Object.values(services).some((service) => service.enabled);
   els.resourceMonitorDialogNotice.hidden = !issue;
   els.resourceMonitorDialogNotice.textContent = issue;
   els.resourceMonitorSaveButton.disabled = Boolean(issue);
-  els.resourceMonitorSaveButton.textContent = needsConfig ? 'Подготовить конфиг' : 'Сохранить настройки';
+  els.resourceMonitorSaveButton.textContent = needsConfig
+    ? removingAll ? 'Убрать из конфига' : 'Подготовить конфиг'
+    : 'Сохранить настройки';
   els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
     || Boolean(state.resourceMonitor.pendingSettings)
     || needsConfig;
@@ -14213,9 +14235,11 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
     state.groups.some((group) => group.managedMonitoring && enabledKeys.has(group.monitorService))
     && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
   ) return true;
-  return Object.entries(RESOURCE_MONITOR_RULES).some(([service, rules]) => (
-    rules.some((parts) => enabledKeys.has(service) !== hasResourceMonitorRule(parts))
-  ));
+  return Object.entries(RESOURCE_MONITOR_RULES).some(([service, rules]) => rules.some((parts) => (
+    enabledKeys.has(service)
+      ? !hasResourceMonitorRule(parts)
+      : hasManagedResourceMonitorRule(parts, service)
+  )));
 }
 
 function isResourceMonitorSelectionPersistenceEnabled(text) {
@@ -14287,6 +14311,20 @@ function resourceMonitorRuleMatches(rule, parts) {
   );
 }
 
+function isManagedResourceMonitorRule(rule, service) {
+  const marker = String(rule?.comment || '').match(
+    /#\s*webmihomo-monitor:\s*([a-z0-9_-]+)/i,
+  );
+  return marker?.[1]?.toLowerCase() === String(service || '').toLowerCase();
+}
+
+function hasManagedResourceMonitorRule(parts, service) {
+  return getActiveRules().some((rule) => (
+    isManagedResourceMonitorRule(rule, service)
+    && resourceMonitorRuleMatches(rule, parts)
+  ));
+}
+
 function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGroupNames) {
   const selected = normalizeResourceMonitorSourceNames(sourceNames).map((name) => {
     const source = sourceGroups.get(name);
@@ -14332,15 +14370,30 @@ function prepareResourceMonitorConfig(sources, services = null) {
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     if (enabledKeys.has(key)) return;
-    const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
-    if (managedGroup) state.groups.splice(state.groups.indexOf(managedGroup), 1);
     (RESOURCE_MONITOR_RULES[key] || []).forEach((parts) => {
       getActiveRules()
-        .filter((rule) => resourceMonitorRuleMatches(rule, parts))
+        .filter((rule) => (
+          isManagedResourceMonitorRule(rule, key)
+          && resourceMonitorRuleMatches(rule, parts)
+        ))
         .forEach((rule) => {
           rule.deleted = true;
         });
     });
+    const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
+    if (!managedGroup) return;
+    const hasUserReferences = getActiveRules().some((rule) => rule.target === definition.group);
+    if (hasUserReferences) {
+      Object.assign(managedGroup, {
+        managedMonitoring: false,
+        monitorService: '',
+        monitorSourceGroup: '',
+        monitorSourceGroups: [],
+        requiresSelectionPersistence: false,
+      });
+    } else {
+      state.groups.splice(state.groups.indexOf(managedGroup), 1);
+    }
   });
 
   const sourceGroups = new Map(getResourceMonitorSourceGroups().map((group) => [group.name, group]));
@@ -14423,7 +14476,6 @@ function getResourceMonitorDialogIssue(
   services = null,
 ) {
   const enabledEntries = getEnabledResourceMonitorEntries(services);
-  if (enabledEntries.length === 0) return 'Включите хотя бы один ресурс.';
   const enabledDefinitions = enabledEntries.map(([, definition]) => definition);
   const conflict = enabledDefinitions.find((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
@@ -14465,9 +14517,10 @@ function getResourceMonitorDialogIssue(
 
 function collectResourceMonitorDialogSettings() {
   const services = collectResourceMonitorDialogServices();
+  const enabled = Object.values(services).some((service) => service.enabled);
   const settings = {
     ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
-    enabled: true,
+    enabled,
     intervalSeconds: Number(els.resourceMonitorInterval.value),
     failureThreshold: Number(els.resourceMonitorFailures.value),
     latencyThresholdMs: Number(els.resourceMonitorLatencyThreshold.value),
@@ -14488,6 +14541,7 @@ function collectResourceMonitorDialogSettings() {
 
 async function saveResourceMonitorDialog() {
   const { settings, sources } = collectResourceMonitorDialogSettings();
+  const disabling = settings.enabled === false;
   if (state.resourceMonitor.pendingSettings && hasUnsavedRouterChanges()) {
     closeResourceMonitorDialog();
     setActiveSection('review');
@@ -14507,7 +14561,9 @@ async function saveResourceMonitorDialog() {
     state.resourceMonitor.pendingSettings = { ...settings, sources };
     closeResourceMonitorDialog();
     setActiveSection('review');
-    showMessage('Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
+    showMessage(disabling
+      ? 'Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.'
+      : 'Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
       severity: 'warning',
     });
     return;
