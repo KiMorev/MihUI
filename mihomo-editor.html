@@ -4342,6 +4342,12 @@ body.component-manager-open {
   color: var(--danger);
 }
 
+.whitelist-monitor-proxy-check {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
 .whitelist-monitor-remove {
   width: 34px;
   min-width: 34px;
@@ -11018,6 +11024,8 @@ const state = {
     dirty: false,
     pendingSettings: null,
     pollTimer: 0,
+    proxyCheckingId: '',
+    manualProxyResults: {},
   },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
@@ -15130,9 +15138,15 @@ function renderWhitelistMonitorEndpointList(kind) {
     results.append(direct);
     if (kind === 'control') {
       const proxy = document.createElement('span');
+      const proxyCheck = document.createElement('button');
       proxy.className = 'whitelist-monitor-result';
       proxy.dataset.whitelistResult = 'proxy';
-      results.append(proxy);
+      proxyCheck.className = 'button ghost compact whitelist-monitor-proxy-check';
+      proxyCheck.type = 'button';
+      proxyCheck.textContent = 'Проверить PROXY';
+      proxyCheck.dataset.whitelistProxyCheck = endpoint.id;
+      proxyCheck.setAttribute('aria-label', `Проверить ${endpoint.name} через PROXY`);
+      results.append(proxy, proxyCheck);
     }
     remove.className = 'button ghost compact whitelist-monitor-remove';
     remove.type = 'button';
@@ -15150,12 +15164,27 @@ function updateWhitelistMonitorEndpointResults() {
   const runtime = state.whitelistMonitor.runtime?.endpoints || {};
   document.querySelectorAll('[data-whitelist-endpoint-id]').forEach((row) => {
     const result = runtime[row.dataset.whitelistEndpointId] || {};
+    const manual = state.whitelistMonitor.manualProxyResults[row.dataset.whitelistEndpointId];
+    const manualIsCurrent = manual
+      && manual.runtimeCheckedAt === Number(state.whitelistMonitor.runtime?.checkedAt || 0);
+    const proxyResult = manualIsCurrent ? manual.result : result.proxy;
     updateWhitelistMonitorResult(row.querySelector('[data-whitelist-result="direct"]'), result.direct, 'DIRECT');
-    updateWhitelistMonitorResult(row.querySelector('[data-whitelist-result="proxy"]'), result.proxy, 'PROXY');
+    updateWhitelistMonitorResult(
+      row.querySelector('[data-whitelist-result="proxy"]'),
+      proxyResult,
+      'PROXY',
+      { notRequired: !manualIsCurrent && Boolean(result.checkedAt) && result.proxy == null },
+    );
+    const proxyCheck = row.querySelector('[data-whitelist-proxy-check]');
+    if (proxyCheck) {
+      const checking = state.whitelistMonitor.proxyCheckingId === row.dataset.whitelistEndpointId;
+      proxyCheck.disabled = checking || row.classList.contains('is-disabled');
+      proxyCheck.textContent = checking ? 'Проверяем…' : 'Проверить PROXY';
+    }
   });
 }
 
-function updateWhitelistMonitorResult(element, result, label) {
+function updateWhitelistMonitorResult(element, result, label, options = {}) {
   if (!element) return;
   element.className = 'whitelist-monitor-result';
   element.title = result?.message || '';
@@ -15165,6 +15194,9 @@ function updateWhitelistMonitorResult(element, result, label) {
   } else if (result?.ok === false) {
     element.classList.add('is-error');
     element.textContent = `${label}: сбой`;
+  } else if (options.notRequired) {
+    element.textContent = `${label}: не требовалось`;
+    element.title = 'Проверка через прокси запускается только при признаках режима белых списков.';
   } else {
     element.textContent = `${label}: не проверен`;
   }
@@ -15240,6 +15272,11 @@ function handleWhitelistMonitorEndpointInput(event) {
 }
 
 function handleWhitelistMonitorEndpointClick(event) {
+  const proxyCheckId = event.target.dataset.whitelistProxyCheck;
+  if (proxyCheckId) {
+    checkWhitelistMonitorProxyEndpoint(proxyCheckId);
+    return;
+  }
   const endpointId = event.target.dataset.whitelistRemove;
   if (!endpointId) return;
   const row = event.target.closest('[data-whitelist-endpoint-kind]');
@@ -15274,6 +15311,41 @@ function addWhitelistMonitorEndpoint(event) {
   renderWhitelistMonitorEndpointList(kind);
   const row = document.querySelector(`[data-whitelist-endpoint-id="${id}"]`);
   row?.querySelector('[data-whitelist-field="name"]')?.select();
+}
+
+async function checkWhitelistMonitorProxyEndpoint(endpointId) {
+  if (state.whitelistMonitor.proxyCheckingId) return;
+  if (state.whitelistMonitor.dirty) {
+    showMessage('Сначала сохраните изменения настроек наблюдения.', { severity: 'warning' });
+    return;
+  }
+  state.whitelistMonitor.proxyCheckingId = endpointId;
+  delete state.whitelistMonitor.manualProxyResults[endpointId];
+  updateWhitelistMonitorEndpointResults();
+  try {
+    const data = await apiJson('/api/whitelist-monitor/proxy-check', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'whitelist-monitor',
+      },
+      body: JSON.stringify({ endpointId }),
+    });
+    state.whitelistMonitor.manualProxyResults[endpointId] = {
+      result: data.result,
+      runtimeCheckedAt: Number(state.whitelistMonitor.runtime?.checkedAt || 0),
+    };
+    if (data.result?.ok === true) {
+      showMessage(`Проверка через ${data.proxyGroup}: ${Number(data.result.delay)} мс.`, { severity: 'success' });
+    } else {
+      showMessage(`Проверка через ${data.proxyGroup} не пройдена: ${data.result?.message || 'нет ответа'}`, { severity: 'error' });
+    }
+  } catch (error) {
+    showMessage(`Проверка через PROXY не запущена: ${error?.message || String(error)}`, { severity: 'error' });
+  } finally {
+    state.whitelistMonitor.proxyCheckingId = '';
+    updateWhitelistMonitorEndpointResults();
+  }
 }
 
 function restoreWhitelistMonitorDefaults() {

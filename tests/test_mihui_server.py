@@ -2132,6 +2132,55 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(result["config"]["intervalSeconds"], 120)
         request.assert_not_called()
 
+    def test_whitelist_monitor_proxy_check_uses_saved_group_and_endpoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["enabled"] = True
+            settings["proxyGroup"] = "MY PROXY"
+            mihui_server.save_whitelist_monitor_settings(app_dir, settings)
+            endpoint = settings["controlEndpoints"][0]
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server,
+                    "mihomo_api_request",
+                    return_value={"delay": 63},
+                ) as request:
+                    status, result = self.post_json(
+                        server,
+                        "/api/whitelist-monitor/proxy-check",
+                        {"endpointId": endpoint["id"]},
+                        headers={"X-Mihui-Action": "whitelist-monitor"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["proxyGroup"], "MY PROXY")
+        self.assertEqual(result["result"], {"ok": True, "delay": 63, "message": ""})
+        path = request.call_args.args[1]
+        self.assertTrue(path.startswith("/proxies/MY%20PROXY/delay?"))
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+        self.assertEqual(query["url"], [endpoint["url"]])
+
+    def test_whitelist_monitor_proxy_check_requires_action_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, result = self.post_json(
+                    server,
+                    "/api/whitelist-monitor/proxy-check",
+                    {"endpointId": "control-mirror-truenetwork"},
+                )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

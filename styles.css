@@ -4334,6 +4334,12 @@ body.component-manager-open {
   color: var(--danger);
 }
 
+.whitelist-monitor-proxy-check {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
 .whitelist-monitor-remove {
   width: 34px;
   min-width: 34px;

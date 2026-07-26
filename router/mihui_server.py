@@ -267,6 +267,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/whitelist-monitor/check":
             self.handle_whitelist_monitor_check()
             return
+        if route == "/api/whitelist-monitor/proxy-check":
+            self.handle_whitelist_monitor_proxy_check()
+            return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
             return
@@ -582,6 +585,41 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         else:
             status = HTTPStatus.CONFLICT
         self.send_json(status, result)
+
+    def handle_whitelist_monitor_proxy_check(self):
+        if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        endpoint_id = str(self.read_json_body().get("endpointId") or "").strip()
+        settings = load_whitelist_monitor_settings(self.app_dir)
+        endpoint = next(
+            (
+                item
+                for item in settings["controlEndpoints"]
+                if item["id"] == endpoint_id and item["enabled"]
+            ),
+            None,
+        )
+        if endpoint is None:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "control endpoint not found"})
+            return
+
+        result = probe_whitelist_monitor_endpoint(
+            self.app_dir,
+            settings["proxyGroup"],
+            endpoint,
+            settings["timeoutMs"],
+        )
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "endpointId": endpoint_id,
+                "proxyGroup": settings["proxyGroup"],
+                "result": result,
+            },
+        )
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):

@@ -461,6 +461,9 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const script = read(name);
     assert.match(script, /\/api\/whitelist-monitor/);
+    assert.match(script, /\/api\/whitelist-monitor\/proxy-check/);
+    assert.match(script, /не требовалось/);
+    assert.match(script, /Проверить PROXY/);
     assert.match(script, /controlFailureThreshold: 2/);
     assert.match(script, /prepareWhitelistFallbackConfig/);
     assert.match(script, /buildWhitelistMonitorTimeline/);
