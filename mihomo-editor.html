@@ -13436,7 +13436,8 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
   for (let index = 0; index < totalHours; index += 1) {
     const start = windowStart + index * hourMs;
     const end = start + hourMs;
-    const states = [currentState];
+    const inheritedState = currentState;
+    const states = [];
     const intervalEvents = [];
     let hasSwitch = false;
     while (transitionIndex < transitions.length && transitions[transitionIndex].at < end) {
@@ -13447,7 +13448,7 @@ function buildResourceMonitorTimeline(events, runtime, service, nowMs = Date.now
       intervalEvents.push(transitions[transitionIndex].event);
       transitionIndex += 1;
     }
-    const stateValue = states.reduce(
+    const stateValue = (states.length > 0 ? states : [inheritedState]).reduce(
       (selected, candidate) => priority[candidate] > priority[selected] ? candidate : selected,
       'idle',
     );

@@ -3399,6 +3399,24 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
                             ),
                         }
                     )
+                    if previous_slow_checks > 0:
+                        append_resource_monitor_event(
+                            app_dir,
+                            service,
+                            "latency_recovered",
+                            f"{RESOURCE_MONITOR_SERVICES[service]['title']}: задержка нормализовалась",
+                            node=current,
+                            delay=current_delay,
+                        )
+                    elif previous_state in {"warning", "error", "needs_sync"}:
+                        append_resource_monitor_event(
+                            app_dir,
+                            service,
+                            "recovered",
+                            f"{RESOURCE_MONITOR_SERVICES[service]['title']} снова доступен",
+                            node=current,
+                            delay=current_delay,
+                        )
                     return
                 switch_resource_monitor_node(
                     app_dir,

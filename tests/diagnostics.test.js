@@ -581,11 +581,36 @@ rules:
     assert.equal(timeline.length, 24);
     assert.deepEqual(
       JSON.parse(JSON.stringify(counts)),
-      { available: 19, warning: 2, error: 3 },
+      { available: 21, warning: 1, error: 2 },
     );
     assert.equal(timeline[11].hasSwitch, true);
+    assert.equal(timeline[11].state, 'available');
     assert.equal(timeline[12].hasSwitch, false);
     assert.equal(timeline[11].events[0].type, 'switch');
+  });
+
+  test(`${source.name}: stops carrying a warning after recovery in a new interval`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 60 * 60 * 1000;
+    const at = (offsetMinutes) => Math.floor((start + offsetMinutes * 60 * 1000) / 1000);
+    const [item] = app.buildResourceMonitorTimeline([
+      { service: 'youtube', type: 'failure', timestamp: at(-10) },
+      {
+        service: 'youtube',
+        type: 'recovered',
+        timestamp: at(10),
+        message: 'YouTube снова доступен',
+      },
+    ], null, 'youtube', now, 1);
+    const tooltip = app.getResourceMonitorHistoryTooltipContent({ title: 'YouTube' }, item);
+
+    assert.equal(item.state, 'available');
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(item.events.map((event) => event.type))),
+      ['recovered'],
+    );
+    assert.match(tooltip.eventLines[0], /YouTube снова доступен$/);
   });
 
   test(`${source.name}: keeps the serious resource state when a switch succeeds in the same hour`, () => {

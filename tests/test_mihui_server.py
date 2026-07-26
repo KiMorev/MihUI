@@ -1815,6 +1815,13 @@ class ProviderAdapterTests(unittest.TestCase):
         settings = mihui_server.default_resource_monitor_settings()
         settings["services"]["youtube"]["sources"] = ["PROXY"]
         runtime = mihui_server.default_resource_monitor_runtime()
+        runtime["services"]["youtube"].update(
+            {
+                "state": "warning",
+                "consecutiveFailures": 1,
+                "message": "timeout",
+            }
+        )
         proxies = {
             "YOUTUBE": {
                 "name": "YOUTUBE",
@@ -1868,6 +1875,13 @@ class ProviderAdapterTests(unittest.TestCase):
             )
             select.assert_not_called()
             self.assertEqual(runtime["services"]["youtube"]["priorityRecoveryChecks"], 1)
+            recovery_events = [
+                event
+                for event in mihui_server.read_resource_monitor_events(Path(temp_dir))
+                if event["type"] == "recovered"
+            ]
+            self.assertEqual(len(recovery_events), 1)
+            self.assertEqual(recovery_events[0]["node"], "node-c")
 
             mihui_server.run_resource_monitor_service(
                 Path(temp_dir),
