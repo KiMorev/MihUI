@@ -146,7 +146,9 @@ test('main and standalone expose Instagram resource monitoring', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /instagram: \{ title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' \}/);
-    assert.match(source, /\['GEOSITE', 'instagram', 'INSTAGRAM'\]/);
+    assert.match(source, /\['RULE-SET', 'instagram@domain', 'INSTAGRAM'\]/);
+    assert.match(source, /\['RULE-SET', 'openai@domain', 'AI'\]/);
+    assert.match(source, /\['RULE-SET', 'anthropic@domain', 'AI'\]/);
   }
 });
 

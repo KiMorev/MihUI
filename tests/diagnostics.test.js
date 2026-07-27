@@ -288,11 +288,16 @@ rules:
     assert.match(output, /RULE-SET,netbios@inline,REJECT/);
     assert.doesNotMatch(output, /RULE-SET,"[^"]+@[^"]+"/);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
-    assert.ok(output.indexOf('GEOSITE,instagram,INSTAGRAM') < output.indexOf('MATCH,PROXY'));
+    assert.match(output, /instagram@domain: \{ type: http, format: mrs, behavior: domain, interval: 86400, url: "https:\/\/raw\.githubusercontent\.com\/MetaCubeX\/meta-rules-dat\/meta\/geo\/geosite\/instagram\.mrs" \} # webmihomo-monitor: provider instagram/);
+    assert.match(output, /openai@domain: \{ type: http, format: mrs, behavior: domain, interval: 86400, url: "https:\/\/raw\.githubusercontent\.com\/MetaCubeX\/meta-rules-dat\/meta\/geo\/geosite\/openai\.mrs" \} # webmihomo-monitor: provider ai/);
+    assert.match(output, /anthropic@domain: \{ type: http, format: mrs, behavior: domain, interval: 86400, url: "https:\/\/raw\.githubusercontent\.com\/MetaCubeX\/meta-rules-dat\/meta\/geo\/geosite\/anthropic\.mrs" \} # webmihomo-monitor: provider ai/);
+    assert.ok(output.indexOf('RULE-SET,instagram@domain,INSTAGRAM') < output.indexOf('MATCH,PROXY'));
     assert.doesNotMatch(output, /GEOSITE,telegram,TELEGRAM/);
     assert.ok(output.indexOf('DOMAIN-SUFFIX,telegram.org,TELEGRAM') < output.indexOf('MATCH,PROXY'));
     assert.ok(output.indexOf('GEOIP,telegram,TELEGRAM,no-resolve') < output.indexOf('MATCH,PROXY'));
-    assert.ok(output.indexOf('DOMAIN-SUFFIX,anthropic.com,AI') < output.indexOf('MATCH,PROXY'));
+    assert.ok(output.indexOf('RULE-SET,openai@domain,AI') < output.indexOf('MATCH,PROXY'));
+    assert.ok(output.indexOf('RULE-SET,anthropic@domain,AI') < output.indexOf('MATCH,PROXY'));
+    assert.doesNotMatch(output, /GEOSITE,instagram,INSTAGRAM|DOMAIN-SUFFIX,(?:chatgpt\.com|anthropic\.com),AI/);
     assert.equal(app.resourceMonitorNeedsConfigChanges(), false);
 
     const before = output;
@@ -304,6 +309,69 @@ rules:
       ai: 'FASTEST',
     });
     assert.equal(app.state.outputText, before);
+  });
+
+  test(`${source.name}: migrates managed AI rules to MetaCubeX rule providers`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-groups:
+  - name: FASTEST
+    type: url-test
+    proxies:
+      - node-a
+  - name: INSTAGRAM # webmihomo-monitor: group instagram source=FASTEST
+    type: select
+    proxies:
+      - node-a
+  - name: AI # webmihomo-monitor: group ai source=FASTEST
+    type: select
+    proxies:
+      - node-a
+rule-providers:
+  yandex@domain: { type: http, format: mrs, behavior: domain, interval: 86400, url: https://example.com/yandex.mrs }
+rules:
+  - DOMAIN-SUFFIX,chatgpt.com,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,openai.com,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,oaistatic.com,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,oaiusercontent.com,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,claude.ai,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,claude.com,AI # webmihomo-monitor: ai
+  - DOMAIN-SUFFIX,anthropic.com,AI # webmihomo-monitor: ai
+  - GEOSITE,instagram,INSTAGRAM # webmihomo-monitor: instagram
+  - DOMAIN-SUFFIX,user-ai.example,AI
+  - MATCH,FASTEST
+`);
+    const sources = {
+      youtube: [],
+      telegram: [],
+      whatsapp: [],
+      instagram: ['FASTEST'],
+      ai: ['FASTEST'],
+    };
+    const services = {
+      youtube: { enabled: false, group: 'YOUTUBE', sources: [] },
+      telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      instagram: { enabled: true, group: 'INSTAGRAM', sources: sources.instagram },
+      ai: { enabled: true, group: 'AI', sources: sources.ai },
+    };
+
+    app.prepareResourceMonitorConfig(sources, services);
+
+    const output = app.state.outputText;
+    assert.match(output, /RULE-SET,instagram@domain,INSTAGRAM # webmihomo-monitor: instagram/);
+    assert.match(output, /RULE-SET,openai@domain,AI # webmihomo-monitor: ai/);
+    assert.match(output, /RULE-SET,anthropic@domain,AI # webmihomo-monitor: ai/);
+    assert.match(output, /DOMAIN-SUFFIX,user-ai\.example,AI/);
+    assert.match(output, /yandex@domain: \{ type: http/);
+    assert.doesNotMatch(output, /GEOSITE,instagram,INSTAGRAM|DOMAIN-SUFFIX,(?:chatgpt\.com|openai\.com|oaistatic\.com|oaiusercontent\.com|claude\.ai|claude\.com|anthropic\.com),AI # webmihomo-monitor: ai/);
+    assert.equal((output.match(/openai@domain:/g) || []).length, 1);
+    assert.equal((output.match(/anthropic@domain:/g) || []).length, 1);
+    assert.equal((output.match(/instagram@domain:/g) || []).length, 1);
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal(app.state.outputText, output);
   });
 
   test(`${source.name}: keeps only enabled resource routing in the config`, () => {

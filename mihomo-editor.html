@@ -10649,6 +10649,24 @@ const RESOURCE_MONITOR_DEFINITIONS = {
 };
 let resourceMonitorHistoryTooltipTarget = null;
 let resourceMonitorHistoryTooltipPinned = false;
+const RESOURCE_MONITOR_RULE_PROVIDERS = {
+  instagram: [
+    {
+      name: 'instagram@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/instagram.mrs',
+    },
+  ],
+  ai: [
+    {
+      name: 'openai@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/openai.mrs',
+    },
+    {
+      name: 'anthropic@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/anthropic.mrs',
+    },
+  ],
+};
 const RESOURCE_MONITOR_RULES = {
   youtube: [
     ['GEOSITE', 'youtube', 'YOUTUBE'],
@@ -10669,16 +10687,11 @@ const RESOURCE_MONITOR_RULES = {
     ['DOMAIN-SUFFIX', 'whatsapp.net', 'WHATSAPP'],
   ],
   instagram: [
-    ['GEOSITE', 'instagram', 'INSTAGRAM'],
+    ['RULE-SET', 'instagram@domain', 'INSTAGRAM'],
   ],
   ai: [
-    ['DOMAIN-SUFFIX', 'chatgpt.com', 'AI'],
-    ['DOMAIN-SUFFIX', 'openai.com', 'AI'],
-    ['DOMAIN-SUFFIX', 'oaistatic.com', 'AI'],
-    ['DOMAIN-SUFFIX', 'oaiusercontent.com', 'AI'],
-    ['DOMAIN-SUFFIX', 'claude.ai', 'AI'],
-    ['DOMAIN-SUFFIX', 'claude.com', 'AI'],
-    ['DOMAIN-SUFFIX', 'anthropic.com', 'AI'],
+    ['RULE-SET', 'openai@domain', 'AI'],
+    ['RULE-SET', 'anthropic@domain', 'AI'],
   ],
 };
 const CONNECTION_SETTING_DEFS = [
@@ -14248,11 +14261,11 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
     state.groups.some((group) => group.managedMonitoring && enabledKeys.has(group.monitorService))
     && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
   ) return true;
-  return Object.entries(RESOURCE_MONITOR_RULES).some(([service, rules]) => rules.some((parts) => (
-    enabledKeys.has(service)
-      ? !hasResourceMonitorRule(parts)
-      : hasManagedResourceMonitorRule(parts, service)
-  )));
+  if (resourceMonitorRulesNeedChanges(enabledKeys)) return true;
+  return resourceMonitorRuleProvidersNeedChanges(
+    enabledKeys,
+    state.outputText || state.originalText,
+  );
 }
 
 function isResourceMonitorSelectionPersistenceEnabled(text) {
@@ -14338,6 +14351,131 @@ function hasManagedResourceMonitorRule(parts, service) {
   ));
 }
 
+function resourceMonitorRulesNeedChanges(enabledKeys) {
+  return Object.entries(RESOURCE_MONITOR_RULES).some(([service, rules]) => {
+    const managedRules = getActiveRules().filter((rule) => isManagedResourceMonitorRule(rule, service));
+    if (!enabledKeys.has(service)) return managedRules.length > 0;
+    if (rules.some((parts) => !hasResourceMonitorRule(parts))) return true;
+    return managedRules.some((rule) => !rules.some((parts) => resourceMonitorRuleMatches(rule, parts)));
+  });
+}
+
+function getResourceMonitorRuleProviderMarkerService(line) {
+  const marker = String(line || '').match(
+    /#\s*webmihomo-monitor:\s*provider\s+([a-z0-9_-]+)\s*$/i,
+  );
+  return marker?.[1]?.toLowerCase() || '';
+}
+
+function getResourceMonitorRuleProviderKey(line) {
+  return parseKeyValueLine(line, 2)?.key || '';
+}
+
+function getResourceMonitorRuleProviders(enabledKeys) {
+  return [...enabledKeys].flatMap((service) => (
+    (RESOURCE_MONITOR_RULE_PROVIDERS[service] || []).map((provider) => ({
+      ...provider,
+      service,
+    }))
+  ));
+}
+
+function formatResourceMonitorRuleProvider(provider) {
+  return `  ${provider.name}: { type: http, format: mrs, behavior: domain, interval: 86400, url: ${JSON.stringify(provider.url)} } # webmihomo-monitor: provider ${provider.service}`;
+}
+
+function resourceMonitorRuleProvidersNeedChanges(enabledKeys, text) {
+  const desired = getResourceMonitorRuleProviders(enabledKeys);
+  const lines = splitLines(text);
+  const section = findTopSection(lines, 'rule-providers');
+  if (!section) return desired.length > 0;
+
+  const providerLines = lines.slice(section.start + 1, section.end);
+  const providerKeys = new Set(providerLines.map(getResourceMonitorRuleProviderKey).filter(Boolean));
+  if (desired.some((provider) => !providerKeys.has(provider.name))) return true;
+
+  const desiredByName = new Map(desired.map((provider) => [provider.name, provider]));
+  return providerLines.some((line) => {
+    const service = getResourceMonitorRuleProviderMarkerService(line);
+    if (!service) return false;
+    const provider = desiredByName.get(getResourceMonitorRuleProviderKey(line));
+    return !provider || provider.service !== service || !line.includes(provider.url);
+  });
+}
+
+function syncResourceMonitorRuleProviders(lines) {
+  const enabledKeys = new Set(
+    getActiveRules()
+      .map((rule) => Object.keys(RESOURCE_MONITOR_RULES).find((service) => (
+        isManagedResourceMonitorRule(rule, service)
+      )))
+      .filter(Boolean),
+  );
+  const desired = getResourceMonitorRuleProviders(enabledKeys);
+  const desiredByName = new Map(desired.map((provider) => [provider.name, provider]));
+  const nextLines = lines.slice();
+  const section = findTopSection(nextLines, 'rule-providers');
+
+  if (!section) {
+    if (desired.length === 0) return nextLines;
+    const rulesSection = findTopSection(nextLines, 'rules');
+    const insertAt = rulesSection?.start ?? nextLines.length;
+    const prefix = insertAt > 0 && nextLines[insertAt - 1].trim() ? [''] : [];
+    nextLines.splice(
+      insertAt,
+      0,
+      ...prefix,
+      'rule-providers: # webmihomo-monitor: providers',
+      ...desired.map(formatResourceMonitorRuleProvider),
+      '',
+    );
+    return nextLines;
+  }
+
+  const header = parseTopLevelKeyValueLine(nextLines[section.start]);
+  const headerValue = String(header?.value || '').trim();
+  if (headerValue && headerValue !== '{}' && headerValue !== '[]') {
+    throw new Error('Раздел rule-providers задан в одну строку и не может быть безопасно дополнен.');
+  }
+  if (headerValue) {
+    const comment = splitYamlHighlightComment(nextLines[section.start]).comment;
+    nextLines[section.start] = `rule-providers:${comment ? ` ${comment.trim()}` : ''}`;
+  }
+
+  const body = [];
+  const presentKeys = new Set();
+  nextLines.slice(section.start + 1, section.end).forEach((line) => {
+    const service = getResourceMonitorRuleProviderMarkerService(line);
+    const key = getResourceMonitorRuleProviderKey(line);
+    if (!service) {
+      if (key) presentKeys.add(key);
+      body.push(line);
+      return;
+    }
+    const provider = desiredByName.get(key);
+    if (!provider || provider.service !== service) return;
+    presentKeys.add(key);
+    body.push(formatResourceMonitorRuleProvider(provider));
+  });
+
+  const missing = desired
+    .filter((provider) => !presentKeys.has(provider.name))
+    .map(formatResourceMonitorRuleProvider);
+  let insertAt = body.length;
+  while (insertAt > 0 && !body[insertAt - 1].trim()) insertAt -= 1;
+  body.splice(insertAt, 0, ...missing);
+
+  const managedHeader = /#\s*webmihomo-monitor:\s*providers\s*$/i.test(nextLines[section.start]);
+  const hasProviderEntries = body.some((line) => Boolean(getResourceMonitorRuleProviderKey(line)));
+  if (managedHeader && !hasProviderEntries) {
+    nextLines.splice(section.start, section.end - section.start);
+    return nextLines;
+  }
+
+  nextLines.splice(section.start + 1, section.end - section.start - 1, ...body);
+  return nextLines;
+}
+
 function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGroupNames) {
   const selected = normalizeResourceMonitorSourceNames(sourceNames).map((name) => {
     const source = sourceGroups.get(name);
@@ -14383,16 +14521,11 @@ function prepareResourceMonitorConfig(sources, services = null) {
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     if (enabledKeys.has(key)) return;
-    (RESOURCE_MONITOR_RULES[key] || []).forEach((parts) => {
-      getActiveRules()
-        .filter((rule) => (
-          isManagedResourceMonitorRule(rule, key)
-          && resourceMonitorRuleMatches(rule, parts)
-        ))
-        .forEach((rule) => {
-          rule.deleted = true;
-        });
-    });
+    getActiveRules()
+      .filter((rule) => isManagedResourceMonitorRule(rule, key))
+      .forEach((rule) => {
+        rule.deleted = true;
+      });
     const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
     if (!managedGroup) return;
     const hasUserReferences = getActiveRules().some((rule) => rule.target === definition.group);
@@ -14407,6 +14540,18 @@ function prepareResourceMonitorConfig(sources, services = null) {
     } else {
       state.groups.splice(state.groups.indexOf(managedGroup), 1);
     }
+  });
+
+  enabledEntries.forEach(([key]) => {
+    const currentRules = RESOURCE_MONITOR_RULES[key] || [];
+    getActiveRules()
+      .filter((rule) => (
+        isManagedResourceMonitorRule(rule, key)
+        && !currentRules.some((parts) => resourceMonitorRuleMatches(rule, parts))
+      ))
+      .forEach((rule) => {
+        rule.deleted = true;
+      });
   });
 
   const sourceGroups = new Map(getResourceMonitorSourceGroups().map((group) => [group.name, group]));
@@ -22003,7 +22148,7 @@ function generateOutput() {
     nextLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  setOutputText(nextLines.join('\n'));
+  setOutputText(syncResourceMonitorRuleProviders(nextLines).join('\n'));
   renderOutputOnly();
 }
 
