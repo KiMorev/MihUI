@@ -1214,6 +1214,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertEqual(mihui_server.load_resource_monitor_settings(app_dir), validated)
             self.assertEqual(validated["services"]["ai"]["group"], "AI")
+            self.assertEqual(validated["services"]["instagram"]["group"], "INSTAGRAM")
             self.assertEqual(validated["services"]["youtube"]["sources"], ["FASTEST", "FALLBACK"])
             self.assertTrue(validated["proactiveSwitchEnabled"])
 
@@ -1241,6 +1242,25 @@ class ProviderAdapterTests(unittest.TestCase):
                 service["enabled"] = False
             with self.assertRaises(ValueError):
                 mihui_server.validate_resource_monitor_settings(none_enabled)
+
+    def test_resource_monitor_adds_instagram_disabled_to_saved_legacy_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_resource_monitor_settings()
+            settings["services"].pop("instagram")
+            mihui_server.write_json_atomic(
+                mihui_server.resource_monitor_settings_path(app_dir),
+                settings,
+            )
+
+            loaded = mihui_server.load_resource_monitor_settings(app_dir)
+
+        self.assertFalse(loaded["services"]["instagram"]["enabled"])
+        self.assertEqual(loaded["services"]["instagram"]["group"], "INSTAGRAM")
+        self.assertEqual(
+            mihui_server.RESOURCE_MONITOR_SERVICES["instagram"]["endpoints"],
+            [{"url": "https://www.instagram.com/robots.txt", "expected": 200}],
+        )
 
     def test_whitelist_monitor_settings_are_validated_and_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1603,7 +1623,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 "now": "provider-node",
                 "all": ["provider-node", "provider-node-2"],
             }
-            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "AI")
+            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "AI")
         }
 
         with mock.patch.object(

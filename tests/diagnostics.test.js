@@ -273,12 +273,14 @@ rules:
       youtube: 'FASTEST',
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
+      instagram: 'FASTEST',
       ai: 'FASTEST',
     });
 
     const output = app.state.outputText;
     assert.match(output, /profile:\n  store-selected: true/);
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
+    assert.match(output, /name: INSTAGRAM # webmihomo-monitor: group instagram source=FASTEST/);
     assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
     assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
     assert.match(output, /exclude-filter: ["']?\(\?i\)expired/);
@@ -286,6 +288,7 @@ rules:
     assert.match(output, /RULE-SET,netbios@inline,REJECT/);
     assert.doesNotMatch(output, /RULE-SET,"[^"]+@[^"]+"/);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
+    assert.ok(output.indexOf('GEOSITE,instagram,INSTAGRAM') < output.indexOf('MATCH,PROXY'));
     assert.doesNotMatch(output, /GEOSITE,telegram,TELEGRAM/);
     assert.ok(output.indexOf('DOMAIN-SUFFIX,telegram.org,TELEGRAM') < output.indexOf('MATCH,PROXY'));
     assert.ok(output.indexOf('GEOIP,telegram,TELEGRAM,no-resolve') < output.indexOf('MATCH,PROXY'));
@@ -297,6 +300,7 @@ rules:
       youtube: 'FASTEST',
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
+      instagram: 'FASTEST',
       ai: 'FASTEST',
     });
     assert.equal(app.state.outputText, before);
@@ -325,12 +329,14 @@ rules:
       youtube: 'FASTEST',
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
+      instagram: 'FASTEST',
       ai: 'FASTEST',
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
 
@@ -340,8 +346,8 @@ rules:
     const output = app.state.outputText;
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /GEOSITE,youtube,YOUTUBE/);
-    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: AI/);
-    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,AI(?:,|$)/m);
+    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
+    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
 
@@ -354,7 +360,7 @@ rules:
     app.prepareResourceMonitorConfig(sources, disabledServices);
 
     const disabledOutput = app.state.outputText;
-    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: AI/);
+    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
     assert.doesNotMatch(disabledOutput, /webmihomo-monitor/);
     assert.match(disabledOutput, /MATCH,PROXY/);
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, disabledServices), false);
@@ -385,6 +391,7 @@ rules:
       youtube: { enabled: false, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
 
@@ -415,6 +422,7 @@ rules:
       youtube: ['FASTEST'],
       telegram: ['FASTEST'],
       whatsapp: ['FASTEST'],
+      instagram: ['FASTEST'],
       ai: ['FASTEST'],
     };
     const services = Object.fromEntries(
@@ -432,7 +440,7 @@ rules:
     assert.equal(app.els.resourceMonitorEnabled.checked, true);
     assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
     assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
-    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: AI/);
+    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
     assert.match(app.state.outputText, /MATCH,PROXY/);
   });
 
@@ -470,12 +478,14 @@ rules:
       youtube: ['FASTEST', 'FALLBACK'],
       telegram: [],
       whatsapp: [],
+      instagram: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
 
@@ -535,12 +545,14 @@ rules:
       youtube: ['PROXY'],
       telegram: [],
       whatsapp: [],
+      instagram: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
 
@@ -790,6 +802,7 @@ rules:
       youtube: 'FASTEST',
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
+      instagram: 'FASTEST',
       ai: 'FASTEST',
     });
 

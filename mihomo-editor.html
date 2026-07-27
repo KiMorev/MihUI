@@ -9427,6 +9427,7 @@ button.review-check-card:focus-visible {
       <symbol id="icon-youtube" viewBox="0 0 24 24"><path d="M3 8a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4z" /><path d="M10 9l5 3l-5 3z" /></symbol>
       <symbol id="icon-telegram" viewBox="0 0 24 24"><path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4" /></symbol>
       <symbol id="icon-whatsapp" viewBox="0 0 24 24"><path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9" /><path d="M9 10a.5 .5 0 0 0 1 0v-1a.5 .5 0 0 0 -1 0v1a5 5 0 0 0 5 5h1a.5 .5 0 0 0 0 -1h-1a.5 .5 0 0 0 0 1" /></symbol>
+      <symbol id="icon-instagram" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" /><circle cx="12" cy="12" r="3" /><path d="M16.5 7.5v.01" /></symbol>
       <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.6 4.4l4.4 1.6l-4.4 1.6l-1.6 4.4l-1.6 -4.4l-4.4 -1.6l4.4 -1.6z" /><path d="M19 15l.9 2.1l2.1 .9l-2.1 .9l-.9 2.1l-.9 -2.1l-2.1 -.9l2.1 -.9z" /><path d="M5 15l.7 1.3l1.3 .7l-1.3 .7l-.7 1.3l-.7 -1.3l-1.3 -.7l1.3 -.7z" /></symbol>
     </svg>
     <main class="app-shell">
@@ -10643,6 +10644,7 @@ const RESOURCE_MONITOR_DEFINITIONS = {
   youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
   telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
+  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
   ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
 };
 let resourceMonitorHistoryTooltipTarget = null;
@@ -10665,6 +10667,9 @@ const RESOURCE_MONITOR_RULES = {
   whatsapp: [
     ['DOMAIN-SUFFIX', 'whatsapp.com', 'WHATSAPP'],
     ['DOMAIN-SUFFIX', 'whatsapp.net', 'WHATSAPP'],
+  ],
+  instagram: [
+    ['GEOSITE', 'instagram', 'INSTAGRAM'],
   ],
   ai: [
     ['DOMAIN-SUFFIX', 'chatgpt.com', 'AI'],

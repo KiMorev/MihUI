@@ -139,6 +139,17 @@ test('main and standalone expose compact resource monitoring history', () => {
   }
 });
 
+test('main and standalone expose Instagram resource monitoring', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    assert.match(read(name), /id="icon-instagram"/);
+  }
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /instagram: \{ title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' \}/);
+    assert.match(source, /\['GEOSITE', 'instagram', 'INSTAGRAM'\]/);
+  }
+});
+
 test('main and standalone expose per-resource monitoring switches', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);

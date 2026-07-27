@@ -27,6 +27,7 @@ const RESOURCE_MONITOR_DEFINITIONS = {
   youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
   telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
+  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
   ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
 };
 let resourceMonitorHistoryTooltipTarget = null;
@@ -49,6 +50,9 @@ const RESOURCE_MONITOR_RULES = {
   whatsapp: [
     ['DOMAIN-SUFFIX', 'whatsapp.com', 'WHATSAPP'],
     ['DOMAIN-SUFFIX', 'whatsapp.net', 'WHATSAPP'],
+  ],
+  instagram: [
+    ['GEOSITE', 'instagram', 'INSTAGRAM'],
   ],
   ai: [
     ['DOMAIN-SUFFIX', 'chatgpt.com', 'AI'],
