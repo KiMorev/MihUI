@@ -101,6 +101,34 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
 
 
 class ProviderAdapterTests(unittest.TestCase):
+    def test_update_progress_file_reports_phase_and_percentage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            progress_file = Path(temp_dir) / "progress"
+            progress_file.write_text("download\t42\n", encoding="utf-8")
+            reported = []
+
+            value = mihui_server.report_update_progress(
+                progress_file,
+                lambda phase, progress: reported.append((phase, progress)),
+            )
+
+        self.assertEqual(value, "download\t42")
+        self.assertEqual(reported, [("download", 42)])
+
+    def test_run_update_script_finishes_progress_at_complete(self):
+        def run_cgi(_app_dir, progress_callback=None):
+            progress_callback("extract", None)
+            return 200, [], b'{"ok":true}', 0
+
+        with mock.patch.object(mihui_server, "run_cgi_script", side_effect=run_cgi):
+            mihui_server.run_update_script(Path("."))
+
+        state = mihui_server.snapshot_update_state()
+        self.assertFalse(state["running"])
+        self.assertTrue(state["ok"])
+        self.assertEqual(state["phase"], "complete")
+        self.assertEqual(state["progress"], 100)
+
     def start_provider_server(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderPayloadHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

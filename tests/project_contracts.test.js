@@ -514,6 +514,14 @@ test('installer and updater require checksum and path validation before extracti
   }
 });
 
+test('MihUI updater reports download, extract and replacement progress', () => {
+  const updater = read('router/cgi-bin/mihui-update');
+
+  assert.match(updater, /update_progress download/);
+  assert.match(updater, /update_progress extract/);
+  assert.match(updater, /update_progress replace/);
+});
+
 test('router service supervises and restarts the MihUI server process', () => {
   const installer = read('router/install.sh');
 

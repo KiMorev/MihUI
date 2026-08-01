@@ -195,6 +195,7 @@ globalThis.__app = {
   snapshotProvider,
   setOutputText,
   setProviderUrlMasking,
+  showMihuiUpdateProgress,
   createYamlCodeLine,
   splitYamlHttpUrls,
   findYamlHttpUrlAtOffset,
@@ -245,6 +246,20 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: shows the current MihUI update step and download percentage`, () => {
+    const app = loadApp(source);
+
+    app.showMihuiUpdateProgress({ phase: 'extract', progress: 100 });
+
+    const [heading, list] = app.els.messageBox.children;
+    assert.equal(heading.textContent, 'MihUI обновляется');
+    assert.equal(list.children.length, 3);
+    assert.match(list.children[0].className, /is-complete/);
+    assert.match(list.children[1].className, /is-current/);
+    assert.match(list.children[2].className, /is-pending/);
+    assert.equal(list.children[0].children[2].textContent, '100%');
+  });
+
   test(`${source.name}: prepares resource monitoring groups and inserts rules before MATCH`, () => {
     const app = loadApp(source);
     hydrate(app, `

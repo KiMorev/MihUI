@@ -134,6 +134,8 @@ config_write_lock = threading.Lock()
 update_state = {
     "running": False,
     "ok": None,
+    "phase": "idle",
+    "progress": None,
     "message": "idle",
     "startedAt": None,
     "finishedAt": None,
@@ -375,6 +377,8 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 {
                     "running": True,
                     "ok": None,
+                    "phase": "download",
+                    "progress": None,
                     "message": "starting",
                     "startedAt": int(time.time()),
                     "finishedAt": None,
@@ -4612,17 +4616,22 @@ def normalize_version(version):
 
 
 def run_update_script(app_dir):
-    with update_lock:
-        update_state["message"] = "downloading"
+    def report_progress(phase, progress):
+        with update_lock:
+            update_state["phase"] = phase
+            update_state["progress"] = progress
 
-    status, headers, body, returncode = run_cgi_script(app_dir)
+    status, headers, body, returncode = run_cgi_script(app_dir, progress_callback=report_progress)
     message = body.decode("utf-8", "replace").strip()
+    success = returncode == 0 and 200 <= int(status) < 300
 
     with update_lock:
         update_state.update(
             {
                 "running": False,
-                "ok": returncode == 0 and 200 <= int(status) < 300,
+                "ok": success,
+                "phase": "complete" if success else "failed",
+                "progress": 100 if success else update_state["progress"],
                 "message": message or ("updated" if returncode == 0 else "failed"),
                 "finishedAt": int(time.time()),
                 "output": message,
@@ -4630,7 +4639,7 @@ def run_update_script(app_dir):
         )
 
 
-def run_cgi_script(app_dir):
+def run_cgi_script(app_dir, progress_callback=None):
     script = app_dir / "www" / "cgi-bin" / "mihui-update"
     if not script.is_file():
         body = b'{"ok":false,"message":"update script not found"}\n'
@@ -4639,17 +4648,70 @@ def run_cgi_script(app_dir):
     env = os.environ.copy()
     env["REQUEST_METHOD"] = "POST"
     env["MIHUI_DIR"] = str(app_dir)
-    result = subprocess.run(
-        ["/bin/sh", str(script)],
+    command = ["/bin/sh", str(script)]
+    if progress_callback is None:
+        result = subprocess.run(
+            command,
+            cwd=str(app_dir),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=300,
+            check=False,
+        )
+        status, headers, body = parse_cgi_response(result.stdout)
+        return status, headers, body, result.returncode
+
+    progress_file = Path(os.environ.get("TMPDIR") or "/tmp") / (
+        f"mihui-update-progress-{os.getpid()}-{threading.get_ident()}"
+    )
+    env["MIHUI_PROGRESS_FILE"] = str(progress_file)
+    process = subprocess.Popen(
+        command,
         cwd=str(app_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        timeout=300,
-        check=False,
     )
-    status, headers, body = parse_cgi_response(result.stdout)
-    return status, headers, body, result.returncode
+    deadline = time.monotonic() + 300
+    last_progress = ""
+    try:
+        while process.poll() is None:
+            last_progress = report_update_progress(progress_file, progress_callback, last_progress)
+            if time.monotonic() >= deadline:
+                process.kill()
+                output, _ = process.communicate()
+                raise subprocess.TimeoutExpired(command, 300, output=output)
+            time.sleep(0.2)
+        output, _ = process.communicate()
+        report_update_progress(progress_file, progress_callback, last_progress)
+    finally:
+        try:
+            progress_file.unlink()
+        except OSError:
+            pass
+
+    status, headers, body = parse_cgi_response(output)
+    return status, headers, body, process.returncode
+
+
+def report_update_progress(progress_file, callback, previous=""):
+    try:
+        value = progress_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        return previous
+    if not value or value == previous:
+        return previous
+
+    phase, _, raw_progress = value.partition("\t")
+    if phase not in {"download", "extract", "replace"}:
+        return previous
+    try:
+        progress = max(0, min(100, int(raw_progress))) if raw_progress else None
+    except ValueError:
+        progress = None
+    callback(phase, progress)
+    return value
 
 
 def parse_cgi_response(raw):
@@ -4699,6 +4761,8 @@ def initialize_update_state(app_dir):
             {
                 "running": False,
                 "ok": True,
+                "phase": "complete",
+                "progress": 100,
                 "message": message,
                 "startedAt": None,
                 "finishedAt": modified_at,

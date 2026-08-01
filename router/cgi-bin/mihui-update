@@ -14,6 +14,7 @@ PACKAGE_DIR=""
 DOWNLOADED_ARCHIVE=""
 DOWNLOADED_CHECKSUM=""
 LOCK_DIR="${TMPDIR:-/tmp}/mihui-update.lock"
+PROGRESS_FILE="${MIHUI_PROGRESS_FILE:-}"
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
@@ -50,6 +51,48 @@ command_exists() {
   command -v "$1" >/dev/null 2>&1
 }
 
+update_progress() {
+  [ -n "$PROGRESS_FILE" ] || return 0
+  phase="$1"
+  percent="${2:-}"
+  progress_tmp="$PROGRESS_FILE.$$"
+  printf '%s\t%s\n' "$phase" "$percent" > "$progress_tmp"
+  mv "$progress_tmp" "$PROGRESS_FILE"
+}
+
+monitor_download() {
+  download_pid="$1"
+  target="$2"
+  headers="$3"
+
+  while kill -0 "$download_pid" 2>/dev/null; do
+    total=""
+    if [ -f "$headers" ]; then
+      total=$(tr -d '\r' < "$headers" | awk '
+        tolower($1) == "content-length:" { size=$2 }
+        tolower($1) == "length:" { size=$2 }
+        END { if (size ~ /^[0-9]+$/) print size }
+      ')
+    fi
+    current=0
+    if [ -f "$target" ]; then
+      current=$(wc -c < "$target" | tr -d ' ')
+    fi
+    if [ -n "$total" ] && [ "$total" -gt 0 ] && [ -n "$current" ]; then
+      percent=$((current * 100 / total))
+      [ "$percent" -gt 99 ] && percent=99
+      update_progress download "$percent"
+    fi
+    sleep 1
+  done
+
+  if wait "$download_pid"; then
+    update_progress download 100
+    return 0
+  fi
+  return 1
+}
+
 setup_download_urls() {
   if [ -n "$DOWNLOAD_URLS" ]; then
     return
@@ -73,13 +116,25 @@ make_tmp_dir() {
 download_file() {
   url="$1"
   target="$2"
+  track_progress="${3:-false}"
+  headers="$target.headers"
 
   if command_exists curl; then
-    curl -fL --connect-timeout 20 -o "$target" "$url" >/dev/null 2>&1 && return 0
+    if [ "$track_progress" = "true" ]; then
+      curl -fL --connect-timeout 20 -D "$headers" -o "$target" "$url" >/dev/null 2>&1 &
+      monitor_download "$!" "$target" "$headers" && return 0
+    elif curl -fL --connect-timeout 20 -o "$target" "$url" >/dev/null 2>&1; then
+      return 0
+    fi
   fi
 
   if command_exists wget; then
-    wget -O "$target" "$url" >/dev/null 2>&1 && return 0
+    if [ "$track_progress" = "true" ]; then
+      wget -S -O "$target" "$url" >/dev/null 2>"$headers" &
+      monitor_download "$!" "$target" "$headers" && return 0
+    elif wget -O "$target" "$url" >/dev/null 2>&1; then
+      return 0
+    fi
   fi
 
   return 1
@@ -121,7 +176,8 @@ download_package_archive() {
     DOWNLOADED_CHECKSUM="$DOWNLOADED_ARCHIVE.sha256"
     rm -f "$DOWNLOADED_ARCHIVE"
     rm -f "$DOWNLOADED_CHECKSUM"
-    if download_file "$url" "$DOWNLOADED_ARCHIVE" &&
+    update_progress download
+    if download_file "$url" "$DOWNLOADED_ARCHIVE" true &&
        download_file "$url.sha256" "$DOWNLOADED_CHECKSUM" &&
        verify_archive_checksum "$DOWNLOADED_ARCHIVE" "$DOWNLOADED_CHECKSUM"; then
       return 0
@@ -257,6 +313,7 @@ fi
 
 TMP_DIR=$(make_tmp_dir)
 download_package_archive || fail "download failed"
+update_progress extract
 extract_archive "$DOWNLOADED_ARCHIVE" "$TMP_DIR/package" || fail "extract failed"
 PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "downloaded package has unsupported layout"
 
@@ -264,6 +321,7 @@ PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "downloaded package
 [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
 [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "package does not contain mihui_server.py"
 
+update_progress replace
 NEW_WWW="$APP_DIR/www.new.$$"
 OLD_WWW="$APP_DIR/www.old.$$"
 

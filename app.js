@@ -13412,6 +13412,73 @@ function hideMessage() {
   els.messageBox.classList.add('hidden');
 }
 
+function showMihuiUpdateProgress(status) {
+  const phaseAliases = {
+    starting: 'download',
+    downloading: 'download',
+    extracting: 'extract',
+    replacing: 'replace',
+  };
+  const phase = phaseAliases[status?.phase || status?.message] || status?.phase || 'download';
+  const steps = [
+    { phase: 'download', label: 'Скачивание' },
+    { phase: 'extract', label: 'Распаковка' },
+    { phase: 'replace', label: 'Замена файлов' },
+  ];
+  const currentIndex = Math.max(0, steps.findIndex((step) => step.phase === phase));
+  const rawProgress = Number(status?.progress);
+  const progress = status?.progress !== null && status?.progress !== undefined && Number.isFinite(rawProgress)
+    ? Math.max(0, Math.min(100, Math.round(rawProgress)))
+    : null;
+
+  els.messageBox.textContent = '';
+  els.messageBox.className = 'message mihui-update-message is-warning';
+  els.messageBox.setAttribute('role', 'status');
+
+  const heading = document.createElement('strong');
+  heading.className = 'mihui-update-heading';
+  heading.textContent = 'MihUI обновляется';
+
+  const list = document.createElement('ol');
+  list.className = 'mihui-update-steps';
+  list.setAttribute('aria-label', 'Ход обновления MihUI');
+
+  steps.forEach((step, index) => {
+    const complete = index < currentIndex;
+    const current = index === currentIndex;
+    const item = document.createElement('li');
+    item.className = `mihui-update-step ${complete ? 'is-complete' : current ? 'is-current' : 'is-pending'}`;
+    if (current) item.setAttribute('aria-current', 'step');
+
+    const badge = document.createElement('span');
+    badge.className = 'mihui-update-step-badge';
+    badge.textContent = complete ? '✓' : String(index + 1);
+
+    const label = document.createElement('span');
+    label.className = 'mihui-update-step-label';
+    label.textContent = step.label;
+    item.append(badge, label);
+
+    if (index === 0 && progress !== null) {
+      const value = document.createElement('strong');
+      value.className = 'mihui-update-percent';
+      value.textContent = `${progress}%`;
+      item.append(value);
+
+      const bar = document.createElement('progress');
+      bar.className = 'mihui-update-progress';
+      bar.max = 100;
+      bar.value = progress;
+      bar.setAttribute('aria-label', `Скачано ${progress}%`);
+      item.append(bar);
+    }
+    list.append(item);
+  });
+
+  els.messageBox.append(heading, list);
+  els.messageBox.classList.remove('hidden');
+}
+
 function downloadYaml() {
   if (!state.outputText) return;
   const blob = new Blob([state.outputText], { type: 'text/yaml;charset=utf-8' });
@@ -13476,7 +13543,7 @@ async function pollMihuiUpdateStatus() {
 
     if (status.running) {
       setMihuiUpdateHint(true, 'Обновление...');
-      showMessage('MihUI обновляется: скачивание, распаковка, замена файлов.');
+      showMihuiUpdateProgress(status);
       state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
       return;
     }
@@ -13515,7 +13582,7 @@ async function pollMihuiUpdateStatus() {
       if (state.mihuiUpdateReconnects < 120) {
         state.mihuiUpdateReconnects += 1;
         setMihuiUpdateHint(true, 'Перезапуск...');
-        showMessage('MihUI обновляется: локальный сервер перезапускается.');
+        showMihuiUpdateProgress({ phase: 'replace', progress: 100 });
         state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1500);
         return;
       }
