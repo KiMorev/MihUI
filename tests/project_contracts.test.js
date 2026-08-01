@@ -513,3 +513,12 @@ test('installer and updater require checksum and path validation before extracti
     assert.match(script, /validate_archive_paths "\$archive"/);
   }
 });
+
+test('router service supervises and restarts the MihUI server process', () => {
+  const installer = read('router/install.sh');
+
+  assert.match(installer, /supervise\(\) \{/);
+  assert.match(installer, /while :; do[\s\S]+?wait "\\\$child_pid"[\s\S]+?sleep "\\\$RESTART_DELAY"/);
+  assert.match(installer, /nohup sh "\\\$0" supervise/);
+  assert.match(installer, /rm -f "\\\$PID_FILE" "\\\$CHILD_PID_FILE"/);
+});

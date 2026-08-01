@@ -385,9 +385,11 @@ ENV_FILE="\$APP_DIR/mihui.env"
 LOG_DIR="$LOG_DIR"
 RUN_DIR="$RUN_DIR"
 PID_FILE="$PID_FILE"
+CHILD_PID_FILE="\$RUN_DIR/mihui-server.pid"
 PYTHON_BIN="$PYTHON_BIN"
 PORT="$SELECTED_PORT"
 LOG_FILE="\$LOG_DIR/server.log"
+RESTART_DELAY=5
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "\$ENV_FILE" ] && . "\$ENV_FILE"
@@ -398,6 +400,37 @@ is_running() {
   [ -f "\$PID_FILE" ] || return 1
   pid=\$(cat "\$PID_FILE" 2>/dev/null || true)
   [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null
+}
+
+supervise() {
+  child_pid=""
+
+  stop_supervisor() {
+    trap - TERM INT
+    if [ -n "\${child_pid:-}" ] && kill -0 "\$child_pid" 2>/dev/null; then
+      kill "\$child_pid" 2>/dev/null || true
+    fi
+    rm -f "\$CHILD_PID_FILE"
+    exit 0
+  }
+
+  trap '' HUP
+  trap stop_supervisor TERM INT
+
+  while :; do
+    "\$PYTHON_BIN" "\$SERVER_PY" --host 0.0.0.0 --port "\$PORT" --app-dir "\$APP_DIR" &
+    child_pid=\$!
+    echo "\$child_pid" > "\$CHILD_PID_FILE"
+    wait "\$child_pid"
+    exit_code=\$?
+    child_pid=""
+    rm -f "\$CHILD_PID_FILE"
+    printf 'MihUI server exited with code %s; restarting in %s seconds\n' "\$exit_code" "\$RESTART_DELAY"
+    sleep "\$RESTART_DELAY" &
+    child_pid=\$!
+    wait "\$child_pid" || true
+    child_pid=""
+  done
 }
 
 start() {
@@ -429,10 +462,10 @@ start() {
   rm -f "\$PID_FILE"
 
   if command -v nohup >/dev/null 2>&1; then
-    nohup "\$PYTHON_BIN" "\$SERVER_PY" --host 0.0.0.0 --port "\$PORT" --app-dir "\$APP_DIR" >> "\$LOG_FILE" 2>&1 &
+    nohup sh "\$0" supervise >> "\$LOG_FILE" 2>&1 &
   else
     printf 'nohup is missing, starting without nohup\n' >> "\$LOG_FILE"
-    "\$PYTHON_BIN" "\$SERVER_PY" --host 0.0.0.0 --port "\$PORT" --app-dir "\$APP_DIR" >> "\$LOG_FILE" 2>&1 &
+    sh "\$0" supervise >> "\$LOG_FILE" 2>&1 &
   fi
 
   echo \$! > "\$PID_FILE"
@@ -445,19 +478,33 @@ start() {
 }
 
 stop() {
+  supervisor_pid=""
+  child_pid=""
   if is_running; then
-    pid=\$(cat "\$PID_FILE")
-    kill "\$pid" 2>/dev/null || true
-    sleep 1
-    kill -0 "\$pid" 2>/dev/null && kill -9 "\$pid" 2>/dev/null || true
+    supervisor_pid=\$(cat "\$PID_FILE")
   fi
-  rm -f "\$PID_FILE"
+  if [ -f "\$CHILD_PID_FILE" ]; then
+    child_pid=\$(cat "\$CHILD_PID_FILE" 2>/dev/null || true)
+  fi
+  if [ -n "\$supervisor_pid" ]; then
+    kill "\$supervisor_pid" 2>/dev/null || true
+  fi
+  if [ -n "\$child_pid" ]; then
+    kill "\$child_pid" 2>/dev/null || true
+  fi
+  if [ -n "\$supervisor_pid" ] || [ -n "\$child_pid" ]; then
+    sleep 1
+    [ -n "\$child_pid" ] && kill -0 "\$child_pid" 2>/dev/null && kill -9 "\$child_pid" 2>/dev/null || true
+    [ -n "\$supervisor_pid" ] && kill -0 "\$supervisor_pid" 2>/dev/null && kill -9 "\$supervisor_pid" 2>/dev/null || true
+  fi
+  rm -f "\$PID_FILE" "\$CHILD_PID_FILE"
 }
 
 case "\${1:-start}" in
   start) start ;;
   stop) stop ;;
   restart) stop; start ;;
+  supervise) supervise ;;
   status)
     if is_running; then
       echo "MihUI is running on port \$PORT"
