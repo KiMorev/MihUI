@@ -2852,6 +2852,279 @@ body.component-manager-open {
   font-size: 11px;
 }
 
+.xkeen-commands-section {
+  display: grid;
+  gap: 16px;
+}
+
+.commands-page-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 2px 0;
+}
+
+.commands-page-head h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.commands-page-head p {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.commands-availability {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.commands-availability.is-ok {
+  border-color: rgba(33, 138, 74, 0.3);
+  background: #eef9f2;
+  color: var(--success);
+}
+
+.commands-availability.is-error {
+  border-color: rgba(180, 35, 24, 0.25);
+  background: #fff5f5;
+  color: var(--danger);
+}
+
+.commands-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.commands-loading {
+  display: grid;
+  grid-column: 1 / -1;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px;
+}
+
+.commands-loading span {
+  color: var(--muted);
+}
+
+.commands-loading.has-error strong {
+  color: var(--danger);
+}
+
+.commands-loading .button {
+  margin-top: 6px;
+}
+
+.command-group {
+  min-width: 0;
+  border-top-width: 3px;
+}
+
+.command-group.is-warning { border-top-color: #d6922a; }
+.command-group.is-danger { border-top-color: var(--danger); }
+.command-group.is-success { border-top-color: var(--success); }
+.command-group.is-info { border-top-color: var(--accent); }
+
+.command-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.command-group-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.command-group-head span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.command-list {
+  display: grid;
+}
+
+.command-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(105px, 0.65fr) minmax(150px, 1.35fr);
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 55px;
+  padding: 8px 11px 8px 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-row + .command-row {
+  border-top: 1px solid var(--line);
+}
+
+.command-row:hover,
+.command-row:focus-visible,
+.command-row.is-running {
+  background: var(--panel-soft);
+}
+
+.command-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.command-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.command-row code {
+  overflow: hidden;
+  color: var(--accent-dark);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-row > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.command-console {
+  min-width: 0;
+  border-color: rgba(8, 123, 128, 0.35);
+}
+
+.command-console-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 58px;
+  padding: 10px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.command-console-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.command-console-head strong {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+}
+
+.command-status {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.command-status.is-running,
+.command-status.is-queued { color: var(--accent-dark); }
+.command-status.is-finished { color: var(--success); }
+.command-status.is-error,
+.command-status.is-stopped { color: var(--danger); }
+
+.command-console pre {
+  min-height: 190px;
+  max-height: min(430px, 52vh);
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  background: #11181f;
+  color: #d5e7e7;
+  font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.command-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.command-input-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.command-console-error {
+  margin: 0;
+  padding: 9px 13px;
+  border-top: 1px solid #efb4ae;
+  background: #fff5f5;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .commands-page-head {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .commands-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .command-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .command-row > span {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .command-console-head {
+    align-items: start;
+  }
+}
+
 .nodes-page-head {
   display: flex;
   align-items: end;
@@ -9475,6 +9748,9 @@ button.review-check-card:focus-visible {
       <symbol id="icon-ports" viewBox="0 0 24 24">
         <path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M5 6h.01" /><path d="M5 12h.01" /><path d="M5 18h.01" />
       </symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24">
+        <path d="M5 7l4 4l-4 4" /><path d="M12 15h7" /><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1" />
+      </symbol>
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
@@ -9518,6 +9794,7 @@ button.review-check-card:focus-visible {
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
+          <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -9552,6 +9829,7 @@ button.review-check-card:focus-visible {
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -9926,6 +10204,40 @@ button.review-check-card:focus-visible {
             <span>Сохранить и применить</span>
           </button>
         </footer>
+      </section>
+
+      <section class="app-section xkeen-commands-section" data-section-panel="commands" hidden>
+        <header class="commands-page-head">
+          <div>
+            <h2>Команды XKeen</h2>
+            <p>Управление XKeen и установленными компонентами с выводом операции в MihUI.</p>
+          </div>
+          <span id="xkeenCommandsAvailability" class="commands-availability">Проверяем XKeen…</span>
+        </header>
+
+        <section id="xkeenCommandConsole" class="panel command-console" aria-live="polite" hidden>
+          <header class="command-console-head">
+            <div>
+              <span id="xkeenCommandStatus" class="command-status">Ожидание</span>
+              <strong id="xkeenCommandTitle">Команда XKeen</strong>
+            </div>
+            <button id="xkeenCommandStopButton" class="button compact" type="button" hidden>Остановить</button>
+          </header>
+          <pre id="xkeenCommandOutput" tabindex="0" aria-label="Вывод команды XKeen"></pre>
+          <form id="xkeenCommandInputForm" class="command-input-row" hidden>
+            <label class="sr-only" for="xkeenCommandInput">Ответ для команды XKeen</label>
+            <input id="xkeenCommandInput" type="text" autocomplete="off" placeholder="Введите ответ и нажмите Enter" />
+            <button id="xkeenCommandSendButton" class="button primary compact" type="submit">Отправить</button>
+          </form>
+          <p id="xkeenCommandError" class="command-console-error" hidden></p>
+        </section>
+
+        <div id="xkeenCommandsBody" class="commands-grid" aria-live="polite">
+          <section class="panel commands-loading">
+            <strong>Загружаем команды…</strong>
+            <span>Каталог будет доступен после подключения к MihUI на роутере.</span>
+          </section>
+        </div>
       </section>
 
       <section class="app-section" data-section-panel="nodes" hidden>
@@ -10695,7 +11007,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'whitelist', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -11138,6 +11450,17 @@ const state = {
     paths: {},
     errors: [],
   },
+  xkeenCommands: {
+    loaded: false,
+    loading: false,
+    available: false,
+    groups: [],
+    error: '',
+    job: null,
+    pollTimer: 0,
+    rendered: false,
+    outputLength: 0,
+  },
   backups: [],
   selectedBackupName: '',
   updatePollTimer: 0,
@@ -11298,6 +11621,16 @@ const els = {
   xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
   xkeenFilesChangeStatus: document.querySelector('#xkeenFilesChangeStatus'),
   xkeenFilesStatus: document.querySelector('#xkeenFilesStatus'),
+  xkeenCommandsAvailability: document.querySelector('#xkeenCommandsAvailability'),
+  xkeenCommandsBody: document.querySelector('#xkeenCommandsBody'),
+  xkeenCommandConsole: document.querySelector('#xkeenCommandConsole'),
+  xkeenCommandStatus: document.querySelector('#xkeenCommandStatus'),
+  xkeenCommandTitle: document.querySelector('#xkeenCommandTitle'),
+  xkeenCommandOutput: document.querySelector('#xkeenCommandOutput'),
+  xkeenCommandInputForm: document.querySelector('#xkeenCommandInputForm'),
+  xkeenCommandInput: document.querySelector('#xkeenCommandInput'),
+  xkeenCommandStopButton: document.querySelector('#xkeenCommandStopButton'),
+  xkeenCommandError: document.querySelector('#xkeenCommandError'),
   overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
   overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
   overviewNodesStatus: document.querySelector('#overviewNodesStatus'),
@@ -11534,6 +11867,9 @@ els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
 els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
+els.xkeenCommandsBody.addEventListener('click', handleXkeenCommandsClick);
+els.xkeenCommandInputForm.addEventListener('submit', sendXkeenCommandInput);
+els.xkeenCommandStopButton.addEventListener('click', stopXkeenCommand);
 els.providerViewTabs.forEach((button) => {
   button.addEventListener('click', () => setProviderView(button.dataset.providerView));
   button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.providerViewTabs, 'providerView', setProviderView));
@@ -11569,6 +11905,7 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+renderXkeenCommands();
 updateMobileSectionTabsVisibility();
 initRouterMode();
 
@@ -11615,6 +11952,9 @@ function setActiveSection(section, options = {}) {
     renderSectionTabs();
     if (section === 'whitelist' && state.routerApiAvailable) {
       loadWhitelistMonitor({ silent: true });
+    }
+    if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
+      loadXkeenCommands({ silent: true });
     }
     updateMobileSectionTabsVisibility();
     centerActiveMobileSectionTab();
@@ -11795,6 +12135,7 @@ function initRouterMode() {
   loadRouterMetadata();
   loadRouterConfig({ silent: true });
   loadXkeenNetworkFiles({ silent: true });
+  loadXkeenCommands({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   loadResourceMonitor({ silent: true });
@@ -12728,6 +13069,275 @@ async function saveXkeenNetworkFiles() {
   } finally {
     state.xkeenFiles.saving = false;
     renderXkeenNetworkFiles();
+  }
+}
+
+function isXkeenCommandActive(job = state.xkeenCommands.job) {
+  return Boolean(job && ['queued', 'running'].includes(job.status));
+}
+
+function renderXkeenCommandsCatalog() {
+  const commandState = state.xkeenCommands;
+  if (commandState.rendered) return;
+
+  if (commandState.loading) {
+    const loading = document.createElement('section');
+    loading.className = 'panel commands-loading';
+    loading.innerHTML = '<strong>Загружаем команды…</strong><span>Получаем доступные действия с роутера.</span>';
+    els.xkeenCommandsBody.innerHTML = '';
+    els.xkeenCommandsBody.append(loading);
+    return;
+  }
+
+  if (commandState.error || !commandState.loaded) {
+    const error = document.createElement('section');
+    error.className = 'panel commands-loading has-error';
+    const title = document.createElement('strong');
+    title.textContent = 'Каталог команд недоступен';
+    const detail = document.createElement('span');
+    detail.textContent = commandState.error || 'Откройте раздел в MihUI на роутере.';
+    const retry = document.createElement('button');
+    retry.className = 'button compact';
+    retry.type = 'button';
+    retry.dataset.commandAction = 'retry';
+    retry.textContent = 'Повторить';
+    error.append(title, detail, retry);
+    els.xkeenCommandsBody.innerHTML = '';
+    els.xkeenCommandsBody.append(error);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  commandState.groups.forEach((group) => {
+    const card = document.createElement('section');
+    card.className = `panel command-group is-${group.tone || 'info'}`;
+    const header = document.createElement('header');
+    header.className = 'command-group-head';
+    const title = document.createElement('h3');
+    title.textContent = String(group.title || 'Команды');
+    const count = document.createElement('span');
+    const items = Array.isArray(group.items) ? group.items : [];
+    count.textContent = String(items.length);
+    header.append(title, count);
+    card.append(header);
+
+    const list = document.createElement('div');
+    list.className = 'command-list';
+    items.forEach((item) => {
+      const row = document.createElement('button');
+      row.className = 'command-row';
+      row.type = 'button';
+      row.dataset.commandFlag = String(item.flag || '');
+      const name = document.createElement('code');
+      name.textContent = `xkeen ${item.flag}`;
+      const description = document.createElement('span');
+      description.textContent = String(item.description || '');
+      row.append(name, description);
+      list.append(row);
+    });
+    card.append(list);
+    fragment.append(card);
+  });
+  els.xkeenCommandsBody.innerHTML = '';
+  els.xkeenCommandsBody.append(fragment);
+  commandState.rendered = true;
+}
+
+function renderXkeenCommands() {
+  const commandState = state.xkeenCommands;
+  renderXkeenCommandsCatalog();
+
+  els.xkeenCommandsAvailability.classList.toggle('is-ok', commandState.loaded && commandState.available);
+  els.xkeenCommandsAvailability.classList.toggle('is-error', commandState.loaded && !commandState.available);
+  if (commandState.loading) {
+    els.xkeenCommandsAvailability.textContent = 'Проверяем XKeen…';
+  } else if (!commandState.loaded) {
+    els.xkeenCommandsAvailability.textContent = 'Только на роутере';
+  } else {
+    els.xkeenCommandsAvailability.textContent = commandState.available ? 'XKeen доступен' : 'XKeen не найден';
+  }
+
+  const job = commandState.job;
+  const active = isXkeenCommandActive(job);
+  els.xkeenCommandsBody.querySelectorAll('[data-command-flag]').forEach((button) => {
+    const isCurrent = active && button.dataset.commandFlag === job.flag;
+    button.disabled = !commandState.available || active;
+    button.classList.toggle('is-running', isCurrent);
+    button.setAttribute('aria-busy', String(isCurrent));
+  });
+
+  els.xkeenCommandConsole.hidden = !job;
+  if (!job) return;
+
+  const statusLabels = {
+    queued: 'Запуск',
+    running: 'Выполняется',
+    finished: 'Завершено',
+    error: 'Ошибка',
+    stopped: 'Остановлено',
+  };
+  els.xkeenCommandStatus.textContent = statusLabels[job.status] || 'Операция';
+  els.xkeenCommandStatus.className = `command-status is-${job.status || 'idle'}`;
+  els.xkeenCommandTitle.textContent = job.command || `xkeen ${job.flag || ''}`;
+  els.xkeenCommandStopButton.hidden = !active;
+  els.xkeenCommandInputForm.hidden = job.status !== 'running';
+  els.xkeenCommandError.hidden = !job.error;
+  els.xkeenCommandError.textContent = job.error || '';
+
+  const output = String(job.output || '');
+  const displayOutput = output || (active ? 'Запускаем команду…' : 'Команда не вернула текстовый вывод.');
+  if (els.xkeenCommandOutput.textContent !== displayOutput) {
+    els.xkeenCommandOutput.textContent = displayOutput;
+    if (output.length !== commandState.outputLength) {
+      els.xkeenCommandOutput.scrollTop = els.xkeenCommandOutput.scrollHeight;
+      commandState.outputLength = output.length;
+    }
+  }
+}
+
+async function loadXkeenCommands(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderXkeenCommands();
+    return;
+  }
+  state.xkeenCommands.loading = true;
+  state.xkeenCommands.error = '';
+  state.xkeenCommands.rendered = false;
+  renderXkeenCommands();
+  try {
+    const data = await apiJson('/api/xkeen/commands');
+    state.xkeenCommands.loaded = true;
+    state.xkeenCommands.available = Boolean(data.available);
+    state.xkeenCommands.groups = Array.isArray(data.groups) ? data.groups : [];
+  } catch (error) {
+    state.xkeenCommands.loaded = false;
+    state.xkeenCommands.available = false;
+    state.xkeenCommands.groups = [];
+    state.xkeenCommands.error = error?.message || String(error);
+    if (!options.silent) showMessage('Не удалось загрузить команды XKeen.', { severity: 'error', details: state.xkeenCommands.error });
+  } finally {
+    state.xkeenCommands.loading = false;
+    state.xkeenCommands.rendered = false;
+    renderXkeenCommands();
+  }
+}
+
+function handleXkeenCommandsClick(event) {
+  const retry = event.target.closest('[data-command-action="retry"]');
+  if (retry) {
+    loadXkeenCommands({ silent: false });
+    return;
+  }
+  const button = event.target.closest('[data-command-flag]');
+  if (!button) return;
+  runXkeenCommand(button.dataset.commandFlag);
+}
+
+async function runXkeenCommand(flag) {
+  if (!state.xkeenCommands.available || isXkeenCommandActive()) return;
+  state.xkeenCommands.job = {
+    flag,
+    command: `xkeen ${flag}`,
+    status: 'queued',
+    output: '',
+    error: '',
+  };
+  state.xkeenCommands.outputLength = 0;
+  renderXkeenCommands();
+  els.xkeenCommandConsole.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const data = await apiJson('/api/xkeen/commands/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ flag }),
+    });
+    state.xkeenCommands.job = data.job;
+    renderXkeenCommands();
+    startXkeenCommandPolling();
+  } catch (error) {
+    state.xkeenCommands.job = {
+      ...state.xkeenCommands.job,
+      status: 'error',
+      error: error?.message || String(error),
+    };
+    renderXkeenCommands();
+  }
+}
+
+function startXkeenCommandPolling() {
+  clearTimeout(state.xkeenCommands.pollTimer);
+  pollXkeenCommandJob();
+}
+
+async function pollXkeenCommandJob() {
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId) return;
+  try {
+    const data = await apiJson(`/api/xkeen/commands/job?id=${encodeURIComponent(jobId)}`);
+    state.xkeenCommands.job = data.job;
+    renderXkeenCommands();
+  } catch (error) {
+    if (state.xkeenCommands.job?.id === jobId) {
+      state.xkeenCommands.job.error = `Не удалось обновить журнал: ${error?.message || error}`;
+      renderXkeenCommands();
+    }
+  }
+  if (state.xkeenCommands.job?.id === jobId && isXkeenCommandActive()) {
+    state.xkeenCommands.pollTimer = window.setTimeout(pollXkeenCommandJob, 500);
+  }
+}
+
+async function sendXkeenCommandInput(event) {
+  event.preventDefault();
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId || state.xkeenCommands.job.status !== 'running') return;
+  const text = els.xkeenCommandInput.value;
+  const submit = els.xkeenCommandInputForm.querySelector('[type="submit"]');
+  els.xkeenCommandInput.disabled = true;
+  submit.disabled = true;
+  try {
+    await apiJson('/api/xkeen/commands/input', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ jobId, text }),
+    });
+    els.xkeenCommandInput.value = '';
+  } catch (error) {
+    state.xkeenCommands.job.error = error?.message || String(error);
+    renderXkeenCommands();
+  } finally {
+    els.xkeenCommandInput.disabled = false;
+    submit.disabled = false;
+    els.xkeenCommandInput.focus();
+  }
+}
+
+async function stopXkeenCommand() {
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId || !isXkeenCommandActive()) return;
+  els.xkeenCommandStopButton.disabled = true;
+  try {
+    await apiJson('/api/xkeen/commands/stop', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ jobId }),
+    });
+    startXkeenCommandPolling();
+  } catch (error) {
+    state.xkeenCommands.job.error = error?.message || String(error);
+    renderXkeenCommands();
+  } finally {
+    els.xkeenCommandStopButton.disabled = false;
   }
 }
 

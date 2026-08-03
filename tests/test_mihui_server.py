@@ -422,6 +422,68 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
 
+    def test_xkeen_command_catalog_and_allowlist_stay_in_sync(self):
+        catalog_flags = [
+            item["flag"]
+            for group in mihui_server.XKEEN_COMMAND_GROUPS
+            for item in group["items"]
+        ]
+
+        self.assertEqual(len(catalog_flags), len(set(catalog_flags)))
+        self.assertEqual(set(catalog_flags), mihui_server.XKEEN_COMMAND_FLAGS)
+        self.assertTrue({"-i", "-restart", "-diag", "-remove"}.issubset(catalog_flags))
+
+    def test_xkeen_commands_endpoint_returns_native_catalog(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="/opt/bin/xkeen"):
+                    status, result = self.get_json(server, "/api/xkeen/commands")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["available"])
+        self.assertEqual(result["groups"], mihui_server.XKEEN_COMMAND_GROUPS)
+
+    def test_xkeen_command_run_rejects_unknown_flags_before_execution(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(
+                    server,
+                    "/api/xkeen/commands/run",
+                    {"flag": "-not-real"},
+                    {"X-Mihui-Action": "xkeen-command"},
+                )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 400)
+        self.assertFalse(result["ok"])
+
+    def test_xkeen_command_job_accepts_interactive_input_and_blocks_parallel_run(self):
+        with mihui_server.xkeen_command_jobs_lock:
+            mihui_server.xkeen_command_jobs.clear()
+        try:
+            with mock.patch.object(mihui_server.threading.Thread, "start", return_value=None):
+                first = mihui_server.start_xkeen_command_job(Path("."), "-diag")
+                second = mihui_server.start_xkeen_command_job(Path("."), "-status")
+
+            self.assertIsNotNone(first)
+            self.assertIsNone(second)
+            with mihui_server.xkeen_command_jobs_lock:
+                job = mihui_server.xkeen_command_jobs[first["id"]]
+                job.update({"status": "running", "masterFd": 17})
+            with mock.patch.object(mihui_server.os, "write", return_value=2) as write:
+                result = mihui_server.send_xkeen_command_input(first["id"], "1")
+
+            self.assertTrue(result["ok"])
+            write.assert_called_once_with(17, b"1\n")
+        finally:
+            with mihui_server.xkeen_command_jobs_lock:
+                mihui_server.xkeen_command_jobs.clear()
+
     def test_services_status_endpoint_is_read_only_and_returns_both_services(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

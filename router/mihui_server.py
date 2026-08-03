@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import codecs
 import hashlib
 import html
 import io
@@ -8,7 +9,9 @@ import ipaddress
 import json
 import os
 import re
+import select
 import shutil
+import signal
 import subprocess
 import tarfile
 import tempfile
@@ -17,11 +20,17 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+try:
+    import pty
+except ImportError:  # pragma: no cover - PTY is available on the target router
+    pty = None
 
 
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
@@ -32,6 +41,8 @@ DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
 XKEEN_STATUS_TIMEOUT = 8
 XKEEN_FILES_MAX_BYTES = 512 * 1024
 XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
+XKEEN_COMMAND_TIMEOUT = 30 * 60
+XKEEN_COMMAND_MAX_OUTPUT_CHARS = 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
 COMPONENT_ACTION_TIMEOUT = 10 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
@@ -45,6 +56,129 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "accept-encoding",
 }
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
+XKEEN_COMMAND_GROUPS = [
+    {
+        "title": "Установка",
+        "tone": "warning",
+        "items": [
+            {"flag": "-i", "description": "Установить XKeen, ядра и геобазы"},
+            {"flag": "-io", "description": "Запустить офлайн-установку XKeen"},
+            {"flag": "-toff", "description": "Отключить таймаут загрузки с GitHub"},
+        ],
+    },
+    {
+        "title": "Обновление",
+        "tone": "warning",
+        "items": [
+            {"flag": "-uk", "description": "Обновить XKeen"},
+            {"flag": "-ug", "description": "Обновить GeoFile и GeoIPSET"},
+            {"flag": "-ux", "description": "Выбрать версию Xray"},
+            {"flag": "-um", "description": "Выбрать версию Mihomo"},
+            {"flag": "-ugc", "description": "Создать задачу автообновления геобаз"},
+        ],
+    },
+    {
+        "title": "Регистрация в системе",
+        "tone": "warning",
+        "items": [
+            {"flag": "-rrk", "description": "Зарегистрировать XKeen"},
+            {"flag": "-rrx", "description": "Зарегистрировать Xray"},
+            {"flag": "-rrm", "description": "Зарегистрировать Mihomo"},
+            {"flag": "-ri", "description": "Добавить XKeen в автозапуск init.d"},
+        ],
+    },
+    {
+        "title": "Удаление",
+        "tone": "danger",
+        "items": [
+            {"flag": "-remove", "description": "Полностью удалить XKeen"},
+            {"flag": "-dgs", "description": "Удалить GeoSite"},
+            {"flag": "-dgi", "description": "Удалить GeoIP"},
+            {"flag": "-dgips", "description": "Удалить GeoIPSET"},
+            {"flag": "-dx", "description": "Удалить Xray"},
+            {"flag": "-dm", "description": "Удалить Mihomo"},
+            {"flag": "-dk", "description": "Удалить XKeen"},
+            {"flag": "-dgc", "description": "Удалить задачу автообновления геобаз"},
+            {"flag": "-drk", "description": "Удалить регистрацию XKeen"},
+            {"flag": "-drx", "description": "Удалить регистрацию Xray"},
+            {"flag": "-drm", "description": "Удалить регистрацию Mihomo"},
+        ],
+    },
+    {
+        "title": "Порты прокси",
+        "tone": "success",
+        "items": [
+            {"flag": "-ap", "description": "Добавить проксируемый порт"},
+            {"flag": "-dp", "description": "Удалить проксируемый порт"},
+            {"flag": "-cp", "description": "Показать проксируемые порты"},
+            {"flag": "-ape", "description": "Добавить порт-исключение"},
+            {"flag": "-dpe", "description": "Удалить порт-исключение"},
+            {"flag": "-cpe", "description": "Показать порты-исключения"},
+        ],
+    },
+    {
+        "title": "Переустановка",
+        "tone": "success",
+        "items": [
+            {"flag": "-k", "description": "Переустановить XKeen"},
+            {"flag": "-g", "description": "Переустановить GeoFile"},
+            {"flag": "-gips", "description": "Переустановить GeoIPSET"},
+        ],
+    },
+    {
+        "title": "Резервные копии",
+        "tone": "success",
+        "items": [
+            {"flag": "-kb", "description": "Создать копию XKeen"},
+            {"flag": "-kbr", "description": "Восстановить XKeen"},
+            {"flag": "-xb", "description": "Создать копию конфигурации Xray"},
+            {"flag": "-xbr", "description": "Восстановить конфигурацию Xray"},
+            {"flag": "-mb", "description": "Создать копию конфигурации Mihomo"},
+            {"flag": "-mbr", "description": "Восстановить конфигурацию Mihomo"},
+        ],
+    },
+    {
+        "title": "Управление прокси",
+        "tone": "info",
+        "items": [
+            {"flag": "-start", "description": "Запустить прокси-клиент"},
+            {"flag": "-stop", "description": "Остановить прокси-клиент"},
+            {"flag": "-restart", "description": "Перезапустить прокси-клиент"},
+            {"flag": "-status", "description": "Показать состояние прокси-клиента"},
+            {"flag": "-tp", "description": "Показать порты, шлюз и протокол"},
+            {"flag": "-auto", "description": "Переключить автозапуск прокси"},
+            {"flag": "-d", "description": "Настроить задержку автозапуска"},
+            {"flag": "-fd", "description": "Переключить контроль файловых дескрипторов"},
+            {"flag": "-diag", "description": "Запустить диагностику"},
+            {"flag": "-channel", "description": "Переключить канал обновлений XKeen"},
+            {"flag": "-xray", "description": "Переключиться на Xray"},
+            {"flag": "-mihomo", "description": "Переключиться на Mihomo"},
+            {"flag": "-ipv6", "description": "Переключить IPv6 в KeeneticOS"},
+            {"flag": "-dns", "description": "Переключить перенаправление DNS"},
+            {"flag": "-pr", "description": "Переключить проксирование Entware"},
+            {"flag": "-extmsg", "description": "Переключить расширенные сообщения"},
+            {"flag": "-cbk", "description": "Переключить резервную копию при обновлении"},
+            {"flag": "-aghfix", "description": "Настроить IP клиентов в журнале AdGuard Home"},
+        ],
+    },
+    {
+        "title": "Модули и информация",
+        "tone": "info",
+        "items": [
+            {"flag": "-modules", "description": "Перенести модули в пользовательский каталог"},
+            {"flag": "-delmodules", "description": "Удалить пользовательские модули"},
+            {"flag": "-about", "description": "Показать сведения о программе"},
+            {"flag": "-ad", "description": "Открыть информацию о поддержке проекта"},
+            {"flag": "-af", "description": "Открыть способы обратной связи"},
+            {"flag": "-v", "description": "Показать версию XKeen"},
+        ],
+    },
+]
+XKEEN_COMMAND_FLAGS = {
+    item["flag"]
+    for group in XKEEN_COMMAND_GROUPS
+    for item in group["items"]
+}
 RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
 RESOURCE_MONITOR_EVENT_LIMIT = 200
 RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD = 2
@@ -158,6 +292,8 @@ component_action_state = {
 component_release_cache_lock = threading.Lock()
 component_release_cache = {"checkedAt": 0, "catalog": {}}
 xkeen_files_lock = threading.Lock()
+xkeen_command_jobs_lock = threading.Lock()
+xkeen_command_jobs = {}
 resource_monitor_lock = threading.Lock()
 resource_monitor_state_lock = threading.Lock()
 resource_monitor_job_state = {
@@ -218,6 +354,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/xkeen/network-files":
             self.handle_xkeen_network_files_get()
             return
+        if route == "/api/xkeen/commands":
+            self.handle_xkeen_commands_get()
+            return
+        if route == "/api/xkeen/commands/job":
+            self.handle_xkeen_command_job_get()
+            return
         if route == "/api/providers/status":
             self.handle_providers_status()
             return
@@ -252,6 +394,15 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/xkeen/network-files":
             self.handle_xkeen_network_files_save()
+            return
+        if route == "/api/xkeen/commands/run":
+            self.handle_xkeen_command_run()
+            return
+        if route == "/api/xkeen/commands/input":
+            self.handle_xkeen_command_input()
+            return
+        if route == "/api/xkeen/commands/stop":
+            self.handle_xkeen_command_stop()
             return
         if route == "/api/config/check":
             self.handle_config_check()
@@ -503,6 +654,69 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         else:
             status = HTTPStatus.UNPROCESSABLE_ENTITY
         self.send_json(status, result)
+
+    def handle_xkeen_commands_get(self):
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "ok": True,
+                "available": bool(find_xkeen_binary(self.app_dir)),
+                "groups": XKEEN_COMMAND_GROUPS,
+            },
+        )
+
+    def handle_xkeen_command_job_get(self):
+        job_id = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
+        job = snapshot_xkeen_command_job(job_id)
+        if job is None:
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "command job not found"})
+            return
+        self.send_json(HTTPStatus.OK, {"ok": True, "job": job})
+
+    def handle_xkeen_command_run(self):
+        if self.headers.get("X-Mihui-Action") != "xkeen-command":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        flag = str(self.read_json_body().get("flag") or "").strip()
+        if flag not in XKEEN_COMMAND_FLAGS:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "command is not allowed"})
+            return
+        if not find_xkeen_binary(self.app_dir):
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "XKeen не найден"})
+            return
+        if pty is None:
+            self.send_json(HTTPStatus.NOT_IMPLEMENTED, {"ok": False, "message": "PTY недоступен"})
+            return
+
+        job = start_xkeen_command_job(self.app_dir, flag)
+        if job is None:
+            self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "Другая команда XKeen уже выполняется"})
+            return
+        self.send_json(HTTPStatus.ACCEPTED, {"ok": True, "job": job})
+
+    def handle_xkeen_command_input(self):
+        if self.headers.get("X-Mihui-Action") != "xkeen-command":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        payload = self.read_json_body()
+        job_id = str(payload.get("jobId") or "").strip()
+        text = payload.get("text")
+        if not isinstance(text, str) or len(text) > 4096:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "invalid command input"})
+            return
+        result = send_xkeen_command_input(job_id, text)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.CONFLICT, result)
+
+    def handle_xkeen_command_stop(self):
+        if self.headers.get("X-Mihui-Action") != "xkeen-command":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+
+        job_id = str(self.read_json_body().get("jobId") or "").strip()
+        result = stop_xkeen_command_job(job_id)
+        self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_resource_monitor_get(self):
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
@@ -1448,6 +1662,232 @@ def find_xkeen_binary(app_dir):
         if resolved:
             return resolved
     return ""
+
+
+def _snapshot_xkeen_command_job_locked(job):
+    return {
+        "id": job["id"],
+        "flag": job["flag"],
+        "command": f"xkeen {job['flag']}",
+        "status": job["status"],
+        "output": job["output"],
+        "startedAt": job["startedAt"],
+        "finishedAt": job["finishedAt"],
+        "exitCode": job["exitCode"],
+        "error": job["error"],
+    }
+
+
+def _cleanup_xkeen_command_jobs_locked():
+    cutoff = int(time.time()) - 3600
+    stale = [
+        job_id
+        for job_id, job in xkeen_command_jobs.items()
+        if job.get("finishedAt") and job["finishedAt"] < cutoff
+    ]
+    for job_id in stale:
+        xkeen_command_jobs.pop(job_id, None)
+
+
+def snapshot_xkeen_command_job(job_id):
+    with xkeen_command_jobs_lock:
+        _cleanup_xkeen_command_jobs_locked()
+        job = xkeen_command_jobs.get(str(job_id or "").strip())
+        return _snapshot_xkeen_command_job_locked(job) if job else None
+
+
+def _append_xkeen_command_output(job_id, text):
+    clean = strip_ansi(text)
+    if not clean:
+        return
+    with xkeen_command_jobs_lock:
+        job = xkeen_command_jobs.get(job_id)
+        if not job:
+            return
+        combined = str(job.get("output") or "") + clean
+        if len(combined) > XKEEN_COMMAND_MAX_OUTPUT_CHARS:
+            combined = "[Начало журнала обрезано]\n" + combined[-XKEEN_COMMAND_MAX_OUTPUT_CHARS:]
+        job["output"] = combined
+
+
+def _xkeen_command_environment():
+    env = os.environ.copy()
+    path_parts = [part for part in str(env.get("PATH") or "").split(os.pathsep) if part]
+    for directory in reversed(["/opt/sbin", "/opt/bin"]):
+        if directory in path_parts:
+            path_parts.remove(directory)
+        path_parts.insert(0, directory)
+    env["PATH"] = os.pathsep.join(path_parts)
+    env.setdefault("HOME", "/opt/root" if Path("/opt/root").is_dir() else "/tmp")
+    env.setdefault("TMPDIR", "/tmp")
+    env.setdefault("TERM", "xterm-256color")
+    return env
+
+
+def _terminate_xkeen_command_process(process):
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except Exception:
+        try:
+            process.terminate()
+        except Exception:
+            return
+    try:
+        process.wait(timeout=1)
+    except Exception:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+
+def _run_xkeen_command_job(app_dir, job_id):
+    master_fd = None
+    slave_fd = None
+    process = None
+    stopped = False
+    timed_out = False
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    started = time.monotonic()
+
+    try:
+        binary = find_xkeen_binary(app_dir)
+        if not binary:
+            raise RuntimeError("XKeen не найден")
+        master_fd, slave_fd = pty.openpty()
+        process = subprocess.Popen(
+            [binary, xkeen_command_jobs[job_id]["flag"]],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True,
+            start_new_session=True,
+            env=_xkeen_command_environment(),
+        )
+        os.close(slave_fd)
+        slave_fd = None
+
+        with xkeen_command_jobs_lock:
+            job = xkeen_command_jobs.get(job_id)
+            if not job:
+                return
+            job.update({"status": "running", "process": process, "masterFd": master_fd})
+
+        while True:
+            with xkeen_command_jobs_lock:
+                job = xkeen_command_jobs.get(job_id)
+                stop_requested = not job or bool(job.get("stopRequested"))
+            if stop_requested:
+                stopped = True
+                _terminate_xkeen_command_process(process)
+                break
+            if time.monotonic() - started > XKEEN_COMMAND_TIMEOUT:
+                timed_out = True
+                _terminate_xkeen_command_process(process)
+                break
+
+            ready, _, _ = select.select([master_fd], [], [], 0.2)
+            if ready:
+                try:
+                    chunk = os.read(master_fd, 4096)
+                except OSError:
+                    chunk = b""
+                if chunk:
+                    _append_xkeen_command_output(job_id, decoder.decode(chunk))
+                    continue
+                break
+            if process.poll() is not None:
+                break
+
+        _append_xkeen_command_output(job_id, decoder.decode(b"", final=True))
+        try:
+            exit_code = process.wait(timeout=0.5)
+        except Exception:
+            exit_code = process.poll()
+
+        with xkeen_command_jobs_lock:
+            job = xkeen_command_jobs.get(job_id)
+            if not job:
+                return
+            job["exitCode"] = exit_code
+            if stopped:
+                job.update({"status": "stopped", "error": "Операция остановлена"})
+            elif timed_out:
+                job.update({"status": "error", "error": "Превышено время выполнения команды"})
+            elif exit_code == 0:
+                job.update({"status": "finished", "error": ""})
+            else:
+                job.update({"status": "error", "error": f"XKeen завершил команду с кодом {exit_code}"})
+    except Exception as error:
+        with xkeen_command_jobs_lock:
+            job = xkeen_command_jobs.get(job_id)
+            if job:
+                job.update({"status": "error", "error": str(error)})
+    finally:
+        if slave_fd is not None:
+            try:
+                os.close(slave_fd)
+            except OSError:
+                pass
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+        with xkeen_command_jobs_lock:
+            job = xkeen_command_jobs.get(job_id)
+            if job:
+                job.update({"process": None, "masterFd": None, "finishedAt": int(time.time())})
+
+
+def start_xkeen_command_job(app_dir, flag):
+    with xkeen_command_jobs_lock:
+        _cleanup_xkeen_command_jobs_locked()
+        if any(job.get("status") in {"queued", "running"} for job in xkeen_command_jobs.values()):
+            return None
+        job_id = uuid.uuid4().hex[:12]
+        xkeen_command_jobs[job_id] = {
+            "id": job_id,
+            "flag": flag,
+            "status": "queued",
+            "output": "",
+            "startedAt": int(time.time()),
+            "finishedAt": None,
+            "exitCode": None,
+            "error": "",
+            "process": None,
+            "masterFd": None,
+            "stopRequested": False,
+        }
+        snapshot = _snapshot_xkeen_command_job_locked(xkeen_command_jobs[job_id])
+
+    threading.Thread(target=_run_xkeen_command_job, args=(app_dir, job_id), daemon=True).start()
+    return snapshot
+
+
+def send_xkeen_command_input(job_id, text):
+    with xkeen_command_jobs_lock:
+        job = xkeen_command_jobs.get(str(job_id or "").strip())
+        if not job or job.get("status") != "running" or job.get("masterFd") is None:
+            return {"ok": False, "message": "Команда уже не принимает ввод"}
+        master_fd = job["masterFd"]
+    try:
+        os.write(master_fd, (text.rstrip("\r\n") + "\n").encode("utf-8"))
+    except OSError as error:
+        return {"ok": False, "message": str(error)}
+    return {"ok": True}
+
+
+def stop_xkeen_command_job(job_id):
+    with xkeen_command_jobs_lock:
+        job = xkeen_command_jobs.get(str(job_id or "").strip())
+        if not job or job.get("status") not in {"queued", "running"}:
+            return {"ok": False, "message": "Активная команда не найдена"}
+        job["stopRequested"] = True
+    return {"ok": True}
 
 
 def get_xkeen_service_status(app_dir):

@@ -246,6 +246,37 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
   }
 });
 
+test('main and standalone expose the native interactive XKeen commands section', () => {
+  for (const name of ['index.html', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /data-section="commands"[^>]*[\s\S]+?>Команды</);
+    assert.match(source, /data-section-panel="commands"/);
+    assert.match(source, /id="xkeenCommandsBody"/);
+    assert.match(source, /id="xkeenCommandConsole"/);
+    assert.match(source, /id="xkeenCommandInputForm"/);
+    assert.match(source, /id="xkeenCommandStopButton"/);
+  }
+
+  for (const name of ['app.js', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /apiJson\('\/api\/xkeen\/commands\/run'/);
+    assert.match(source, /apiJson\('\/api\/xkeen\/commands\/input'/);
+    assert.match(source, /apiJson\('\/api\/xkeen\/commands\/stop'/);
+    assert.match(source, /'X-Mihui-Action': 'xkeen-command'/);
+    assert.match(source, /function renderXkeenCommands\(\)/);
+    assert.match(source, /const row = document\.createElement\('button'\)/);
+    assert.match(source, /row\.dataset\.commandFlag =/);
+    assert.doesNotMatch(source, /command-run-button/);
+  }
+
+  for (const name of ['styles.css', 'mihomo-editor.html']) {
+    const source = read(name);
+    assert.match(source, /\.commands-grid\s*{/);
+    assert.match(source, /\.command-row\s*{/);
+    assert.match(source, /\.command-console pre\s*{/);
+  }
+});
+
 test('main and standalone expose the UI switcher in the brand block', () => {
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);

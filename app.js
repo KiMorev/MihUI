@@ -6,7 +6,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'nodes', 'whitelist', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -449,6 +449,17 @@ const state = {
     paths: {},
     errors: [],
   },
+  xkeenCommands: {
+    loaded: false,
+    loading: false,
+    available: false,
+    groups: [],
+    error: '',
+    job: null,
+    pollTimer: 0,
+    rendered: false,
+    outputLength: 0,
+  },
   backups: [],
   selectedBackupName: '',
   updatePollTimer: 0,
@@ -609,6 +620,16 @@ const els = {
   xkeenRestartAfterSave: document.querySelector('#xkeenRestartAfterSave'),
   xkeenFilesChangeStatus: document.querySelector('#xkeenFilesChangeStatus'),
   xkeenFilesStatus: document.querySelector('#xkeenFilesStatus'),
+  xkeenCommandsAvailability: document.querySelector('#xkeenCommandsAvailability'),
+  xkeenCommandsBody: document.querySelector('#xkeenCommandsBody'),
+  xkeenCommandConsole: document.querySelector('#xkeenCommandConsole'),
+  xkeenCommandStatus: document.querySelector('#xkeenCommandStatus'),
+  xkeenCommandTitle: document.querySelector('#xkeenCommandTitle'),
+  xkeenCommandOutput: document.querySelector('#xkeenCommandOutput'),
+  xkeenCommandInputForm: document.querySelector('#xkeenCommandInputForm'),
+  xkeenCommandInput: document.querySelector('#xkeenCommandInput'),
+  xkeenCommandStopButton: document.querySelector('#xkeenCommandStopButton'),
+  xkeenCommandError: document.querySelector('#xkeenCommandError'),
   overviewProvidersSummary: document.querySelector('#overviewProvidersSummary'),
   overviewRoutingSummary: document.querySelector('#overviewRoutingSummary'),
   overviewNodesStatus: document.querySelector('#overviewNodesStatus'),
@@ -845,6 +866,9 @@ els.xkeenRestartButton.addEventListener('click', restartXkeenFromFiles);
 els.xkeenFilesRefreshButton.addEventListener('click', reloadXkeenNetworkFiles);
 els.xkeenFilesSaveButton.addEventListener('click', saveXkeenNetworkFiles);
 els.xkeenRestartAfterSave.addEventListener('change', renderXkeenNetworkFiles);
+els.xkeenCommandsBody.addEventListener('click', handleXkeenCommandsClick);
+els.xkeenCommandInputForm.addEventListener('submit', sendXkeenCommandInput);
+els.xkeenCommandStopButton.addEventListener('click', stopXkeenCommand);
 els.providerViewTabs.forEach((button) => {
   button.addEventListener('click', () => setProviderView(button.dataset.providerView));
   button.addEventListener('keydown', (event) => handleSubsectionTabKeydown(event, els.providerViewTabs, 'providerView', setProviderView));
@@ -880,6 +904,7 @@ renderInterfaceSettings();
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
+renderXkeenCommands();
 updateMobileSectionTabsVisibility();
 initRouterMode();
 
@@ -926,6 +951,9 @@ function setActiveSection(section, options = {}) {
     renderSectionTabs();
     if (section === 'whitelist' && state.routerApiAvailable) {
       loadWhitelistMonitor({ silent: true });
+    }
+    if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
+      loadXkeenCommands({ silent: true });
     }
     updateMobileSectionTabsVisibility();
     centerActiveMobileSectionTab();
@@ -1106,6 +1134,7 @@ function initRouterMode() {
   loadRouterMetadata();
   loadRouterConfig({ silent: true });
   loadXkeenNetworkFiles({ silent: true });
+  loadXkeenCommands({ silent: true });
   loadServiceHealth({ silent: true });
   loadComponents({ silent: true });
   loadResourceMonitor({ silent: true });
@@ -2039,6 +2068,275 @@ async function saveXkeenNetworkFiles() {
   } finally {
     state.xkeenFiles.saving = false;
     renderXkeenNetworkFiles();
+  }
+}
+
+function isXkeenCommandActive(job = state.xkeenCommands.job) {
+  return Boolean(job && ['queued', 'running'].includes(job.status));
+}
+
+function renderXkeenCommandsCatalog() {
+  const commandState = state.xkeenCommands;
+  if (commandState.rendered) return;
+
+  if (commandState.loading) {
+    const loading = document.createElement('section');
+    loading.className = 'panel commands-loading';
+    loading.innerHTML = '<strong>Загружаем команды…</strong><span>Получаем доступные действия с роутера.</span>';
+    els.xkeenCommandsBody.innerHTML = '';
+    els.xkeenCommandsBody.append(loading);
+    return;
+  }
+
+  if (commandState.error || !commandState.loaded) {
+    const error = document.createElement('section');
+    error.className = 'panel commands-loading has-error';
+    const title = document.createElement('strong');
+    title.textContent = 'Каталог команд недоступен';
+    const detail = document.createElement('span');
+    detail.textContent = commandState.error || 'Откройте раздел в MihUI на роутере.';
+    const retry = document.createElement('button');
+    retry.className = 'button compact';
+    retry.type = 'button';
+    retry.dataset.commandAction = 'retry';
+    retry.textContent = 'Повторить';
+    error.append(title, detail, retry);
+    els.xkeenCommandsBody.innerHTML = '';
+    els.xkeenCommandsBody.append(error);
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  commandState.groups.forEach((group) => {
+    const card = document.createElement('section');
+    card.className = `panel command-group is-${group.tone || 'info'}`;
+    const header = document.createElement('header');
+    header.className = 'command-group-head';
+    const title = document.createElement('h3');
+    title.textContent = String(group.title || 'Команды');
+    const count = document.createElement('span');
+    const items = Array.isArray(group.items) ? group.items : [];
+    count.textContent = String(items.length);
+    header.append(title, count);
+    card.append(header);
+
+    const list = document.createElement('div');
+    list.className = 'command-list';
+    items.forEach((item) => {
+      const row = document.createElement('button');
+      row.className = 'command-row';
+      row.type = 'button';
+      row.dataset.commandFlag = String(item.flag || '');
+      const name = document.createElement('code');
+      name.textContent = `xkeen ${item.flag}`;
+      const description = document.createElement('span');
+      description.textContent = String(item.description || '');
+      row.append(name, description);
+      list.append(row);
+    });
+    card.append(list);
+    fragment.append(card);
+  });
+  els.xkeenCommandsBody.innerHTML = '';
+  els.xkeenCommandsBody.append(fragment);
+  commandState.rendered = true;
+}
+
+function renderXkeenCommands() {
+  const commandState = state.xkeenCommands;
+  renderXkeenCommandsCatalog();
+
+  els.xkeenCommandsAvailability.classList.toggle('is-ok', commandState.loaded && commandState.available);
+  els.xkeenCommandsAvailability.classList.toggle('is-error', commandState.loaded && !commandState.available);
+  if (commandState.loading) {
+    els.xkeenCommandsAvailability.textContent = 'Проверяем XKeen…';
+  } else if (!commandState.loaded) {
+    els.xkeenCommandsAvailability.textContent = 'Только на роутере';
+  } else {
+    els.xkeenCommandsAvailability.textContent = commandState.available ? 'XKeen доступен' : 'XKeen не найден';
+  }
+
+  const job = commandState.job;
+  const active = isXkeenCommandActive(job);
+  els.xkeenCommandsBody.querySelectorAll('[data-command-flag]').forEach((button) => {
+    const isCurrent = active && button.dataset.commandFlag === job.flag;
+    button.disabled = !commandState.available || active;
+    button.classList.toggle('is-running', isCurrent);
+    button.setAttribute('aria-busy', String(isCurrent));
+  });
+
+  els.xkeenCommandConsole.hidden = !job;
+  if (!job) return;
+
+  const statusLabels = {
+    queued: 'Запуск',
+    running: 'Выполняется',
+    finished: 'Завершено',
+    error: 'Ошибка',
+    stopped: 'Остановлено',
+  };
+  els.xkeenCommandStatus.textContent = statusLabels[job.status] || 'Операция';
+  els.xkeenCommandStatus.className = `command-status is-${job.status || 'idle'}`;
+  els.xkeenCommandTitle.textContent = job.command || `xkeen ${job.flag || ''}`;
+  els.xkeenCommandStopButton.hidden = !active;
+  els.xkeenCommandInputForm.hidden = job.status !== 'running';
+  els.xkeenCommandError.hidden = !job.error;
+  els.xkeenCommandError.textContent = job.error || '';
+
+  const output = String(job.output || '');
+  const displayOutput = output || (active ? 'Запускаем команду…' : 'Команда не вернула текстовый вывод.');
+  if (els.xkeenCommandOutput.textContent !== displayOutput) {
+    els.xkeenCommandOutput.textContent = displayOutput;
+    if (output.length !== commandState.outputLength) {
+      els.xkeenCommandOutput.scrollTop = els.xkeenCommandOutput.scrollHeight;
+      commandState.outputLength = output.length;
+    }
+  }
+}
+
+async function loadXkeenCommands(options = {}) {
+  if (typeof fetch !== 'function' || window.location?.protocol === 'file:') {
+    renderXkeenCommands();
+    return;
+  }
+  state.xkeenCommands.loading = true;
+  state.xkeenCommands.error = '';
+  state.xkeenCommands.rendered = false;
+  renderXkeenCommands();
+  try {
+    const data = await apiJson('/api/xkeen/commands');
+    state.xkeenCommands.loaded = true;
+    state.xkeenCommands.available = Boolean(data.available);
+    state.xkeenCommands.groups = Array.isArray(data.groups) ? data.groups : [];
+  } catch (error) {
+    state.xkeenCommands.loaded = false;
+    state.xkeenCommands.available = false;
+    state.xkeenCommands.groups = [];
+    state.xkeenCommands.error = error?.message || String(error);
+    if (!options.silent) showMessage('Не удалось загрузить команды XKeen.', { severity: 'error', details: state.xkeenCommands.error });
+  } finally {
+    state.xkeenCommands.loading = false;
+    state.xkeenCommands.rendered = false;
+    renderXkeenCommands();
+  }
+}
+
+function handleXkeenCommandsClick(event) {
+  const retry = event.target.closest('[data-command-action="retry"]');
+  if (retry) {
+    loadXkeenCommands({ silent: false });
+    return;
+  }
+  const button = event.target.closest('[data-command-flag]');
+  if (!button) return;
+  runXkeenCommand(button.dataset.commandFlag);
+}
+
+async function runXkeenCommand(flag) {
+  if (!state.xkeenCommands.available || isXkeenCommandActive()) return;
+  state.xkeenCommands.job = {
+    flag,
+    command: `xkeen ${flag}`,
+    status: 'queued',
+    output: '',
+    error: '',
+  };
+  state.xkeenCommands.outputLength = 0;
+  renderXkeenCommands();
+  els.xkeenCommandConsole.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const data = await apiJson('/api/xkeen/commands/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ flag }),
+    });
+    state.xkeenCommands.job = data.job;
+    renderXkeenCommands();
+    startXkeenCommandPolling();
+  } catch (error) {
+    state.xkeenCommands.job = {
+      ...state.xkeenCommands.job,
+      status: 'error',
+      error: error?.message || String(error),
+    };
+    renderXkeenCommands();
+  }
+}
+
+function startXkeenCommandPolling() {
+  clearTimeout(state.xkeenCommands.pollTimer);
+  pollXkeenCommandJob();
+}
+
+async function pollXkeenCommandJob() {
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId) return;
+  try {
+    const data = await apiJson(`/api/xkeen/commands/job?id=${encodeURIComponent(jobId)}`);
+    state.xkeenCommands.job = data.job;
+    renderXkeenCommands();
+  } catch (error) {
+    if (state.xkeenCommands.job?.id === jobId) {
+      state.xkeenCommands.job.error = `Не удалось обновить журнал: ${error?.message || error}`;
+      renderXkeenCommands();
+    }
+  }
+  if (state.xkeenCommands.job?.id === jobId && isXkeenCommandActive()) {
+    state.xkeenCommands.pollTimer = window.setTimeout(pollXkeenCommandJob, 500);
+  }
+}
+
+async function sendXkeenCommandInput(event) {
+  event.preventDefault();
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId || state.xkeenCommands.job.status !== 'running') return;
+  const text = els.xkeenCommandInput.value;
+  const submit = els.xkeenCommandInputForm.querySelector('[type="submit"]');
+  els.xkeenCommandInput.disabled = true;
+  submit.disabled = true;
+  try {
+    await apiJson('/api/xkeen/commands/input', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ jobId, text }),
+    });
+    els.xkeenCommandInput.value = '';
+  } catch (error) {
+    state.xkeenCommands.job.error = error?.message || String(error);
+    renderXkeenCommands();
+  } finally {
+    els.xkeenCommandInput.disabled = false;
+    submit.disabled = false;
+    els.xkeenCommandInput.focus();
+  }
+}
+
+async function stopXkeenCommand() {
+  const jobId = state.xkeenCommands.job?.id;
+  if (!jobId || !isXkeenCommandActive()) return;
+  els.xkeenCommandStopButton.disabled = true;
+  try {
+    await apiJson('/api/xkeen/commands/stop', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Mihui-Action': 'xkeen-command',
+      },
+      body: JSON.stringify({ jobId }),
+    });
+    startXkeenCommandPolling();
+  } catch (error) {
+    state.xkeenCommands.job.error = error?.message || String(error);
+    renderXkeenCommands();
+  } finally {
+    els.xkeenCommandStopButton.disabled = false;
   }
 }
 

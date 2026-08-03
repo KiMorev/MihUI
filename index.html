@@ -30,6 +30,9 @@
       <symbol id="icon-ports" viewBox="0 0 24 24">
         <path d="M9 6h11" /><path d="M9 12h11" /><path d="M9 18h11" /><path d="M5 6h.01" /><path d="M5 12h.01" /><path d="M5 18h.01" />
       </symbol>
+      <symbol id="icon-terminal" viewBox="0 0 24 24">
+        <path d="M5 7l4 4l-4 4" /><path d="M12 15h7" /><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1" />
+      </symbol>
       <symbol id="icon-nodes" viewBox="0 0 24 24">
         <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" /><path d="M3.6 9h16.8" /><path d="M3.6 15h16.8" /><path d="M11.5 3a17 17 0 0 0 0 18" /><path d="M12.5 3a17 17 0 0 1 0 18" />
       </symbol>
@@ -73,6 +76,7 @@
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
+          <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -107,6 +111,7 @@
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
+          <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
@@ -481,6 +486,40 @@
             <span>Сохранить и применить</span>
           </button>
         </footer>
+      </section>
+
+      <section class="app-section xkeen-commands-section" data-section-panel="commands" hidden>
+        <header class="commands-page-head">
+          <div>
+            <h2>Команды XKeen</h2>
+            <p>Управление XKeen и установленными компонентами с выводом операции в MihUI.</p>
+          </div>
+          <span id="xkeenCommandsAvailability" class="commands-availability">Проверяем XKeen…</span>
+        </header>
+
+        <section id="xkeenCommandConsole" class="panel command-console" aria-live="polite" hidden>
+          <header class="command-console-head">
+            <div>
+              <span id="xkeenCommandStatus" class="command-status">Ожидание</span>
+              <strong id="xkeenCommandTitle">Команда XKeen</strong>
+            </div>
+            <button id="xkeenCommandStopButton" class="button compact" type="button" hidden>Остановить</button>
+          </header>
+          <pre id="xkeenCommandOutput" tabindex="0" aria-label="Вывод команды XKeen"></pre>
+          <form id="xkeenCommandInputForm" class="command-input-row" hidden>
+            <label class="sr-only" for="xkeenCommandInput">Ответ для команды XKeen</label>
+            <input id="xkeenCommandInput" type="text" autocomplete="off" placeholder="Введите ответ и нажмите Enter" />
+            <button id="xkeenCommandSendButton" class="button primary compact" type="submit">Отправить</button>
+          </form>
+          <p id="xkeenCommandError" class="command-console-error" hidden></p>
+        </section>
+
+        <div id="xkeenCommandsBody" class="commands-grid" aria-live="polite">
+          <section class="panel commands-loading">
+            <strong>Загружаем команды…</strong>
+            <span>Каталог будет доступен после подключения к MihUI на роутере.</span>
+          </section>
+        </div>
       </section>
 
       <section class="app-section" data-section-panel="nodes" hidden>
