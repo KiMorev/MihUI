@@ -1850,6 +1850,28 @@ rules:
     assert.match(added.xHwid, /^[A-F0-9]{12}$/);
   });
 
+  test(`${source.name}: reuses an empty pending provider instead of adding a duplicate`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    app.addProvider();
+    app.addProvider();
+
+    assert.equal(app.state.providers.filter((provider) => provider.isNew && !provider.deleted).length, 1);
+  });
+
   test(`${source.name}: connects added provider to explicit use groups`, () => {
     const app = loadApp(source);
     hydrate(app, `

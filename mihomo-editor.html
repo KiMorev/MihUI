@@ -22550,6 +22550,14 @@ function undoLastRemoval() {
 function addProvider() {
   if (!state.originalText || !state.hasGroupsSection) return;
 
+  const pendingProvider = state.providers.find((provider) => provider.isNew && !provider.deleted && !provider.url.trim());
+  if (pendingProvider) {
+    state.selectedProviderName = pendingProvider.name;
+    state.providerInspectorEditing = true;
+    render();
+    return;
+  }
+
   let index = state.providers.length + 1;
   let name = `subscription-${index}`;
   while (state.providers.some((provider) => provider.name === name && !provider.deleted)) {
