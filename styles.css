@@ -1832,6 +1832,7 @@ body.component-manager-open {
 
 .provider-create-body {
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 14px;
   min-height: 0;

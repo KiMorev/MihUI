@@ -428,6 +428,7 @@ test('main and standalone keep provider creation transactional and responsive', 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /\.provider-create-dialog::backdrop/);
+    assert.match(source, /\.provider-create-body\s*{[\s\S]+?grid-auto-rows: max-content;/);
     assert.match(source, /\.provider-create-actions\s*{[\s\S]+?justify-content: flex-end;/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-create-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   }
