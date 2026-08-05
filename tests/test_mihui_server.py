@@ -1366,6 +1366,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertEqual(mihui_server.load_whitelist_monitor_settings(app_dir), validated)
             self.assertEqual(validated["actionMode"], "suggest")
+            self.assertFalse(validated["yandexRelayEnabled"])
             self.assertEqual(len(validated["positiveEndpoints"]), 2)
             self.assertEqual(len(validated["controlEndpoints"]), 3)
 
@@ -1420,6 +1421,109 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(result["positiveDirectSuccesses"], 1)
         self.assertEqual(result["controlDirectFailures"], 2)
         self.assertEqual(result["controlProxyRecoveries"], 2)
+
+    def test_whitelist_monitor_confirms_yandex_only_access(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        settings["yandexRelayEnabled"] = True
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime["consecutiveSuspicions"] = 2
+        result = mihui_server.classify_whitelist_monitor_results(
+            settings,
+            runtime,
+            {"allowed-ya": {"ok": True}},
+            {
+                "control-truenetwork": {
+                    "direct": {"ok": False},
+                    "proxy": {"ok": False},
+                    "yandex": {"ok": True},
+                },
+                "control-neftm": {
+                    "direct": {"ok": False},
+                    "proxy": {"ok": False},
+                    "yandex": {"ok": True},
+                },
+                "control-selectel": {
+                    "direct": {"ok": True},
+                    "proxy": None,
+                    "yandex": None,
+                },
+            },
+        )
+
+        self.assertEqual(result["state"], "confirmed")
+        self.assertEqual(result["evidenceState"], "current")
+        self.assertEqual(result["accessMode"], "yandex-only")
+        self.assertEqual(result["controlProxyRecoveries"], 0)
+        self.assertEqual(result["controlYandexRecoveries"], 2)
+
+    def test_whitelist_monitor_keeps_previous_confirmation_during_short_inconclusive_run(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime.update({"state": "confirmed", "consecutiveSuspicions": 3})
+        controls = {
+            "control-truenetwork": {
+                "direct": {"ok": False},
+                "proxy": {"ok": False},
+                "yandex": {"ok": False},
+            },
+            "control-neftm": {
+                "direct": {"ok": False},
+                "proxy": {"ok": False},
+                "yandex": {"ok": False},
+            },
+            "control-selectel": {"direct": {"ok": True}, "proxy": None, "yandex": None},
+        }
+
+        first = mihui_server.classify_whitelist_monitor_results(
+            settings, runtime, {"allowed-ya": {"ok": True}}, controls
+        )
+        runtime.update(first)
+        second = mihui_server.classify_whitelist_monitor_results(
+            settings, runtime, {"allowed-ya": {"ok": True}}, controls
+        )
+        runtime.update(second)
+        third = mihui_server.classify_whitelist_monitor_results(
+            settings, runtime, {"allowed-ya": {"ok": True}}, controls
+        )
+
+        self.assertEqual(first["state"], "confirmed")
+        self.assertEqual(first["evidenceState"], "previous")
+        self.assertEqual(second["state"], "confirmed")
+        self.assertEqual(third["state"], "unknown")
+        self.assertEqual(third["consecutiveInconclusive"], 3)
+
+    def test_whitelist_monitor_yandex_probe_wraps_only_proxy_failures(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings.update({"enabled": True, "yandexRelayEnabled": True})
+            mihui_server.save_whitelist_monitor_settings(app_dir, settings)
+            calls = []
+
+            def probe_batch(_app_dir, route, endpoints, _timeout_ms):
+                calls.append((route, [dict(item) for item in endpoints]))
+                call_number = len(calls)
+                ok = call_number in {1, 4}
+                return {
+                    item["id"]: {"ok": ok, "delay": 40 if ok else None, "message": ""}
+                    for item in endpoints
+                }
+
+            with mock.patch.object(
+                mihui_server, "run_whitelist_probe_batch", side_effect=probe_batch
+            ):
+                runtime = mihui_server.run_whitelist_monitor_cycle(app_dir)
+
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[3][0], "DIRECT")
+        self.assertTrue(
+            all(
+                item["url"].startswith(mihui_server.WHITELIST_MONITOR_YANDEX_RELAY_URL)
+                for item in calls[3][1]
+            )
+        )
+        self.assertEqual(runtime["state"], "suspected")
+        self.assertEqual(runtime["accessMode"], "yandex-only")
 
     def test_whitelist_monitor_does_not_confirm_unrecovered_direct_failures(self):
         settings = mihui_server.default_whitelist_monitor_settings()

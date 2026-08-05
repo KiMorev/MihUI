@@ -511,6 +511,8 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(html, /data-section-panel="whitelist"/);
     assert.match(html, /id="whitelistMonitorEnabled"/);
     assert.match(html, /id="whitelistMonitorActionMode"/);
+    assert.match(html, /id="whitelistMonitorYandexRelayEnabled"/);
+    assert.match(html, /id="whitelistMonitorYandexRecoveries"/);
     assert.match(html, /id="whitelistMonitorProposal"/);
     assert.match(html, /id="whitelistMonitorTimeline"/);
     assert.match(html, /id="whitelistMonitorHistorySummary"/);
@@ -531,6 +533,10 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(script, /не требовалось/);
     assert.match(script, /Проверить PROXY/);
     assert.match(script, /controlFailureThreshold: 2/);
+    assert.match(script, /yandexRelayEnabled: false/);
+    assert.match(script, /runtime\.controlYandexRecoveries/);
+    assert.match(script, /const proxyReady = Number\(runtime\.controlProxyRecoveries/);
+    assert.match(script, /PROXY не подтверждён/);
     assert.match(script, /prepareWhitelistFallbackConfig/);
     assert.match(script, /buildWhitelistMonitorTimeline/);
     assert.match(script, /function renderOverviewWhitelistMonitor\(\)/);

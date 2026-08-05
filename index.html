@@ -705,6 +705,7 @@
               <div><dt>Доступны через DIRECT</dt><dd id="whitelistMonitorPositiveCount">0</dd></div>
               <div><dt>Сбоев DIRECT</dt><dd id="whitelistMonitorDirectFailures">0</dd></div>
               <div><dt>Работают через PROXY</dt><dd id="whitelistMonitorProxyRecoveries">0</dd></div>
+              <div><dt>Работают через Яндекс</dt><dd id="whitelistMonitorYandexRecoveries">0</dd></div>
             </dl>
             <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
           </section>
@@ -722,7 +723,7 @@
             <header class="whitelist-monitor-block-head">
               <div>
                 <h3>Политика проверки</h3>
-                <p>Подозрение подтверждается, когда работают разрешённые адреса, не менее двух контрольных недоступны напрямую и доступны через прокси.</p>
+                <p>Подозрение подтверждается, когда работают разрешённые адреса, а не менее двух контрольных недоступны напрямую и доступны через PROXY либо альтернативный маршрут Яндекса.</p>
               </div>
             </header>
             <div class="whitelist-monitor-policy-grid">
@@ -764,6 +765,13 @@
                   <option value="suggest">Предложить черновик YAML</option>
                 </select>
               </label>
+              <label>
+                <span>Альтернативная проверка</span>
+                <select id="whitelistMonitorYandexRelayEnabled">
+                  <option value="false">Выключена</option>
+                  <option value="true">Через Яндекс Переводчик</option>
+                </select>
+              </label>
             </div>
           </section>
 
@@ -782,7 +790,7 @@
             <header class="whitelist-monitor-block-head">
               <div>
                 <h3>Контроль вне белых списков</h3>
-                <p>Не менее двух адресов должны одновременно не работать через DIRECT и отвечать через выбранную прокси-группу.</p>
+                <p>Не менее двух адресов должны одновременно не работать через DIRECT и отвечать через выбранную PROXY-группу либо, если включено, через Яндекс Переводчик.</p>
               </div>
               <button class="button compact" type="button" data-whitelist-add="control">+ Добавить адрес</button>
             </header>

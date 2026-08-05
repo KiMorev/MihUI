@@ -744,6 +744,7 @@ const els = {
   whitelistMonitorPositiveCount: document.querySelector('#whitelistMonitorPositiveCount'),
   whitelistMonitorDirectFailures: document.querySelector('#whitelistMonitorDirectFailures'),
   whitelistMonitorProxyRecoveries: document.querySelector('#whitelistMonitorProxyRecoveries'),
+  whitelistMonitorYandexRecoveries: document.querySelector('#whitelistMonitorYandexRecoveries'),
   whitelistMonitorCheckButton: document.querySelector('#whitelistMonitorCheckButton'),
   whitelistMonitorProposal: document.querySelector('#whitelistMonitorProposal'),
   whitelistMonitorProposalBadge: document.querySelector('#whitelistMonitorProposalBadge'),
@@ -755,6 +756,7 @@ const els = {
   whitelistMonitorTimeout: document.querySelector('#whitelistMonitorTimeout'),
   whitelistMonitorProxyGroup: document.querySelector('#whitelistMonitorProxyGroup'),
   whitelistMonitorActionMode: document.querySelector('#whitelistMonitorActionMode'),
+  whitelistMonitorYandexRelayEnabled: document.querySelector('#whitelistMonitorYandexRelayEnabled'),
   whitelistMonitorPositiveEndpoints: document.querySelector('#whitelistMonitorPositiveEndpoints'),
   whitelistMonitorControlEndpoints: document.querySelector('#whitelistMonitorControlEndpoints'),
   whitelistMonitorAddButtons: document.querySelectorAll('[data-whitelist-add]'),
@@ -871,7 +873,7 @@ els.whitelistMonitorProposalButton.addEventListener('click', handleWhitelistMoni
 els.whitelistMonitorSaveButton.addEventListener('click', saveWhitelistMonitorSettings);
 els.whitelistMonitorRestoreButton.addEventListener('click', restoreWhitelistMonitorDefaults);
 els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('click', addWhitelistMonitorEndpoint));
-[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode]
+[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
   .forEach((control) => {
     control.addEventListener('input', handleWhitelistMonitorPolicyInput);
     control.addEventListener('change', handleWhitelistMonitorPolicyInput);
@@ -4517,6 +4519,7 @@ async function pollResourceMonitorCheck(attempt = 0) {
 function defaultWhitelistMonitorClientSettings() {
   return {
     enabled: false,
+    yandexRelayEnabled: false,
     actionMode: 'observe',
     intervalSeconds: 300,
     confirmationThreshold: 3,
@@ -4602,7 +4605,13 @@ function startWhitelistMonitorPolling() {
   }, WHITELIST_MONITOR_REFRESH_MS);
 }
 
-function getWhitelistMonitorStatePresentation(value) {
+function getWhitelistMonitorStatePresentation(value, evidenceState = '') {
+  if (value === 'confirmed' && evidenceState === 'previous') {
+    return {
+      label: 'Ранее подтверждён',
+      title: 'Ранее обнаружены признаки белых списков',
+    };
+  }
   return {
     normal: { label: 'Норма', title: 'Ограничения не обнаружены' },
     suspected: { label: 'Подозрение', title: 'Нужно повторное подтверждение' },
@@ -4730,7 +4739,7 @@ function renderOverviewWhitelistMonitor() {
 
   const runtime = state.whitelistMonitor.runtime || {};
   const runtimeState = runtime.state || 'idle';
-  const presentation = getWhitelistMonitorStatePresentation(runtimeState);
+  const presentation = getWhitelistMonitorStatePresentation(runtimeState, runtime.evidenceState);
   els.overviewWhitelistMonitorTitle.textContent = presentation.title;
   els.overviewWhitelistMonitorBadge.className = `whitelist-monitor-state is-${runtimeState}`;
   els.overviewWhitelistMonitorBadge.textContent = presentation.label;
@@ -4748,7 +4757,7 @@ function renderWhitelistMonitor() {
   const disabling = Boolean(state.whitelistMonitor.pendingSettings?.enabled === false);
   const runtime = state.whitelistMonitor.runtime || {};
   const runtimeState = runtime.state || 'idle';
-  const presentation = getWhitelistMonitorStatePresentation(runtimeState);
+  const presentation = getWhitelistMonitorStatePresentation(runtimeState, runtime.evidenceState);
 
   els.whitelistMonitorEnabled.checked = enabled;
   els.whitelistMonitorEnabled.disabled = !apiAvailable
@@ -4774,6 +4783,7 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorPositiveCount.textContent = String(runtime.positiveDirectSuccesses || 0);
   els.whitelistMonitorDirectFailures.textContent = String(runtime.controlDirectFailures || 0);
   els.whitelistMonitorProxyRecoveries.textContent = String(runtime.controlProxyRecoveries || 0);
+  els.whitelistMonitorYandexRecoveries.textContent = String(runtime.controlYandexRecoveries || 0);
   els.whitelistMonitorCheckButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
   els.whitelistMonitorCheckButton.textContent = state.whitelistMonitor.checking
     ? 'Проверяем…'
@@ -4807,14 +4817,21 @@ function renderWhitelistMonitorProposal(config, runtime) {
     return;
   }
   const fallbackActive = isWhitelistFallbackConfigActive();
-  const shouldSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && !fallbackActive;
+  const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
+  const shouldSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !fallbackActive;
+  const cannotSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
   const shouldRestore = fallbackActive && runtime.state === 'normal';
-  els.whitelistMonitorProposal.hidden = !shouldSuggest && !shouldRestore && !fallbackActive;
+  els.whitelistMonitorProposal.hidden = !shouldSuggest && !cannotSuggest && !shouldRestore && !fallbackActive;
   if (els.whitelistMonitorProposal.hidden) return;
 
   els.whitelistMonitorProposal.classList.toggle('is-active', fallbackActive);
   els.whitelistMonitorProposalButton.hidden = fallbackActive && !shouldRestore;
-  if (shouldSuggest) {
+  if (cannotSuggest) {
+    els.whitelistMonitorProposalBadge.textContent = 'PROXY не подтверждён';
+    els.whitelistMonitorProposalTitle.textContent = 'Черновик маршрутизации пока недоступен';
+    els.whitelistMonitorProposalMessage.textContent = 'Признаки белых списков сохраняются, но выбранная PROXY-группа не восстановила достаточно контрольных ресурсов. MihUI не предложит направлять в неё остальной трафик.';
+    els.whitelistMonitorProposalButton.hidden = true;
+  } else if (shouldSuggest) {
     els.whitelistMonitorProposalBadge.textContent = 'Требуется решение';
     els.whitelistMonitorProposalTitle.textContent = 'Подготовить временную маршрутизацию';
     els.whitelistMonitorProposalMessage.textContent = `Разрешённые адреса останутся в DIRECT, локальные и узкие исключения сохранятся, остальной трафик будет направлен в ${config.proxyGroup}. Изменения сначала откроются на проверке.`;
@@ -4959,6 +4976,7 @@ function renderWhitelistMonitorForm() {
   els.whitelistMonitorTimeout.value = String(settings.timeoutMs);
   els.whitelistMonitorProxyGroup.value = settings.proxyGroup || 'PROXY';
   els.whitelistMonitorActionMode.value = settings.actionMode || 'observe';
+  els.whitelistMonitorYandexRelayEnabled.value = String(Boolean(settings.yandexRelayEnabled));
   renderWhitelistMonitorEndpointList('positive');
   renderWhitelistMonitorEndpointList('control');
 }
@@ -5017,6 +5035,12 @@ function renderWhitelistMonitorEndpointList(kind) {
       proxyCheck.dataset.whitelistProxyCheck = endpoint.id;
       proxyCheck.setAttribute('aria-label', `Проверить ${endpoint.name} через PROXY`);
       results.append(proxy, proxyCheck);
+      if (settings.yandexRelayEnabled) {
+        const yandex = document.createElement('span');
+        yandex.className = 'whitelist-monitor-result';
+        yandex.dataset.whitelistResult = 'yandex';
+        results.append(yandex);
+      }
     }
     remove.className = 'button ghost compact whitelist-monitor-remove';
     remove.type = 'button';
@@ -5045,6 +5069,15 @@ function updateWhitelistMonitorEndpointResults() {
       'PROXY',
       { notRequired: !manualIsCurrent && Boolean(result.checkedAt) && result.proxy == null },
     );
+    updateWhitelistMonitorResult(
+      row.querySelector('[data-whitelist-result="yandex"]'),
+      result.yandex,
+      'Яндекс',
+      {
+        notRequired: Boolean(result.checkedAt) && result.yandex == null,
+        notRequiredMessage: 'Проверка через Яндекс запускается только когда DIRECT и PROXY не дают достаточного подтверждения.',
+      },
+    );
     const proxyCheck = row.querySelector('[data-whitelist-proxy-check]');
     if (proxyCheck) {
       const checking = state.whitelistMonitor.proxyCheckingId === row.dataset.whitelistEndpointId;
@@ -5066,7 +5099,8 @@ function updateWhitelistMonitorResult(element, result, label, options = {}) {
     element.textContent = `${label}: сбой`;
   } else if (options.notRequired) {
     element.textContent = `${label}: не требовалось`;
-    element.title = 'Проверка через прокси запускается только при признаках режима белых списков.';
+    element.title = options.notRequiredMessage
+      || 'Проверка через прокси запускается только при признаках режима белых списков.';
   } else {
     element.textContent = `${label}: не проверен`;
   }
@@ -5111,18 +5145,22 @@ function renderWhitelistMonitorEvents() {
 
 function formatWhitelistMonitorEventDetails(event) {
   if (!['normal', 'suspected', 'confirmed', 'unknown'].includes(event.type)) return '';
-  return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено`;
+  return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено · Яндекс: ${Number(event.controlYandexRecoveries || 0)} восстановлено`;
 }
 
-function handleWhitelistMonitorPolicyInput() {
+function handleWhitelistMonitorPolicyInput(event) {
   const draft = getWhitelistMonitorDraft();
   draft.intervalSeconds = Number(els.whitelistMonitorInterval.value);
   draft.confirmationThreshold = Number(els.whitelistMonitorConfirmations.value);
   draft.timeoutMs = Number(els.whitelistMonitorTimeout.value);
   draft.proxyGroup = els.whitelistMonitorProxyGroup.value;
   draft.actionMode = els.whitelistMonitorActionMode.value;
+  draft.yandexRelayEnabled = els.whitelistMonitorYandexRelayEnabled.value === 'true';
   state.whitelistMonitor.dirty = true;
   state.whitelistMonitor.error = '';
+  if (event?.target === els.whitelistMonitorYandexRelayEnabled) {
+    renderWhitelistMonitorEndpointList('control');
+  }
 }
 
 function handleWhitelistMonitorEndpointInput(event) {

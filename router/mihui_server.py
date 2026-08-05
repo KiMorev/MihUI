@@ -237,6 +237,7 @@ RESOURCE_MONITOR_SERVICES = {
 WHITELIST_MONITOR_LOG_MAX_BYTES = 256 * 1024
 WHITELIST_MONITOR_EVENT_LIMIT = 200
 WHITELIST_MONITOR_ENDPOINT_LIMIT = 10
+WHITELIST_MONITOR_YANDEX_RELAY_URL = "https://translate.yandex.ru/translate"
 WHITELIST_MONITOR_POSITIVE_ENDPOINTS = [
     {"id": "allowed-ya", "name": "Яндекс", "url": "https://ya.ru/", "enabled": True},
     {"id": "allowed-gosuslugi", "name": "Госуслуги", "url": "https://www.gosuslugi.ru/", "enabled": True},
@@ -4221,6 +4222,7 @@ def initialize_resource_monitor(app_dir):
 def default_whitelist_monitor_settings():
     return {
         "enabled": False,
+        "yandexRelayEnabled": False,
         "actionMode": "observe",
         "intervalSeconds": 300,
         "confirmationThreshold": 3,
@@ -4295,7 +4297,10 @@ def validate_whitelist_monitor_settings(payload):
         "controlFailureThreshold": (1, 5),
         "timeoutMs": (1000, 15000),
     }
-    result = {"enabled": bool(payload.get("enabled", False))}
+    result = {
+        "enabled": bool(payload.get("enabled", False)),
+        "yandexRelayEnabled": bool(payload.get("yandexRelayEnabled", False)),
+    }
     action_mode = str(payload.get("actionMode") or "observe").strip()
     if action_mode not in {"observe", "suggest"}:
         raise ValueError("actionMode must be observe or suggest")
@@ -4345,6 +4350,7 @@ def load_whitelist_monitor_settings(app_dir):
     merged = dict(defaults)
     for key in (
         "enabled",
+        "yandexRelayEnabled",
         "actionMode",
         "intervalSeconds",
         "confirmationThreshold",
@@ -4372,9 +4378,13 @@ def default_whitelist_monitor_runtime():
         "message": "Проверка ещё не выполнялась",
         "checkedAt": None,
         "consecutiveSuspicions": 0,
+        "consecutiveInconclusive": 0,
+        "evidenceState": "none",
+        "accessMode": "unknown",
         "positiveDirectSuccesses": 0,
         "controlDirectFailures": 0,
         "controlProxyRecoveries": 0,
+        "controlYandexRecoveries": 0,
         "endpoints": {},
     }
 
@@ -4512,6 +4522,15 @@ def run_whitelist_probe_batch(app_dir, route, endpoints, timeout_ms):
     return results
 
 
+def build_whitelist_yandex_relay_endpoint(endpoint):
+    relay_endpoint = dict(endpoint)
+    relay_endpoint["url"] = (
+        f"{WHITELIST_MONITOR_YANDEX_RELAY_URL}?"
+        + urllib.parse.urlencode({"url": endpoint["url"], "lang": "de-de"})
+    )
+    return relay_endpoint
+
+
 def classify_whitelist_monitor_results(settings, runtime, positive_results, control_results):
     positive_successes = sum(result.get("ok") is True for result in positive_results.values())
     direct_failures = [
@@ -4524,40 +4543,113 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
         for endpoint_id, result in control_results.items()
         if endpoint_id in direct_failures
     )
+    yandex_recoveries = sum(
+        isinstance(result.get("yandex"), dict) and result["yandex"].get("ok") is True
+        for endpoint_id, result in control_results.items()
+        if endpoint_id in direct_failures
+    )
+    recovered_controls = sum(
+        (
+            isinstance(result.get("proxy"), dict)
+            and result["proxy"].get("ok") is True
+        )
+        or (
+            isinstance(result.get("yandex"), dict)
+            and result["yandex"].get("ok") is True
+        )
+        for endpoint_id, result in control_results.items()
+        if endpoint_id in direct_failures
+    )
     previous_suspicions = int(runtime.get("consecutiveSuspicions") or 0)
+    previous_inconclusive = int(runtime.get("consecutiveInconclusive") or 0)
+    confirmation_threshold = settings["confirmationThreshold"]
+    failure_threshold = settings["controlFailureThreshold"]
+    inconclusive = 0
+    evidence_state = "none"
+    access_mode = "unknown"
+
+    def retain_previous_confirmation(fallback_message):
+        next_inconclusive = previous_inconclusive + 1
+        if runtime.get("state") == "confirmed" and next_inconclusive < confirmation_threshold:
+            return {
+                "state": "confirmed",
+                "message": (
+                    "Ранее подтверждены признаки белых списков. "
+                    "Текущая проверка неубедительна"
+                ),
+                "consecutive": max(previous_suspicions, confirmation_threshold),
+                "inconclusive": next_inconclusive,
+                "evidence": "previous",
+                "access": "unavailable",
+            }
+        return {
+            "state": "unknown",
+            "message": fallback_message,
+            "consecutive": 0,
+            "inconclusive": next_inconclusive,
+            "evidence": "none",
+            "access": "unavailable",
+        }
 
     if positive_successes < 1:
-        state = "unknown"
-        message = "Не подтверждена прямая доступность разрешённых ресурсов"
-        consecutive = 0
-    elif len(direct_failures) >= settings["controlFailureThreshold"]:
-        if proxy_recoveries >= settings["controlFailureThreshold"]:
+        retained = retain_previous_confirmation(
+            "Не подтверждена прямая доступность разрешённых ресурсов"
+        )
+        state = retained["state"]
+        message = retained["message"]
+        consecutive = retained["consecutive"]
+        inconclusive = retained["inconclusive"]
+        evidence_state = retained["evidence"]
+        access_mode = retained["access"]
+    elif len(direct_failures) >= failure_threshold:
+        if recovered_controls >= failure_threshold:
             consecutive = previous_suspicions + 1
-            if consecutive >= settings["confirmationThreshold"]:
+            evidence_state = "current"
+            if proxy_recoveries >= failure_threshold:
+                access_mode = "proxy"
+                access_message = "Контрольные ресурсы подтверждены через PROXY"
+            elif yandex_recoveries >= failure_threshold and proxy_recoveries == 0:
+                access_mode = "yandex-only"
+                access_message = "Контрольные ресурсы доступны только через Яндекс"
+            else:
+                access_mode = "mixed"
+                access_message = "Контрольные ресурсы восстановлены через PROXY и Яндекс"
+            if consecutive >= confirmation_threshold:
                 state = "confirmed"
-                message = "Вероятно, оператор включил режим белых списков"
+                message = f"Вероятно, оператор включил режим белых списков. {access_message}"
             else:
                 state = "suspected"
                 message = (
                     "Наблюдается признак белых списков "
-                    f"({consecutive}/{settings['confirmationThreshold']})"
+                    f"({consecutive}/{confirmation_threshold}). {access_message}"
                 )
         else:
-            state = "unknown"
-            message = "Сбой контрольных адресов не подтверждён через прокси"
-            consecutive = 0
+            retained = retain_previous_confirmation(
+                "Сбой контрольных адресов не подтверждён через PROXY или Яндекс"
+            )
+            state = retained["state"]
+            message = retained["message"]
+            consecutive = retained["consecutive"]
+            inconclusive = retained["inconclusive"]
+            evidence_state = retained["evidence"]
+            access_mode = retained["access"]
     else:
         state = "normal"
         message = "Признаки режима белых списков не обнаружены"
         consecutive = 0
+        access_mode = "direct"
 
     return {
         "state": state,
         "message": message,
         "consecutiveSuspicions": consecutive,
+        "consecutiveInconclusive": inconclusive,
+        "evidenceState": evidence_state,
+        "accessMode": access_mode,
         "positiveDirectSuccesses": positive_successes,
         "controlDirectFailures": len(direct_failures),
         "controlProxyRecoveries": proxy_recoveries,
+        "controlYandexRecoveries": yandex_recoveries,
     }
 
 
@@ -4599,6 +4691,29 @@ def run_whitelist_monitor_cycle(app_dir):
                 settings["timeoutMs"],
             )
 
+        yandex_controls = {}
+        proxy_recovery_count = sum(
+            proxy_controls.get(item["id"], {}).get("ok") is True
+            for item in failed_controls
+        )
+        if (
+            settings["yandexRelayEnabled"]
+            and sum(result.get("ok") is True for result in positive_results.values()) >= 1
+            and len(failed_controls) >= settings["controlFailureThreshold"]
+            and proxy_recovery_count < settings["controlFailureThreshold"]
+        ):
+            unrecovered_controls = [
+                build_whitelist_yandex_relay_endpoint(item)
+                for item in failed_controls
+                if proxy_controls.get(item["id"], {}).get("ok") is not True
+            ]
+            yandex_controls = run_whitelist_probe_batch(
+                app_dir,
+                "DIRECT",
+                unrecovered_controls,
+                settings["timeoutMs"],
+            )
+
         checked_at = int(time.time())
         endpoint_runtime = {}
         for item in positive_endpoints:
@@ -4608,12 +4723,14 @@ def run_whitelist_monitor_cycle(app_dir):
                 "checkedAt": checked_at,
                 "direct": positive_results.get(item["id"]),
                 "proxy": None,
+                "yandex": None,
             }
         control_results = {}
         for item in control_endpoints:
             result = {
                 "direct": direct_controls.get(item["id"]),
                 "proxy": proxy_controls.get(item["id"]),
+                "yandex": yandex_controls.get(item["id"]),
             }
             control_results[item["id"]] = result
             endpoint_runtime[item["id"]] = {
@@ -4624,6 +4741,8 @@ def run_whitelist_monitor_cycle(app_dir):
             }
 
         previous_state = runtime.get("state")
+        previous_access_mode = runtime.get("accessMode")
+        previous_evidence_state = runtime.get("evidenceState")
         classification = classify_whitelist_monitor_results(
             settings,
             runtime,
@@ -4635,7 +4754,11 @@ def run_whitelist_monitor_cycle(app_dir):
         runtime["endpoints"] = endpoint_runtime
         save_whitelist_monitor_runtime(app_dir, runtime)
 
-        if previous_state != runtime["state"]:
+        if (
+            previous_state != runtime["state"]
+            or previous_access_mode != runtime["accessMode"]
+            or previous_evidence_state != runtime["evidenceState"]
+        ):
             append_whitelist_monitor_event(
                 app_dir,
                 runtime["state"],
@@ -4643,7 +4766,11 @@ def run_whitelist_monitor_cycle(app_dir):
                 positiveDirectSuccesses=runtime["positiveDirectSuccesses"],
                 controlDirectFailures=runtime["controlDirectFailures"],
                 controlProxyRecoveries=runtime["controlProxyRecoveries"],
+                controlYandexRecoveries=runtime["controlYandexRecoveries"],
                 consecutiveSuspicions=runtime["consecutiveSuspicions"],
+                consecutiveInconclusive=runtime["consecutiveInconclusive"],
+                evidenceState=runtime["evidenceState"],
+                accessMode=runtime["accessMode"],
             )
         return runtime
 
