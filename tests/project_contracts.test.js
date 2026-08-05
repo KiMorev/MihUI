@@ -35,6 +35,8 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
     assert.match(html, /id="providerCreateDialog"[^>]+aria-labelledby="providerCreateTitle"[^>]+aria-describedby="providerCreateDescription"/);
     assert.match(html, /id="providerCreateUrl"[^>]+required/);
+    assert.match(html, /id="providerCreateInterval"[^>]+min="60"[^>]+step="1"[^>]+required/);
+    assert.match(html, /id="providerCreateHealthInterval"[^>]+min="30"[^>]+step="1"[^>]+required/);
     assert.match(html, /id="providerCreateCancelButton"[^>]*>Отмена<\/button>/);
     assert.match(html, /id="providerCreateSubmitButton"[^>]+disabled>Добавить подписку<\/button>/);
     assert.match(html, /id="providerCreateGroups" class="provider-create-groups"/);
