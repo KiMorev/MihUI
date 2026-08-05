@@ -1874,6 +1874,7 @@ body.component-manager-open {
 }
 
 .provider-create-field input,
+.provider-create-field select,
 .provider-create-intervals input {
   width: 100%;
   min-width: 0;
@@ -6154,6 +6155,18 @@ body.component-manager-open {
   color: var(--muted);
 }
 
+.provider-runtime-status.is-warning {
+  border-color: rgba(180, 113, 24, 0.34);
+  background: #fff8e8;
+  color: #8a570f;
+}
+
+.provider-runtime-status.is-danger {
+  border-color: rgba(180, 35, 24, 0.32);
+  background: #fff1ef;
+  color: var(--danger);
+}
+
 .provider-editor-section {
   display: grid;
   gap: 10px;
@@ -6283,6 +6296,15 @@ body.component-manager-open {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.provider-source-format-field {
+  max-width: 520px;
+}
+
+.provider-source-format-hint {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 label {
@@ -11017,6 +11039,15 @@ button.review-check-card:focus-visible {
           </label>
 
           <label class="provider-create-field">
+            <span>Формат источника</span>
+            <select id="providerCreateFormat" aria-describedby="providerCreateFormatHint">
+              <option value="direct">Обычная — напрямую в Mihomo</option>
+              <option value="xray-json">Xray JSON — преобразовать локально</option>
+            </select>
+            <small id="providerCreateFormatHint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+          </label>
+
+          <label class="provider-create-field">
             <span>Название подписки</span>
             <input id="providerCreateName" type="text" autocomplete="off" aria-describedby="providerCreateNameHint providerCreateNameError" />
             <small id="providerCreateNameHint">Название формируется из ссылки, но его можно изменить.</small>
@@ -11364,6 +11395,14 @@ button.review-check-card:focus-visible {
             </div>
           </div>
           <p class="provider-url-status" aria-live="polite" hidden></p>
+          <label class="provider-source-format-field">
+            <span>Формат источника</span>
+            <select class="provider-source-format">
+              <option value="direct">Обычная — напрямую в Mihomo</option>
+              <option value="xray-json">Xray JSON — преобразовать локально</option>
+            </select>
+            <small class="provider-source-format-hint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+          </label>
         </div>
 
         <details class="provider-editor-section provider-editor-collapsible">
@@ -11901,6 +11940,7 @@ const state = {
   routerApiAvailable: false,
   routerConfigPath: '',
   routerConfigRevision: '',
+  xrayProviderAdapterUrl: '',
   routerSavedText: '',
   routerBusy: false,
   xkeenFiles: {
@@ -12000,6 +12040,8 @@ const els = {
   providerCreateSubmitButton: document.querySelector('#providerCreateSubmitButton'),
   providerCreateUrl: document.querySelector('#providerCreateUrl'),
   providerCreateUrlError: document.querySelector('#providerCreateUrlError'),
+  providerCreateFormat: document.querySelector('#providerCreateFormat'),
+  providerCreateFormatHint: document.querySelector('#providerCreateFormatHint'),
   providerCreateName: document.querySelector('#providerCreateName'),
   providerCreateNameError: document.querySelector('#providerCreateNameError'),
   providerCreateGroups: document.querySelector('#providerCreateGroups'),
@@ -12267,6 +12309,7 @@ els.providerCreateCancelButton.addEventListener('click', closeProviderCreateDial
 els.providerCreateDialog.addEventListener('close', resetProviderCreateDialog);
 els.providerCreateUrl.addEventListener('input', handleProviderCreateUrlInput);
 els.providerCreateUrl.addEventListener('blur', () => syncProviderCreateValidation({ showErrors: true }));
+els.providerCreateFormat.addEventListener('change', handleProviderCreateFormatChange);
 els.providerCreateName.addEventListener('input', handleProviderCreateNameInput);
 els.providerCreateName.addEventListener('blur', () => syncProviderCreateValidation({ showErrors: true }));
 els.providerCreateGroups.addEventListener('change', handleProviderCreateGroupsChange);
@@ -12609,6 +12652,7 @@ function handleFileSelect(event) {
   reader.onload = () => {
     state.routerMode = false;
     state.routerConfigPath = '';
+    state.xrayProviderAdapterUrl = '';
     state.routerSavedText = '';
     state.providerStatuses = {};
     state.mihomoNodes = [];
@@ -12660,6 +12704,7 @@ async function loadRouterConfig(options = {}) {
     state.routerMode = true;
     state.routerConfigPath = data.path || '';
     state.routerConfigRevision = String(data.revision || '');
+    state.xrayProviderAdapterUrl = String(data.xrayProviderAdapterUrl || '');
     state.fileName = state.routerConfigPath || 'router config';
     state.configLoadedAt = Date.now();
     state.originalText = String(data.text || '');
@@ -16957,17 +17002,26 @@ async function updateProviderNow(provider) {
   render();
 
   try {
-    await apiJson('/api/providers/update', {
+    const result = await apiJson('/api/providers/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: provider.name }),
     });
-    showMessage(`Подписка ${provider.name} отправлена на обновление.`);
+    if (provider.sourceFormat === 'xray-json' && result.adapter?.state === 'partial') {
+      showMessage(`Подписка ${provider.name} обновлена частично: ${formatProviderAdapterStatus(result.adapter)}.`, { severity: 'warning' });
+    } else {
+      showMessage(`Подписка ${provider.name} отправлена на обновление.`);
+    }
+  } catch (error) {
+    const cached = Number(getProviderStatus(provider.name)?.proxyCount) > 0;
+    if (provider.sourceFormat === 'xray-json' && error?.data?.adapter?.state === 'error' && cached) {
+      showMessage(`Не удалось обновить подписку ${provider.name}. Используется предыдущая версия.`, { severity: 'warning' });
+    } else {
+      showMessage(`Не удалось обновить подписку ${provider.name}: ${error?.message || error}`, { severity: 'error' });
+    }
+  } finally {
     await loadProviderStatuses({ silent: true });
     await loadNodeInventory({ silent: true });
-  } catch (error) {
-    showMessage(`Не удалось обновить подписку ${provider.name}: ${error?.message || error}`);
-  } finally {
     state.providerUpdatingName = '';
     render();
   }
@@ -18760,12 +18814,80 @@ function getProviderUseGroupNames(providerName) {
     .map((group) => group.name);
 }
 
+function parseXrayProviderAdapterUrl(value) {
+  const rawUrl = String(value || '').trim();
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback = host === 'localhost' || host === '::1' || host === '[::1]' || host === '127.0.0.1' || host.startsWith('127.');
+    const sourceUrl = parsed.searchParams.get('url') || '';
+    const providerName = parsed.searchParams.get('provider') || '';
+    if (parsed.protocol !== 'http:' || !isLoopback || parsed.pathname !== '/mihomo/xray/provider.yaml') return null;
+    if (!providerName || !/^https?:\/\/\S+$/i.test(sourceUrl)) return null;
+    return {
+      rawUrl,
+      sourceUrl,
+      providerName,
+      adapterUrl: `${parsed.origin}${parsed.pathname}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeXrayProviderAdapterEndpoint(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  try {
+    const parsed = new URL(source);
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback = host === 'localhost' || host === '::1' || host === '[::1]' || host === '127.0.0.1' || host.startsWith('127.');
+    if (parsed.protocol !== 'http:' || !isLoopback || parsed.pathname !== '/mihomo/xray/provider.yaml') return '';
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return '';
+  }
+}
+
+function canUseXrayProviderAdapter(provider = null) {
+  return Boolean(
+    normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl)
+    || normalizeXrayProviderAdapterEndpoint(provider?.xrayAdapterUrl),
+  );
+}
+
+function buildXrayProviderAdapterUrl(provider) {
+  const endpoint = normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl)
+    || normalizeXrayProviderAdapterEndpoint(provider?.xrayAdapterUrl);
+  if (!endpoint) return '';
+  const output = new URL(endpoint);
+  output.searchParams.set('provider', String(provider?.name || '').trim());
+  output.searchParams.set('url', String(provider?.url || '').trim());
+  return output.toString();
+}
+
+function getProviderOutputUrl(provider) {
+  if (provider?.sourceFormat !== 'xray-json') return String(provider?.url || '');
+  const currentEndpoint = normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl);
+  const originalEndpoint = normalizeXrayProviderAdapterEndpoint(provider.xrayAdapterUrl);
+  const unchanged = !provider.isNew
+    && provider.rawUrl
+    && provider.originalSourceFormat === 'xray-json'
+    && provider.url === provider.originalSourceUrl
+    && provider.name === provider.originalName
+    && (!currentEndpoint || currentEndpoint === originalEndpoint);
+  if (unchanged) return provider.rawUrl;
+  return buildXrayProviderAdapterUrl(provider) || provider.rawUrl || String(provider.url || '');
+}
+
 function snapshotProvider(provider, options = {}) {
   const output = Boolean(options.output);
   const type = String(provider.type || 'http').toLowerCase();
+  const outputUrl = getProviderOutputUrl(provider);
   const writesUrl = output
     ? provider.isNew
-      ? (type === 'http' || provider.hasUrl) && hasOutputValue(provider.url)
+      ? (type === 'http' || provider.hasUrl) && hasOutputValue(outputUrl)
       : provider.hasUrl
     : provider.hasUrl;
   const writesFilter = output && provider.isNew ? hasOutputValue(provider.filter) : provider.hasFilter;
@@ -18787,7 +18909,7 @@ function snapshotProvider(provider, options = {}) {
     hasType: Boolean(provider.isNew || provider.hasType),
     type: provider.type || '',
     hasUrl: Boolean(writesUrl),
-    url: provider.url || '',
+    url: output ? outputUrl : provider.rawUrl ?? provider.url ?? '',
     hasFilter: Boolean(writesFilter),
     filter: provider.filter || '',
     hasExcludeFilter: Boolean(writesExcludeFilter),
@@ -19025,6 +19147,16 @@ function createProviderInspector(provider) {
   const editButton = document.createElement('button');
   const updateButton = document.createElement('button');
   const removeButton = document.createElement('button');
+  const sourceValues = [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'];
+  if (provider.sourceFormat === 'xray-json') sourceValues.push('Формат: Xray JSON · локальная обработка');
+  const updateValues = [
+    provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
+    status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
+  ];
+  const adapterSummary = provider.sourceFormat === 'xray-json'
+    ? formatProviderAdapterStatus(status?.adapter, status?.proxyCount)
+    : '';
+  if (adapterSummary) updateValues.push(adapterSummary);
 
   inspector.className = 'provider-inspector';
   head.className = 'provider-inspector-head';
@@ -19038,12 +19170,9 @@ function createProviderInspector(provider) {
   if (displayState.attention) content.append(createProviderAttentionSection(displayState.attention));
   content.append(
     createProviderInspectorSection('Используется в группах', groups.length ? groups : ['Не используется'], 'chips'),
-    createProviderInspectorSection('Источник подписки', [state.hideProviderUrls ? maskSensitiveUrl(provider.url) || 'Не указан' : provider.url || 'Не указан'], 'value'),
+    createProviderInspectorSection('Источник подписки', sourceValues, 'value'),
     createProviderFilterInspectorSection(provider),
-    createProviderInspectorSection('Обновление', [
-      provider.interval ? `Каждые ${formatDuration(provider.interval)}` : 'Интервал не задан',
-      status?.updatedAt ? `Последнее: ${formatProviderUpdatedAt(status.updatedAt)}` : 'Время обновления неизвестно',
-    ], 'list'),
+    createProviderInspectorSection('Обновление', updateValues, 'list'),
   );
 
   actions.className = 'provider-inspector-actions';
@@ -19181,6 +19310,7 @@ function createProviderEditor(provider, index, options = {}) {
   row.querySelector('.provider-card-new').hidden = !provider.isNew;
   renderProviderRuntimeStatus(row, provider);
   bindProviderUrl(row, provider);
+  bindProviderSourceFormat(row, provider);
   bindHappDecodeButton(row, provider, options);
   bindProviderName(row, provider, options);
   bindInput(row, '.provider-filter', provider.filter, (value) => updateProvider(provider, 'filter', value));
@@ -19211,7 +19341,10 @@ function getProviderStatus(providerName) {
 function formatProviderListMeta(provider) {
   const status = getProviderStatus(provider.name);
   if (state.providerStatusLoading) return 'Статусы загружаются';
-  if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${formatProxyCount(status.proxyCount)} · ${formatProviderUpdatedAt(status.updatedAt) || 'время неизвестно'}`;
+  if (status?.proxyCount !== null && status?.proxyCount !== undefined) {
+    const format = provider.sourceFormat === 'xray-json' ? ' · Xray JSON' : '';
+    return `${formatProxyCount(status.proxyCount)}${format} · ${formatProviderUpdatedAt(status.updatedAt) || 'время неизвестно'}`;
+  }
   if (state.routerApiAvailable) return 'Статус не получен';
   return provider.url ? 'URL' : 'Нет ссылки';
 }
@@ -19264,7 +19397,20 @@ function formatProviderListBadge(provider) {
   const status = getProviderStatus(provider.name);
   if (state.providerUpdatingName === provider.name) return 'Обновление';
   if (status?.proxyCount !== null && status?.proxyCount !== undefined) return `${status.proxyCount} нод`;
+  if (provider.sourceFormat === 'xray-json') return 'Xray JSON';
   return provider.isNew ? 'Новая' : provider.type || 'http';
+}
+
+function formatProviderAdapterStatus(adapter, proxyCount = null) {
+  if (!adapter || adapter.mode !== 'xray-json') return '';
+  if (adapter.state === 'partial') {
+    return `${adapter.convertedCount || 0} из ${adapter.sourceCount || 0} · пропущено ${adapter.skippedCount || 0}`;
+  }
+  if (adapter.state === 'error') {
+    return Number(proxyCount) > 0 ? 'Используется предыдущая версия' : 'Преобразование не выполнено';
+  }
+  if (adapter.state === 'ok') return 'Xray JSON преобразован локально';
+  return '';
 }
 
 function renderProviderRuntimeStatus(root, provider) {
@@ -19290,9 +19436,17 @@ function renderProviderRuntimeStatus(root, provider) {
   }
 
   if (status.proxyCount !== null && status.proxyCount !== undefined) parts.push(formatProxyCount(status.proxyCount));
+  if (provider.sourceFormat === 'xray-json') parts.push('Xray JSON');
   if (status.vehicleType || status.type) parts.push(status.vehicleType || status.type);
   const updatedAt = formatProviderUpdatedAt(status.updatedAt);
   if (updatedAt) parts.push(`обновлено ${updatedAt}`);
+  const adapter = provider.sourceFormat === 'xray-json' ? status.adapter : null;
+  const adapterSummary = formatProviderAdapterStatus(adapter, status.proxyCount);
+  if (adapter?.state === 'partial') box.classList.add('is-warning');
+  if (adapter?.state === 'error') {
+    box.classList.add(Number(status.proxyCount) > 0 ? 'is-warning' : 'is-danger');
+  }
+  if (adapterSummary) parts.push(adapterSummary);
   box.textContent = parts.join(' · ') || 'Статус получен.';
 }
 
@@ -19459,6 +19613,15 @@ function getProviderAttentionItem(provider, now = Date.now()) {
 
 function getProviderDisplayState(provider, now = Date.now()) {
   const status = getProviderStatus(provider?.name);
+  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
+  if (provider?.sourceFormat === 'xray-json' && status?.adapter?.state === 'error' && (!hasNodeCount || Number(status.proxyCount) <= 0)) {
+    return {
+      attention: null,
+      className: 'is-danger',
+      detail: status.adapter.message || 'Преобразование Xray JSON не выполнено',
+      label: 'Не работает',
+    };
+  }
   const attention = getProviderAttentionItem(provider, now);
   if (attention) {
     return {
@@ -19469,7 +19632,6 @@ function getProviderDisplayState(provider, now = Date.now()) {
     };
   }
 
-  const hasNodeCount = status?.proxyCount !== null && status?.proxyCount !== undefined;
   if (hasNodeCount && Number(status.proxyCount) > 0) {
     return { attention: null, className: 'is-live', detail: '', label: 'Работает' };
   }
@@ -23125,6 +23287,7 @@ function createProviderCreateDraft() {
   return {
     name: getNextProviderName(),
     url: '',
+    sourceFormat: 'direct',
     autoName: true,
     groupNames: getProviderCreateGroupCandidates().map((group) => group.name),
     interval: intervalDefaults.interval,
@@ -23177,6 +23340,10 @@ function renderProviderCreateDialog() {
   if (!draft) return;
 
   els.providerCreateUrl.value = draft.url;
+  els.providerCreateFormat.value = draft.sourceFormat;
+  const xrayOption = els.providerCreateFormat.querySelector('option[value="xray-json"]');
+  if (xrayOption) xrayOption.disabled = !canUseXrayProviderAdapter();
+  renderProviderCreateFormatHint();
   els.providerCreateName.value = draft.name;
   els.providerCreateInterval.value = draft.interval;
   els.providerCreateHealthInterval.value = draft.healthInterval;
@@ -23231,6 +23398,23 @@ function handleProviderCreateUrlInput() {
   syncProviderCreateValidation();
 }
 
+function handleProviderCreateFormatChange() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+  draft.sourceFormat = els.providerCreateFormat.value === 'xray-json' ? 'xray-json' : 'direct';
+  renderProviderCreateFormatHint();
+  syncProviderCreateValidation();
+}
+
+function renderProviderCreateFormatHint() {
+  const isXray = state.providerCreateDraft?.sourceFormat === 'xray-json';
+  els.providerCreateFormatHint.textContent = isXray
+    ? 'Поддерживаются Xray JSON с VLESS / TCP / Reality.'
+    : canUseXrayProviderAdapter()
+      ? 'Обычные подписки Mihomo, Happ и INCY передаются без локального преобразования.'
+      : 'Локальное преобразование Xray JSON доступно в MihUI на роутере.';
+}
+
 function handleProviderCreateNameInput() {
   const draft = state.providerCreateDraft;
   if (!draft) return;
@@ -23256,9 +23440,12 @@ function handleProviderCreateIntervalInput() {
   syncProviderCreateValidation();
 }
 
-function getProviderCreateUrlError(value) {
+function getProviderCreateUrlError(value, sourceFormat = 'direct') {
   const url = String(value || '').trim();
   if (!url) return 'Введите ссылку подписки.';
+  if (sourceFormat === 'xray-json' && !/^https?:\/\/\S+$/i.test(url)) {
+    return 'Для Xray JSON используйте http:// или https://.';
+  }
   if (!/^(https?|happ|incy):\/\/\S+$/i.test(url)) {
     return 'Используйте http://, https://, happ:// или incy://.';
   }
@@ -23293,22 +23480,24 @@ function setProviderCreateFieldError(input, errorElement, error, showError) {
 function syncProviderCreateValidation({ showErrors = false } = {}) {
   const draft = state.providerCreateDraft;
   if (!draft) return false;
-  const urlError = getProviderCreateUrlError(draft.url);
+  const urlError = getProviderCreateUrlError(draft.url, draft.sourceFormat);
   const nameError = getProviderCreateNameError(draft.name);
+  const formatUnavailable = draft.sourceFormat === 'xray-json' && !canUseXrayProviderAdapter();
   const intervalValid = typeof els.providerCreateInterval.checkValidity !== 'function' || els.providerCreateInterval.checkValidity();
   const healthIntervalValid = typeof els.providerCreateHealthInterval.checkValidity !== 'function' || els.providerCreateHealthInterval.checkValidity();
   setProviderCreateFieldError(els.providerCreateUrl, els.providerCreateUrlError, urlError, showErrors);
   setProviderCreateFieldError(els.providerCreateName, els.providerCreateNameError, nameError, showErrors);
-  els.providerCreateSubmitButton.disabled = Boolean(urlError || nameError || !intervalValid || !healthIntervalValid);
+  els.providerCreateSubmitButton.disabled = Boolean(urlError || nameError || formatUnavailable || !intervalValid || !healthIntervalValid);
   return !els.providerCreateSubmitButton.disabled;
 }
 
 function commitProviderCreateDraft(draft) {
-  if (!draft || getProviderCreateUrlError(draft.url) || getProviderCreateNameError(draft.name)) return null;
+  if (!draft || getProviderCreateUrlError(draft.url, draft.sourceFormat) || getProviderCreateNameError(draft.name)) return null;
   const intervalDefaults = getProviderIntervalDefaults();
   return addProvider({
     name: String(draft.name).trim(),
     url: String(draft.url).trim(),
+    sourceFormat: draft.sourceFormat,
     groupNames: draft.groupNames,
     interval: normalizeIntervalInput(draft.interval, 60) || intervalDefaults.interval,
     healthUrl: draft.healthUrl || intervalDefaults.healthUrl,
@@ -23316,6 +23505,29 @@ function commitProviderCreateDraft(draft) {
     userAgent: draft.userAgent,
     xHwid: draft.xHwid,
     fromCreateDialog: true,
+  });
+}
+
+function bindProviderSourceFormat(root, provider) {
+  const select = root.querySelector('.provider-source-format');
+  const hint = root.querySelector('.provider-source-format-hint');
+  const xrayOption = select.querySelector('option[value="xray-json"]');
+  const available = canUseXrayProviderAdapter(provider);
+  select.value = provider.sourceFormat === 'xray-json' ? 'xray-json' : 'direct';
+  if (xrayOption) xrayOption.disabled = !available;
+  const renderHint = () => {
+    if (select.value === 'xray-json') {
+      hint.textContent = 'Поддерживаются Xray JSON с VLESS / TCP / Reality.';
+    } else if (available) {
+      hint.textContent = 'Обычная подписка передаётся в Mihomo без локального преобразования.';
+    } else {
+      hint.textContent = 'Локальное преобразование Xray JSON доступно в MihUI на роутере.';
+    }
+  };
+  renderHint();
+  select.addEventListener('change', () => {
+    updateProvider(provider, 'sourceFormat', select.value === 'xray-json' ? 'xray-json' : 'direct');
+    renderHint();
   });
 }
 
@@ -23464,6 +23676,11 @@ function addProvider(options = {}) {
     originalName: name,
     type: 'http',
     url: String(options.url || '').trim(),
+    rawUrl: '',
+    sourceFormat: options.sourceFormat === 'xray-json' ? 'xray-json' : 'direct',
+    originalSourceFormat: 'direct',
+    originalSourceUrl: '',
+    xrayAdapterUrl: normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl),
     filter: '',
     excludeFilter: '',
     excludeType: '',
@@ -24394,7 +24611,7 @@ function serializeProvider(provider) {
     setOptionalNestedScalar(lines, 1, 'type', current.hasType ? provider.type || 'http' : '');
   }
   if (changed('hasUrl', 'url')) {
-    setOptionalNestedScalar(lines, 1, 'url', current.hasUrl ? provider.url : '');
+    setOptionalNestedScalar(lines, 1, 'url', current.hasUrl ? current.url : '');
   }
   if (changed('hasFilter', 'filter')) {
     setOptionalNestedScalar(lines, 1, 'filter', current.hasFilter ? provider.filter : '');
@@ -24449,13 +24666,14 @@ function createProviderBlock(provider) {
   const healthUrl = provider.healthUrl || DEFAULT_HEALTH_URL;
   const healthInterval = provider.healthInterval || '300';
   const type = String(provider.type || 'http').toLowerCase();
+  const outputUrl = getProviderOutputUrl(provider);
   const lines = [
     `  ${formatKey(provider.name)}:`,
     `    type: ${formatScalar(provider.type || 'http')}`,
   ];
 
   if (type === 'http' || provider.hasUrl || provider.url) {
-    lines.push(`    url: ${formatScalar(provider.url)}`);
+    lines.push(`    url: ${formatScalar(outputUrl)}`);
   }
   if (provider.filter) lines.push(`    filter: ${formatScalar(provider.filter)}`);
   if (provider.excludeFilter) lines.push(`    exclude-filter: ${formatScalar(provider.excludeFilter)}`);
@@ -24963,11 +25181,20 @@ function parseProviders(lines, section) {
     const rawLines = lines.slice(start, index);
     const customHeaderEntries = readCustomHeaderEntries(rawLines);
     const type = readScalar(rawLines, 4, 'type') || 'http';
+    const rawUrl = readScalar(rawLines, 4, 'url') || '';
+    const xraySource = parseXrayProviderAdapterUrl(rawUrl);
+    const sourceFormat = xraySource ? 'xray-json' : 'direct';
+    const sourceUrl = xraySource?.sourceUrl || rawUrl;
     providers.push({
       name: entry.key,
       originalName: entry.key,
       type,
-      url: readScalar(rawLines, 4, 'url') || '',
+      url: sourceUrl,
+      rawUrl,
+      sourceFormat,
+      originalSourceFormat: sourceFormat,
+      originalSourceUrl: sourceUrl,
+      xrayAdapterUrl: xraySource?.adapterUrl || '',
       filter: readScalar(rawLines, 4, 'filter') || '',
       excludeFilter: readScalar(rawLines, 4, 'exclude-filter') || '',
       excludeType: readScalar(rawLines, 4, 'exclude-type') || '',

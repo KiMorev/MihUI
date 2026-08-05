@@ -159,6 +159,9 @@ globalThis.__app = {
   describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
+  getProviderOutputUrl,
+  parseXrayProviderAdapterUrl,
+  formatProviderAdapterStatus,
   getProviderCreateNameError,
   getProviderCreateUrlError,
   getProviderEditNameError,
@@ -1431,6 +1434,74 @@ rules:
     assert.doesNotMatch(app.state.outputText, /\n    interval:/);
     assert.doesNotMatch(app.state.outputText, /\n    health-check:/);
     assert.equal(app.countChanges(app.collectChanges(activeProviders)), 0);
+  });
+
+  test(`${source.name}: recognizes and preserves an unchanged selective Xray provider wrapper`, () => {
+    const app = loadApp(source);
+    const wrapper = 'http://127.0.0.1:9879/mihomo/xray/provider.yaml?provider=wrapped&url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc';
+    const providers = hydrate(app, `
+proxy-providers:
+  wrapped:
+    type: http
+    url: ${wrapper}
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - wrapped
+rules:
+  - MATCH,Proxy
+`);
+
+    assert.equal(providers[0].sourceFormat, 'xray-json');
+    assert.equal(providers[0].url, 'https://example.com/sub?token=abc');
+    assert.equal(app.getProviderOutputUrl(providers[0]), wrapper);
+    app.generateOutput();
+    assert.match(app.state.outputText, new RegExp(wrapper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  });
+
+  test(`${source.name}: wraps only providers explicitly switched to Xray JSON`, () => {
+    const app = loadApp(source);
+    const providers = hydrate(app, `
+proxy-providers:
+  direct:
+    type: http
+    url: https://direct.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - direct
+rules:
+  - MATCH,Proxy
+`);
+    app.state.xrayProviderAdapterUrl = 'http://127.0.0.1:9888/mihomo/xray/provider.yaml';
+    const converted = app.addProvider({
+      name: 'converted',
+      url: 'https://xray.example/config?token=secret',
+      sourceFormat: 'xray-json',
+      groupNames: ['Proxy'],
+    });
+
+    app.generateOutput();
+    assert.match(app.state.outputText, /direct:\s*[\s\S]*?url: https:\/\/direct\.example\/sub/);
+    assert.match(app.getProviderOutputUrl(converted), /^http:\/\/127\.0\.0\.1:9888\/mihomo\/xray\/provider\.yaml\?/);
+    assert.match(app.getProviderOutputUrl(converted), /provider=converted/);
+    assert.match(app.getProviderOutputUrl(converted), /url=https%3A%2F%2Fxray\.example%2Fconfig%3Ftoken%3Dsecret/);
+    assert.equal(providers[0].sourceFormat, 'direct');
+  });
+
+  test(`${source.name}: reports Xray adapter outcomes without exposing technical URLs`, () => {
+    const app = loadApp(source);
+
+    assert.equal(
+      app.formatProviderAdapterStatus({ mode: 'xray-json', state: 'partial', convertedCount: 2, sourceCount: 3, skippedCount: 1 }),
+      '2 из 3 · пропущено 1',
+    );
+    assert.equal(
+      app.formatProviderAdapterStatus({ mode: 'xray-json', state: 'error' }, 4),
+      'Используется предыдущая версия',
+    );
   });
 
   test(`${source.name}: preserves explicit empty and false provider fields during other edits`, () => {

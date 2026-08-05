@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import io
 import json
 import os
@@ -29,6 +30,63 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
         self.server.received_user_agent = self.headers.get("User-Agent")
         self.server.received_hwid = self.headers.get("x-hwid")
         self.server.received_hwid_query = urllib.parse.parse_qs(parsed.query).get("hwid", [""])[0]
+        if parsed.path == "/xray.json":
+            body = json.dumps(
+                {
+                    "remarks": "Тест 🚀",
+                    "outbounds": [
+                        {
+                            "protocol": "vless",
+                            "settings": {
+                                "vnext": [
+                                    {
+                                        "address": "example.com",
+                                        "port": 443,
+                                        "users": [
+                                            {
+                                                "id": "550e8400-e29b-41d4-a716-446655440000",
+                                                "encryption": "none",
+                                                "flow": "xtls-rprx-vision",
+                                                "security": "auto",
+                                            }
+                                        ],
+                                    }
+                                ]
+                            },
+                            "streamSettings": {
+                                "network": "tcp",
+                                "security": "reality",
+                                "tcpSettings": {"header": {"type": "none"}},
+                                "realitySettings": {
+                                    "serverName": "example.com",
+                                    "fingerprint": "chrome",
+                                    "publicKey": "public-key",
+                                    "shortId": "0123456789abcdef",
+                                    "spiderX": "/",
+                                },
+                            },
+                            "mux": {"enabled": False},
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if parsed.path == "/large-xray.json":
+            body = b"x" * (mihui_server.XRAY_PROVIDER_ADAPTER_MAX_BYTES + 1)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if parsed.path == "/landing.html":
             target_url = f"http://127.0.0.1:{self.server.server_address[1]}/target.yaml"
             body = f'<html><body><a href="{target_url}">import</a></body></html>'.encode("utf-8")
@@ -101,6 +159,10 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
 
 
 class ProviderAdapterTests(unittest.TestCase):
+    def setUp(self):
+        with mihui_server.xray_provider_adapter_status_lock:
+            mihui_server.xray_provider_adapter_statuses.clear()
+
     def test_update_progress_file_reports_phase_and_percentage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "progress"
@@ -295,6 +357,206 @@ class ProviderAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(headers, {"User-Agent": "MihomoTest/1.0", "x-hwid": "ABC123"})
+
+    def test_convert_xray_json_provider_supports_vless_tcp_reality_and_partial_result(self):
+        document = {
+            "remarks": "Подписка 🚀",
+            "outbounds": [
+                {
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [
+                            {
+                                "address": "example.com",
+                                "port": 443,
+                                "users": [
+                                    {
+                                        "id": "550e8400-e29b-41d4-a716-446655440000",
+                                        "encryption": "none",
+                                        "flow": "xtls-rprx-vision",
+                                        "security": "auto",
+                                    },
+                                    {"id": "not-a-uuid"},
+                                ],
+                            }
+                        ]
+                    },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "tcpSettings": {"header": {"type": "none"}},
+                        "realitySettings": {
+                            "serverName": "example.com",
+                            "fingerprint": "chrome",
+                            "password": "public-key-alias",
+                            "shortId": "0123456789abcdef",
+                            "allowInsecure": False,
+                        },
+                    },
+                    "mux": {"enabled": False, "concurrency": 8},
+                },
+                {"protocol": "freedom"},
+            ],
+        }
+
+        body, status = mihui_server.convert_xray_json_provider(
+            json.dumps(document, ensure_ascii=False).encode("utf-8"),
+            "Provider",
+        )
+        text = body.decode("utf-8")
+
+        self.assertIn('name: "Подписка 🚀 · 1"', text)
+        self.assertIn('uuid: "550e8400-e29b-41d4-a716-446655440000"', text)
+        self.assertIn('public-key: "public-key-alias"', text)
+        self.assertEqual(status["state"], "partial")
+        self.assertEqual(status["sourceCount"], 2)
+        self.assertEqual(status["convertedCount"], 1)
+        self.assertEqual(status["skippedCount"], 1)
+        self.assertEqual(status["skipped"][0]["code"], "invalid_uuid")
+
+    def test_convert_xray_json_provider_rejects_unsupported_transport_without_empty_yaml(self):
+        document = {
+            "outbounds": [
+                {
+                    "protocol": "vless",
+                    "settings": {
+                        "vnext": [
+                            {
+                                "address": "example.com",
+                                "port": 443,
+                                "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                            }
+                        ]
+                    },
+                    "streamSettings": {"network": "ws", "security": "reality"},
+                }
+            ]
+        }
+
+        with self.assertRaisesRegex(mihui_server.XrayProviderError, "поддерживаемых") as raised:
+            mihui_server.convert_xray_json_provider(json.dumps(document).encode(), "Provider")
+
+        self.assertEqual(raised.exception.source_count, 1)
+        self.assertEqual(raised.exception.skipped[0]["code"], "unsupported_network")
+
+    def test_xray_provider_endpoint_converts_payload_and_records_safe_status(self):
+        provider_server, provider_thread = self.start_provider_server()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mihui, mihui_thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                source_url = f"http://127.0.0.1:{provider_server.server_address[1]}/xray.json?token=secret"
+                path = (
+                    f"{mihui_server.XRAY_PROVIDER_ADAPTER_PATH}?provider=Selective"
+                    f"&url={urllib.parse.quote(source_url, safe='')}"
+                )
+                access_log = io.StringIO()
+                with contextlib.redirect_stderr(access_log):
+                    with urllib.request.urlopen(
+                        f"http://127.0.0.1:{mihui.server_address[1]}{path}", timeout=3
+                    ) as response:
+                        status_code = response.status
+                        content_type = response.headers.get("Content-Type")
+                        body = response.read().decode("utf-8")
+            finally:
+                self.stop_provider_server(mihui, mihui_thread)
+                self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(content_type, "text/yaml; charset=utf-8")
+        self.assertIn('name: "Тест 🚀"', body)
+        adapter = mihui_server.get_xray_provider_adapter_status("Selective")
+        self.assertEqual(adapter["state"], "ok")
+        self.assertNotIn("secret", json.dumps(adapter, ensure_ascii=False))
+        self.assertNotIn("secret", access_log.getvalue())
+
+    def test_xray_provider_endpoint_enforces_dedicated_payload_limit(self):
+        provider_server, provider_thread = self.start_provider_server()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mihui, mihui_thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                source_url = f"http://127.0.0.1:{provider_server.server_address[1]}/large-xray.json"
+                path = (
+                    f"{mihui_server.XRAY_PROVIDER_ADAPTER_PATH}?provider=Large"
+                    f"&url={urllib.parse.quote(source_url, safe='')}"
+                )
+                with self.assertRaises(urllib.error.HTTPError) as raised:
+                    urllib.request.urlopen(
+                        f"http://127.0.0.1:{mihui.server_address[1]}{path}", timeout=3
+                    )
+                error_code = raised.exception.code
+                raised.exception.close()
+            finally:
+                self.stop_provider_server(mihui, mihui_thread)
+                self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertEqual(error_code, 413)
+        self.assertEqual(mihui_server.get_xray_provider_adapter_status("Large")["code"], "payload_too_large")
+
+    def test_config_endpoint_returns_actual_xray_adapter_port(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text("proxy-providers: {}\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                status, result = self.get_json(server, "/api/config")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            result["xrayProviderAdapterUrl"],
+            f"http://127.0.0.1:{server.server_address[1]}{mihui_server.XRAY_PROVIDER_ADAPTER_PATH}",
+        )
+
+    def test_provider_statuses_include_configured_xray_adapter_without_mihomo_cache(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text(
+                "proxy-providers:\n  Selective:\n    type: http\n    url: http://127.0.0.1/x\n",
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            mihui_server.record_xray_provider_adapter_error(
+                "Selective", "invalid_json", "Источник не содержит корректный Xray JSON"
+            )
+            with mock.patch.object(
+                mihui_server,
+                "mihomo_api_request",
+                return_value={"providers": {}},
+            ):
+                result = mihui_server.get_proxy_provider_statuses(app_dir)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["providers"][0]["name"], "Selective")
+        self.assertEqual(result["providers"][0]["adapter"]["state"], "error")
+        self.assertNotIn("providerName", result["providers"][0]["adapter"])
+
+    def test_provider_update_result_carries_current_adapter_state(self):
+        mihui_server.record_xray_provider_adapter_status(
+            "Selective",
+            {
+                "mode": "xray-json",
+                "state": "partial",
+                "sourceCount": 3,
+                "convertedCount": 2,
+                "skippedCount": 1,
+                "updatedAt": "2026-08-05T12:00:00+03:00",
+                "message": "Преобразовано 2 из 3; пропущено 1",
+                "skipped": [],
+            },
+        )
+        with mock.patch.object(mihui_server, "mihomo_api_request", return_value={}):
+            result = mihui_server.update_proxy_provider(Path("."), "Selective")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["adapter"]["state"], "partial")
 
     def test_mihomo_service_status_reports_version(self):
         with mock.patch.object(

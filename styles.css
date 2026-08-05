@@ -1866,6 +1866,7 @@ body.component-manager-open {
 }
 
 .provider-create-field input,
+.provider-create-field select,
 .provider-create-intervals input {
   width: 100%;
   min-width: 0;
@@ -6146,6 +6147,18 @@ body.component-manager-open {
   color: var(--muted);
 }
 
+.provider-runtime-status.is-warning {
+  border-color: rgba(180, 113, 24, 0.34);
+  background: #fff8e8;
+  color: #8a570f;
+}
+
+.provider-runtime-status.is-danger {
+  border-color: rgba(180, 35, 24, 0.32);
+  background: #fff1ef;
+  color: var(--danger);
+}
+
 .provider-editor-section {
   display: grid;
   gap: 10px;
@@ -6275,6 +6288,15 @@ body.component-manager-open {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.provider-source-format-field {
+  max-width: 520px;
+}
+
+.provider-source-format-hint {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 label {

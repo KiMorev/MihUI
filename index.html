@@ -923,6 +923,15 @@
           </label>
 
           <label class="provider-create-field">
+            <span>Формат источника</span>
+            <select id="providerCreateFormat" aria-describedby="providerCreateFormatHint">
+              <option value="direct">Обычная — напрямую в Mihomo</option>
+              <option value="xray-json">Xray JSON — преобразовать локально</option>
+            </select>
+            <small id="providerCreateFormatHint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+          </label>
+
+          <label class="provider-create-field">
             <span>Название подписки</span>
             <input id="providerCreateName" type="text" autocomplete="off" aria-describedby="providerCreateNameHint providerCreateNameError" />
             <small id="providerCreateNameHint">Название формируется из ссылки, но его можно изменить.</small>
@@ -1270,6 +1279,14 @@
             </div>
           </div>
           <p class="provider-url-status" aria-live="polite" hidden></p>
+          <label class="provider-source-format-field">
+            <span>Формат источника</span>
+            <select class="provider-source-format">
+              <option value="direct">Обычная — напрямую в Mihomo</option>
+              <option value="xray-json">Xray JSON — преобразовать локально</option>
+            </select>
+            <small class="provider-source-format-hint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+          </label>
         </div>
 
         <details class="provider-editor-section provider-editor-collapsible">

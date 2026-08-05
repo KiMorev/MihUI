@@ -48,6 +48,9 @@ COMPONENT_ACTION_TIMEOUT = 10 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
 PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
+XRAY_PROVIDER_ADAPTER_PATH = "/mihomo/xray/provider.yaml"
+XRAY_PROVIDER_ADAPTER_MAX_BYTES = 512 * 1024
+XRAY_PROVIDER_ADAPTER_STATUS_LIMIT = 64
 PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "host",
     "connection",
@@ -310,7 +313,19 @@ whitelist_monitor_job_state = {
     "startedAt": None,
     "finishedAt": None,
 }
+xray_provider_adapter_slots = threading.BoundedSemaphore(2)
+xray_provider_adapter_status_lock = threading.Lock()
+xray_provider_adapter_statuses = {}
 UI_ASSET_NO_CACHE_PATHS = {"/", "/index.html", "/app.js", "/styles.css", "/mihomo-editor.html"}
+
+
+class XrayProviderError(ValueError):
+    def __init__(self, code, message, status=HTTPStatus.UNPROCESSABLE_ENTITY, source_count=0, skipped=None):
+        super().__init__(message)
+        self.code = code
+        self.status = status
+        self.source_count = source_count
+        self.skipped = list(skipped or [])
 
 
 class MihuiHandler(SimpleHTTPRequestHandler):
@@ -321,6 +336,18 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route in UI_ASSET_NO_CACHE_PATHS:
             self.send_header("Cache-Control", "no-store")
         super().end_headers()
+
+    def log_request(self, code="-", size="-"):
+        route = self.path.split("?", 1)[0]
+        if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH, XRAY_PROVIDER_ADAPTER_PATH}:
+            original_requestline = self.requestline
+            self.requestline = f"{self.command} {route} {self.request_version}"
+            try:
+                super().log_request(code, size)
+            finally:
+                self.requestline = original_requestline
+            return
+        super().log_request(code, size)
 
     def do_GET(self):
         route = self.path.split("?", 1)[0]
@@ -375,6 +402,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
+            return
+        if route == XRAY_PROVIDER_ADAPTER_PATH:
+            self.handle_xray_provider_adapter_get()
             return
 
         super().do_GET()
@@ -447,7 +477,15 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         text = config_path.read_text(encoding="utf-8", errors="replace")
         self.send_json(
             HTTPStatus.OK,
-            {"ok": True, "path": str(config_path), "text": text, "revision": config_revision(text)},
+            {
+                "ok": True,
+                "path": str(config_path),
+                "text": text,
+                "revision": config_revision(text),
+                "xrayProviderAdapterUrl": (
+                    f"http://127.0.0.1:{self.server.server_address[1]}{XRAY_PROVIDER_ADAPTER_PATH}"
+                ),
+            },
         )
 
     def handle_config_save(self):
@@ -867,6 +905,53 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_provider_payload(body, content_type)
+
+    def handle_xray_provider_adapter_get(self):
+        if not is_loopback_address(self.client_address[0]):
+            self.send_plain(HTTPStatus.FORBIDDEN, "provider adapter is loopback-only")
+            return
+
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        provider_name = str((query.get("provider") or [""])[0]).strip()
+        source_url = str((query.get("url") or [""])[0]).strip()
+        if not provider_name or len(provider_name) > 128 or "\n" in provider_name or "\r" in provider_name:
+            self.send_plain(HTTPStatus.BAD_REQUEST, "valid provider query parameter is required")
+            return
+        if not source_url:
+            record_xray_provider_adapter_error(provider_name, "invalid_source", "URL источника не задан")
+            self.send_plain(HTTPStatus.BAD_REQUEST, "url query parameter is required")
+            return
+        if not xray_provider_adapter_slots.acquire(timeout=5):
+            record_xray_provider_adapter_error(provider_name, "busy", "Обработчик временно занят")
+            self.send_plain(HTTPStatus.SERVICE_UNAVAILABLE, "provider adapter is busy")
+            return
+
+        try:
+            body = fetch_xray_provider_payload(
+                source_url,
+                build_provider_request_headers(self.headers),
+            )
+            yaml_body, adapter_status = convert_xray_json_provider(body, provider_name)
+        except XrayProviderError as error:
+            record_xray_provider_adapter_error(
+                provider_name,
+                error.code,
+                str(error),
+                source_count=error.source_count,
+                skipped=error.skipped,
+            )
+            self.send_plain(error.status, str(error))
+            return
+        except Exception:
+            message = "Не удалось преобразовать Xray JSON"
+            record_xray_provider_adapter_error(provider_name, "conversion_failed", message)
+            self.send_plain(HTTPStatus.UNPROCESSABLE_ENTITY, message)
+            return
+        finally:
+            xray_provider_adapter_slots.release()
+
+        record_xray_provider_adapter_status(provider_name, adapter_status)
+        self.send_provider_payload(yaml_body, "text/yaml; charset=utf-8")
 
     def handle_legacy_update(self):
         status, headers, body, returncode = run_cgi_script(self.app_dir)
@@ -2521,6 +2606,259 @@ def run_mihomo_component_update(app_dir, target):
         shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
+    source_url = str(source_url or "").strip()
+    parsed = urllib.parse.urlsplit(source_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise XrayProviderError(
+            "invalid_source",
+            "Источник Xray JSON должен использовать HTTP или HTTPS",
+            status=HTTPStatus.BAD_REQUEST,
+        )
+
+    try:
+        body, _ = request_provider_payload_once(
+            source_url,
+            headers or {},
+            timeout,
+            max_bytes=XRAY_PROVIDER_ADAPTER_MAX_BYTES,
+        )
+        return body
+    except ValueError:
+        raise XrayProviderError(
+            "payload_too_large",
+            "Xray JSON превышает лимит 512 КиБ",
+            status=HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+        ) from None
+    except Exception:
+        raise XrayProviderError(
+            "source_unavailable",
+            "Не удалось загрузить Xray JSON",
+            status=HTTPStatus.BAD_GATEWAY,
+        ) from None
+
+
+def convert_xray_json_provider(body, provider_name):
+    try:
+        document = json.loads(body.decode("utf-8-sig", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise XrayProviderError("invalid_json", "Источник не содержит корректный Xray JSON") from None
+
+    if not isinstance(document, dict) or not isinstance(document.get("outbounds"), list):
+        raise XrayProviderError("invalid_config", "В Xray JSON не найден список outbounds")
+
+    base_name = document.get("remarks")
+    if not isinstance(base_name, str) or not base_name.strip():
+        base_name = str(provider_name or "Xray").strip() or "Xray"
+    else:
+        base_name = base_name.strip()
+    try:
+        base_name.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise XrayProviderError("invalid_name", "Название Xray-конфигурации содержит некорректные символы") from None
+
+    source_count = 0
+    converted = []
+    skipped = []
+
+    def skip(code, message):
+        if len(skipped) < 5:
+            skipped.append({"index": source_count, "code": code, "message": message})
+
+    for outbound in document["outbounds"]:
+        if not isinstance(outbound, dict) or str(outbound.get("protocol") or "").casefold() != "vless":
+            continue
+
+        settings = outbound.get("settings")
+        vnext = settings.get("vnext") if isinstance(settings, dict) else None
+        if not isinstance(vnext, list) or not vnext:
+            source_count += 1
+            skip("invalid_vnext", "У VLESS outbound отсутствует settings.vnext")
+            continue
+
+        for endpoint in vnext:
+            users = endpoint.get("users") if isinstance(endpoint, dict) else None
+            if not isinstance(users, list) or not users:
+                source_count += 1
+                skip("invalid_users", "У VLESS endpoint отсутствует список users")
+                continue
+
+            for user in users:
+                source_count += 1
+                try:
+                    node = convert_xray_vless_node(outbound, endpoint, user)
+                except XrayProviderError as error:
+                    skip(error.code, str(error))
+                    continue
+                converted.append((source_count, node))
+
+    if not converted:
+        message = "В Xray JSON не найдено поддерживаемых VLESS/TCP/Reality узлов"
+        raise XrayProviderError(
+            "no_supported_nodes",
+            message,
+            source_count=source_count,
+            skipped=skipped,
+        )
+
+    lines = ["proxies:"]
+    for source_index, node in converted:
+        name = base_name if source_count == 1 else f"{base_name} · {source_index}"
+        lines.extend(render_mihomo_vless_proxy(name, node))
+    try:
+        yaml_body = ("\n".join(lines) + "\n").encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise XrayProviderError("invalid_text", "Xray JSON содержит некорректные символы") from None
+
+    skipped_count = max(0, source_count - len(converted))
+    state = "partial" if skipped_count else "ok"
+    message = (
+        f"Преобразовано {len(converted)} из {source_count}; пропущено {skipped_count}"
+        if skipped_count
+        else f"Преобразовано узлов: {len(converted)}"
+    )
+    return yaml_body, {
+        "mode": "xray-json",
+        "state": state,
+        "sourceCount": source_count,
+        "convertedCount": len(converted),
+        "skippedCount": skipped_count,
+        "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "message": message,
+        "skipped": skipped,
+    }
+
+
+def convert_xray_vless_node(outbound, endpoint, user):
+    if not isinstance(endpoint, dict) or not isinstance(user, dict):
+        raise XrayProviderError("invalid_node", "Некорректная структура VLESS узла")
+
+    stream = outbound.get("streamSettings")
+    if not isinstance(stream, dict):
+        raise XrayProviderError("missing_stream", "У VLESS узла отсутствует streamSettings")
+    if str(stream.get("network") or "").casefold() != "tcp":
+        raise XrayProviderError("unsupported_network", "Поддерживается только транспорт TCP")
+    if str(stream.get("security") or "").casefold() != "reality":
+        raise XrayProviderError("unsupported_security", "Поддерживается только Reality")
+
+    tcp_settings = stream.get("tcpSettings")
+    if tcp_settings is not None and not isinstance(tcp_settings, dict):
+        raise XrayProviderError("invalid_tcp", "Некорректные tcpSettings")
+    header = tcp_settings.get("header") if isinstance(tcp_settings, dict) else None
+    if header is not None and not isinstance(header, dict):
+        raise XrayProviderError("invalid_tcp", "Некорректный TCP header")
+    header_type = str((header or {}).get("type") or "none").casefold()
+    if header_type != "none":
+        raise XrayProviderError("unsupported_tcp_header", "Поддерживается только TCP header none")
+
+    mux = outbound.get("mux")
+    if isinstance(mux, dict):
+        mux_enabled = mux.get("enabled")
+        if mux_enabled is not None and mux_enabled is not False:
+            raise XrayProviderError("unsupported_mux", "Mux для этого формата не поддерживается")
+
+    address = endpoint.get("address")
+    port = endpoint.get("port")
+    if not isinstance(address, str) or not address.strip():
+        raise XrayProviderError("invalid_address", "У VLESS узла отсутствует адрес")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        raise XrayProviderError("invalid_port", "У VLESS узла указан некорректный порт")
+
+    user_id = user.get("id")
+    try:
+        user_id = str(uuid.UUID(str(user_id)))
+    except (ValueError, TypeError, AttributeError):
+        raise XrayProviderError("invalid_uuid", "У VLESS узла указан некорректный UUID") from None
+
+    flow = str(user.get("flow") or "").strip()
+    if flow not in {"", "xtls-rprx-vision"}:
+        raise XrayProviderError("unsupported_flow", "Поддерживается только flow xtls-rprx-vision")
+    encryption = str(user.get("encryption") or "none").casefold()
+    if encryption != "none":
+        raise XrayProviderError("unsupported_encryption", "Поддерживается только encryption none")
+    user_security = str(user.get("security") or "auto").casefold()
+    if user_security not in {"", "auto"}:
+        raise XrayProviderError("unsupported_user_security", "Неподдерживаемый параметр security у пользователя")
+
+    reality = stream.get("realitySettings")
+    if not isinstance(reality, dict):
+        raise XrayProviderError("missing_reality", "У VLESS узла отсутствуют realitySettings")
+    known_reality_fields = {
+        "show",
+        "fingerprint",
+        "serverName",
+        "publicKey",
+        "password",
+        "shortId",
+        "spiderX",
+        "allowInsecure",
+    }
+    for key, value in reality.items():
+        if key not in known_reality_fields and value is not None and value != "" and value is not False:
+            raise XrayProviderError("unsupported_reality_field", f"Неподдерживаемое поле Reality: {key}")
+
+    server_name = reality.get("serverName")
+    fingerprint = reality.get("fingerprint")
+    public_key = reality.get("publicKey")
+    password = reality.get("password")
+    if not isinstance(server_name, str) or not server_name.strip():
+        raise XrayProviderError("missing_server_name", "В Reality отсутствует serverName")
+    if not isinstance(fingerprint, str) or not fingerprint.strip():
+        raise XrayProviderError("missing_fingerprint", "В Reality отсутствует fingerprint")
+    if public_key and password and public_key != password:
+        raise XrayProviderError("conflicting_public_key", "В Reality заданы разные publicKey и password")
+    public_key = public_key or password
+    if not isinstance(public_key, str) or not public_key.strip():
+        raise XrayProviderError("missing_public_key", "В Reality отсутствует publicKey")
+
+    short_id = reality.get("shortId", "")
+    if not isinstance(short_id, str) or len(short_id) > 16 or len(short_id) % 2 or not re.fullmatch(r"[0-9a-fA-F]*", short_id):
+        raise XrayProviderError("invalid_short_id", "В Reality указан некорректный shortId")
+    allow_insecure = reality.get("allowInsecure")
+    if allow_insecure is not None and allow_insecure is not False:
+        raise XrayProviderError("unsupported_insecure", "allowInsecure должен быть выключен")
+    spider = reality.get("spiderX")
+    if spider is not None and spider != "" and spider != "/":
+        raise XrayProviderError("unsupported_spider", "Поддерживается только пустой spiderX или /")
+
+    return {
+        "server": address.strip(),
+        "port": port,
+        "uuid": user_id,
+        "flow": flow,
+        "servername": server_name.strip(),
+        "fingerprint": fingerprint.strip(),
+        "publicKey": public_key.strip(),
+        "shortId": short_id,
+    }
+
+
+def render_mihomo_vless_proxy(name, node):
+    quote = lambda value: json.dumps(str(value), ensure_ascii=False)
+    lines = [
+        f"  - name: {quote(name)}",
+        "    type: vless",
+        f"    server: {quote(node['server'])}",
+        f"    port: {node['port']}",
+        f"    uuid: {quote(node['uuid'])}",
+        "    network: tcp",
+        "    tls: true",
+        "    udp: true",
+    ]
+    if node["flow"]:
+        lines.append(f"    flow: {quote(node['flow'])}")
+    lines.extend(
+        [
+            f"    servername: {quote(node['servername'])}",
+            f"    client-fingerprint: {quote(node['fingerprint'])}",
+            "    reality-opts:",
+            f"      public-key: {quote(node['publicKey'])}",
+            f"      short-id: {quote(node['shortId'])}",
+        ]
+    )
+    return lines
+
+
 def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):
     if depth > 3:
         raise ValueError("provider landing redirect depth exceeded")
@@ -2594,13 +2932,13 @@ def fetch_http_provider_payload(source_url, headers, timeout, append_hwid=False,
     return body, content_type
 
 
-def request_provider_payload_once(source_url, headers, timeout):
+def request_provider_payload_once(source_url, headers, timeout, max_bytes=PROVIDER_ADAPTER_MAX_BYTES):
     request = urllib.request.Request(source_url, headers=headers or {}, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read(PROVIDER_ADAPTER_MAX_BYTES + 1)
+        body = response.read(max_bytes + 1)
         content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
 
-    if len(body) > PROVIDER_ADAPTER_MAX_BYTES:
+    if len(body) > max_bytes:
         raise ValueError("provider payload is too large")
     return body, content_type
 
@@ -2928,15 +3266,90 @@ def is_loopback_address(value):
     return host in {"127.0.0.1", "::1", "localhost"} or host.startswith("127.")
 
 
+def record_xray_provider_adapter_status(provider_name, status):
+    key = normalize_provider_name(provider_name)
+    if not key:
+        return
+    item = dict(status or {})
+    item["providerName"] = str(provider_name).strip()
+    with xray_provider_adapter_status_lock:
+        xray_provider_adapter_statuses.pop(key, None)
+        xray_provider_adapter_statuses[key] = item
+        while len(xray_provider_adapter_statuses) > XRAY_PROVIDER_ADAPTER_STATUS_LIMIT:
+            xray_provider_adapter_statuses.pop(next(iter(xray_provider_adapter_statuses)))
+
+
+def record_xray_provider_adapter_error(provider_name, code, message, source_count=0, skipped=None):
+    skipped = list(skipped or [])[:5]
+    record_xray_provider_adapter_status(
+        provider_name,
+        {
+            "mode": "xray-json",
+            "state": "error",
+            "sourceCount": source_count,
+            "convertedCount": 0,
+            "skippedCount": max(source_count, len(skipped)),
+            "updatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "message": str(message),
+            "code": str(code),
+            "skipped": skipped,
+        },
+    )
+
+
+def get_xray_provider_adapter_status(provider_name):
+    key = normalize_provider_name(provider_name)
+    with xray_provider_adapter_status_lock:
+        item = xray_provider_adapter_statuses.get(key)
+        result = dict(item) if item else None
+    if result:
+        result.pop("providerName", None)
+    return result
+
+
+def snapshot_xray_provider_adapter_statuses():
+    with xray_provider_adapter_status_lock:
+        return [dict(item) for item in xray_provider_adapter_statuses.values()]
+
+
 def get_proxy_provider_statuses(app_dir):
     try:
         data = mihomo_api_request(app_dir, "/providers/proxies")
         providers = data.get("providers", data)
         if not isinstance(providers, dict):
             providers = {}
+        try:
+            configured_names = get_config_proxy_provider_names(app_dir)
+        except OSError:
+            configured_names = set()
+        normalized = []
+        seen = set()
+        for name, item in providers.items():
+            status = normalize_provider_status(name, item)
+            adapter = get_xray_provider_adapter_status(status["name"])
+            if adapter:
+                status["adapter"] = adapter
+            normalized.append(status)
+            seen.add(normalize_provider_name(status["name"]))
+
+        for adapter in snapshot_xray_provider_adapter_statuses():
+            name = str(adapter.pop("providerName", "")).strip()
+            normalized_name = normalize_provider_name(name)
+            if normalized_name in configured_names and normalized_name not in seen:
+                normalized.append(
+                    {
+                        "name": name,
+                        "type": "",
+                        "vehicleType": "",
+                        "updatedAt": "",
+                        "proxyCount": None,
+                        "subscriptionInfo": {},
+                        "adapter": adapter,
+                    }
+                )
         return {
             "ok": True,
-            "providers": [normalize_provider_status(name, item) for name, item in providers.items()],
+            "providers": normalized,
         }
     except Exception as error:
         return {"ok": False, "message": str(error), "providers": []}
@@ -2946,9 +3359,17 @@ def update_proxy_provider(app_dir, name):
     try:
         encoded_name = urllib.parse.quote(name, safe="")
         mihomo_api_request(app_dir, f"/providers/proxies/{encoded_name}", method="PUT", timeout=30)
-        return {"ok": True, "message": "provider update started"}
+        return {
+            "ok": True,
+            "message": "provider update started",
+            "adapter": get_xray_provider_adapter_status(name),
+        }
     except Exception as error:
-        return {"ok": False, "message": str(error)}
+        return {
+            "ok": False,
+            "message": str(error),
+            "adapter": get_xray_provider_adapter_status(name),
+        }
 
 
 def select_proxy_group(app_dir, group, name):

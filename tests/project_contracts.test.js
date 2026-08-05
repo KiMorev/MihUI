@@ -419,6 +419,8 @@ test('main and standalone keep provider creation transactional and responsive', 
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /class="provider-url-status" aria-live="polite" hidden/);
+    assert.match(source, /id="providerCreateFormat"/);
+    assert.match(source, /class="provider-source-format"/);
     assert.match(source, /Конфигурация изменится только после подтверждения/);
   }
 
