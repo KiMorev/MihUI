@@ -3757,18 +3757,19 @@ def get_resource_monitor_status(app_dir):
     }
 
 
-def load_resource_monitor_proxies(app_dir):
+def load_resource_monitor_proxy_snapshot(app_dir):
     data = mihomo_api_request(app_dir, "/proxies", timeout=5)
     proxies = data.get("proxies", data)
     if not isinstance(proxies, dict):
         raise RuntimeError("Mihomo returned an invalid proxy list")
     proxies = dict(proxies)
+    providers = {}
 
     try:
         provider_data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
         providers = provider_data.get("providers", provider_data)
         if not isinstance(providers, dict):
-            return proxies
+            return proxies, {}
         for provider_name, provider in providers.items():
             provider_proxies = provider.get("proxies") if isinstance(provider, dict) else None
             if not isinstance(provider_proxies, list):
@@ -3790,6 +3791,12 @@ def load_resource_monitor_proxies(app_dir):
                     proxies[name] = merged
     except Exception:
         pass
+
+    return proxies, providers
+
+
+def load_resource_monitor_proxies(app_dir):
+    proxies, _ = load_resource_monitor_proxy_snapshot(app_dir)
 
     return proxies
 
@@ -4008,7 +4015,13 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
     return {"ok": ok, "services": results}
 
 
-def refresh_resource_monitor_provider_delays(app_dir, settings, proxies, services=None):
+def refresh_resource_monitor_provider_delays(
+    app_dir,
+    settings,
+    proxies,
+    services=None,
+    providers=None,
+):
     selected_services = set(services or settings["services"])
     monitored_nodes = set()
     for service, service_settings in settings["services"].items():
@@ -4024,10 +4037,11 @@ def refresh_resource_monitor_provider_delays(app_dir, settings, proxies, service
                 if allowed is None or str(option or "") in allowed
             )
 
-    data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
-    providers = data.get("providers", data)
-    if not isinstance(providers, dict):
-        raise RuntimeError("Mihomo returned an invalid provider list")
+    if providers is None:
+        data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
+        providers = data.get("providers", data)
+        if not isinstance(providers, dict):
+            raise RuntimeError("Mihomo returned an invalid provider list")
 
     checked = []
     timeout = max(10, int(settings["timeoutMs"] / 1000) + 10)
@@ -4060,11 +4074,17 @@ def run_resource_monitor_startup_cycle(app_dir):
     if not settings["enabled"]:
         return {"ok": True, "selection": {"ok": True, "services": {}}, "runtime": None}
 
-    proxies = load_resource_monitor_proxies(app_dir)
+    proxies, providers = load_resource_monitor_proxy_snapshot(app_dir)
     try:
-        refresh_resource_monitor_provider_delays(app_dir, settings, proxies)
+        refresh_resource_monitor_provider_delays(
+            app_dir,
+            settings,
+            proxies,
+            providers=providers,
+        )
     except Exception:
         pass
+    del providers
     proxies = load_resource_monitor_proxies(app_dir)
     selection = select_resource_monitor_fastest_nodes(app_dir, settings, proxies)
     runtime = run_resource_monitor_cycle(app_dir, proxies=proxies)
