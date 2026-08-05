@@ -1701,6 +1701,7 @@ input[type='file'] {
 }
 
 .provider-create-dialog,
+.provider-edit-dialog,
 .component-manager-dialog {
   width: min(720px, calc(100vw - 32px));
   max-height: min(780px, calc(100vh - 32px));
@@ -1714,6 +1715,7 @@ input[type='file'] {
 }
 
 .provider-create-dialog::backdrop,
+.provider-edit-dialog::backdrop,
 .component-manager-dialog::backdrop {
   background: rgba(24, 34, 52, 0.38);
   backdrop-filter: blur(2px);
@@ -1721,6 +1723,7 @@ input[type='file'] {
 
 .backup-history-dialog,
 .provider-create-dialog,
+.provider-edit-dialog,
 .component-manager-dialog {
   opacity: 0;
   transform: translateY(8px) scale(0.985);
@@ -1733,6 +1736,7 @@ input[type='file'] {
 
 .backup-history-dialog[open],
 .provider-create-dialog[open],
+.provider-edit-dialog[open],
 .component-manager-dialog[open] {
   opacity: 1;
   transform: translateY(0) scale(1);
@@ -1740,6 +1744,7 @@ input[type='file'] {
 
 .backup-history-dialog::backdrop,
 .provider-create-dialog::backdrop,
+.provider-edit-dialog::backdrop,
 .component-manager-dialog::backdrop {
   opacity: 0;
   transition:
@@ -1750,6 +1755,7 @@ input[type='file'] {
 
 .backup-history-dialog[open]::backdrop,
 .provider-create-dialog[open]::backdrop,
+.provider-edit-dialog[open]::backdrop,
 .component-manager-dialog[open]::backdrop {
   opacity: 1;
 }
@@ -1757,6 +1763,7 @@ input[type='file'] {
 @starting-style {
   .backup-history-dialog[open],
   .provider-create-dialog[open],
+  .provider-edit-dialog[open],
   .component-manager-dialog[open] {
     opacity: 0;
     transform: translateY(8px) scale(0.985);
@@ -1764,6 +1771,7 @@ input[type='file'] {
 
   .backup-history-dialog[open]::backdrop,
   .provider-create-dialog[open]::backdrop,
+  .provider-edit-dialog[open]::backdrop,
   .component-manager-dialog[open]::backdrop {
     opacity: 0;
   }
@@ -1776,15 +1784,18 @@ input[type='file'] {
 
   .backup-history-dialog,
   .provider-create-dialog,
+  .provider-edit-dialog,
   .component-manager-dialog,
   .backup-history-dialog::backdrop,
   .provider-create-dialog::backdrop,
+  .provider-edit-dialog::backdrop,
   .component-manager-dialog::backdrop {
     transition: none;
   }
 }
 
 body.provider-create-open,
+body.provider-edit-open,
 body.component-manager-open {
   overflow: hidden;
 }
@@ -1979,6 +1990,98 @@ body.component-manager-open {
   border-top: 1px solid var(--line);
 }
 
+.provider-edit-dialog {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(840px, calc(100vh - 32px));
+}
+
+.provider-edit-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(840px, calc(100vh - 32px));
+}
+
+.provider-edit-head,
+.provider-edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+
+.provider-edit-head {
+  align-items: flex-start;
+  border-bottom: 1px solid var(--line);
+}
+
+.provider-edit-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.provider-edit-head h2,
+.provider-edit-head p,
+.provider-edit-error {
+  margin: 0;
+}
+
+.provider-edit-head h2 {
+  font-size: 18px;
+}
+
+.provider-edit-head p {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.provider-edit-head strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-edit-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+  background: #fbfcfe;
+}
+
+.provider-edit-error {
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(180, 35, 24, 0.28);
+  border-radius: 8px;
+  background: #fff4f2;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.provider-edit-body {
+  display: grid;
+  grid-auto-rows: max-content;
+}
+
+.provider-edit-body .provider-row {
+  gap: 12px;
+}
+
+.provider-edit-body .provider-toolbar,
+.provider-edit-body .provider-runtime-status {
+  display: none;
+}
+
+.provider-edit-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
 @media (max-width: 560px) {
   .provider-create-dialog,
   .provider-create-surface {
@@ -2015,6 +2118,38 @@ body.component-manager-open {
   }
 
   .provider-create-actions .button {
+    width: 100%;
+  }
+
+  .provider-edit-dialog,
+  .provider-edit-surface {
+    max-height: calc(100dvh - 16px);
+  }
+
+  .provider-edit-dialog {
+    width: calc(100vw - 16px);
+  }
+
+  .provider-edit-head {
+    align-items: center;
+    padding: 12px;
+  }
+
+  .provider-edit-head p {
+    font-size: 11px;
+  }
+
+  .provider-edit-scroll {
+    padding: 12px;
+  }
+
+  .provider-edit-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px;
+  }
+
+  .provider-edit-actions .button {
     width: 100%;
   }
 }

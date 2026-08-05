@@ -955,6 +955,27 @@
       </form>
     </dialog>
 
+    <dialog id="providerEditDialog" class="provider-edit-dialog" aria-labelledby="providerEditTitle" aria-describedby="providerEditDescription">
+      <form id="providerEditForm" class="provider-edit-surface">
+        <header class="provider-edit-head">
+          <div>
+            <h2 id="providerEditTitle">Редактирование подписки</h2>
+            <p id="providerEditDescription">Изменения применятся только после сохранения.</p>
+            <strong id="providerEditTitleName"></strong>
+          </div>
+          <button id="providerEditCloseButton" class="button compact" type="button">Закрыть</button>
+        </header>
+        <div class="provider-edit-scroll">
+          <p id="providerEditError" class="provider-edit-error" role="alert" hidden></p>
+          <div id="providerEditBody" class="provider-edit-body"></div>
+        </div>
+        <footer class="provider-edit-actions">
+          <button id="providerEditCancelButton" class="button" type="button">Отмена</button>
+          <button id="providerEditSubmitButton" class="button primary" type="submit">Сохранить изменения</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog id="backupHistoryDialog" class="backup-history-dialog" aria-labelledby="backupHistoryTitle" aria-describedby="backupHistoryDescription">
       <form method="dialog" class="backup-history-surface">
         <header class="backup-history-head">

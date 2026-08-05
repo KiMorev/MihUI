@@ -375,6 +375,7 @@ const state = {
   selectedProviderName: '',
   providerInspectorEditing: false,
   providerCreateDraft: null,
+  providerEditDraft: null,
   providerSearch: '',
   selectedGroupName: '',
   groupInspectorEditing: false,
@@ -541,6 +542,14 @@ const els = {
   providerCreateGroupsSummary: document.querySelector('#providerCreateGroupsSummary'),
   providerCreateInterval: document.querySelector('#providerCreateInterval'),
   providerCreateHealthInterval: document.querySelector('#providerCreateHealthInterval'),
+  providerEditDialog: document.querySelector('#providerEditDialog'),
+  providerEditForm: document.querySelector('#providerEditForm'),
+  providerEditCloseButton: document.querySelector('#providerEditCloseButton'),
+  providerEditCancelButton: document.querySelector('#providerEditCancelButton'),
+  providerEditSubmitButton: document.querySelector('#providerEditSubmitButton'),
+  providerEditTitleName: document.querySelector('#providerEditTitleName'),
+  providerEditError: document.querySelector('#providerEditError'),
+  providerEditBody: document.querySelector('#providerEditBody'),
   providersPageSummary: document.querySelector('#providersPageSummary'),
   addGroupButton: document.querySelector('#addGroupButton'),
   groupSearchInput: document.querySelector('#groupSearchInput'),
@@ -797,6 +806,10 @@ els.providerCreateName.addEventListener('blur', () => syncProviderCreateValidati
 els.providerCreateGroups.addEventListener('change', handleProviderCreateGroupsChange);
 els.providerCreateInterval.addEventListener('input', handleProviderCreateIntervalInput);
 els.providerCreateHealthInterval.addEventListener('input', handleProviderCreateIntervalInput);
+els.providerEditForm.addEventListener('submit', submitProviderEditDialog);
+els.providerEditCloseButton.addEventListener('click', closeProviderEditDialog);
+els.providerEditCancelButton.addEventListener('click', closeProviderEditDialog);
+els.providerEditDialog.addEventListener('close', resetProviderEditDialog);
 els.addGroupButton.addEventListener('click', addGroup);
 els.addRuleButton?.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
@@ -1229,6 +1242,7 @@ async function reloadRouterConfig() {
 function resetWorkspaceViewState() {
   state.providerView = 'editor';
   state.providerInspectorEditing = false;
+  state.providerEditDraft = null;
   state.providerSearch = '';
   state.groupInspectorEditing = false;
   state.groupSearch = '';
@@ -7534,10 +7548,7 @@ function createProviderInspector(provider) {
   editButton.className = 'button primary compact';
   editButton.type = 'button';
   editButton.textContent = 'Редактировать';
-  editButton.addEventListener('click', () => {
-    state.providerInspectorEditing = true;
-    render();
-  });
+  editButton.addEventListener('click', () => openProviderEditDialog(provider));
   updateButton.className = 'button compact';
   updateButton.type = 'button';
   updateButton.textContent = state.providerUpdatingName === provider.name ? 'Обновление...' : 'Обновить';
@@ -7656,19 +7667,20 @@ function formatDuration(value) {
   return `${seconds} сек`;
 }
 
-function createProviderEditor(provider, index) {
+function createProviderEditor(provider, index, options = {}) {
   const row = els.providerTemplate.content.firstElementChild.cloneNode(true);
 
   if (!provider) return row;
 
+  row.classList.toggle('is-dialog-editor', Boolean(options.dialog));
   row.classList.toggle('is-new', Boolean(provider.highlight));
   row.querySelector('.provider-card-number').textContent = String(index + 1);
   row.querySelector('.provider-card-title').textContent = provider.name || 'Без названия';
   row.querySelector('.provider-card-new').hidden = !provider.isNew;
   renderProviderRuntimeStatus(row, provider);
   bindProviderUrl(row, provider);
-  bindHappDecodeButton(row, provider);
-  bindProviderName(row, provider);
+  bindHappDecodeButton(row, provider, options);
+  bindProviderName(row, provider, options);
   bindInput(row, '.provider-filter', provider.filter, (value) => updateProvider(provider, 'filter', value));
   bindInput(row, '.provider-exclude-filter', provider.excludeFilter, (value) => updateProvider(provider, 'excludeFilter', value));
   bindExcludeTypeOptions(row, provider, index);
@@ -7796,7 +7808,7 @@ function bindProviderUpdateButton(root, provider) {
   button.addEventListener('click', () => updateProviderNow(provider));
 }
 
-function bindHappDecodeButton(root, provider) {
+function bindHappDecodeButton(root, provider, options = {}) {
   const button = root.querySelector('.happ-decode-button');
   const label = button.querySelector('span');
   const status = root.querySelector('.provider-url-status');
@@ -7817,7 +7829,10 @@ function bindHappDecodeButton(root, provider) {
   status.className = `provider-url-status${feedback ? ` is-${feedback.severity}` : ''}`;
   status.textContent = feedback?.message || '';
   status.setAttribute('role', feedback?.severity === 'error' ? 'alert' : 'status');
-  button.addEventListener('click', () => decodeHappProvider(provider));
+  button.addEventListener('click', async () => {
+    await decodeHappProvider(provider);
+    if (options.dialog && state.providerEditDraft?.provider === provider) renderProviderEditDialogBody();
+  });
 }
 
 function formatProxyCount(count) {
@@ -9011,7 +9026,7 @@ function setEmptyState(element, title, text) {
   element.append(wrap);
 }
 
-function bindProviderName(root, provider) {
+function bindProviderName(root, provider, options = {}) {
   const input = root.querySelector('.provider-name');
   const manualButton = root.querySelector('.manual-name-button');
 
@@ -9021,6 +9036,13 @@ function bindProviderName(root, provider) {
   manualButton.addEventListener('click', () => {
     provider.nameLocked = false;
     provider.autoName = false;
+    if (options.dialog) {
+      input.disabled = false;
+      manualButton.hidden = true;
+      input.focus();
+      input.select();
+      return;
+    }
     render();
     const scheduleFocus = window.requestAnimationFrame || window.setTimeout;
     scheduleFocus(() => {
@@ -9032,7 +9054,9 @@ function bindProviderName(root, provider) {
     });
   });
   input.addEventListener('input', () => updateProviderNameDraft(provider, input.value, root));
-  input.addEventListener('blur', () => render());
+  input.addEventListener('blur', () => {
+    if (!options.dialog) render();
+  });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') input.blur();
   });
@@ -9043,6 +9067,7 @@ function bindHeaderGenerator(root, provider) {
     applyGeneratedHeaders(provider);
     root.querySelector('.provider-user-agent').value = provider.userAgent;
     root.querySelector('.provider-x-hwid').value = provider.xHwid;
+    if (provider.isEditDraft) return;
     generateOutput();
     renderOutputOnly();
   });
@@ -11442,6 +11467,7 @@ function updateProvider(provider, key, value) {
       && String(provider.healthInterval ?? '') === String(original.healthInterval ?? '');
     provider.hasHealthCheck = matchesOriginalHealth ? Boolean(original.hasHealthCheck) : true;
   }
+  if (provider.isEditDraft) return;
   if (key === 'url' && provider.autoName) {
     const changed = applyGeneratedProviderName(provider, value, previousName);
     if (changed) {
@@ -11484,6 +11510,13 @@ function updateProviderNameDraft(provider, nextName, root) {
   provider.name = nextName.trim();
   provider.autoName = false;
   provider.nameLocked = false;
+  if (provider.isEditDraft) {
+    const title = root.querySelector('.provider-card-title');
+    if (title) title.textContent = provider.name || 'Без названия';
+    if (els.providerEditTitleName) els.providerEditTitleName.textContent = provider.name || 'Без названия';
+    if (els.providerEditError) els.providerEditError.hidden = true;
+    return;
+  }
   if (state.selectedProviderName === previousName) state.selectedProviderName = provider.name;
   replaceProviderUse(previousName, provider.name);
 
@@ -11791,6 +11824,120 @@ function submitProviderCreateDialog(event) {
   if (!provider) return;
   closeProviderCreateDialog();
   showMessage(`Подписка ${provider.name} добавлена.`, { severity: 'success' });
+  window.setTimeout(() => {
+    els.providersList.querySelector('.provider-list-item.is-selected .provider-name-button')?.focus();
+  }, 0);
+}
+
+function createProviderEditDraft(provider) {
+  if (!provider) return null;
+  return {
+    source: provider,
+    provider: {
+      ...provider,
+      rawLines: Array.isArray(provider.rawLines) ? provider.rawLines.slice() : [],
+      customHeaderKeys: Array.isArray(provider.customHeaderKeys) ? provider.customHeaderKeys.slice() : [],
+      autoName: false,
+      highlight: false,
+      isEditDraft: true,
+    },
+  };
+}
+
+function openProviderEditDialog(provider) {
+  const draft = createProviderEditDraft(provider);
+  if (!draft) return false;
+
+  state.providerInspectorEditing = false;
+  state.providerEditDraft = draft;
+  renderProviderEditDialogBody();
+  document.body.classList.add('provider-edit-open');
+  if (typeof els.providerEditDialog.showModal === 'function') {
+    els.providerEditDialog.showModal();
+  } else {
+    els.providerEditDialog.setAttribute('open', '');
+  }
+  const scheduleFocus = window.requestAnimationFrame || window.setTimeout;
+  scheduleFocus(() => els.providerEditBody.querySelector('.provider-url')?.focus());
+  return true;
+}
+
+function closeProviderEditDialog() {
+  if (typeof els.providerEditDialog.close === 'function' && els.providerEditDialog.open) {
+    els.providerEditDialog.close();
+  } else {
+    els.providerEditDialog.removeAttribute('open');
+    resetProviderEditDialog();
+  }
+}
+
+function resetProviderEditDialog() {
+  const draftProvider = state.providerEditDraft?.provider;
+  if (state.happDecodeFeedback?.provider === draftProvider) state.happDecodeFeedback = null;
+  state.providerEditDraft = null;
+  document.body.classList.remove('provider-edit-open');
+  els.providerEditBody.innerHTML = '';
+  els.providerEditError.textContent = '';
+  els.providerEditError.hidden = true;
+  els.providerEditForm.reset();
+}
+
+function renderProviderEditDialogBody() {
+  const draft = state.providerEditDraft;
+  if (!draft) return;
+
+  const index = Math.max(0, state.providers.indexOf(draft.source));
+  const editor = createProviderEditor(draft.provider, index, { dialog: true });
+  const nameInput = editor.querySelector('.provider-name');
+  if (nameInput) nameInput.required = true;
+  els.providerEditTitleName.textContent = draft.provider.name || 'Без названия';
+  els.providerEditBody.innerHTML = '';
+  els.providerEditBody.append(editor);
+}
+
+function getProviderEditNameError(draft) {
+  const name = String(draft?.provider?.name || '').trim();
+  if (!name || /[\r\n]/.test(name)) return 'Укажите название подписки.';
+  if (state.providers.some((provider) => provider !== draft.source && !provider.deleted && provider.name === name)) {
+    return 'Подписка с таким названием уже существует.';
+  }
+  return '';
+}
+
+function commitProviderEditDraft(draft) {
+  const source = draft?.source;
+  const edited = draft?.provider;
+  if (!source || !edited || getProviderEditNameError(draft)) return null;
+
+  const previousName = source.name;
+  const nextName = String(edited.name || '').trim();
+  const values = { ...edited, name: nextName };
+  delete values.isEditDraft;
+  Object.assign(source, values);
+  if (previousName !== nextName) {
+    replaceProviderUse(previousName, nextName);
+    if (state.selectedProviderName === previousName) state.selectedProviderName = nextName;
+  }
+  state.providerInspectorEditing = false;
+  generateOutput();
+  return source;
+}
+
+function submitProviderEditDialog(event) {
+  event.preventDefault();
+  const draft = state.providerEditDraft;
+  const error = getProviderEditNameError(draft);
+  if (error || !els.providerEditForm.reportValidity()) {
+    els.providerEditError.textContent = error;
+    els.providerEditError.hidden = !error;
+    if (error) els.providerEditBody.querySelector('.provider-name')?.focus();
+    return;
+  }
+  const provider = commitProviderEditDraft(draft);
+  if (!provider) return;
+  closeProviderEditDialog();
+  render();
+  showMessage(`Изменения подписки ${provider.name} сохранены.`, { severity: 'success' });
   window.setTimeout(() => {
     els.providersList.querySelector('.provider-list-item.is-selected .provider-name-button')?.focus();
   }, 0);

@@ -111,7 +111,9 @@ globalThis.__app = {
   addGroup,
   addProvider,
   commitProviderCreateDraft,
+  commitProviderEditDraft,
   createProviderCreateDraft,
+  createProviderEditDraft,
   addRecommendedConnectionSettings,
   applyDiagnosticFix,
   applyConfigurationEdit,
@@ -159,6 +161,7 @@ globalThis.__app = {
   getProviderIntervalDefaults,
   getProviderCreateNameError,
   getProviderCreateUrlError,
+  getProviderEditNameError,
   getProviderAttentionItem,
   getProviderDisplayState,
   getProviderRuntimeWarnings,
@@ -1914,6 +1917,48 @@ rules:
     assert.equal(app.getProviderCreateUrlError('happ://crypt-example'), '');
     assert.equal(app.getProviderCreateNameError('existing'), 'Подписка с таким названием уже существует.');
     assert.equal(app.getProviderCreateNameError('new-provider'), '');
+  });
+
+  test(`${source.name}: keeps provider editing transactional until save`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+  reserve:
+    type: http
+    url: https://reserve.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    app.generateOutput();
+    const sourceProvider = app.state.providers.find((provider) => provider.name === 'existing');
+    const group = app.state.groups.find((item) => item.name === 'Proxy');
+    const outputBefore = app.state.outputText;
+    const draft = app.createProviderEditDraft(sourceProvider);
+
+    app.updateProvider(draft.provider, 'url', 'https://changed.example/sub');
+    draft.provider.name = 'renamed';
+
+    assert.equal(sourceProvider.name, 'existing');
+    assert.equal(sourceProvider.url, 'https://existing.example/sub');
+    assert.deepEqual([...group.use], ['existing']);
+    assert.equal(app.state.outputText, outputBefore);
+    assert.equal(app.getProviderEditNameError({ ...draft, provider: { ...draft.provider, name: 'reserve' } }), 'Подписка с таким названием уже существует.');
+
+    const saved = app.commitProviderEditDraft(draft);
+
+    assert.equal(saved.name, 'renamed');
+    assert.equal(saved.url, 'https://changed.example/sub');
+    assert.deepEqual([...group.use], ['renamed']);
+    assert.match(app.state.outputText, /  renamed:/);
   });
 
   test(`${source.name}: reuses an empty pending provider instead of adding a duplicate`, () => {

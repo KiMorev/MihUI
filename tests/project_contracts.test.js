@@ -38,6 +38,9 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="providerCreateCancelButton"[^>]*>Отмена<\/button>/);
     assert.match(html, /id="providerCreateSubmitButton"[^>]+disabled>Добавить подписку<\/button>/);
     assert.match(html, /id="providerCreateGroups" class="provider-create-groups"/);
+    assert.match(html, /id="providerEditDialog"[^>]+aria-labelledby="providerEditTitle"[^>]+aria-describedby="providerEditDescription"/);
+    assert.match(html, /id="providerEditCancelButton"[^>]*>Отмена<\/button>/);
+    assert.match(html, /id="providerEditSubmitButton"[^>]*>Сохранить изменения<\/button>/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="checkConfigButton"[^>]+class="[^"]*button[^"]*compact[^"]*"[\s\S]+?Проверить YAML в Mihomo/);
     assert.match(html, /id="fileTools"[\s\S]+?summary aria-label="Конфигурация"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
@@ -420,7 +423,9 @@ test('main and standalone keep provider creation transactional and responsive', 
     assert.match(source, /Happ-ссылка расшифрована\. Прямой URL подставлен\./);
     assert.match(source, /addProviderButton\.addEventListener\('click', openProviderCreateDialog\)/);
     assert.match(source, /function commitProviderCreateDraft\(draft\)/);
+    assert.match(source, /function commitProviderEditDraft\(draft\)/);
     assert.match(source, /state\.providerCreateDraft = createProviderCreateDraft\(\)/);
+    assert.match(source, /editButton\.addEventListener\('click', \(\) => openProviderEditDialog\(provider\)\)/);
     assert.match(source, /connectProviderToUseGroups\(provider\.name, options\.groupNames\)/);
     assert.doesNotMatch(source, /providerInspectorEditing \|\| Boolean\(displayedProvider\?\.isNew\)/);
   }
@@ -429,6 +434,8 @@ test('main and standalone keep provider creation transactional and responsive', 
     const source = read(name);
     assert.match(source, /\.provider-create-dialog::backdrop/);
     assert.match(source, /\.provider-create-body\s*{[\s\S]+?grid-auto-rows: max-content;/);
+    assert.match(source, /\.provider-edit-dialog\s*{[\s\S]+?width: min\(920px,/);
+    assert.match(source, /\.provider-edit-scroll\s*{[\s\S]+?overflow-y: auto;/);
     assert.match(source, /\.provider-create-actions\s*{[\s\S]+?justify-content: flex-end;/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-create-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   }
