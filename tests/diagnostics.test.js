@@ -110,6 +110,8 @@ globalThis.__app = {
   addConnectionSetting,
   addGroup,
   addProvider,
+  commitProviderCreateDraft,
+  createProviderCreateDraft,
   addRecommendedConnectionSettings,
   applyDiagnosticFix,
   applyConfigurationEdit,
@@ -155,6 +157,8 @@ globalThis.__app = {
   describeRuleRouting,
   getGroupUsage,
   getProviderIntervalDefaults,
+  getProviderCreateNameError,
+  getProviderCreateUrlError,
   getProviderAttentionItem,
   getProviderDisplayState,
   getProviderRuntimeWarnings,
@@ -1848,6 +1852,68 @@ rules:
     assert.equal(added.healthInterval, '600');
     assert.equal(added.userAgent, 'ClashMeta/1.19.24; mihomo/1.19.24');
     assert.match(added.xHwid, /^[A-F0-9]{12}$/);
+  });
+
+  test(`${source.name}: keeps provider creation transactional until commit`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    const providerCount = app.state.providers.length;
+    const outputBefore = app.state.outputText;
+    const proxy = app.state.groups.find((group) => group.name === 'Proxy');
+    const useBefore = [...proxy.use];
+    const draft = app.createProviderCreateDraft();
+
+    assert.equal(app.state.providers.length, providerCount);
+    assert.equal(app.state.outputText, outputBefore);
+    assert.deepEqual([...proxy.use], useBefore);
+    assert.equal(draft.groupNames.join('|'), 'Proxy');
+
+    draft.url = 'https://new-provider.example/sub';
+    draft.name = 'new-provider';
+    draft.groupNames = [];
+    const added = app.commitProviderCreateDraft(draft);
+
+    assert.equal(added.name, 'new-provider');
+    assert.equal(added.url, 'https://new-provider.example/sub');
+    assert.equal(proxy.use.includes('new-provider'), false);
+    assert.match(app.state.outputText, /  new-provider:/);
+  });
+
+  test(`${source.name}: validates provider creation source and name`, () => {
+    const app = loadApp(source);
+    hydrate(app, `
+proxy-providers:
+  existing:
+    type: http
+    url: https://existing.example/sub
+proxy-groups:
+  - name: Proxy
+    type: select
+    use:
+      - existing
+rules:
+  - MATCH,DIRECT
+`);
+
+    assert.equal(app.getProviderCreateUrlError(''), 'Введите ссылку подписки.');
+    assert.equal(app.getProviderCreateUrlError('ftp://example.com/sub'), 'Используйте http://, https://, happ:// или incy://.');
+    assert.equal(app.getProviderCreateUrlError('https://example.com/sub'), '');
+    assert.equal(app.getProviderCreateUrlError('happ://crypt-example'), '');
+    assert.equal(app.getProviderCreateNameError('existing'), 'Подписка с таким названием уже существует.');
+    assert.equal(app.getProviderCreateNameError('new-provider'), '');
   });
 
   test(`${source.name}: reuses an empty pending provider instead of adding a duplicate`, () => {

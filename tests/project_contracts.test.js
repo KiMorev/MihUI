@@ -33,6 +33,11 @@ test('main and standalone UI expose labels for audited controls', () => {
     assert.match(html, /id="providerStatusRefreshButton"[\s\S]+?Обновить статусы/);
     assert.match(html, /id="addProviderButton"[^>]+aria-label="Добавить подписку"/);
     assert.match(html, /id="addProviderButton"[^>]+class="[^"]*primary[^"]*"[\s\S]+?\+ Добавить/);
+    assert.match(html, /id="providerCreateDialog"[^>]+aria-labelledby="providerCreateTitle"[^>]+aria-describedby="providerCreateDescription"/);
+    assert.match(html, /id="providerCreateUrl"[^>]+required/);
+    assert.match(html, /id="providerCreateCancelButton"[^>]*>Отмена<\/button>/);
+    assert.match(html, /id="providerCreateSubmitButton"[^>]+disabled>Добавить подписку<\/button>/);
+    assert.match(html, /id="providerCreateGroups" class="provider-create-groups"/);
     assert.match(html, /id="addGroupButton"[^>]+class="[^"]*primary[^"]*"[^>]+aria-label="Добавить группу"[\s\S]+?\+ Добавить группу/);
     assert.match(html, /id="checkConfigButton"[^>]+class="[^"]*button[^"]*compact[^"]*"[\s\S]+?Проверить YAML в Mihomo/);
     assert.match(html, /id="fileTools"[\s\S]+?summary aria-label="Конфигурация"[\s\S]+?id="routerLoadButton"[\s\S]+?Перезагрузить с роутера/);
@@ -403,23 +408,28 @@ test('main and standalone keep section starts below the sticky topbar', () => {
   }
 });
 
-test('main and standalone keep provider creation and Happ feedback local on mobile', () => {
+test('main and standalone keep provider creation transactional and responsive', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /class="provider-url-status" aria-live="polite" hidden/);
+    assert.match(source, /Конфигурация изменится только после подтверждения/);
   }
 
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const source = read(name);
     assert.match(source, /Happ-ссылка расшифрована\. Прямой URL подставлен\./);
-    assert.match(source, /querySelector\('\.provider-detail\.is-editing'\)/);
-    assert.match(source, /scrollIntoView\?\.\(\{ behavior: 'smooth', block: 'start' \}\)/);
+    assert.match(source, /addProviderButton\.addEventListener\('click', openProviderCreateDialog\)/);
+    assert.match(source, /function commitProviderCreateDraft\(draft\)/);
+    assert.match(source, /state\.providerCreateDraft = createProviderCreateDraft\(\)/);
+    assert.match(source, /connectProviderToUseGroups\(provider\.name, options\.groupNames\)/);
+    assert.doesNotMatch(source, /providerInspectorEditing \|\| Boolean\(displayedProvider\?\.isNew\)/);
   }
 
   for (const name of ['styles.css', 'mihomo-editor.html']) {
     const source = read(name);
-    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-toolbar\s*{[\s\S]+?display: grid;/);
-    assert.match(source, /\.provider-card-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    assert.match(source, /\.provider-create-dialog::backdrop/);
+    assert.match(source, /\.provider-create-actions\s*{[\s\S]+?justify-content: flex-end;/);
+    assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.provider-create-actions\s*{[\s\S]+?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
   }
 });
 

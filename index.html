@@ -897,6 +897,64 @@
       </div>
     </main>
 
+    <dialog id="providerCreateDialog" class="provider-create-dialog" aria-labelledby="providerCreateTitle" aria-describedby="providerCreateDescription">
+      <form id="providerCreateForm" class="provider-create-surface">
+        <header class="provider-create-head">
+          <div>
+            <h2 id="providerCreateTitle">Новая подписка</h2>
+            <p id="providerCreateDescription">Добавьте источник нод. Конфигурация изменится только после подтверждения.</p>
+          </div>
+          <button id="providerCreateCloseButton" class="button compact" type="button">Закрыть</button>
+        </header>
+        <div class="provider-create-body">
+          <label class="provider-create-field provider-create-url-field">
+            <span>Ссылка подписки</span>
+            <input id="providerCreateUrl" type="url" placeholder="https://example.com/sub" autocomplete="off" aria-describedby="providerCreateUrlHint providerCreateUrlError" required />
+            <small id="providerCreateUrlHint">Поддерживаются прямые http/https-ссылки, Happ и INCY.</small>
+            <small id="providerCreateUrlError" class="provider-create-error" role="alert" hidden></small>
+          </label>
+
+          <label class="provider-create-field">
+            <span>Название подписки</span>
+            <input id="providerCreateName" type="text" autocomplete="off" aria-describedby="providerCreateNameHint providerCreateNameError" />
+            <small id="providerCreateNameHint">Название формируется из ссылки, но его можно изменить.</small>
+            <small id="providerCreateNameError" class="provider-create-error" role="alert" hidden></small>
+          </label>
+
+          <details class="provider-create-section" open>
+            <summary>
+              <strong>Подключить к группам</strong>
+              <span id="providerCreateGroupsSummary"></span>
+            </summary>
+            <div id="providerCreateGroups" class="provider-create-groups"></div>
+            <p>Выбранные группы получат подписку в <code>use</code>. Группы с <code>include-all</code> подключат её автоматически.</p>
+          </details>
+
+          <details class="provider-create-section provider-create-advanced">
+            <summary>
+              <strong>Дополнительно</strong>
+              <span>Интервалы</span>
+            </summary>
+            <div class="provider-create-intervals">
+              <label>
+                <span>Обновлять подписку, сек</span>
+                <input id="providerCreateInterval" type="number" min="60" step="60" required />
+              </label>
+              <label>
+                <span>Проверять ноды, сек</span>
+                <input id="providerCreateHealthInterval" type="number" min="30" step="30" required />
+              </label>
+            </div>
+            <p>Фильтры, протоколы и заголовки можно настроить после добавления.</p>
+          </details>
+        </div>
+        <footer class="provider-create-actions">
+          <button id="providerCreateCancelButton" class="button" type="button">Отмена</button>
+          <button id="providerCreateSubmitButton" class="button primary" type="submit" disabled>Добавить подписку</button>
+        </footer>
+      </form>
+    </dialog>
+
     <dialog id="backupHistoryDialog" class="backup-history-dialog" aria-labelledby="backupHistoryTitle" aria-describedby="backupHistoryDescription">
       <form method="dialog" class="backup-history-surface">
         <header class="backup-history-head">

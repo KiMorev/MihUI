@@ -374,6 +374,7 @@ const state = {
   isEditingConfiguration: false,
   selectedProviderName: '',
   providerInspectorEditing: false,
+  providerCreateDraft: null,
   providerSearch: '',
   selectedGroupName: '',
   groupInspectorEditing: false,
@@ -527,6 +528,19 @@ const els = {
   downloadButton: document.querySelector('#downloadButton'),
   reviewDownloadButton: document.querySelector('#reviewDownloadButton'),
   addProviderButton: document.querySelector('#addProviderButton'),
+  providerCreateDialog: document.querySelector('#providerCreateDialog'),
+  providerCreateForm: document.querySelector('#providerCreateForm'),
+  providerCreateCloseButton: document.querySelector('#providerCreateCloseButton'),
+  providerCreateCancelButton: document.querySelector('#providerCreateCancelButton'),
+  providerCreateSubmitButton: document.querySelector('#providerCreateSubmitButton'),
+  providerCreateUrl: document.querySelector('#providerCreateUrl'),
+  providerCreateUrlError: document.querySelector('#providerCreateUrlError'),
+  providerCreateName: document.querySelector('#providerCreateName'),
+  providerCreateNameError: document.querySelector('#providerCreateNameError'),
+  providerCreateGroups: document.querySelector('#providerCreateGroups'),
+  providerCreateGroupsSummary: document.querySelector('#providerCreateGroupsSummary'),
+  providerCreateInterval: document.querySelector('#providerCreateInterval'),
+  providerCreateHealthInterval: document.querySelector('#providerCreateHealthInterval'),
   providersPageSummary: document.querySelector('#providersPageSummary'),
   addGroupButton: document.querySelector('#addGroupButton'),
   groupSearchInput: document.querySelector('#groupSearchInput'),
@@ -771,7 +785,18 @@ els.restoreBackupButton.addEventListener('click', restoreSelectedBackup);
 els.fileInput.addEventListener('change', handleFileSelect);
 els.downloadButton.addEventListener('click', downloadYaml);
 els.reviewDownloadButton.addEventListener('click', downloadYaml);
-els.addProviderButton.addEventListener('click', addProvider);
+els.addProviderButton.addEventListener('click', openProviderCreateDialog);
+els.providerCreateForm.addEventListener('submit', submitProviderCreateDialog);
+els.providerCreateCloseButton.addEventListener('click', closeProviderCreateDialog);
+els.providerCreateCancelButton.addEventListener('click', closeProviderCreateDialog);
+els.providerCreateDialog.addEventListener('close', resetProviderCreateDialog);
+els.providerCreateUrl.addEventListener('input', handleProviderCreateUrlInput);
+els.providerCreateUrl.addEventListener('blur', () => syncProviderCreateValidation({ showErrors: true }));
+els.providerCreateName.addEventListener('input', handleProviderCreateNameInput);
+els.providerCreateName.addEventListener('blur', () => syncProviderCreateValidation({ showErrors: true }));
+els.providerCreateGroups.addEventListener('change', handleProviderCreateGroupsChange);
+els.providerCreateInterval.addEventListener('input', handleProviderCreateIntervalInput);
+els.providerCreateHealthInterval.addEventListener('input', handleProviderCreateIntervalInput);
 els.addGroupButton.addEventListener('click', addGroup);
 els.addRuleButton?.addEventListener('click', addRule);
 els.providerStatusRefreshButton.addEventListener('click', () => loadProviderStatuses({ silent: false }));
@@ -7351,7 +7376,7 @@ function renderProviders(activeProviders) {
     })
     : activeProviders;
   const displayedProvider = visibleProviders.includes(selectedProvider) ? selectedProvider : visibleProviders[0] || selectedProvider;
-  els.providersList.classList.toggle('providers-editing', state.providerInspectorEditing || Boolean(displayedProvider?.isNew));
+  els.providersList.classList.toggle('providers-editing', state.providerInspectorEditing);
   const registry = document.createElement('div');
   const tableWrap = document.createElement('div');
   const table = document.createElement('table');
@@ -7382,7 +7407,7 @@ function renderProviders(activeProviders) {
   registry.append(tableWrap);
 
   detail.className = 'provider-detail';
-  if (state.providerInspectorEditing || displayedProvider?.isNew) {
+  if (state.providerInspectorEditing) {
     detail.classList.add('is-editing');
     detail.append(createProviderEditorHeader(displayedProvider), createProviderEditor(displayedProvider, activeProviders.indexOf(displayedProvider)));
   } else {
@@ -11546,47 +11571,263 @@ function undoLastRemoval() {
   showMessage('Удаление отменено.', { severity: 'success' });
 }
 
-function addProvider() {
-  if (!state.originalText || !state.hasGroupsSection) return;
-
-  const pendingProvider = state.providers.find((provider) => provider.isNew && !provider.deleted && !provider.url.trim());
-  if (pendingProvider) {
-    state.selectedProviderName = pendingProvider.name;
-    state.providerInspectorEditing = true;
-    render();
-    return;
-  }
-
+function getNextProviderName() {
   let index = state.providers.length + 1;
   let name = `subscription-${index}`;
   while (state.providers.some((provider) => provider.name === name && !provider.deleted)) {
     index += 1;
     name = `subscription-${index}`;
   }
+  return name;
+}
+
+function getProviderCreateGroupCandidates() {
+  return state.groups.filter((group) => group.useStart !== -1 || group.use.length > 0);
+}
+
+function createProviderCreateDraft() {
   const intervalDefaults = getProviderIntervalDefaults();
-  const generatedHeaders = {
+  return {
+    name: getNextProviderName(),
+    url: '',
+    autoName: true,
+    groupNames: getProviderCreateGroupCandidates().map((group) => group.name),
+    interval: intervalDefaults.interval,
+    healthUrl: intervalDefaults.healthUrl,
+    healthInterval: intervalDefaults.healthInterval,
     userAgent: DEFAULT_GENERATED_USER_AGENT,
     xHwid: generateHwid(),
   };
+}
+
+function openProviderCreateDialog() {
+  if (!state.originalText || !state.hasGroupsSection) return false;
+
+  state.providerCreateDraft = createProviderCreateDraft();
+  renderProviderCreateDialog();
+  document.body.classList.add('provider-create-open');
+  if (typeof els.providerCreateDialog.showModal === 'function') {
+    els.providerCreateDialog.showModal();
+  } else {
+    els.providerCreateDialog.setAttribute('open', '');
+  }
+  const scheduleFocus = window.requestAnimationFrame || window.setTimeout;
+  scheduleFocus(() => els.providerCreateUrl.focus());
+  return true;
+}
+
+function closeProviderCreateDialog() {
+  if (typeof els.providerCreateDialog.close === 'function' && els.providerCreateDialog.open) {
+    els.providerCreateDialog.close();
+  } else {
+    els.providerCreateDialog.removeAttribute('open');
+    resetProviderCreateDialog();
+  }
+}
+
+function resetProviderCreateDialog() {
+  state.providerCreateDraft = null;
+  document.body.classList.remove('provider-create-open');
+  els.providerCreateForm.reset();
+  els.providerCreateUrl.classList.remove('is-invalid');
+  els.providerCreateName.classList.remove('is-invalid');
+  els.providerCreateUrl.removeAttribute('aria-invalid');
+  els.providerCreateName.removeAttribute('aria-invalid');
+  els.providerCreateUrlError.hidden = true;
+  els.providerCreateNameError.hidden = true;
+}
+
+function renderProviderCreateDialog() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+
+  els.providerCreateUrl.value = draft.url;
+  els.providerCreateName.value = draft.name;
+  els.providerCreateInterval.value = draft.interval;
+  els.providerCreateHealthInterval.value = draft.healthInterval;
+  renderProviderCreateGroups();
+  syncProviderCreateValidation();
+}
+
+function renderProviderCreateGroups() {
+  const draft = state.providerCreateDraft;
+  const groups = getProviderCreateGroupCandidates();
+  els.providerCreateGroups.innerHTML = '';
+
+  if (groups.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'provider-create-groups-empty';
+    empty.textContent = 'Нет групп с явным списком use.';
+    els.providerCreateGroups.append(empty);
+  } else {
+    groups.forEach((group) => {
+      const label = document.createElement('label');
+      const checkbox = document.createElement('input');
+      const text = document.createElement('span');
+      label.className = 'provider-create-group-option';
+      checkbox.type = 'checkbox';
+      checkbox.value = group.name;
+      checkbox.dataset.providerCreateGroup = group.name;
+      checkbox.checked = draft.groupNames.includes(group.name);
+      text.textContent = group.name;
+      label.append(checkbox, text);
+      els.providerCreateGroups.append(label);
+    });
+  }
+
+  syncProviderCreateGroupsSummary();
+}
+
+function syncProviderCreateGroupsSummary() {
+  const count = state.providerCreateDraft?.groupNames.length || 0;
+  els.providerCreateGroupsSummary.textContent = count === 0
+    ? 'Не подключать'
+    : formatRouteCount(count, 'группа', 'группы', 'групп');
+}
+
+function handleProviderCreateUrlInput() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+  draft.url = els.providerCreateUrl.value.trim();
+  if (draft.autoName) {
+    draft.name = generateProviderName(draft.url, null) || getNextProviderName();
+    els.providerCreateName.value = draft.name;
+  }
+  syncProviderCreateValidation();
+}
+
+function handleProviderCreateNameInput() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+  draft.name = els.providerCreateName.value;
+  draft.autoName = false;
+  syncProviderCreateValidation();
+}
+
+function handleProviderCreateGroupsChange() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+  draft.groupNames = [...els.providerCreateGroups.querySelectorAll('[data-provider-create-group]')]
+    .filter((checkbox) => checkbox.checked)
+    .map((checkbox) => checkbox.value);
+  syncProviderCreateGroupsSummary();
+}
+
+function handleProviderCreateIntervalInput() {
+  const draft = state.providerCreateDraft;
+  if (!draft) return;
+  draft.interval = els.providerCreateInterval.value;
+  draft.healthInterval = els.providerCreateHealthInterval.value;
+  syncProviderCreateValidation();
+}
+
+function getProviderCreateUrlError(value) {
+  const url = String(value || '').trim();
+  if (!url) return 'Введите ссылку подписки.';
+  if (!/^(https?|happ|incy):\/\/\S+$/i.test(url)) {
+    return 'Используйте http://, https://, happ:// или incy://.';
+  }
+  if (/^https?:/i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (!parsed.hostname) return 'Укажите полный адрес подписки.';
+    } catch {
+      return 'Укажите полный адрес подписки.';
+    }
+  }
+  return '';
+}
+
+function getProviderCreateNameError(value) {
+  const name = String(value || '').trim();
+  if (!name || /[\r\n]/.test(name)) return 'Укажите название подписки.';
+  if (state.providers.some((provider) => !provider.deleted && provider.name === name)) {
+    return 'Подписка с таким названием уже существует.';
+  }
+  return '';
+}
+
+function setProviderCreateFieldError(input, errorElement, error, showError) {
+  const visible = Boolean(error && (showError || input.value));
+  input.classList.toggle('is-invalid', visible);
+  input.setAttribute('aria-invalid', String(visible));
+  errorElement.textContent = visible ? error : '';
+  errorElement.hidden = !visible;
+}
+
+function syncProviderCreateValidation({ showErrors = false } = {}) {
+  const draft = state.providerCreateDraft;
+  if (!draft) return false;
+  const urlError = getProviderCreateUrlError(draft.url);
+  const nameError = getProviderCreateNameError(draft.name);
+  const intervalValid = typeof els.providerCreateInterval.checkValidity !== 'function' || els.providerCreateInterval.checkValidity();
+  const healthIntervalValid = typeof els.providerCreateHealthInterval.checkValidity !== 'function' || els.providerCreateHealthInterval.checkValidity();
+  setProviderCreateFieldError(els.providerCreateUrl, els.providerCreateUrlError, urlError, showErrors);
+  setProviderCreateFieldError(els.providerCreateName, els.providerCreateNameError, nameError, showErrors);
+  els.providerCreateSubmitButton.disabled = Boolean(urlError || nameError || !intervalValid || !healthIntervalValid);
+  return !els.providerCreateSubmitButton.disabled;
+}
+
+function commitProviderCreateDraft(draft) {
+  if (!draft || getProviderCreateUrlError(draft.url) || getProviderCreateNameError(draft.name)) return null;
+  const intervalDefaults = getProviderIntervalDefaults();
+  return addProvider({
+    name: String(draft.name).trim(),
+    url: String(draft.url).trim(),
+    groupNames: draft.groupNames,
+    interval: normalizeIntervalInput(draft.interval, 60) || intervalDefaults.interval,
+    healthUrl: draft.healthUrl || intervalDefaults.healthUrl,
+    healthInterval: normalizeIntervalInput(draft.healthInterval, 30) || intervalDefaults.healthInterval,
+    userAgent: draft.userAgent,
+    xHwid: draft.xHwid,
+    fromCreateDialog: true,
+  });
+}
+
+function submitProviderCreateDialog(event) {
+  event.preventDefault();
+  if (!syncProviderCreateValidation({ showErrors: true }) || !els.providerCreateForm.reportValidity()) return;
+  const provider = commitProviderCreateDraft(state.providerCreateDraft);
+  if (!provider) return;
+  closeProviderCreateDialog();
+  showMessage(`Подписка ${provider.name} добавлена.`, { severity: 'success' });
+  window.setTimeout(() => {
+    els.providersList.querySelector('.provider-list-item.is-selected .provider-name-button')?.focus();
+  }, 0);
+}
+
+function addProvider(options = {}) {
+  if (!state.originalText || !state.hasGroupsSection) return null;
+
+  const pendingProvider = state.providers.find((provider) => provider.isNew && !provider.deleted && !provider.url.trim());
+  if (!options.url && pendingProvider) {
+    state.selectedProviderName = pendingProvider.name;
+    state.providerInspectorEditing = true;
+    render();
+    return pendingProvider;
+  }
+
+  const name = String(options.name || getNextProviderName()).trim();
+  const intervalDefaults = getProviderIntervalDefaults();
 
   const provider = {
     name,
     originalName: name,
     type: 'http',
-    url: '',
+    url: String(options.url || '').trim(),
     filter: '',
     excludeFilter: '',
     excludeType: '',
-    userAgent: generatedHeaders.userAgent,
-    xHwid: generatedHeaders.xHwid,
+    userAgent: options.userAgent || DEFAULT_GENERATED_USER_AGENT,
+    xHwid: options.xHwid || generateHwid(),
     customHeaders: '',
     customHeaderKeys: [],
     udp: true,
     tfo: true,
     path: `./providers/${name}.yaml`,
-    interval: intervalDefaults.interval,
-    healthUrl: intervalDefaults.healthUrl,
-    healthInterval: intervalDefaults.healthInterval,
+    interval: options.interval || intervalDefaults.interval,
+    healthUrl: options.healthUrl || intervalDefaults.healthUrl,
+    healthInterval: options.healthInterval || intervalDefaults.healthInterval,
     hasUrl: true,
     hasPath: true,
     hasInterval: true,
@@ -11595,7 +11836,7 @@ function addProvider() {
     hasHealthInterval: true,
     rawLines: [],
     isNew: true,
-    autoName: true,
+    autoName: !options.url,
     nameLocked: true,
     highlight: true,
     deleted: false,
@@ -11603,21 +11844,24 @@ function addProvider() {
 
   state.providers.unshift(provider);
   state.selectedProviderName = provider.name;
-  state.providerInspectorEditing = true;
-  connectProviderToUseGroups(provider.name);
+  state.providerInspectorEditing = !options.fromCreateDialog;
+  connectProviderToUseGroups(provider.name, options.groupNames);
   generateOutput();
   render();
 
-  window.setTimeout(() => {
-    const editor = els.providersList.querySelector('.provider-detail.is-editing');
-    if (editor?.style) editor.style.scrollMarginTop = `${getStickyTopbarHeight() + 12}px`;
-    editor?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
-  }, 0);
+  if (state.providerInspectorEditing) {
+    window.setTimeout(() => {
+      const editor = els.providersList.querySelector('.provider-detail.is-editing');
+      if (editor?.style) editor.style.scrollMarginTop = `${getStickyTopbarHeight() + 12}px`;
+      editor?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
 
   window.setTimeout(() => {
     provider.highlight = false;
     render();
   }, 1800);
+  return provider;
 }
 
 function addGroup() {
@@ -11685,9 +11929,10 @@ function removeGroup(group) {
   showUndoMessage(`Группа ${group.name} будет удалена.`);
 }
 
-function connectProviderToUseGroups(providerName) {
+function connectProviderToUseGroups(providerName, groupNames = null) {
+  const selectedGroups = Array.isArray(groupNames) ? new Set(groupNames) : null;
   state.groups
-    .filter((group) => group.useStart !== -1 || group.use.length > 0)
+    .filter((group) => (group.useStart !== -1 || group.use.length > 0) && (!selectedGroups || selectedGroups.has(group.name)))
     .forEach((group) => {
       if (!group.use.includes(providerName)) {
         group.use.push(providerName);
