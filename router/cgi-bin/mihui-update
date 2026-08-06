@@ -6,9 +6,11 @@ WWW_DIR="$APP_DIR/www"
 ENV_FILE="$APP_DIR/mihui.env"
 INIT_SCRIPT="${MIHUI_INIT_SCRIPT:-/opt/etc/init.d/S99mihui}"
 DEFAULT_RELEASE_URL="https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz"
-SOURCE_ARCHIVE_URL="${MIHUI_SOURCE_ARCHIVE_URL:-https://github.com/KiMorev/MihUI/archive/refs/heads/main.tar.gz}"
+LEGACY_DOWNLOAD_URLS="$DEFAULT_RELEASE_URL https://github.com/KiMorev/MihUI/archive/refs/heads/main.tar.gz"
 RELEASE_URL="${MIHUI_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 DOWNLOAD_URLS="${MIHUI_DOWNLOAD_URLS:-}"
+DOWNLOAD_ATTEMPTS=3
+DOWNLOAD_RETRY_DELAY=2
 TMP_DIR=""
 PACKAGE_DIR=""
 DOWNLOADED_ARCHIVE=""
@@ -20,6 +22,7 @@ PROGRESS_FILE="${MIHUI_PROGRESS_FILE:-}"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 [ -n "${MIHUI_RELEASE_URL:-}" ] && RELEASE_URL="$MIHUI_RELEASE_URL"
 [ -n "${MIHUI_DOWNLOAD_URLS:-}" ] && DOWNLOAD_URLS="$MIHUI_DOWNLOAD_URLS"
+[ "$DOWNLOAD_URLS" = "$LEGACY_DOWNLOAD_URLS" ] && DOWNLOAD_URLS="$RELEASE_URL"
 
 respond_json() {
   status="$1"
@@ -99,9 +102,6 @@ setup_download_urls() {
   fi
 
   DOWNLOAD_URLS="$RELEASE_URL"
-  if [ "$RELEASE_URL" = "$DEFAULT_RELEASE_URL" ]; then
-    DOWNLOAD_URLS="$DOWNLOAD_URLS $SOURCE_ARCHIVE_URL"
-  fi
 }
 
 make_tmp_dir() {
@@ -113,7 +113,7 @@ make_tmp_dir() {
   }
 }
 
-download_file() {
+download_file_once() {
   url="$1"
   target="$2"
   track_progress="${3:-false}"
@@ -136,6 +136,26 @@ download_file() {
       return 0
     fi
   fi
+
+  return 1
+}
+
+download_file() {
+  url="$1"
+  target="$2"
+  track_progress="${3:-false}"
+  attempt=1
+
+  while [ "$attempt" -le "$DOWNLOAD_ATTEMPTS" ]; do
+    rm -f "$target" "$target.headers"
+    if download_file_once "$url" "$target" "$track_progress"; then
+      return 0
+    fi
+    if [ "$attempt" -lt "$DOWNLOAD_ATTEMPTS" ]; then
+      sleep "$DOWNLOAD_RETRY_DELAY"
+    fi
+    attempt=$((attempt + 1))
+  done
 
   return 1
 }

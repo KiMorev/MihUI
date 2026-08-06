@@ -15,7 +15,6 @@ DEFAULT_PORT="${MIHUI_PORT:-9878}"
 PORT_RANGE_START=9879
 PORT_RANGE_END=9899
 DEFAULT_RELEASE_URL="https://github.com/KiMorev/MihUI/releases/latest/download/mihui-router.tar.gz"
-SOURCE_ARCHIVE_URL="${MIHUI_SOURCE_ARCHIVE_URL:-https://github.com/KiMorev/MihUI/archive/refs/heads/main.tar.gz}"
 RELEASE_URL="${MIHUI_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 DOWNLOAD_URLS="${MIHUI_DOWNLOAD_URLS:-}"
 PACKAGE_DIR=""
@@ -42,9 +41,6 @@ setup_download_urls() {
   fi
 
   DOWNLOAD_URLS="$RELEASE_URL"
-  if [ "$RELEASE_URL" = "$DEFAULT_RELEASE_URL" ]; then
-    DOWNLOAD_URLS="$DOWNLOAD_URLS $SOURCE_ARCHIVE_URL"
-  fi
 }
 
 cleanup() {

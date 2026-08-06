@@ -575,12 +575,27 @@ test('installer and updater require checksum and path validation before extracti
   }
 });
 
+test('installer and updater do not use the source archive as a fallback', () => {
+  for (const name of ['router/install.sh', 'router/cgi-bin/mihui-update']) {
+    const script = read(name);
+    assert.match(script, /DOWNLOAD_URLS="\$RELEASE_URL"/);
+    assert.doesNotMatch(script, /DOWNLOAD_URLS="\$DOWNLOAD_URLS \$SOURCE_ARCHIVE_URL"/);
+  }
+});
+
 test('MihUI updater reports download, extract and replacement progress', () => {
   const updater = read('router/cgi-bin/mihui-update');
 
   assert.match(updater, /update_progress download/);
   assert.match(updater, /update_progress extract/);
   assert.match(updater, /update_progress replace/);
+});
+
+test('MihUI updater retries failed downloads', () => {
+  const updater = read('router/cgi-bin/mihui-update');
+
+  assert.match(updater, /DOWNLOAD_ATTEMPTS=3/);
+  assert.match(updater, /while \[ "\$attempt" -le "\$DOWNLOAD_ATTEMPTS" \]; do[\s\S]+?download_file_once[\s\S]+?sleep "\$DOWNLOAD_RETRY_DELAY"/);
 });
 
 test('router service supervises and restarts the MihUI server process', () => {
