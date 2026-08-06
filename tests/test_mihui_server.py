@@ -1614,6 +1614,74 @@ class ProviderAdapterTests(unittest.TestCase):
             [{"url": "https://www.instagram.com/robots.txt", "expected": 200}],
         )
 
+    def test_resource_monitor_history_keeps_full_day_and_boundary_states(self):
+        now = 1_800_000_000
+        events = [
+            {"timestamp": now - 26 * 60 * 60, "service": "telegram", "type": "available"},
+            {"timestamp": now - 25 * 60 * 60, "service": "youtube", "type": "available"},
+        ]
+        events.extend(
+            {
+                "timestamp": now - 23 * 60 * 60 + index * 5 * 60,
+                "service": ("youtube", "telegram", "instagram", "ai")[index % 4],
+                "type": "high_latency",
+            }
+            for index in range(240)
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            path = mihui_server.resource_monitor_log_path(app_dir)
+            path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(mihui_server, "RESOURCE_MONITOR_LOG_MAX_BYTES", 1), mock.patch.object(
+                mihui_server,
+                "RESOURCE_MONITOR_LOG_PRUNE_INTERVAL_SECONDS",
+                0,
+            ), mock.patch.object(mihui_server.time, "time", return_value=now):
+                mihui_server.append_resource_monitor_event(
+                    app_dir,
+                    "youtube",
+                    "available",
+                    "YouTube доступен",
+                )
+
+            loaded = mihui_server.read_resource_monitor_events(app_dir, now=now)
+
+        self.assertEqual(len(loaded), 243)
+        self.assertEqual(loaded[0]["service"], "telegram")
+        self.assertEqual(loaded[1]["service"], "youtube")
+        self.assertEqual(loaded[-1]["type"], "available")
+
+    def test_resource_monitor_records_initial_available_state_once(self):
+        now = 1_800_000_000
+        settings = mihui_server.default_resource_monitor_settings()
+        runtime = mihui_server.default_resource_monitor_runtime()
+        proxies = {
+            "YOUTUBE": {
+                "name": "YOUTUBE",
+                "type": "Selector",
+                "now": "node-a",
+                "all": ["node-a"],
+            },
+            "node-a": {"name": "node-a", "type": "VLESS", "alive": True},
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server,
+            "probe_resource_node",
+            return_value={"ok": True, "delay": 42, "message": ""},
+        ), mock.patch.object(mihui_server.time, "time", return_value=now):
+            app_dir = Path(temp_dir)
+            mihui_server.run_resource_monitor_service(app_dir, settings, runtime, "youtube", proxies)
+            mihui_server.run_resource_monitor_service(app_dir, settings, runtime, "youtube", proxies)
+            events = mihui_server.read_resource_monitor_events(app_dir, now=now)
+
+        self.assertTrue(runtime["services"]["youtube"]["historyInitialized"])
+        self.assertEqual([event["type"] for event in events], ["available"])
+
     def test_whitelist_monitor_settings_are_validated_and_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

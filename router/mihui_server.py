@@ -183,7 +183,9 @@ XKEEN_COMMAND_FLAGS = {
     for item in group["items"]
 }
 RESOURCE_MONITOR_LOG_MAX_BYTES = 512 * 1024
-RESOURCE_MONITOR_EVENT_LIMIT = 200
+RESOURCE_MONITOR_HISTORY_SECONDS = 24 * 60 * 60
+RESOURCE_MONITOR_LOG_RETENTION_SECONDS = 25 * 60 * 60
+RESOURCE_MONITOR_LOG_PRUNE_INTERVAL_SECONDS = 60 * 60
 RESOURCE_MONITOR_SLOW_CHECK_THRESHOLD = 2
 RESOURCE_MONITOR_PRIORITY_RECOVERY_THRESHOLD = 2
 RESOURCE_MONITOR_MIN_LATENCY_IMPROVEMENT_RATIO = 0.25
@@ -300,6 +302,8 @@ xkeen_command_jobs_lock = threading.Lock()
 xkeen_command_jobs = {}
 resource_monitor_lock = threading.Lock()
 resource_monitor_state_lock = threading.Lock()
+resource_monitor_log_prune_lock = threading.Lock()
+resource_monitor_log_pruned_at = {}
 resource_monitor_job_state = {
     "running": False,
     "services": [],
@@ -3624,6 +3628,7 @@ def default_resource_monitor_runtime():
                 "message": "Проверка ещё не выполнялась",
                 "lastSwitch": None,
                 "quarantine": {},
+                "historyInitialized": False,
             }
             for key in RESOURCE_MONITOR_SERVICES
         },
@@ -3653,15 +3658,42 @@ def save_resource_monitor_runtime(app_dir, runtime):
     write_json_atomic(resource_monitor_runtime_path(app_dir), runtime)
 
 
-def read_resource_monitor_events(app_dir, limit=RESOURCE_MONITOR_EVENT_LIMIT):
-    path = resource_monitor_log_path(app_dir)
+def get_resource_monitor_event_timestamp(event):
+    value = event.get("timestamp")
     try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        try:
+            timestamp = datetime.fromisoformat(str(event.get("at") or "")).timestamp()
+        except (TypeError, ValueError):
+            return None
+    return timestamp / 1000 if timestamp > 1e12 else timestamp
+
+
+def select_resource_monitor_history_events(events, now=None, retention_seconds=RESOURCE_MONITOR_HISTORY_SECONDS):
+    cutoff = float(time.time() if now is None else now) - retention_seconds
+    selected_indexes = []
+    boundary_by_service = {}
+    for index, event in enumerate(events):
+        timestamp = get_resource_monitor_event_timestamp(event)
+        if timestamp is None:
+            continue
+        if timestamp >= cutoff:
+            selected_indexes.append(index)
+        else:
+            boundary_by_service[str(event.get("service") or "")] = index
+    selected_indexes.extend(boundary_by_service.values())
+    return [events[index] for index in sorted(set(selected_indexes))]
+
+
+def load_resource_monitor_event_file(path):
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return []
 
     events = []
-    for line in lines[-max(1, int(limit)):]:
+    for line in lines:
         try:
             event = json.loads(line)
         except (TypeError, ValueError):
@@ -3669,6 +3701,13 @@ def read_resource_monitor_events(app_dir, limit=RESOURCE_MONITOR_EVENT_LIMIT):
         if isinstance(event, dict):
             events.append(event)
     return events
+
+
+def read_resource_monitor_events(app_dir, limit=None, now=None):
+    events = load_resource_monitor_event_file(resource_monitor_log_path(app_dir))
+    if limit is not None:
+        return events[-max(1, int(limit)):]
+    return select_resource_monitor_history_events(events, now=now)
 
 
 def append_resource_monitor_event(app_dir, service, event_type, message, **details):
@@ -3687,8 +3726,22 @@ def append_resource_monitor_event(app_dir, service, event_type, message, **detai
 
     try:
         if path.stat().st_size > RESOURCE_MONITOR_LOG_MAX_BYTES:
-            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            path.write_text("\n".join(lines[-RESOURCE_MONITOR_EVENT_LIMIT:]) + "\n", encoding="utf-8")
+            now = event["timestamp"]
+            with resource_monitor_log_prune_lock:
+                last_pruned_at = resource_monitor_log_pruned_at.get(str(path), 0)
+                should_prune = now - last_pruned_at >= RESOURCE_MONITOR_LOG_PRUNE_INTERVAL_SECONDS
+                if should_prune:
+                    resource_monitor_log_pruned_at[str(path)] = now
+            if should_prune:
+                retained = select_resource_monitor_history_events(
+                    load_resource_monitor_event_file(path),
+                    now=now,
+                    retention_seconds=RESOURCE_MONITOR_LOG_RETENTION_SECONDS,
+                )
+                path.write_text(
+                    "\n".join(json.dumps(item, ensure_ascii=False) for item in retained) + "\n",
+                    encoding="utf-8",
+                )
     except OSError:
         pass
 
@@ -4164,6 +4217,7 @@ def switch_resource_monitor_node(
             "consecutiveSlowChecks": 0,
             "priorityRecoveryCandidate": "",
             "priorityRecoveryChecks": 0,
+            "historyInitialized": True,
             "message": "Ресурс доступен",
             "lastSwitch": {
                 "at": switched_at,
@@ -4348,6 +4402,16 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
                             node=current,
                             delay=current_delay,
                         )
+                    elif not item.get("historyInitialized"):
+                        append_resource_monitor_event(
+                            app_dir,
+                            service,
+                            "available",
+                            f"{RESOURCE_MONITOR_SERVICES[service]['title']} доступен",
+                            node=current,
+                            delay=current_delay,
+                        )
+                    item["historyInitialized"] = True
                     return
                 switch_resource_monitor_node(
                     app_dir,
@@ -4412,6 +4476,16 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
                     node=current,
                     delay=current_delay,
                 )
+            elif not item.get("historyInitialized"):
+                append_resource_monitor_event(
+                    app_dir,
+                    service,
+                    "available",
+                    f"{RESOURCE_MONITOR_SERVICES[service]['title']} доступен",
+                    node=current,
+                    delay=current_delay,
+                )
+            item["historyInitialized"] = True
             return
 
         slow_checks = previous_slow_checks + 1
