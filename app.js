@@ -426,6 +426,7 @@ const state = {
     draft: null,
     dirty: false,
     pendingSettings: null,
+    proposalSnapshot: null,
     pollTimer: 0,
     proxyCheckingId: '',
     manualProxyResults: {},
@@ -756,6 +757,7 @@ const els = {
   whitelistMonitorProposalButton: document.querySelector('#whitelistMonitorProposalButton'),
   whitelistMonitorInterval: document.querySelector('#whitelistMonitorInterval'),
   whitelistMonitorConfirmations: document.querySelector('#whitelistMonitorConfirmations'),
+  whitelistMonitorRecoveryConfirmations: document.querySelector('#whitelistMonitorRecoveryConfirmations'),
   whitelistMonitorTimeout: document.querySelector('#whitelistMonitorTimeout'),
   whitelistMonitorProxyGroup: document.querySelector('#whitelistMonitorProxyGroup'),
   whitelistMonitorActionMode: document.querySelector('#whitelistMonitorActionMode'),
@@ -877,7 +879,7 @@ els.whitelistMonitorProposalButton.addEventListener('click', handleWhitelistMoni
 els.whitelistMonitorSaveButton.addEventListener('click', saveWhitelistMonitorSettings);
 els.whitelistMonitorRestoreButton.addEventListener('click', restoreWhitelistMonitorDefaults);
 els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('click', addWhitelistMonitorEndpoint));
-[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
+[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorRecoveryConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
   .forEach((control) => {
     control.addEventListener('input', handleWhitelistMonitorPolicyInput);
     control.addEventListener('change', handleWhitelistMonitorPolicyInput);
@@ -1159,6 +1161,7 @@ function handleFileSelect(event) {
     state.nodeGroupSelectionsError = '';
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -1211,6 +1214,7 @@ async function loadRouterConfig(options = {}) {
     state.lastConfigCheckOk = false;
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
@@ -1279,6 +1283,8 @@ async function saveRouterConfig() {
     return;
   }
 
+  if (!await validateWhitelistProposalSnapshot()) return;
+
   if (!isCurrentConfigKernelChecked()) {
     const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
     if (check === false) {
@@ -1307,6 +1313,7 @@ async function saveRouterConfig() {
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
     state.routerSavedText = state.outputText;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
     persistSuccessfulConfigCheck(state.outputText);
@@ -4529,6 +4536,7 @@ function defaultWhitelistMonitorClientSettings() {
     actionMode: 'observe',
     intervalSeconds: 300,
     confirmationThreshold: 3,
+    recoveryThreshold: 3,
     controlFailureThreshold: 2,
     timeoutMs: 5000,
     proxyGroup: 'PROXY',
@@ -4822,11 +4830,45 @@ function renderWhitelistMonitorProposal(config, runtime) {
     els.whitelistMonitorProposal.hidden = true;
     return;
   }
-  const fallbackActive = isWhitelistFallbackConfigActive();
+  const automatic = config.actionMode === 'automatic';
+  const fallbackActive = automatic
+    ? Boolean(runtime.fallbackActive)
+    : isWhitelistFallbackConfigActive();
   const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
   const shouldSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !fallbackActive;
   const cannotSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
   const shouldRestore = fallbackActive && runtime.state === 'normal';
+  if (automatic) {
+    const pending = runtime.automaticActionPending || '';
+    const failed = runtime.lastConfigActionOk === false && Boolean(pending);
+    const cannotActivate = runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
+    els.whitelistMonitorProposal.hidden = !fallbackActive && !pending && !failed && !cannotActivate;
+    if (els.whitelistMonitorProposal.hidden) return;
+    els.whitelistMonitorProposal.classList.toggle('is-active', fallbackActive);
+    els.whitelistMonitorProposalButton.hidden = true;
+    if (failed) {
+      els.whitelistMonitorProposalBadge.textContent = 'Ошибка автозамены';
+      els.whitelistMonitorProposalTitle.textContent = 'Конфиг не переключён';
+      els.whitelistMonitorProposalMessage.textContent = runtime.lastConfigActionMessage || 'MihUI повторит попытку после защитной паузы.';
+    } else if (pending === 'restore') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает восстановления';
+      els.whitelistMonitorProposalTitle.textContent = 'Нормальный доступ подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'Исходная маршрутизация будет восстановлена после 15-минутной защитной паузы между заменами.';
+    } else if (pending === 'activate') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает замены';
+      els.whitelistMonitorProposalTitle.textContent = 'Режим белых списков подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'MihUI применит временную маршрутизацию после 15-минутной защитной паузы между заменами.';
+    } else if (cannotActivate) {
+      els.whitelistMonitorProposalBadge.textContent = 'PROXY не подтверждён';
+      els.whitelistMonitorProposalTitle.textContent = 'Автозамена приостановлена';
+      els.whitelistMonitorProposalMessage.textContent = 'Выбранная PROXY-группа не восстановила достаточно контрольных ресурсов.';
+    } else {
+      els.whitelistMonitorProposalBadge.textContent = 'Применено автоматически';
+      els.whitelistMonitorProposalTitle.textContent = 'Временная маршрутизация активна';
+      els.whitelistMonitorProposalMessage.textContent = `Остальной трафик направляется в ${config.proxyGroup}. Исходные правила вернутся после устойчивого восстановления DIRECT.`;
+    }
+    return;
+  }
   els.whitelistMonitorProposal.hidden = !shouldSuggest && !cannotSuggest && !shouldRestore && !fallbackActive;
   if (els.whitelistMonitorProposal.hidden) return;
 
@@ -4939,6 +4981,7 @@ function removeWhitelistFallbackConfig() {
 }
 
 function prepareWhitelistMonitorDisable(settings) {
+  state.whitelistMonitor.proposalSnapshot = null;
   state.whitelistMonitor.pendingSettings = {
     ...cloneWhitelistMonitorSettings(settings),
     enabled: false,
@@ -4966,6 +5009,9 @@ function handleWhitelistMonitorProposal() {
         severity: 'warning',
       });
     }
+    state.whitelistMonitor.proposalSnapshot = {
+      action: fallbackActive ? 'restore' : 'activate',
+    };
     state.whitelistMonitor.error = '';
     render();
     setActiveSection('review');
@@ -4979,6 +5025,7 @@ function renderWhitelistMonitorForm() {
   const settings = getWhitelistMonitorDraft();
   els.whitelistMonitorInterval.value = String(settings.intervalSeconds);
   els.whitelistMonitorConfirmations.value = String(settings.confirmationThreshold);
+  els.whitelistMonitorRecoveryConfirmations.value = String(settings.recoveryThreshold || 3);
   els.whitelistMonitorTimeout.value = String(settings.timeoutMs);
   els.whitelistMonitorProxyGroup.value = settings.proxyGroup || 'PROXY';
   els.whitelistMonitorActionMode.value = settings.actionMode || 'observe';
@@ -5130,7 +5177,7 @@ function renderWhitelistMonitorEvents() {
     const title = document.createElement('strong');
     const details = document.createElement('span');
     const date = document.createElement('time');
-    const tone = event.type === 'confirmed'
+    const tone = ['confirmed', 'config_failed'].includes(event.type)
       ? 'error'
       : ['suspected', 'unknown'].includes(event.type)
         ? 'warning'
@@ -5154,10 +5201,35 @@ function formatWhitelistMonitorEventDetails(event) {
   return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено · Яндекс: ${Number(event.controlYandexRecoveries || 0)} восстановлено`;
 }
 
+async function validateWhitelistProposalSnapshot() {
+  const snapshot = state.whitelistMonitor.proposalSnapshot;
+  if (!snapshot) return true;
+  try {
+    const data = await apiJson('/api/whitelist-monitor');
+    const config = data.config || defaultWhitelistMonitorClientSettings();
+    const runtime = data.runtime || {};
+    const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
+    const stillValid = snapshot.action === 'activate'
+      ? config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !runtime.fallbackActive
+      : runtime.state === 'normal' && Boolean(runtime.fallbackActive);
+    if (stillValid) return true;
+    showMessage('Состояние сети изменилось после подготовки черновика. Конфиг не сохранён — подготовьте переключение заново.', {
+      severity: 'warning',
+    });
+    return false;
+  } catch (error) {
+    showMessage(`Не удалось повторно проверить режим белых списков: ${error?.message || error}`, {
+      severity: 'error',
+    });
+    return false;
+  }
+}
+
 function handleWhitelistMonitorPolicyInput(event) {
   const draft = getWhitelistMonitorDraft();
   draft.intervalSeconds = Number(els.whitelistMonitorInterval.value);
   draft.confirmationThreshold = Number(els.whitelistMonitorConfirmations.value);
+  draft.recoveryThreshold = Number(els.whitelistMonitorRecoveryConfirmations.value);
   draft.timeoutMs = Number(els.whitelistMonitorTimeout.value);
   draft.proxyGroup = els.whitelistMonitorProxyGroup.value;
   draft.actionMode = els.whitelistMonitorActionMode.value;
@@ -5272,7 +5344,7 @@ function restoreWhitelistMonitorDefaults() {
 
 function validateWhitelistMonitorDraft(settings) {
   if (!settings.proxyGroup.trim()) return 'Укажите прокси-группу.';
-  if (!['observe', 'suggest'].includes(settings.actionMode || 'observe')) {
+  if (!['observe', 'suggest', 'automatic'].includes(settings.actionMode || 'observe')) {
     return 'Выберите действие после подтверждения.';
   }
   if (!settings.positiveEndpoints.some((item) => item.enabled)) {

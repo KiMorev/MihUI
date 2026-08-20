@@ -506,13 +506,14 @@ test('main and standalone expose the editorial shell without a dedicated routing
   }
 });
 
-test('main and standalone expose observation and reviewed whitelist proposals', () => {
+test('main and standalone expose stable automatic whitelist routing', () => {
   for (const name of ['index.html', 'mihomo-editor.html']) {
     const html = read(name);
     assert.match(html, /data-section="whitelist"/);
     assert.match(html, /data-section-panel="whitelist"/);
     assert.match(html, /id="whitelistMonitorEnabled"/);
     assert.match(html, /id="whitelistMonitorActionMode"/);
+    assert.match(html, /id="whitelistMonitorRecoveryConfirmations"/);
     assert.match(html, /id="whitelistMonitorYandexRelayEnabled"/);
     assert.match(html, /id="whitelistMonitorYandexRecoveries"/);
     assert.match(html, /id="whitelistMonitorProposal"/);
@@ -524,9 +525,10 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(html, /Последние 24 часа/);
     assert.match(html, /value="observe"/);
     assert.match(html, /value="suggest"/);
+    assert.match(html, /value="automatic"/);
     assert.match(html, /id="whitelistMonitorPositiveEndpoints"/);
     assert.match(html, /id="whitelistMonitorControlEndpoints"/);
-    assert.match(html, /Автоматического применения нет/);
+    assert.match(html, /автоматически применять и восстанавливать/);
   }
   for (const name of ['app.js', 'mihomo-editor.html']) {
     const script = read(name);
@@ -535,10 +537,12 @@ test('main and standalone expose observation and reviewed whitelist proposals', 
     assert.match(script, /не требовалось/);
     assert.match(script, /Проверить PROXY/);
     assert.match(script, /controlFailureThreshold: 2/);
+    assert.match(script, /recoveryThreshold: 3/);
     assert.match(script, /yandexRelayEnabled: false/);
     assert.match(script, /runtime\.controlYandexRecoveries/);
     assert.match(script, /const proxyReady = Number\(runtime\.controlProxyRecoveries/);
     assert.match(script, /PROXY не подтверждён/);
+    assert.match(script, /validateWhitelistProposalSnapshot/);
     assert.match(script, /prepareWhitelistFallbackConfig/);
     assert.match(script, /buildWhitelistMonitorTimeline/);
     assert.match(script, /function renderOverviewWhitelistMonitor\(\)/);

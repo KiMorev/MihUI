@@ -655,7 +655,7 @@
         <header class="whitelist-monitor-page-head">
           <div>
             <h2>Белые списки оператора</h2>
-            <p>Наблюдение с безопасной подготовкой изменений только после ручного подтверждения</p>
+            <p>Наблюдение с подтверждением состояния и обратимым переключением маршрутизации</p>
           </div>
           <label class="resource-monitor-switch whitelist-monitor-main-switch">
             <input id="whitelistMonitorEnabled" type="checkbox" />
@@ -689,7 +689,7 @@
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
           <div>
             <h3>Мониторинг выключен</h3>
-            <p>После включения можно только наблюдать либо получать предложение подготовить обратимый черновик YAML. Автоматического применения нет.</p>
+            <p>После включения можно наблюдать, получать предложение черновика либо автоматически применять и восстанавливать временную маршрутизацию.</p>
           </div>
         </article>
 
@@ -746,6 +746,15 @@
                 </select>
               </label>
               <label>
+                <span>Восстановить после</span>
+                <select id="whitelistMonitorRecoveryConfirmations">
+                  <option value="2">2 цикла нормы</option>
+                  <option value="3">3 цикла нормы</option>
+                  <option value="4">4 цикла нормы</option>
+                  <option value="5">5 циклов нормы</option>
+                </select>
+              </label>
+              <label>
                 <span>Тайм-аут адреса</span>
                 <select id="whitelistMonitorTimeout">
                   <option value="3000">3 секунды</option>
@@ -763,6 +772,7 @@
                 <select id="whitelistMonitorActionMode">
                   <option value="observe">Только сообщить</option>
                   <option value="suggest">Предложить черновик YAML</option>
+                  <option value="automatic">Автоматически заменить конфиг</option>
                 </select>
               </label>
               <label>

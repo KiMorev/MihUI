@@ -243,6 +243,8 @@ WHITELIST_MONITOR_LOG_MAX_BYTES = 256 * 1024
 WHITELIST_MONITOR_EVENT_LIMIT = 200
 WHITELIST_MONITOR_ENDPOINT_LIMIT = 10
 WHITELIST_MONITOR_YANDEX_RELAY_URL = "https://translate.yandex.ru/translate"
+WHITELIST_FALLBACK_MARKER = "webmihomo-whitelist:"
+WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS = 15 * 60
 WHITELIST_MONITOR_POSITIVE_ENDPOINTS = [
     {"id": "allowed-ya", "name": "Яндекс", "url": "https://ya.ru/", "enabled": True},
     {"id": "allowed-gosuslugi", "name": "Госуслуги", "url": "https://www.gosuslugi.ru/", "enabled": True},
@@ -829,6 +831,29 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         previous = load_whitelist_monitor_settings(self.app_dir)
+        if not settings["enabled"]:
+            config_path = get_config_path(self.app_dir)
+            current_text = read_config_text(config_path)
+            restored_text = remove_whitelist_fallback_text(current_text)
+            if restored_text != current_text:
+                restore = save_checked_config(
+                    self.app_dir,
+                    restored_text,
+                    expected_revision=config_revision(current_text),
+                )
+                if not restore.get("ok") or not restore.get("applied"):
+                    self.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "ok": False,
+                            "message": restore.get(
+                                "message",
+                                "temporary whitelist routing could not be restored",
+                            ),
+                            "restore": restore,
+                        },
+                    )
+                    return
         save_whitelist_monitor_settings(self.app_dir, settings)
         if previous["enabled"] != settings["enabled"]:
             append_whitelist_monitor_event(
@@ -4741,6 +4766,7 @@ def default_whitelist_monitor_settings():
         "actionMode": "observe",
         "intervalSeconds": 300,
         "confirmationThreshold": 3,
+        "recoveryThreshold": 3,
         "controlFailureThreshold": 2,
         "timeoutMs": 5000,
         "proxyGroup": "PROXY",
@@ -4809,6 +4835,7 @@ def validate_whitelist_monitor_settings(payload):
     ranges = {
         "intervalSeconds": (60, 3600),
         "confirmationThreshold": (2, 6),
+        "recoveryThreshold": (2, 6),
         "controlFailureThreshold": (1, 5),
         "timeoutMs": (1000, 15000),
     }
@@ -4817,8 +4844,8 @@ def validate_whitelist_monitor_settings(payload):
         "yandexRelayEnabled": bool(payload.get("yandexRelayEnabled", False)),
     }
     action_mode = str(payload.get("actionMode") or "observe").strip()
-    if action_mode not in {"observe", "suggest"}:
-        raise ValueError("actionMode must be observe or suggest")
+    if action_mode not in {"observe", "suggest", "automatic"}:
+        raise ValueError("actionMode must be observe, suggest or automatic")
     result["actionMode"] = action_mode
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
@@ -4869,6 +4896,7 @@ def load_whitelist_monitor_settings(app_dir):
         "actionMode",
         "intervalSeconds",
         "confirmationThreshold",
+        "recoveryThreshold",
         "controlFailureThreshold",
         "timeoutMs",
         "proxyGroup",
@@ -4894,12 +4922,20 @@ def default_whitelist_monitor_runtime():
         "checkedAt": None,
         "consecutiveSuspicions": 0,
         "consecutiveInconclusive": 0,
+        "consecutiveNormals": 0,
         "evidenceState": "none",
         "accessMode": "unknown",
         "positiveDirectSuccesses": 0,
         "controlDirectFailures": 0,
         "controlProxyRecoveries": 0,
         "controlYandexRecoveries": 0,
+        "fallbackActive": False,
+        "automaticActionPending": "",
+        "lastConfigAction": "",
+        "lastConfigActionAt": None,
+        "lastConfigActionOk": None,
+        "lastConfigActionMessage": "",
+        "lastConfigRevision": "",
         "endpoints": {},
     }
 
@@ -4982,10 +5018,14 @@ def snapshot_whitelist_monitor_job():
 
 def get_whitelist_monitor_status(app_dir):
     config = load_whitelist_monitor_settings(app_dir)
+    runtime = load_whitelist_monitor_runtime(app_dir, config)
+    runtime["fallbackActive"] = has_whitelist_fallback_config(
+        read_config_text(get_config_path(app_dir))
+    )
     return {
         "ok": True,
         "config": config,
-        "runtime": load_whitelist_monitor_runtime(app_dir, config),
+        "runtime": runtime,
         "events": read_whitelist_monitor_events(app_dir),
         "job": snapshot_whitelist_monitor_job(),
     }
@@ -5046,6 +5086,184 @@ def build_whitelist_yandex_relay_endpoint(endpoint):
     return relay_endpoint
 
 
+def split_whitelist_config_lines(text):
+    value = str(text or "")
+    newline = "\r\n" if "\r\n" in value else "\n"
+    return value.splitlines(), newline, value.endswith(("\n", "\r"))
+
+
+def join_whitelist_config_lines(lines, newline, trailing_newline):
+    result = newline.join(lines)
+    return result + newline if trailing_newline and lines else result
+
+
+def find_whitelist_rules_section(lines):
+    for start, line in enumerate(lines):
+        cleaned = line.split("#", 1)[0].rstrip()
+        match = re.match(r"^rules\s*:\s*(\[\s*\])?\s*$", cleaned)
+        if not match:
+            continue
+        end = len(lines)
+        for index in range(start + 1, len(lines)):
+            candidate = lines[index]
+            stripped = candidate.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if len(candidate) == len(candidate.lstrip(" ")):
+                end = index
+                break
+        item_indent = "  "
+        for candidate in lines[start + 1:end]:
+            item_match = re.match(r"^(\s+)-\s*", candidate)
+            if item_match:
+                item_indent = item_match.group(1)
+                break
+        return {
+            "start": start,
+            "end": end,
+            "inlineEmpty": bool(match.group(1)),
+            "itemIndent": item_indent,
+        }
+    return None
+
+
+def parse_whitelist_rule_line(line):
+    match = re.match(r"^\s*-\s*(.+?)\s*$", line)
+    if not match:
+        return []
+    value = match.group(1).split("#", 1)[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
+    return [part.strip() for part in value.split(",")]
+
+
+def is_whitelist_fallback_safety_rule(parts):
+    if len(parts) < 3 or parts[2].upper() != "DIRECT":
+        return False
+    rule_type = parts[0].upper()
+    value = parts[1].strip().lower().lstrip(".")
+    if rule_type == "DOMAIN":
+        return True
+    if rule_type == "DOMAIN-SUFFIX":
+        return "." in value
+    if rule_type in {"IP-CIDR", "IP-CIDR6", "SRC-IP-CIDR"}:
+        return bool(
+            re.match(
+                r"^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1/|f[cd][0-9a-f]{2}:|fe80:)",
+                value,
+                re.IGNORECASE,
+            )
+        )
+    if rule_type in {"GEOIP", "GEOSITE"}:
+        return value in {"lan", "private"}
+    if rule_type == "RULE-SET":
+        return bool(re.search(r"(^|[-_])(lan|local|private)([-_]|$)", value, re.IGNORECASE))
+    return False
+
+
+def has_whitelist_fallback_config(text):
+    lines, _, _ = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        return False
+    for line in lines[section["start"] + 1:section["end"]]:
+        if WHITELIST_FALLBACK_MARKER not in line.lower():
+            continue
+        parts = parse_whitelist_rule_line(line)
+        if parts and parts[0].upper() == "MATCH":
+            return True
+    return False
+
+
+def get_whitelist_allowed_hosts(settings):
+    hosts = []
+    for endpoint in settings["positiveEndpoints"]:
+        if not endpoint["enabled"]:
+            continue
+        host = (urllib.parse.urlsplit(endpoint["url"]).hostname or "").lower().rstrip(".")
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def prepare_whitelist_fallback_text(text, settings):
+    if has_whitelist_fallback_config(text):
+        return text
+    hosts = get_whitelist_allowed_hosts(settings)
+    if not hosts:
+        raise ValueError("no enabled whitelist hosts")
+    proxy_group = str(settings["proxyGroup"]).strip()
+    if not proxy_group or any(character in proxy_group for character in ",#\r\n"):
+        raise ValueError("proxyGroup cannot be serialized into a rule")
+
+    lines, newline, trailing_newline = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        if any(re.match(r"^rules\s*:", line.split("#", 1)[0].rstrip()) for line in lines):
+            raise ValueError("unsupported rules section format")
+        lines.append(f"rules: # {WHITELIST_FALLBACK_MARKER} created-rules-section")
+        section = {
+            "start": len(lines) - 1,
+            "end": len(lines),
+            "inlineEmpty": False,
+            "itemIndent": "  ",
+        }
+    elif section["inlineEmpty"]:
+        if "#" in lines[section["start"]]:
+            raise ValueError("inline empty rules with a comment are not supported")
+        lines[section["start"]] = f"rules: # {WHITELIST_FALLBACK_MARKER} expanded-empty-rules"
+        section["end"] = section["start"] + 1
+
+    insert_at = section["end"]
+    for index in range(section["start"] + 1, section["end"]):
+        parts = parse_whitelist_rule_line(lines[index])
+        if parts and not is_whitelist_fallback_safety_rule(parts):
+            insert_at = index
+            break
+
+    indent = section["itemIndent"]
+    generated = [
+        f"{indent}- DOMAIN-SUFFIX,{host},DIRECT # {WHITELIST_FALLBACK_MARKER} direct {host}"
+        for host in hosts
+    ]
+    generated.append(
+        f"{indent}- MATCH,{proxy_group} # {WHITELIST_FALLBACK_MARKER} catch-all"
+    )
+    lines[insert_at:insert_at] = generated
+    return join_whitelist_config_lines(lines, newline, trailing_newline)
+
+
+def remove_whitelist_fallback_text(text):
+    lines, newline, trailing_newline = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        return text
+    start = section["start"]
+    header = lines[start]
+    header_created = f"{WHITELIST_FALLBACK_MARKER} created-rules-section" in header.lower()
+    header_expanded = f"{WHITELIST_FALLBACK_MARKER} expanded-empty-rules" in header.lower()
+    kept = [
+        line
+        for line in lines[start + 1:section["end"]]
+        if WHITELIST_FALLBACK_MARKER not in line.lower()
+    ]
+    if len(kept) == section["end"] - start - 1 and not header_created and not header_expanded:
+        return text
+    has_rules = any(parse_whitelist_rule_line(line) for line in kept)
+    if header_created and not has_rules:
+        replacement = kept
+    else:
+        if header_expanded and not has_rules:
+            restored_header = "rules: []"
+        elif header_created or header_expanded:
+            restored_header = "rules:"
+        else:
+            restored_header = header
+        replacement = [restored_header, *kept]
+    lines[start:section["end"]] = replacement
+    return join_whitelist_config_lines(lines, newline, trailing_newline)
+
+
 def classify_whitelist_monitor_results(settings, runtime, positive_results, control_results):
     positive_successes = sum(result.get("ok") is True for result in positive_results.values())
     direct_failures = [
@@ -5077,9 +5295,12 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
     )
     previous_suspicions = int(runtime.get("consecutiveSuspicions") or 0)
     previous_inconclusive = int(runtime.get("consecutiveInconclusive") or 0)
+    previous_normals = int(runtime.get("consecutiveNormals") or 0)
     confirmation_threshold = settings["confirmationThreshold"]
+    recovery_threshold = settings["recoveryThreshold"]
     failure_threshold = settings["controlFailureThreshold"]
     inconclusive = 0
+    normals = 0
     evidence_state = "none"
     access_mode = "unknown"
 
@@ -5149,16 +5370,28 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
             evidence_state = retained["evidence"]
             access_mode = retained["access"]
     else:
-        state = "normal"
-        message = "Признаки режима белых списков не обнаружены"
-        consecutive = 0
+        recovering = runtime.get("state") == "confirmed" or bool(runtime.get("fallbackActive"))
+        normals = previous_normals + 1 if recovering else recovery_threshold
         access_mode = "direct"
+        if recovering and normals < recovery_threshold:
+            state = "confirmed"
+            message = (
+                "Прямой доступ восстанавливается, ожидается подтверждение "
+                f"({normals}/{recovery_threshold})"
+            )
+            consecutive = max(previous_suspicions, confirmation_threshold)
+            evidence_state = "previous"
+        else:
+            state = "normal"
+            message = "Признаки режима белых списков не обнаружены"
+            consecutive = 0
 
     return {
         "state": state,
         "message": message,
         "consecutiveSuspicions": consecutive,
         "consecutiveInconclusive": inconclusive,
+        "consecutiveNormals": normals,
         "evidenceState": evidence_state,
         "accessMode": access_mode,
         "positiveDirectSuccesses": positive_successes,
@@ -5168,10 +5401,91 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
     }
 
 
+def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
+    config_path = get_config_path(app_dir)
+    current_text = read_config_text(config_path)
+    active = has_whitelist_fallback_config(current_text)
+    runtime["fallbackActive"] = active
+    runtime["automaticActionPending"] = ""
+    if settings["actionMode"] != "automatic":
+        return None
+
+    proxy_ready = runtime["controlProxyRecoveries"] >= settings["controlFailureThreshold"]
+    action = ""
+    if (
+        not active
+        and runtime["state"] == "confirmed"
+        and runtime["evidenceState"] == "current"
+        and proxy_ready
+    ):
+        action = "activate"
+    elif active and runtime["state"] == "normal":
+        action = "restore"
+    if not action:
+        return None
+
+    checked_now = int(time.time() if now is None else now)
+    previous_action_at = runtime.get("lastConfigActionAt")
+    if (
+        isinstance(previous_action_at, (int, float))
+        and checked_now - int(previous_action_at) < WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS
+    ):
+        runtime["automaticActionPending"] = action
+        return None
+
+    try:
+        next_text = (
+            prepare_whitelist_fallback_text(current_text, settings)
+            if action == "activate"
+            else remove_whitelist_fallback_text(current_text)
+        )
+        if next_text == current_text:
+            return None
+        result = save_checked_config(
+            app_dir,
+            next_text,
+            expected_revision=config_revision(current_text),
+        )
+        action_ok = bool(result.get("ok") and result.get("applied"))
+        message = (
+            "Временная маршрутизация автоматически применена"
+            if action == "activate" and action_ok
+            else "Исходная маршрутизация автоматически восстановлена"
+            if action_ok
+            else str(result.get("message") or "automatic config action failed")
+        )
+    except Exception as error:
+        result = {"ok": False, "message": str(error)}
+        action_ok = False
+        message = str(error)
+
+    applied_text = read_config_text(config_path)
+    runtime.update(
+        {
+            "fallbackActive": has_whitelist_fallback_config(applied_text),
+            "automaticActionPending": "" if action_ok else action,
+            "lastConfigAction": action,
+            "lastConfigActionAt": checked_now,
+            "lastConfigActionOk": action_ok,
+            "lastConfigActionMessage": message,
+            "lastConfigRevision": config_revision(applied_text),
+        }
+    )
+    return {
+        "action": action,
+        "ok": action_ok,
+        "message": message,
+        "result": result,
+    }
+
+
 def run_whitelist_monitor_cycle(app_dir):
     with whitelist_monitor_lock:
         settings = load_whitelist_monitor_settings(app_dir)
         runtime = load_whitelist_monitor_runtime(app_dir, settings)
+        runtime["fallbackActive"] = has_whitelist_fallback_config(
+            read_config_text(get_config_path(app_dir))
+        )
         if not settings["enabled"]:
             return runtime
 
@@ -5267,6 +5581,12 @@ def run_whitelist_monitor_cycle(app_dir):
         runtime.update(classification)
         runtime["checkedAt"] = checked_at
         runtime["endpoints"] = endpoint_runtime
+        automatic_action = reconcile_automatic_whitelist_config(
+            app_dir,
+            settings,
+            runtime,
+            now=checked_at,
+        )
         save_whitelist_monitor_runtime(app_dir, runtime)
 
         if (
@@ -5284,8 +5604,21 @@ def run_whitelist_monitor_cycle(app_dir):
                 controlYandexRecoveries=runtime["controlYandexRecoveries"],
                 consecutiveSuspicions=runtime["consecutiveSuspicions"],
                 consecutiveInconclusive=runtime["consecutiveInconclusive"],
+                consecutiveNormals=runtime["consecutiveNormals"],
                 evidenceState=runtime["evidenceState"],
                 accessMode=runtime["accessMode"],
+            )
+        if automatic_action:
+            append_whitelist_monitor_event(
+                app_dir,
+                (
+                    f"config_{automatic_action['action']}d"
+                    if automatic_action["ok"]
+                    else "config_failed"
+                ),
+                automatic_action["message"],
+                action=automatic_action["action"],
+                fallbackActive=runtime["fallbackActive"],
             )
         return runtime
 

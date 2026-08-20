@@ -1712,7 +1712,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 
             invalid = mihui_server.default_whitelist_monitor_settings()
-            invalid["actionMode"] = "automatic"
+            invalid["actionMode"] = "replace"
             with self.assertRaises(ValueError):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 
@@ -1821,6 +1821,102 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(second["state"], "confirmed")
         self.assertEqual(third["state"], "unknown")
         self.assertEqual(third["consecutiveInconclusive"], 3)
+
+    def test_whitelist_monitor_requires_repeated_normal_results_before_recovery(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime.update({"state": "confirmed", "consecutiveSuspicions": 3})
+        controls = {
+            "control-truenetwork": {"direct": {"ok": False}, "proxy": {"ok": True}},
+            "control-neftm": {"direct": {"ok": True}, "proxy": None},
+            "control-selectel": {"direct": {"ok": True}, "proxy": None},
+        }
+
+        states = []
+        for _ in range(3):
+            result = mihui_server.classify_whitelist_monitor_results(
+                settings, runtime, {"allowed-ya": {"ok": True}}, controls
+            )
+            runtime.update(result)
+            states.append((result["state"], result["consecutiveNormals"]))
+
+        self.assertEqual(states, [("confirmed", 1), ("confirmed", 2), ("normal", 3)])
+
+    def test_whitelist_fallback_text_is_reversible(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        original = (
+            "proxy-groups:\n"
+            "  - name: PROXY\n"
+            "    type: select\n"
+            "rules:\n"
+            "  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n"
+            "  - DOMAIN,plex.tv,DIRECT\n"
+            "  - DOMAIN-SUFFIX,ru,DIRECT\n"
+            "  - MATCH,PROXY\n"
+        )
+
+        prepared = mihui_server.prepare_whitelist_fallback_text(original, settings)
+
+        catch_all = prepared.index("MATCH,PROXY # webmihomo-whitelist: catch-all")
+        self.assertLess(prepared.index("DOMAIN,plex.tv,DIRECT"), catch_all)
+        self.assertLess(catch_all, prepared.index("DOMAIN-SUFFIX,ru,DIRECT"))
+        self.assertTrue(mihui_server.has_whitelist_fallback_config(prepared))
+        self.assertEqual(mihui_server.remove_whitelist_fallback_text(prepared), original)
+
+    def test_whitelist_automatic_config_honors_cooldown_and_restores(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            config_path.write_text(original, encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["actionMode"] = "automatic"
+            runtime = mihui_server.default_whitelist_monitor_runtime()
+            runtime.update(
+                {
+                    "state": "confirmed",
+                    "evidenceState": "current",
+                    "controlProxyRecoveries": 2,
+                }
+            )
+
+            def save_config(_app_dir, text, expected_revision=None):
+                self.assertEqual(
+                    expected_revision,
+                    mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
+                )
+                config_path.write_text(text, encoding="utf-8")
+                return {"ok": True, "applied": True}
+
+            with mock.patch.object(
+                mihui_server, "save_checked_config", side_effect=save_config
+            ) as save:
+                activated = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir, settings, runtime, now=1000
+                )
+                runtime["state"] = "normal"
+                waiting = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000 + mihui_server.WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS - 1,
+                )
+                restored = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000 + mihui_server.WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS,
+                )
+                final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertTrue(activated["ok"])
+        self.assertIsNone(waiting)
+        self.assertTrue(restored["ok"])
+        self.assertEqual(save.call_count, 2)
+        self.assertEqual(final_text, original)
 
     def test_whitelist_monitor_yandex_probe_wraps_only_proxy_failures(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2726,6 +2822,53 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["config"]["intervalSeconds"], 120)
         request.assert_not_called()
+
+    def test_whitelist_monitor_disable_restores_automatic_config_first(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings.update({"enabled": True, "actionMode": "automatic"})
+            config_path.write_text(
+                mihui_server.prepare_whitelist_fallback_text(original, settings),
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            mihui_server.save_whitelist_monitor_settings(app_dir, settings)
+            disabled = dict(settings)
+            disabled["enabled"] = False
+
+            def save_config(_app_dir, text, expected_revision=None):
+                self.assertEqual(
+                    expected_revision,
+                    mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
+                )
+                config_path.write_text(text, encoding="utf-8")
+                return {"ok": True, "applied": True}
+
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "save_checked_config", side_effect=save_config
+                ) as save:
+                    status, result = self.post_json(
+                        server,
+                        "/api/whitelist-monitor/settings",
+                        disabled,
+                        headers={"X-Mihui-Action": "whitelist-monitor"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+            final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertEqual(status, 200)
+        self.assertFalse(result["config"]["enabled"])
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(final_text, original)
 
     def test_whitelist_monitor_proxy_check_uses_saved_group_and_endpoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
