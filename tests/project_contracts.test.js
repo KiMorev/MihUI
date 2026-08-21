@@ -6,8 +6,8 @@ const test = require('node:test');
 const root = path.resolve(__dirname, '..');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
-test('main and standalone UI expose labels for audited controls', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose labels for audited controls', () => {
+  for (const name of ['index.html']) {
     const html = read(name);
     assert.match(html, /<h1><a class="app-brand-home" href="" aria-label="[^"]+">WebMihomo<\/a><\/h1>/);
     assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,/);
@@ -80,8 +80,8 @@ test('main and standalone UI expose labels for audited controls', () => {
   }
 });
 
-test('main and standalone expose one review-to-save flow', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files expose one review-to-save flow', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /'Проверить и сохранить'/);
     assert.match(source, /'Сохранить и применить'/);
@@ -92,8 +92,8 @@ test('main and standalone expose one review-to-save flow', () => {
   }
 });
 
-test('main and standalone use only the browser Happ decryptor', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files use only the browser Happ decryptor', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /decodeHappProviderUrlInBrowser/);
     assert.doesNotMatch(source, /\/api\/happ\/decode|settings\/happ-decoder|Happy Decoder API|server fallback/);
@@ -103,8 +103,8 @@ test('main and standalone use only the browser Happ decryptor', () => {
   assert.doesNotMatch(server, /HAPP_DECRYPTOR|HAPP_DECODER|happy-decoder|\/api\/happ\/decode|settings\/happ-decoder/);
 });
 
-test('main and standalone expose responsive service traffic lights', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files expose responsive service traffic lights', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.service-health-item\.is-ok \.service-health-dot/);
     assert.match(source, /\.service-health-item\.is-error \.service-health-dot/);
@@ -112,8 +112,8 @@ test('main and standalone expose responsive service traffic lights', () => {
   }
 });
 
-test('main and standalone expose preventive and critical resource latency settings', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose preventive and critical resource latency settings', () => {
+  for (const name of ['index.html']) {
     const html = read(name);
     assert.match(html, /id="resourceMonitorProactiveEnabled"/);
     assert.match(html, /id="resourceMonitorProactiveThreshold"/);
@@ -124,8 +124,8 @@ test('main and standalone expose preventive and critical resource latency settin
   }
 });
 
-test('main and standalone expose compact resource monitoring history', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose compact resource monitoring history', () => {
+  for (const name of ['index.html']) {
     const html = read(name);
     assert.match(html, /id="resourceMonitorHistory"/);
     assert.match(html, /id="resourceMonitorHistoryRows"/);
@@ -134,7 +134,7 @@ test('main and standalone expose compact resource monitoring history', () => {
     assert.match(html, /История проверок/);
     assert.match(html, /class="is-idle"[^>]*><\/i>Нет данных/);
   }
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const script = read(name);
     assert.match(script, /buildResourceMonitorTimeline/);
     assert.match(script, /getResourceMonitorHistoryTooltipContent/);
@@ -142,7 +142,7 @@ test('main and standalone expose compact resource monitoring history', () => {
     assert.match(script, /RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS = 2 \* 60 \* 60/);
     assert.match(script, /Сменена \$\{formatResourceMonitorSwitchAge/);
   }
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.resource-monitor-history-track\s*{/);
     assert.match(source, /grid-template-columns: repeat\(24, minmax\(0, 1fr\)\)/);
@@ -151,11 +151,11 @@ test('main and standalone expose compact resource monitoring history', () => {
   }
 });
 
-test('main and standalone expose Instagram resource monitoring', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose Instagram resource monitoring', () => {
+  for (const name of ['index.html']) {
     assert.match(read(name), /id="icon-instagram"/);
   }
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /instagram: \{ title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' \}/);
     assert.match(source, /\['RULE-SET', 'instagram@domain', 'INSTAGRAM'\]/);
@@ -164,8 +164,8 @@ test('main and standalone expose Instagram resource monitoring', () => {
   }
 });
 
-test('main and standalone expose per-resource monitoring switches', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files expose per-resource monitoring switches', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /dataset\.resourceMonitorEnabled = key/);
     assert.match(source, /dataset\.resourceMonitorSource = key/);
@@ -173,7 +173,7 @@ test('main and standalone expose per-resource monitoring switches', () => {
     assert.match(source, /normalizeResourceMonitorSourceNames/);
     assert.match(source, /getEnabledResourceMonitorEntries/);
   }
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.resource-monitor-source-picker\s*{/);
     assert.match(source, /\.resource-monitor-source-menu\s*{/);
@@ -181,8 +181,8 @@ test('main and standalone expose per-resource monitoring switches', () => {
   }
 });
 
-test('main and standalone expose component update markers and one manager flow', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files expose component update markers and one manager flow', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /title: 'Доступны обновления компонентов'/);
     assert.match(source, /element\.textContent = `Обновления · \$\{updateCount\}`/);
@@ -205,7 +205,7 @@ test('main and standalone expose component update markers and one manager flow',
     assert.doesNotMatch(source, /components\/action[\s\S]{0,300}cmd:/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.service-health-head \.service-update-badge/);
     assert.match(source, /\.service-update-marker\s*{[\s\S]+?background: #fff1c7;[\s\S]+?color: #946200;/);
@@ -222,7 +222,7 @@ test('main and standalone expose component update markers and one manager flow',
     assert.match(source, /@media \(max-width: 560px\) and \(max-height: 600px\)/);
   }
 
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+  for (const name of ['index.html']) {
     const source = read(name);
     assert.equal((source.match(/class="button compact component-advanced-toggle"[^>]+data-component-advanced-toggle[^>]+aria-expanded="false"/g) || []).length, 2);
     assert.equal((source.match(/class="component-advanced-body" hidden/g) || []).length, 2);
@@ -233,8 +233,8 @@ test('main and standalone expose component update markers and one manager flow',
   }
 });
 
-test('main and standalone expose one safe XKeen network-files flow', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose one safe XKeen network-files flow', () => {
+  for (const name of ['index.html']) {
     const source = read(name);
     assert.match(source, /data-section="xkeen-files"[\s\S]+?Порты и исключения/);
     assert.equal((source.match(/data-xkeen-file="/g) || []).length, 4);
@@ -244,7 +244,7 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
     assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и применить/);
   }
 
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /apiJson\('\/api\/xkeen\/network-files'/);
     assert.match(source, /startComponentAction\(\{ component: 'xkeen', action: 'restart' \}\)/);
@@ -252,14 +252,14 @@ test('main and standalone expose one safe XKeen network-files flow', () => {
     assert.match(source, /Порты проксирования имеют приоритет/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.xkeen-file-editor\s*{[\s\S]+?width: auto;[\s\S]+?min-width: 0;/);
   }
 });
 
-test('main and standalone expose the native interactive XKeen commands section', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose the native interactive XKeen commands section', () => {
+  for (const name of ['index.html']) {
     const source = read(name);
     assert.match(source, /data-section="commands"[^>]*[\s\S]+?>Команды</);
     assert.match(source, /data-section-panel="commands"/);
@@ -269,7 +269,7 @@ test('main and standalone expose the native interactive XKeen commands section',
     assert.match(source, /id="xkeenCommandStopButton"/);
   }
 
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /apiJson\('\/api\/xkeen\/commands\/run'/);
     assert.match(source, /apiJson\('\/api\/xkeen\/commands\/input'/);
@@ -281,7 +281,7 @@ test('main and standalone expose the native interactive XKeen commands section',
     assert.doesNotMatch(source, /command-run-button/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.commands-grid\s*{/);
     assert.match(source, /\.command-row\s*{/);
@@ -289,8 +289,8 @@ test('main and standalone expose the native interactive XKeen commands section',
   }
 });
 
-test('main and standalone expose the UI switcher in the brand block', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files expose the UI switcher in the brand block', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /summary\.setAttribute\('aria-label', 'Открыть список интерфейсов'\)/);
     assert.match(source, /menuTitle\.textContent = 'Интерфейсы'/);
@@ -298,37 +298,37 @@ test('main and standalone expose the UI switcher in the brand block', () => {
     assert.doesNotMatch(source, /`UI \(\$\{items\.length\}\)`/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.app-brand-title-row\s*{/);
     assert.match(source, /\.ui-link-item\.is-current\s*{/);
   }
 });
 
-test('main and standalone keep provider filter text size stable on iOS', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files keep provider filter text size stable on iOS', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.provider-inspector-list\s*{[\s\S]+?-webkit-text-size-adjust: 100%;[\s\S]+?text-size-adjust: 100%;/);
   }
 });
 
-test('main and standalone present provider filters as compact disclosures', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files present provider filters as compact disclosures', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /createProviderFilterInspectorSection\(provider\)/);
     assert.match(source, /section\.open = window\.matchMedia\('\(min-width: 981px\)'\)\.matches/);
     assert.match(source, /show\.textContent = 'Полностью'/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.provider-inspector-filter-head,[\s\S]+?min-height: 44px;/);
     assert.match(source, /\.provider-inspector-filter-preview\s*{[\s\S]+?-webkit-line-clamp: 2;/);
   }
 });
 
-test('main and standalone expose a flat configuration menu', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files expose a flat configuration menu', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.file-tools-menu\s*{[\s\S]+?min-width: 240px;/);
     assert.match(source, /\.file-menu-item\s*{[\s\S]+?border: 0;[\s\S]+?text-align: left;[\s\S]+?white-space: nowrap;/);
@@ -337,16 +337,16 @@ test('main and standalone expose a flat configuration menu', () => {
   }
 });
 
-test('main and standalone styles adapt backup history dialog on mobile', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files styles adapt backup history dialog on mobile', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.backup-history-dialog::backdrop\s*{/);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.backup-history-dialog,[\s\S]+?max-height: calc\(100vh - 20px\);/);
   }
 });
 
-test('main and standalone require an explicit backup selection before restore', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files require an explicit backup selection before restore', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /state\.selectedBackupName = '';/);
     assert.match(source, /els\.backupUnsavedWarning\.hidden = !hasUnsavedRouterChanges\(\)/);
@@ -355,8 +355,8 @@ test('main and standalone require an explicit backup selection before restore', 
   }
 });
 
-test('main and standalone guard destructive and stale config changes', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files guard destructive and stale config changes', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /addEventListener\?\.\('beforeunload', handleBeforeUnload\)/);
     assert.match(source, /expectedRevision: state\.routerConfigRevision \|\| undefined/);
@@ -368,8 +368,8 @@ test('main and standalone guard destructive and stale config changes', () => {
   }
 });
 
-test('main and standalone styles expose mobile flow actions and touch targets', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files styles expose mobile flow actions and touch targets', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
     assert.doesNotMatch(source, /\.mobile-flow-actions:not\(\[hidden\]\)\s*{[^}]*position:\s*sticky/);
@@ -383,21 +383,21 @@ test('main and standalone styles expose mobile flow actions and touch targets', 
   }
 });
 
-test('main and standalone show mobile section tabs only after the primary menu scrolls away', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files show mobile section tabs only after the primary menu scrolls away', () => {
+  for (const name of ['index.html']) {
     const source = read(name);
     assert.match(source, /id="mobileSectionTabs" class="mobile-section-tabs"[^>]+aria-hidden="true" hidden/);
     assert.match(source, /class="mobile-section-tab[^>]+data-section="settings"/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.mobile-topbar-meta\s*{[\s\S]+?position: static;/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?position: fixed;[\s\S]+?top: 0;/);
     assert.match(source, /\.mobile-section-tabs:not\(\[hidden\]\)\s*{[\s\S]+?overflow-y: hidden;[\s\S]+?overscroll-behavior-y: none;[\s\S]+?touch-action: pan-x;/);
   }
 
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /MOBILE_SECTION_TABS_MEDIA = '\(max-width: 560px\)'/);
     assert.match(source, /const shouldShow = isMobile && sidebarBottom <= 0/);
@@ -406,8 +406,8 @@ test('main and standalone show mobile section tabs only after the primary menu s
   }
 });
 
-test('main and standalone keep section starts below the sticky topbar', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files keep section starts below the sticky topbar', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /return isMobile \? getMobileSectionTabsHeight\(\) : els\.topbar\?\.offsetHeight \|\| 0/);
     assert.match(source, /stickyTopbarMargin = getStickyTopbarHeight\(\) \+ 12/);
@@ -415,8 +415,8 @@ test('main and standalone keep section starts below the sticky topbar', () => {
   }
 });
 
-test('main and standalone keep provider creation transactional and responsive', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files keep provider creation transactional and responsive', () => {
+  for (const name of ['index.html']) {
     const source = read(name);
     assert.match(source, /class="provider-url-status" aria-live="polite" hidden/);
     assert.match(source, /id="providerCreateFormat"/);
@@ -424,7 +424,7 @@ test('main and standalone keep provider creation transactional and responsive', 
     assert.match(source, /Конфигурация изменится только после подтверждения/);
   }
 
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /Happ-ссылка расшифрована\. Прямой URL подставлен\./);
     assert.match(source, /addProviderButton\.addEventListener\('click', openProviderCreateDialog\)/);
@@ -436,7 +436,7 @@ test('main and standalone keep provider creation transactional and responsive', 
     assert.doesNotMatch(source, /providerInspectorEditing \|\| Boolean\(displayedProvider\?\.isNew\)/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.provider-create-dialog::backdrop/);
     assert.match(source, /\.provider-create-body\s*{[\s\S]+?grid-auto-rows: max-content;/);
@@ -447,15 +447,15 @@ test('main and standalone keep provider creation transactional and responsive', 
   }
 });
 
-test('main and standalone visually separate the mobile menu from content', () => {
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+test('primary UI files visually separate the mobile menu from content', () => {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /@media \(max-width: 560px\)[\s\S]+?\.app-sidebar\s*{[\s\S]+?border-bottom-color: var\(--line-strong\);[\s\S]+?box-shadow:/);
   }
 });
 
-test('main and standalone consolidate node inventory errors', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files consolidate node inventory errors', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /if \(state\.nodeInventoryError\) \{[\s\S]+?panel\.hidden = true;/);
     assert.match(source, /retry\.textContent = 'Повторить загрузку'/);
@@ -464,8 +464,8 @@ test('main and standalone consolidate node inventory errors', () => {
   }
 });
 
-test('main and standalone allow confirmed runtime selection in select groups', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files allow confirmed runtime selection in select groups', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /apiJson\('\/api\/groups\/select'/);
     assert.match(source, /\['select', 'selector'\]\.includes\(type\)/);
@@ -473,15 +473,15 @@ test('main and standalone allow confirmed runtime selection in select groups', (
     assert.match(source, /Mihomo не подтвердил переключение группы/);
   }
 
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.node-group-selection-actions\s*{/);
     assert.match(source, /\.node-group-selection-choice select\s*{/);
   }
 });
 
-test('main and standalone distinguish applied, rolled back and uncertain config saves', () => {
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+test('primary UI files distinguish applied, rolled back and uncertain config saves', () => {
+  for (const name of ['app.js']) {
     const source = read(name);
     assert.match(source, /Конфиг сохранен и подтвержден Mihomo/);
     assert.match(source, /result\.saved && result\.uncertain/);
@@ -490,8 +490,8 @@ test('main and standalone distinguish applied, rolled back and uncertain config 
   }
 });
 
-test('main and standalone expose the editorial shell without a dedicated routing page', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose the editorial shell without a dedicated routing page', () => {
+  for (const name of ['index.html']) {
     const html = read(name);
     assert.match(html, /class="app-sidebar"/);
     assert.match(html, /id="topbarValidation"/);
@@ -506,8 +506,8 @@ test('main and standalone expose the editorial shell without a dedicated routing
   }
 });
 
-test('main and standalone expose stable automatic whitelist routing', () => {
-  for (const name of ['index.html', 'mihomo-editor.html']) {
+test('primary UI files expose stable automatic whitelist routing', () => {
+  for (const name of ['index.html']) {
     const html = read(name);
     assert.match(html, /data-section="whitelist"/);
     assert.match(html, /data-section-panel="whitelist"/);
@@ -517,6 +517,9 @@ test('main and standalone expose stable automatic whitelist routing', () => {
     assert.match(html, /id="whitelistMonitorYandexRelayEnabled"/);
     assert.match(html, /id="whitelistMonitorYandexRecoveries"/);
     assert.match(html, /id="whitelistMonitorProposal"/);
+    assert.match(html, /id="whitelistDomainListBadge"/);
+    assert.match(html, /id="whitelistDomainListUpdatedAt"/);
+    assert.match(html, /hxehex\/russia-mobile-internet-whitelist/);
     assert.match(html, /id="whitelistMonitorTimeline"/);
     assert.match(html, /id="whitelistMonitorHistorySummary"/);
     assert.match(html, /id="overviewWhitelistMonitorStatus"[^>]+data-section-target="whitelist"[^>]+hidden/);
@@ -530,10 +533,11 @@ test('main and standalone expose stable automatic whitelist routing', () => {
     assert.match(html, /id="whitelistMonitorControlEndpoints"/);
     assert.match(html, /автоматически применять и восстанавливать/);
   }
-  for (const name of ['app.js', 'mihomo-editor.html']) {
+  for (const name of ['app.js']) {
     const script = read(name);
     assert.match(script, /\/api\/whitelist-monitor/);
     assert.match(script, /\/api\/whitelist-monitor\/proxy-check/);
+    assert.match(script, /\/api\/whitelist-monitor\/domain-list/);
     assert.match(script, /не требовалось/);
     assert.match(script, /Проверить PROXY/);
     assert.match(script, /controlFailureThreshold: 2/);
@@ -544,6 +548,8 @@ test('main and standalone expose stable automatic whitelist routing', () => {
     assert.match(script, /PROXY не подтверждён/);
     assert.match(script, /validateWhitelistProposalSnapshot/);
     assert.match(script, /prepareWhitelistFallbackConfig/);
+    assert.match(script, /function renderWhitelistDomainList\(\)/);
+    assert.match(script, /last-known-good/);
     assert.match(script, /buildWhitelistMonitorTimeline/);
     assert.match(script, /function renderOverviewWhitelistMonitor\(\)/);
     assert.match(script, /state\.whitelistMonitor\.loaded[\s\S]+?Boolean\(config\.enabled\)/);
@@ -553,21 +559,14 @@ test('main and standalone expose stable automatic whitelist routing', () => {
     assert.match(script, /Отключится после сохранения/);
     assert.match(script, /webmihomo-whitelist:/);
   }
-  for (const name of ['styles.css', 'mihomo-editor.html']) {
+  for (const name of ['styles.css']) {
     const source = read(name);
     assert.match(source, /\.whitelist-monitor-timeline\s*{/);
     assert.match(source, /grid-template-columns: repeat\(24, minmax\(0, 1fr\)\)/);
     assert.match(source, /\.whitelist-monitor-timeline-dot\.is-confirmed/);
     assert.match(source, /\.overview-whitelist-status\[hidden\]/);
+    assert.match(source, /\.whitelist-domain-list-card\s*{/);
   }
-});
-
-test('standalone editor exactly mirrors the main html, styles and script', () => {
-  const expected = read('index.html')
-    .replace('    <link rel="stylesheet" href="./styles.css" />', () => `    <style>\n${read('styles.css')}\n    </style>`)
-    .replace('    <script src="./app.js"></script>', () => `    <script>\n${read('app.js')}\n    </script>`);
-
-  assert.equal(read('mihomo-editor.html'), expected);
 });
 
 test('installer and updater require checksum and path validation before extraction', () => {

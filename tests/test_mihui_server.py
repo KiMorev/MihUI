@@ -163,6 +163,22 @@ class ProviderAdapterTests(unittest.TestCase):
         with mihui_server.xray_provider_adapter_status_lock:
             mihui_server.xray_provider_adapter_statuses.clear()
 
+    def save_whitelist_domain_snapshot(self, app_dir, updated_at=1000, prefix="allowed"):
+        domains = [f"{prefix}-{index}.example.com" for index in range(100)]
+        digest = mihui_server.hashlib.sha256("\n".join(domains).encode("utf-8")).hexdigest()
+        mihui_server.write_json_atomic(
+            mihui_server.whitelist_domain_list_snapshot_path(app_dir),
+            {
+                "source": mihui_server.WHITELIST_DOMAIN_SOURCE_NAME,
+                "sourceUrl": mihui_server.WHITELIST_DOMAIN_SOURCE_URL,
+                "updatedAt": updated_at,
+                "count": len(domains),
+                "sha256": digest,
+                "domains": domains,
+            },
+        )
+        return domains
+
     def test_update_progress_file_reports_phase_and_percentage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "progress"
@@ -1716,6 +1732,53 @@ class ProviderAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 
+    def test_whitelist_domain_list_parser_validates_and_deduplicates(self):
+        domains = mihui_server.parse_whitelist_domain_list(
+            "# source\nExample.com\nexample.com\nпример.рф\n",
+            minimum=2,
+            maximum=10,
+        )
+
+        self.assertEqual(domains, ["example.com", "xn--e1afmkfd.xn--p1ai"])
+        with self.assertRaisesRegex(ValueError, "line 2"):
+            mihui_server.parse_whitelist_domain_list(
+                "example.com\nnot-a-domain\n",
+                minimum=1,
+                maximum=10,
+            )
+
+    def test_whitelist_domain_list_refresh_keeps_last_known_good_on_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            domains = [f"fresh-{index}.example.com" for index in range(100)]
+            with mock.patch.object(
+                mihui_server,
+                "fetch_whitelist_domain_list_text",
+                return_value="\n".join(domains),
+            ):
+                refreshed = mihui_server.refresh_whitelist_domain_list(app_dir, now=1000)
+            first_snapshot = mihui_server.load_whitelist_domain_list_snapshot(app_dir)
+
+            with mock.patch.object(
+                mihui_server,
+                "fetch_whitelist_domain_list_text",
+                return_value="only.example.com\n",
+            ):
+                failed = mihui_server.refresh_whitelist_domain_list(app_dir, now=2000)
+            retained_snapshot = mihui_server.load_whitelist_domain_list_snapshot(app_dir)
+            status = mihui_server.get_whitelist_domain_list_status(
+                app_dir,
+                now=1000 + mihui_server.WHITELIST_DOMAIN_STALE_SECONDS + 1,
+            )
+
+        self.assertTrue(refreshed["ok"])
+        self.assertEqual(first_snapshot["domains"], domains)
+        self.assertFalse(failed["ok"])
+        self.assertEqual(retained_snapshot["sha256"], first_snapshot["sha256"])
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["stale"])
+        self.assertTrue(status["lastError"])
+
     def test_whitelist_monitor_requires_repeated_direct_failures_recovered_by_proxy(self):
         settings = mihui_server.default_whitelist_monitor_settings()
         runtime = mihui_server.default_whitelist_monitor_runtime()
@@ -1872,6 +1935,7 @@ class ProviderAdapterTests(unittest.TestCase):
             (app_dir / "mihui.env").write_text(
                 f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
             )
+            domains = self.save_whitelist_domain_snapshot(app_dir)
             settings = mihui_server.default_whitelist_monitor_settings()
             settings["actionMode"] = "automatic"
             runtime = mihui_server.default_whitelist_monitor_runtime()
@@ -1882,18 +1946,22 @@ class ProviderAdapterTests(unittest.TestCase):
                     "controlProxyRecoveries": 2,
                 }
             )
+            saved_texts = []
 
             def save_config(_app_dir, text, expected_revision=None):
                 self.assertEqual(
                     expected_revision,
                     mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
                 )
+                saved_texts.append(text)
                 config_path.write_text(text, encoding="utf-8")
                 return {"ok": True, "applied": True}
 
             with mock.patch.object(
                 mihui_server, "save_checked_config", side_effect=save_config
-            ) as save:
+            ) as save, mock.patch.object(
+                mihui_server, "fetch_whitelist_domain_list_text"
+            ) as fetch:
                 activated = mihui_server.reconcile_automatic_whitelist_config(
                     app_dir, settings, runtime, now=1000
                 )
@@ -1913,9 +1981,51 @@ class ProviderAdapterTests(unittest.TestCase):
                 final_text = config_path.read_text(encoding="utf-8")
 
         self.assertTrue(activated["ok"])
+        self.assertIn(
+            f"DOMAIN-SUFFIX,{domains[0]},DIRECT # webmihomo-whitelist: direct {domains[0]}",
+            saved_texts[0],
+        )
         self.assertIsNone(waiting)
         self.assertTrue(restored["ok"])
         self.assertEqual(save.call_count, 2)
+        fetch.assert_not_called()
+        self.assertEqual(final_text, original)
+
+    def test_whitelist_automatic_config_does_not_fetch_during_activation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            config_path.write_text(original, encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["actionMode"] = "automatic"
+            runtime = mihui_server.default_whitelist_monitor_runtime()
+            runtime.update(
+                {
+                    "state": "confirmed",
+                    "evidenceState": "current",
+                    "controlProxyRecoveries": 2,
+                }
+            )
+
+            with mock.patch.object(
+                mihui_server, "fetch_whitelist_domain_list_text"
+            ) as fetch, mock.patch.object(mihui_server, "save_checked_config") as save:
+                result = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000,
+                )
+                final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("ещё не загружен", result["message"])
+        fetch.assert_not_called()
+        save.assert_not_called()
         self.assertEqual(final_text, original)
 
     def test_whitelist_monitor_yandex_probe_wraps_only_proxy_failures(self):
@@ -2822,6 +2932,27 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["config"]["intervalSeconds"], 120)
         request.assert_not_called()
+
+    def test_whitelist_domain_list_endpoint_returns_only_local_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            domains = self.save_whitelist_domain_snapshot(app_dir, updated_at=1000)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "fetch_whitelist_domain_list_text"
+                ) as fetch:
+                    status, result = self.get_json(
+                        server,
+                        "/api/whitelist-monitor/domain-list",
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["domains"], domains)
+        fetch.assert_not_called()
 
     def test_whitelist_monitor_disable_restores_automatic_config_first(self):
         with tempfile.TemporaryDirectory() as temp_dir:

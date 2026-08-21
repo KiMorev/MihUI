@@ -422,6 +422,7 @@ const state = {
     error: '',
     config: null,
     runtime: null,
+    domainList: null,
     events: [],
     draft: null,
     dirty: false,
@@ -750,6 +751,13 @@ const els = {
   whitelistMonitorProxyRecoveries: document.querySelector('#whitelistMonitorProxyRecoveries'),
   whitelistMonitorYandexRecoveries: document.querySelector('#whitelistMonitorYandexRecoveries'),
   whitelistMonitorCheckButton: document.querySelector('#whitelistMonitorCheckButton'),
+  whitelistDomainListBadge: document.querySelector('#whitelistDomainListBadge'),
+  whitelistDomainListTitle: document.querySelector('#whitelistDomainListTitle'),
+  whitelistDomainListMessage: document.querySelector('#whitelistDomainListMessage'),
+  whitelistDomainListSource: document.querySelector('#whitelistDomainListSource'),
+  whitelistDomainListCount: document.querySelector('#whitelistDomainListCount'),
+  whitelistDomainListUpdatedAt: document.querySelector('#whitelistDomainListUpdatedAt'),
+  whitelistDomainListNextAt: document.querySelector('#whitelistDomainListNextAt'),
   whitelistMonitorProposal: document.querySelector('#whitelistMonitorProposal'),
   whitelistMonitorProposalBadge: document.querySelector('#whitelistMonitorProposalBadge'),
   whitelistMonitorProposalTitle: document.querySelector('#whitelistMonitorProposalTitle'),
@@ -4589,6 +4597,7 @@ async function loadWhitelistMonitor(options = {}) {
     state.whitelistMonitor.loaded = true;
     state.whitelistMonitor.config = data.config || defaultWhitelistMonitorClientSettings();
     state.whitelistMonitor.runtime = data.runtime || null;
+    state.whitelistMonitor.domainList = data.domainList || null;
     state.whitelistMonitor.events = Array.isArray(data.events) ? data.events : [];
     state.whitelistMonitor.checking = Boolean(data.job?.running);
     state.whitelistMonitor.error = '';
@@ -4784,6 +4793,7 @@ function renderWhitelistMonitor() {
   renderWhitelistMonitorHistory(runtime);
   els.whitelistMonitorIntro.hidden = enabled;
   els.whitelistMonitorDetails.hidden = !enabled;
+  renderWhitelistDomainList();
   if (!enabled) return;
 
   els.whitelistMonitorStateBadge.className = `whitelist-monitor-state is-${runtimeState}`;
@@ -4813,6 +4823,62 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorNotice.hidden = !state.whitelistMonitor.error;
   els.whitelistMonitorNotice.textContent = state.whitelistMonitor.error;
   els.whitelistMonitorSaveButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
+}
+
+function renderWhitelistDomainList() {
+  if (!els.whitelistDomainListBadge) return;
+  const status = state.whitelistMonitor.domainList || {};
+  const running = Boolean(status.job?.running);
+  const ready = Boolean(status.ready);
+  const failed = Boolean(status.lastError);
+  const stale = Boolean(status.stale);
+  let badge = 'Нет данных';
+  let tone = 'idle';
+  let title = 'Локальный список разрешённых доменов';
+  let message = 'MihUI загрузит и проверит список независимо от переключения режима.';
+  if (running) {
+    badge = 'Обновляется';
+    tone = 'suspected';
+    message = ready
+      ? 'Текущий проверенный снимок остаётся доступен до завершения обновления.'
+      : 'MihUI получает первый снимок. Переключение не будет обращаться к GitHub.';
+  } else if (!ready) {
+    badge = 'Не готов';
+    tone = 'error';
+    message = failed
+      ? `Первый снимок не получен: ${status.lastError}`
+      : 'Первый проверенный снимок ещё не получен. Автопереключение пока заблокировано.';
+  } else if (stale) {
+    badge = 'Устарел';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = failed
+      ? `Обновление не удалось: ${status.lastError}`
+      : 'Снимок старше двух суток; MihUI продолжит использовать его и повторит обновление.';
+  } else if (failed) {
+    badge = 'Сохранённая копия';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = `Последнее обновление не удалось: ${status.lastError}`;
+  } else {
+    badge = 'Актуален';
+    tone = 'normal';
+    title = 'Список готов к переключению';
+    message = 'Снимок проверен и будет использован локально без запроса к GitHub в момент переключения.';
+  }
+  els.whitelistDomainListBadge.className = `whitelist-monitor-state is-${tone}`;
+  els.whitelistDomainListBadge.textContent = badge;
+  els.whitelistDomainListTitle.textContent = title;
+  els.whitelistDomainListMessage.textContent = message;
+  els.whitelistDomainListSource.textContent = status.source || 'hxehex/russia-mobile-internet-whitelist';
+  if (status.sourceUrl) els.whitelistDomainListSource.href = status.sourceUrl;
+  els.whitelistDomainListCount.textContent = String(status.count || 0);
+  els.whitelistDomainListUpdatedAt.textContent = status.updatedAt
+    ? formatResourceMonitorTime(status.updatedAt)
+    : '—';
+  els.whitelistDomainListNextAt.textContent = status.nextUpdateAt
+    ? formatResourceMonitorTime(status.nextUpdateAt)
+    : '—';
 }
 
 function getWhitelistFallbackRules() {
@@ -4945,9 +5011,12 @@ function createWhitelistFallbackRule(type, value, target, comment, insertBeforeR
   };
 }
 
-function prepareWhitelistFallbackConfig(settings) {
+function prepareWhitelistFallbackConfig(settings, domainList) {
   if (isWhitelistFallbackConfigActive()) return;
-  const hosts = getWhitelistAllowedHosts(settings);
+  const hosts = [...new Set([
+    ...(Array.isArray(domainList) ? domainList : []),
+    ...getWhitelistAllowedHosts(settings),
+  ])];
   if (!hosts.length) throw new Error('Не найдены включённые разрешённые адреса.');
   if (!state.groups.some((group) => group.name === settings.proxyGroup)) {
     throw new Error(`Прокси-группа ${settings.proxyGroup} отсутствует в конфигурации.`);
@@ -4989,7 +5058,7 @@ function prepareWhitelistMonitorDisable(settings) {
   removeWhitelistFallbackConfig();
 }
 
-function handleWhitelistMonitorProposal() {
+async function handleWhitelistMonitorProposal() {
   if (hasUnsavedRouterChanges()) {
     state.whitelistMonitor.error = 'Сначала сохраните или отмените текущие изменения конфигурации.';
     renderWhitelistMonitor();
@@ -5004,7 +5073,8 @@ function handleWhitelistMonitorProposal() {
         severity: 'warning',
       });
     } else {
-      prepareWhitelistFallbackConfig(config);
+      const domainList = await loadWhitelistDomainListDomains();
+      prepareWhitelistFallbackConfig(config, domainList);
       showMessage('Временные правила добавлены в черновик. Проверьте их перед сохранением.', {
         severity: 'warning',
       });
@@ -5223,6 +5293,16 @@ async function validateWhitelistProposalSnapshot() {
     });
     return false;
   }
+}
+
+async function loadWhitelistDomainListDomains() {
+  const data = await apiJson('/api/whitelist-monitor/domain-list');
+  state.whitelistMonitor.domainList = data;
+  renderWhitelistDomainList();
+  if (!data.ready || !Array.isArray(data.domains) || !data.domains.length) {
+    throw new Error(data.lastError || 'Локальный список разрешённых доменов ещё не готов.');
+  }
+  return data.domains;
 }
 
 function handleWhitelistMonitorPolicyInput(event) {

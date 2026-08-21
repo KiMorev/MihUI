@@ -245,6 +245,20 @@ WHITELIST_MONITOR_ENDPOINT_LIMIT = 10
 WHITELIST_MONITOR_YANDEX_RELAY_URL = "https://translate.yandex.ru/translate"
 WHITELIST_FALLBACK_MARKER = "webmihomo-whitelist:"
 WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS = 15 * 60
+WHITELIST_DOMAIN_SOURCE_NAME = "hxehex/russia-mobile-internet-whitelist"
+WHITELIST_DOMAIN_SOURCE_URL = (
+    "https://raw.githubusercontent.com/"
+    "hxehex/russia-mobile-internet-whitelist/main/whitelist.txt"
+)
+WHITELIST_DOMAIN_SOURCE_PAGE = (
+    "https://github.com/hxehex/russia-mobile-internet-whitelist"
+)
+WHITELIST_DOMAIN_REFRESH_SECONDS = 24 * 60 * 60
+WHITELIST_DOMAIN_RETRY_SECONDS = 60 * 60
+WHITELIST_DOMAIN_STALE_SECONDS = 48 * 60 * 60
+WHITELIST_DOMAIN_MAX_BYTES = 512 * 1024
+WHITELIST_DOMAIN_MIN_COUNT = 100
+WHITELIST_DOMAIN_MAX_COUNT = 5000
 WHITELIST_MONITOR_POSITIVE_ENDPOINTS = [
     {"id": "allowed-ya", "name": "Яндекс", "url": "https://ya.ru/", "enabled": True},
     {"id": "allowed-gosuslugi", "name": "Госуслуги", "url": "https://www.gosuslugi.ru/", "enabled": True},
@@ -315,6 +329,13 @@ resource_monitor_job_state = {
 whitelist_monitor_lock = threading.Lock()
 whitelist_monitor_state_lock = threading.Lock()
 whitelist_monitor_job_state = {
+    "running": False,
+    "startedAt": None,
+    "finishedAt": None,
+}
+whitelist_domain_list_lock = threading.Lock()
+whitelist_domain_list_state_lock = threading.Lock()
+whitelist_domain_list_job_state = {
     "running": False,
     "startedAt": None,
     "finishedAt": None,
@@ -405,6 +426,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/whitelist-monitor":
             self.handle_whitelist_monitor_get()
+            return
+        if route == "/api/whitelist-monitor/domain-list":
+            self.handle_whitelist_domain_list_get()
             return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
@@ -818,6 +842,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_get(self):
         self.send_json(HTTPStatus.OK, get_whitelist_monitor_status(self.app_dir))
+
+    def handle_whitelist_domain_list_get(self):
+        status = get_whitelist_domain_list_status(self.app_dir, include_domains=True)
+        self.send_json(HTTPStatus.OK, {"ok": True, **status})
 
     def handle_whitelist_monitor_settings(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
@@ -4805,6 +4833,249 @@ def whitelist_monitor_log_path(app_dir):
     )
 
 
+def whitelist_domain_list_snapshot_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_DOMAIN_SNAPSHOT_PATH",
+            str(Path(app_dir) / "whitelist-domains.json"),
+        )
+    )
+
+
+def whitelist_domain_list_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_DOMAIN_RUNTIME_PATH",
+            str(Path(app_dir) / "whitelist-domains-runtime.json"),
+        )
+    )
+
+
+def normalize_whitelist_domain(value):
+    domain = str(value or "").strip().lower().rstrip(".")
+    if not domain or len(domain) > 253 or "." not in domain:
+        raise ValueError("invalid domain")
+    if domain.startswith("*."):
+        raise ValueError("wildcard domains are not supported")
+    try:
+        ascii_domain = domain.encode("idna").decode("ascii")
+    except UnicodeError as error:
+        raise ValueError("invalid international domain") from error
+    labels = ascii_domain.split(".")
+    if any(
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+        for label in labels
+    ):
+        raise ValueError("invalid domain label")
+    try:
+        ipaddress.ip_address(ascii_domain)
+    except ValueError:
+        return ascii_domain
+    raise ValueError("IP addresses are not allowed")
+
+
+def parse_whitelist_domain_list(
+    text,
+    minimum=WHITELIST_DOMAIN_MIN_COUNT,
+    maximum=WHITELIST_DOMAIN_MAX_COUNT,
+):
+    domains = []
+    seen = set()
+    for line_number, line in enumerate(str(text or "").splitlines(), 1):
+        value = line.strip()
+        if not value or value.startswith("#"):
+            continue
+        try:
+            domain = normalize_whitelist_domain(value)
+        except ValueError as error:
+            raise ValueError(f"invalid whitelist domain at line {line_number}: {error}") from error
+        if domain not in seen:
+            seen.add(domain)
+            domains.append(domain)
+    if not minimum <= len(domains) <= maximum:
+        raise ValueError(
+            f"whitelist domain count must be between {minimum} and {maximum}"
+        )
+    return domains
+
+
+def default_whitelist_domain_list_runtime():
+    return {
+        "lastAttemptAt": None,
+        "lastSuccessAt": None,
+        "lastError": "",
+    }
+
+
+def load_whitelist_domain_list_runtime(app_dir):
+    defaults = default_whitelist_domain_list_runtime()
+    saved = read_json_file(whitelist_domain_list_runtime_path(app_dir), {})
+    return {
+        key: saved.get(key, value)
+        for key, value in defaults.items()
+    }
+
+
+def save_whitelist_domain_list_runtime(app_dir, runtime):
+    write_json_atomic(whitelist_domain_list_runtime_path(app_dir), runtime)
+
+
+def load_whitelist_domain_list_snapshot(app_dir):
+    saved = read_json_file(whitelist_domain_list_snapshot_path(app_dir), {})
+    domains = saved.get("domains")
+    updated_at = saved.get("updatedAt")
+    if not isinstance(domains, list) or not isinstance(updated_at, (int, float)):
+        return None
+    try:
+        normalized = parse_whitelist_domain_list("\n".join(str(item) for item in domains))
+    except ValueError:
+        return None
+    digest = hashlib.sha256("\n".join(normalized).encode("utf-8")).hexdigest()
+    if saved.get("sha256") and saved.get("sha256") != digest:
+        return None
+    return {
+        "source": WHITELIST_DOMAIN_SOURCE_NAME,
+        "sourceUrl": WHITELIST_DOMAIN_SOURCE_URL,
+        "updatedAt": int(updated_at),
+        "count": len(normalized),
+        "sha256": digest,
+        "domains": normalized,
+    }
+
+
+def fetch_whitelist_domain_list_text():
+    request = urllib.request.Request(
+        WHITELIST_DOMAIN_SOURCE_URL,
+        headers={
+            "Accept": "text/plain",
+            "User-Agent": "MihUI whitelist updater",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > WHITELIST_DOMAIN_MAX_BYTES:
+            raise ValueError("whitelist domain list is too large")
+        payload = response.read(WHITELIST_DOMAIN_MAX_BYTES + 1)
+    if len(payload) > WHITELIST_DOMAIN_MAX_BYTES:
+        raise ValueError("whitelist domain list is too large")
+    return payload.decode("utf-8-sig")
+
+
+def snapshot_whitelist_domain_list_job():
+    with whitelist_domain_list_state_lock:
+        return dict(whitelist_domain_list_job_state)
+
+
+def refresh_whitelist_domain_list(app_dir, now=None):
+    checked_at = int(time.time() if now is None else now)
+    with whitelist_domain_list_lock:
+        runtime = load_whitelist_domain_list_runtime(app_dir)
+        previous_snapshot = load_whitelist_domain_list_snapshot(app_dir)
+        previous_error = str(runtime.get("lastError") or "")
+        runtime["lastAttemptAt"] = checked_at
+        try:
+            domains = parse_whitelist_domain_list(fetch_whitelist_domain_list_text())
+            digest = hashlib.sha256("\n".join(domains).encode("utf-8")).hexdigest()
+            snapshot = {
+                "source": WHITELIST_DOMAIN_SOURCE_NAME,
+                "sourceUrl": WHITELIST_DOMAIN_SOURCE_URL,
+                "updatedAt": checked_at,
+                "count": len(domains),
+                "sha256": digest,
+                "domains": domains,
+            }
+            write_json_atomic(whitelist_domain_list_snapshot_path(app_dir), snapshot)
+            runtime.update(
+                {
+                    "lastSuccessAt": checked_at,
+                    "lastError": "",
+                }
+            )
+            if (
+                previous_snapshot is None
+                or previous_snapshot.get("sha256") != digest
+                or previous_error
+            ):
+                append_whitelist_monitor_event(
+                    app_dir,
+                    "domain_list_updated",
+                    "Локальный список разрешённых доменов обновлён",
+                    domainCount=len(domains),
+                    source=WHITELIST_DOMAIN_SOURCE_NAME,
+                )
+            result = {"ok": True, "snapshot": snapshot, "message": ""}
+        except Exception as error:
+            message = str(error)
+            runtime["lastError"] = message
+            if message != previous_error:
+                append_whitelist_monitor_event(
+                    app_dir,
+                    "domain_list_failed",
+                    "Не удалось обновить локальный список разрешённых доменов",
+                    error=message,
+                    usingLastKnownGood=previous_snapshot is not None,
+                )
+            result = {
+                "ok": False,
+                "snapshot": previous_snapshot,
+                "message": message,
+            }
+        save_whitelist_domain_list_runtime(app_dir, runtime)
+        return result
+
+
+def get_whitelist_domain_list_status(app_dir, include_domains=False, now=None):
+    checked_at = int(time.time() if now is None else now)
+    runtime = load_whitelist_domain_list_runtime(app_dir)
+    snapshot = load_whitelist_domain_list_snapshot(app_dir)
+    updated_at = snapshot.get("updatedAt") if snapshot else None
+    last_attempt_at = runtime.get("lastAttemptAt")
+    if updated_at is None:
+        next_update_at = (
+            int(last_attempt_at) + WHITELIST_DOMAIN_RETRY_SECONDS
+            if isinstance(last_attempt_at, (int, float))
+            else checked_at
+        )
+    elif checked_at - int(updated_at) >= WHITELIST_DOMAIN_REFRESH_SECONDS:
+        next_update_at = (
+            int(last_attempt_at) + WHITELIST_DOMAIN_RETRY_SECONDS
+            if isinstance(last_attempt_at, (int, float))
+            else checked_at
+        )
+    else:
+        next_update_at = int(updated_at) + WHITELIST_DOMAIN_REFRESH_SECONDS
+    status = {
+        "ready": snapshot is not None,
+        "source": WHITELIST_DOMAIN_SOURCE_NAME,
+        "sourceUrl": WHITELIST_DOMAIN_SOURCE_PAGE,
+        "updatedAt": updated_at,
+        "count": snapshot.get("count", 0) if snapshot else 0,
+        "sha256": snapshot.get("sha256", "") if snapshot else "",
+        "stale": bool(
+            updated_at is not None
+            and checked_at - int(updated_at) >= WHITELIST_DOMAIN_STALE_SECONDS
+        ),
+        "lastAttemptAt": last_attempt_at,
+        "lastSuccessAt": runtime.get("lastSuccessAt"),
+        "lastError": str(runtime.get("lastError") or ""),
+        "nextUpdateAt": next_update_at,
+        "refreshSeconds": WHITELIST_DOMAIN_REFRESH_SECONDS,
+        "job": snapshot_whitelist_domain_list_job(),
+    }
+    if include_domains:
+        status["domains"] = list(snapshot.get("domains", [])) if snapshot else []
+    return status
+
+
+def get_whitelist_routing_hosts(app_dir, settings):
+    snapshot = load_whitelist_domain_list_snapshot(app_dir)
+    if snapshot is None:
+        raise RuntimeError("локальный список разрешённых доменов ещё не загружен")
+    return list(dict.fromkeys([*snapshot["domains"], *get_whitelist_allowed_hosts(settings)]))
+
+
 def validate_whitelist_monitor_endpoint(item, kind, index):
     if not isinstance(item, dict):
         raise ValueError(f"{kind} endpoint {index + 1} must be an object")
@@ -5026,6 +5297,7 @@ def get_whitelist_monitor_status(app_dir):
         "ok": True,
         "config": config,
         "runtime": runtime,
+        "domainList": get_whitelist_domain_list_status(app_dir),
         "events": read_whitelist_monitor_events(app_dir),
         "job": snapshot_whitelist_monitor_job(),
     }
@@ -5186,10 +5458,15 @@ def get_whitelist_allowed_hosts(settings):
     return hosts
 
 
-def prepare_whitelist_fallback_text(text, settings):
+def prepare_whitelist_fallback_text(text, settings, allowed_hosts=None):
     if has_whitelist_fallback_config(text):
         return text
-    hosts = get_whitelist_allowed_hosts(settings)
+    source_hosts = (
+        get_whitelist_allowed_hosts(settings)
+        if allowed_hosts is None
+        else allowed_hosts
+    )
+    hosts = list(dict.fromkeys(source_hosts))
     if not hosts:
         raise ValueError("no enabled whitelist hosts")
     proxy_group = str(settings["proxyGroup"]).strip()
@@ -5435,7 +5712,11 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
 
     try:
         next_text = (
-            prepare_whitelist_fallback_text(current_text, settings)
+            prepare_whitelist_fallback_text(
+                current_text,
+                settings,
+                get_whitelist_routing_hosts(app_dir, settings),
+            )
             if action == "activate"
             else remove_whitelist_fallback_text(current_text)
         )
@@ -5681,9 +5962,75 @@ def whitelist_monitor_worker(app_dir):
             start_whitelist_monitor_check(app_dir)
 
 
-def initialize_whitelist_monitor(app_dir):
-    thread = threading.Thread(target=whitelist_monitor_worker, args=(Path(app_dir),), daemon=True)
+def run_whitelist_domain_list_job(app_dir):
+    try:
+        refresh_whitelist_domain_list(app_dir)
+    finally:
+        with whitelist_domain_list_state_lock:
+            whitelist_domain_list_job_state.update(
+                {
+                    "running": False,
+                    "finishedAt": int(time.time()),
+                }
+            )
+
+
+def start_whitelist_domain_list_refresh(app_dir):
+    with whitelist_domain_list_state_lock:
+        if whitelist_domain_list_job_state["running"]:
+            return False
+        whitelist_domain_list_job_state.update(
+            {
+                "running": True,
+                "startedAt": int(time.time()),
+                "finishedAt": None,
+            }
+        )
+    thread = threading.Thread(
+        target=run_whitelist_domain_list_job,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
     thread.start()
+    return True
+
+
+def whitelist_domain_list_worker(app_dir):
+    while True:
+        time.sleep(5)
+        if snapshot_whitelist_domain_list_job()["running"]:
+            continue
+        now = int(time.time())
+        runtime = load_whitelist_domain_list_runtime(app_dir)
+        snapshot = load_whitelist_domain_list_snapshot(app_dir)
+        updated_at = snapshot.get("updatedAt") if snapshot else None
+        last_attempt_at = runtime.get("lastAttemptAt")
+        if (
+            isinstance(updated_at, (int, float))
+            and now - int(updated_at) < WHITELIST_DOMAIN_REFRESH_SECONDS
+        ):
+            continue
+        if (
+            isinstance(last_attempt_at, (int, float))
+            and now - int(last_attempt_at) < WHITELIST_DOMAIN_RETRY_SECONDS
+        ):
+            continue
+        start_whitelist_domain_list_refresh(app_dir)
+
+
+def initialize_whitelist_monitor(app_dir):
+    monitor_thread = threading.Thread(
+        target=whitelist_monitor_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    domain_list_thread = threading.Thread(
+        target=whitelist_domain_list_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    monitor_thread.start()
+    domain_list_thread.start()
 
 
 def normalize_current_group_selections(proxies):

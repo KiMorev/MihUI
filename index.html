@@ -710,6 +710,20 @@
             <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
           </section>
 
+          <section class="panel whitelist-domain-list-card" aria-live="polite">
+            <div class="whitelist-domain-list-copy">
+              <span id="whitelistDomainListBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+              <h3 id="whitelistDomainListTitle">Локальный список разрешённых доменов</h3>
+              <p id="whitelistDomainListMessage">MihUI загрузит и проверит список независимо от переключения режима.</p>
+              <a id="whitelistDomainListSource" href="https://github.com/hxehex/russia-mobile-internet-whitelist" target="_blank" rel="noreferrer">hxehex/russia-mobile-internet-whitelist</a>
+            </div>
+            <dl class="whitelist-domain-list-metrics">
+              <div><dt>Доменов</dt><dd id="whitelistDomainListCount">0</dd></div>
+              <div><dt>Обновлён</dt><dd id="whitelistDomainListUpdatedAt">—</dd></div>
+              <div><dt>Следующая попытка</dt><dd id="whitelistDomainListNextAt">—</dd></div>
+            </dl>
+          </section>
+
           <section id="whitelistMonitorProposal" class="panel whitelist-monitor-proposal" hidden>
             <div>
               <span id="whitelistMonitorProposalBadge">Предложение</span>

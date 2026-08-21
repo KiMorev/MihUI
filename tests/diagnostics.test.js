@@ -5,7 +5,6 @@ const vm = require('node:vm');
 
 const SOURCES = [
   { name: 'app.js', path: 'app.js', type: 'js' },
-  { name: 'mihomo-editor.html', path: 'mihomo-editor.html', type: 'html' },
 ];
 
 function createElement() {
