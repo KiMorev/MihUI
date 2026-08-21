@@ -753,6 +753,26 @@ rules:
     assert.equal(timeline[0].state, 'confirmed');
   });
 
+  test(`${source.name}: ignores service events in the whitelist state timeline`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 3 * 60 * 60 * 1000;
+    const at = (offsetMinutes) => Math.floor((start + offsetMinutes * 60 * 1000) / 1000);
+    const timeline = app.buildWhitelistMonitorTimeline([
+      { type: 'normal', timestamp: at(10) },
+      { type: 'config_restored', timestamp: at(10) },
+      { type: 'domain_list_updated', timestamp: at(70) },
+    ], {
+      state: 'normal',
+      checkedAt: at(179),
+    }, now, 3);
+
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(timeline.map((item) => item.state))),
+      ['normal', 'normal', 'normal'],
+    );
+  });
+
   test(`${source.name}: builds resource history and marks node switches`, () => {
     const app = loadApp(source);
     const now = Date.UTC(2026, 6, 25, 12, 0, 0);

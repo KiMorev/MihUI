@@ -4658,7 +4658,8 @@ function normalizeWhitelistMonitorHistoryState(value) {
   if (value === 'normal') return 'normal';
   if (value === 'confirmed') return 'confirmed';
   if (['suspected', 'unknown', 'error'].includes(value)) return 'disputed';
-  return 'idle';
+  if (value === 'idle') return 'idle';
+  return null;
 }
 
 function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hours = 24) {
@@ -4671,12 +4672,13 @@ function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hour
       at: getWhitelistMonitorHistoryTimestamp(event.timestamp ?? event.at),
       state: normalizeWhitelistMonitorHistoryState(event.type),
     }))
-    .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd);
+    .filter((event) => event.state && Number.isFinite(event.at) && event.at <= windowEnd);
   const runtimeAt = getWhitelistMonitorHistoryTimestamp(runtime?.checkedAt);
-  if (Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
+  const runtimeState = normalizeWhitelistMonitorHistoryState(runtime?.state);
+  if (runtimeState && Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
     transitions.push({
       at: runtimeAt,
-      state: normalizeWhitelistMonitorHistoryState(runtime?.state),
+      state: runtimeState,
     });
   }
   transitions.sort((left, right) => left.at - right.at);
