@@ -12,6 +12,9 @@ import re
 import select
 import shutil
 import signal
+import socket
+import ssl
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -283,6 +286,31 @@ WHITELIST_MONITOR_CONTROL_ENDPOINTS = [
         "enabled": True,
     },
 ]
+DNS_LAB_LOG_MAX_BYTES = 4 * 1024 * 1024
+DNS_LAB_EVENT_LIMIT = 576
+DNS_LAB_STATUS_EVENT_LIMIT = 48
+DNS_LAB_QUERY_NAME = "example.com"
+DNS_LAB_PLAIN_TARGETS = [
+    {"id": "yandex", "label": "Яндекс DNS", "address": "77.88.8.8"},
+    {"id": "cloudflare", "label": "Cloudflare DNS", "address": "1.1.1.1"},
+    {"id": "google", "label": "Google DNS", "address": "8.8.8.8"},
+]
+DNS_LAB_ENCRYPTED_TARGETS = [
+    {
+        "id": "cloudflare",
+        "label": "Cloudflare",
+        "address": "1.1.1.1",
+        "hostname": "cloudflare-dns.com",
+        "dohPath": "/dns-query?name=example.com&type=A",
+    },
+    {
+        "id": "google",
+        "label": "Google",
+        "address": "8.8.8.8",
+        "hostname": "dns.google",
+        "dohPath": "/resolve?name=example.com&type=A",
+    },
+]
 
 
 update_lock = threading.Lock()
@@ -339,6 +367,14 @@ whitelist_domain_list_job_state = {
     "running": False,
     "startedAt": None,
     "finishedAt": None,
+}
+dns_lab_lock = threading.Lock()
+dns_lab_state_lock = threading.Lock()
+dns_lab_job_state = {
+    "running": False,
+    "startedAt": None,
+    "finishedAt": None,
+    "error": "",
 }
 xray_provider_adapter_slots = threading.BoundedSemaphore(2)
 xray_provider_adapter_status_lock = threading.Lock()
@@ -430,6 +466,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/whitelist-monitor/domain-list":
             self.handle_whitelist_domain_list_get()
             return
+        if route == "/api/dns-lab":
+            self.handle_dns_lab_get()
+            return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
             return
@@ -488,6 +527,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/whitelist-monitor/proxy-check":
             self.handle_whitelist_monitor_proxy_check()
+            return
+        if route == "/api/dns-lab/settings":
+            self.handle_dns_lab_settings()
+            return
+        if route == "/api/dns-lab/check":
+            self.handle_dns_lab_check()
             return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
@@ -939,6 +984,34 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "result": result,
             },
         )
+
+    def handle_dns_lab_get(self):
+        raw_limit = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("limit", [""])[0]
+        try:
+            event_limit = min(DNS_LAB_EVENT_LIMIT, max(1, int(raw_limit))) if raw_limit else DNS_LAB_STATUS_EVENT_LIMIT
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "invalid limit"})
+            return
+        self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir, event_limit=event_limit))
+
+    def handle_dns_lab_settings(self):
+        if self.headers.get("X-Mihui-Action") != "dns-lab":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+        try:
+            settings = validate_dns_lab_settings(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        save_dns_lab_settings(self.app_dir, settings)
+        self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir))
+
+    def handle_dns_lab_check(self):
+        if self.headers.get("X-Mihui-Action") != "dns-lab":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+        result = start_dns_lab_check(self.app_dir)
+        self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
@@ -6033,6 +6106,787 @@ def initialize_whitelist_monitor(app_dir):
     domain_list_thread.start()
 
 
+def default_dns_lab_settings():
+    return {
+        "enabled": False,
+        "intervalSeconds": 300,
+        "timeoutMs": 4000,
+    }
+
+
+def validate_dns_lab_settings(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("settings must be an object")
+    interval = payload.get("intervalSeconds")
+    timeout = payload.get("timeoutMs")
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 60 <= interval <= 3600:
+        raise ValueError("intervalSeconds must be between 60 and 3600")
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1000 <= timeout <= 10000:
+        raise ValueError("timeoutMs must be between 1000 and 10000")
+    return {
+        "enabled": bool(payload.get("enabled", False)),
+        "intervalSeconds": interval,
+        "timeoutMs": timeout,
+    }
+
+
+def dns_lab_settings_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_SETTINGS_PATH", str(Path(app_dir) / "dns-lab.json")))
+
+
+def dns_lab_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_RUNTIME_PATH", str(Path(app_dir) / "dns-lab-runtime.json")))
+
+
+def dns_lab_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_LOG_PATH", str(Path(app_dir) / "dns-lab.jsonl")))
+
+
+def load_dns_lab_settings(app_dir):
+    defaults = default_dns_lab_settings()
+    saved = read_json_file(dns_lab_settings_path(app_dir), {})
+    merged = {key: saved.get(key, value) for key, value in defaults.items()}
+    try:
+        return validate_dns_lab_settings(merged)
+    except (TypeError, ValueError):
+        return defaults
+
+
+def save_dns_lab_settings(app_dir, settings):
+    write_json_atomic(dns_lab_settings_path(app_dir), settings)
+
+
+def default_dns_lab_runtime():
+    return {
+        "state": "idle",
+        "rawState": "idle",
+        "message": "Проверка ещё не выполнялась",
+        "checkedAt": None,
+        "durationMs": None,
+        "consecutiveRawState": 0,
+        "consecutiveHealthy": 0,
+        "consecutiveUnstable": 0,
+        "consecutiveDnsIssue": 0,
+        "whitelistContext": {},
+    }
+
+
+def load_dns_lab_runtime(app_dir):
+    defaults = default_dns_lab_runtime()
+    saved = read_json_file(dns_lab_runtime_path(app_dir), {})
+    return {key: saved.get(key, value) for key, value in defaults.items()}
+
+
+def save_dns_lab_runtime(app_dir, runtime):
+    write_json_atomic(dns_lab_runtime_path(app_dir), runtime)
+
+
+def read_dns_lab_events(app_dir, limit=DNS_LAB_STATUS_EVENT_LIMIT):
+    try:
+        lines = dns_lab_log_path(app_dir).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    events = []
+    for line in lines[-max(1, int(limit)):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def append_dns_lab_event(app_dir, event):
+    path = dns_lab_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(lines) > DNS_LAB_EVENT_LIMIT or path.stat().st_size > DNS_LAB_LOG_MAX_BYTES:
+            retained = []
+            retained_bytes = 0
+            for line in reversed(lines[-DNS_LAB_EVENT_LIMIT:]):
+                line_bytes = len(line.encode("utf-8")) + 1
+                if retained and retained_bytes + line_bytes > DNS_LAB_LOG_MAX_BYTES:
+                    break
+                retained.append(line)
+                retained_bytes += line_bytes
+            path.write_text(
+                "\n".join(reversed(retained)) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+
+
+def snapshot_dns_lab_job():
+    with dns_lab_state_lock:
+        return dict(dns_lab_job_state)
+
+
+def get_dns_lab_whitelist_context(app_dir):
+    settings = load_whitelist_monitor_settings(app_dir)
+    runtime = load_whitelist_monitor_runtime(app_dir, settings)
+    fallback_active = has_whitelist_fallback_config(read_config_text(get_config_path(app_dir)))
+    if fallback_active:
+        context_state = "active"
+    elif runtime.get("state") in {"suspected", "confirmed"}:
+        context_state = str(runtime.get("state"))
+    elif settings.get("enabled"):
+        context_state = "normal"
+    else:
+        context_state = "disabled"
+    return {
+        "state": context_state,
+        "monitorEnabled": bool(settings.get("enabled")),
+        "monitorState": str(runtime.get("state") or "idle"),
+        "evidenceState": str(runtime.get("evidenceState") or "none"),
+        "accessMode": str(runtime.get("accessMode") or "unknown"),
+        "fallbackActive": bool(fallback_active),
+        "automaticActionPending": str(runtime.get("automaticActionPending") or ""),
+        "lastConfigAction": str(runtime.get("lastConfigAction") or ""),
+        "lastConfigActionAt": runtime.get("lastConfigActionAt"),
+        "lastConfigActionOk": runtime.get("lastConfigActionOk"),
+    }
+
+
+def extract_dns_config_block(text):
+    lines = str(text or "").splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s*)dns\s*:\s*(?:#.*)?$", line)
+        if not match:
+            continue
+        indent = len(match.group(1))
+        block = []
+        for candidate in lines[index + 1:]:
+            if candidate.strip():
+                candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+                if candidate_indent <= indent:
+                    break
+            block.append(candidate)
+        return block
+    return []
+
+
+def dns_config_scalar(block, key):
+    pattern = re.compile(rf"^\s+{re.escape(key)}\s*:\s*([^#]+?)\s*$")
+    for line in block:
+        match = pattern.match(line)
+        if match:
+            return match.group(1).strip().strip("'\"")
+    return ""
+
+
+def dns_config_list_values(block, key):
+    values = []
+    key_pattern = re.compile(rf"^(\s+){re.escape(key)}\s*:\s*(.*?)\s*$")
+    for index, line in enumerate(block):
+        match = key_pattern.match(line.split("#", 1)[0])
+        if not match:
+            continue
+        indent = len(match.group(1))
+        inline = match.group(2).strip()
+        if inline.startswith("[") and inline.endswith("]"):
+            values.extend(item.strip().strip("'\"") for item in inline[1:-1].split(",") if item.strip())
+        for candidate in block[index + 1:]:
+            clean = candidate.split("#", 1)[0].rstrip()
+            if not clean.strip():
+                continue
+            candidate_indent = len(clean) - len(clean.lstrip(" "))
+            if candidate_indent <= indent:
+                break
+            item = re.match(r"^\s*-\s*(.+?)\s*$", clean)
+            if item:
+                values.append(item.group(1).strip().strip("'\""))
+        break
+    return values
+
+
+def summarize_dns_config(text):
+    block = extract_dns_config_block(text)
+    if not block:
+        return {
+            "hasDns": False,
+            "revision": config_revision(text)[:12],
+            "upstreams": {},
+        }
+    upstreams = {}
+    transports = {}
+    for key in ("default-nameserver", "nameserver", "fallback", "proxy-server-nameserver"):
+        values = dns_config_list_values(block, key)
+        upstreams[key] = len(values)
+        for value in values:
+            scheme = urllib.parse.urlsplit(value).scheme.casefold() if "://" in value else "udp"
+            transports[scheme or "udp"] = transports.get(scheme or "udp", 0) + 1
+    return {
+        "hasDns": True,
+        "revision": config_revision(text)[:12],
+        "enable": dns_config_scalar(block, "enable"),
+        "listen": dns_config_scalar(block, "listen"),
+        "enhancedMode": dns_config_scalar(block, "enhanced-mode"),
+        "preferH3": dns_config_scalar(block, "prefer-h3"),
+        "fallbackLazyQuery": dns_config_scalar(block, "fallback-lazy-query"),
+        "upstreams": upstreams,
+        "transports": transports,
+    }
+
+
+def dns_lab_system_resolver():
+    try:
+        lines = Path("/etc/resolv.conf").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        match = re.match(r"^\s*nameserver\s+([^\s#]+)", line)
+        if not match:
+            continue
+        try:
+            return str(ipaddress.ip_address(match.group(1)))
+        except ValueError:
+            continue
+    return "127.0.0.1"
+
+
+def dns_lab_decode_proc_address(value):
+    address_hex = value.split(":", 1)[0]
+    try:
+        if len(address_hex) == 8:
+            return socket.inet_ntop(socket.AF_INET, bytes.fromhex(address_hex)[::-1])
+        if address_hex == "0" * 32:
+            return "::"
+    except (OSError, ValueError):
+        pass
+    return "ipv6" if len(address_hex) == 32 else "unknown"
+
+
+def get_dns_port_listeners():
+    listeners = []
+    inodes = set()
+    sources = (("udp", "/proc/net/udp"), ("udp6", "/proc/net/udp6"), ("tcp", "/proc/net/tcp"), ("tcp6", "/proc/net/tcp6"))
+    for protocol, source in sources:
+        try:
+            lines = Path(source).read_text(encoding="utf-8", errors="replace").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or ":" not in fields[1]:
+                continue
+            port = fields[1].rsplit(":", 1)[1]
+            if port.upper() != "0035" or (protocol.startswith("tcp") and fields[3] != "0A"):
+                continue
+            inode = fields[9]
+            inodes.add(inode)
+            listeners.append({
+                "protocol": protocol,
+                "address": dns_lab_decode_proc_address(fields[1]),
+                "owners": [],
+                "inode": inode,
+            })
+    owners = {inode: set() for inode in inodes}
+    if inodes:
+        for proc_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                name = (proc_dir / "comm").read_text(encoding="utf-8", errors="replace").strip()
+                for fd in (proc_dir / "fd").iterdir():
+                    target = os.readlink(fd)
+                    match = re.fullmatch(r"socket:\[(\d+)\]", target)
+                    if match and match.group(1) in owners:
+                        owners[match.group(1)].add(name or proc_dir.name)
+            except OSError:
+                continue
+    for item in listeners:
+        item["owners"] = sorted(owners.get(item.pop("inode"), set()))
+    return {
+        "available": any(Path(source).is_file() for _, source in sources),
+        "listeners": listeners,
+    }
+
+
+def get_dns_lab_system_health(app_dir):
+    health = {"hostname": socket.gethostname()}
+    try:
+        health["loadAverage"] = [round(value, 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        health["loadAverage"] = []
+    try:
+        health["uptimeSeconds"] = int(float(Path("/proc/uptime").read_text().split()[0]))
+    except (OSError, ValueError, IndexError):
+        health["uptimeSeconds"] = None
+    try:
+        memory = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            key, value = line.split(":", 1)
+            if key in {"MemTotal", "MemAvailable"}:
+                memory[key] = int(value.strip().split()[0]) * 1024
+        health["memory"] = {
+            "total": memory.get("MemTotal"),
+            "available": memory.get("MemAvailable"),
+        }
+    except (OSError, ValueError, IndexError):
+        health["memory"] = {}
+    try:
+        disk = shutil.disk_usage(str(app_dir))
+        health["disk"] = {"total": disk.total, "free": disk.free}
+    except OSError:
+        health["disk"] = {}
+    return health
+
+
+def get_dns_lab_services(app_dir):
+    nodes = get_current_nodes(app_dir)
+    node_items = nodes.get("nodes", []) if nodes.get("ok") else []
+    group_items = nodes.get("groups", []) if nodes.get("ok") else []
+    key_groups = []
+    for name in ("PROXY", "FALLBACK", "FASTEST"):
+        group = next((item for item in group_items if item.get("name") == name), None)
+        if group:
+            key_groups.append({
+                "name": name,
+                "type": str(group.get("type") or ""),
+                "candidateCount": len(group.get("all") or []),
+                "hasSelection": bool(group.get("now")),
+                "selectedAlive": group.get("selected", {}).get("alive"),
+            })
+    return {
+        "mihomo": get_mihomo_service_status(app_dir),
+        "xkeen": {key: value for key, value in get_xkeen_service_status(app_dir).items() if key != "detail"},
+        "nodes": {
+            "available": bool(nodes.get("ok")),
+            "total": len(node_items),
+            "alive": sum(item.get("alive") is True for item in node_items),
+            "dead": sum(item.get("alive") is False for item in node_items),
+            "unknown": sum(item.get("alive") is None for item in node_items),
+            "providerCount": len(nodes.get("providers", [])) if nodes.get("ok") else 0,
+        },
+        "groups": key_groups,
+    }
+
+
+def build_dns_query(name=DNS_LAB_QUERY_NAME):
+    query_id = uuid.uuid4().int & 0xFFFF
+    labels = str(name).strip(".").split(".")
+    qname = b"".join(bytes([len(label.encode("idna"))]) + label.encode("idna") for label in labels) + b"\x00"
+    return query_id, struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", 1, 1)
+
+
+def parse_dns_response(payload, query_id):
+    if len(payload) < 12:
+        raise ValueError("short DNS response")
+    response_id, flags, questions, answers, _, _ = struct.unpack("!HHHHHH", payload[:12])
+    if response_id != query_id:
+        raise ValueError("DNS response id mismatch")
+    if not flags & 0x8000:
+        raise ValueError("not a DNS response")
+    return {
+        "rcode": flags & 0x000F,
+        "answerCount": answers,
+        "questionCount": questions,
+        "truncated": bool(flags & 0x0200),
+    }
+
+
+def receive_exact(stream, size):
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = stream.recv(remaining)
+        if not chunk:
+            raise ConnectionError("connection closed")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def dns_lab_error(error):
+    if isinstance(error, (socket.timeout, TimeoutError)):
+        category = "timeout"
+    elif isinstance(error, ssl.SSLCertVerificationError):
+        category = "certificate"
+    elif isinstance(error, ssl.SSLError):
+        category = "tls"
+    elif isinstance(error, ConnectionRefusedError):
+        category = "refused"
+    elif isinstance(error, OSError) and getattr(error, "errno", None) in {101, 113}:
+        category = "no_route"
+    elif isinstance(error, ConnectionResetError):
+        category = "reset"
+    else:
+        category = "network"
+    return {"category": category, "detail": str(error)[:240]}
+
+
+def probe_dns_lab_plain(target, protocol, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": protocol,
+        "ok": False,
+        "latencyMs": None,
+    }
+    query_id, packet = build_dns_query()
+    family = socket.AF_INET6 if ":" in target["address"] else socket.AF_INET
+    try:
+        if protocol == "udp":
+            with socket.socket(family, socket.SOCK_DGRAM) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendto(packet, (target["address"], 53))
+                payload, _ = stream.recvfrom(4096)
+        else:
+            with socket.create_connection((target["address"], 53), timeout=timeout_ms / 1000) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                payload_size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, payload_size)
+        parsed = parse_dns_response(payload, query_id)
+        result.update(parsed)
+        result["ok"] = parsed["rcode"] == 0
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def probe_dns_lab_dot(target, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": "dot",
+        "ok": False,
+        "latencyMs": None,
+    }
+    query_id, packet = build_dns_query()
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target["address"], 853), timeout=timeout_ms / 1000) as raw:
+            raw.settimeout(timeout_ms / 1000)
+            with context.wrap_socket(raw, server_hostname=target["hostname"]) as stream:
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                payload_size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, payload_size)
+                parsed = parse_dns_response(payload, query_id)
+                result.update(parsed)
+                result.update({
+                    "ok": parsed["rcode"] == 0,
+                    "tlsVersion": stream.version() or "",
+                    "cipher": (stream.cipher() or ("",))[0],
+                })
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def decode_http_chunked_body(body):
+    decoded = bytearray()
+    position = 0
+    while True:
+        line_end = body.find(b"\r\n", position)
+        if line_end < 0:
+            raise ValueError("invalid chunked response")
+        try:
+            size = int(body[position:line_end].split(b";", 1)[0], 16)
+        except ValueError as error:
+            raise ValueError("invalid chunk size") from error
+        position = line_end + 2
+        if size == 0:
+            return bytes(decoded)
+        chunk_end = position + size
+        if chunk_end + 2 > len(body) or body[chunk_end:chunk_end + 2] != b"\r\n":
+            raise ValueError("incomplete chunked response")
+        decoded.extend(body[position:chunk_end])
+        position = chunk_end + 2
+
+
+def probe_dns_lab_doh(target, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": "doh",
+        "ok": False,
+        "latencyMs": None,
+    }
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target["address"], 443), timeout=timeout_ms / 1000) as raw:
+            raw.settimeout(timeout_ms / 1000)
+            with context.wrap_socket(raw, server_hostname=target["hostname"]) as stream:
+                request = (
+                    f"GET {target['dohPath']} HTTP/1.1\r\n"
+                    f"Host: {target['hostname']}\r\n"
+                    "Accept: application/dns-json\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                stream.sendall(request)
+                response = b""
+                while len(response) < 65536:
+                    chunk = stream.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                header_bytes, separator, body = response.partition(b"\r\n\r\n")
+                if not separator:
+                    raise ValueError("incomplete DoH HTTP response")
+                header_text = header_bytes.decode("iso-8859-1", "replace")
+                status_line = header_text.split("\r\n", 1)[0]
+                headers = {}
+                for line in header_text.split("\r\n")[1:]:
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        headers[key.strip().casefold()] = value.strip()
+                match = re.match(r"^HTTP/\d(?:\.\d)?\s+(\d{3})", status_line)
+                if not match:
+                    raise ValueError("invalid DoH HTTP response")
+                status = int(match.group(1))
+                if "chunked" in headers.get("transfer-encoding", "").casefold():
+                    body = decode_http_chunked_body(body)
+                try:
+                    payload = json.loads(body.decode("utf-8", "replace"))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("invalid DoH JSON response") from error
+                dns_status = payload.get("Status") if isinstance(payload, dict) else None
+                answers = payload.get("Answer") if isinstance(payload, dict) else None
+                result.update({
+                    "ok": status == 200 and dns_status == 0,
+                    "httpStatus": status,
+                    "dnsStatus": dns_status,
+                    "answerCount": len(answers) if isinstance(answers, list) else 0,
+                    "tlsVersion": stream.version() or "",
+                    "cipher": (stream.cipher() or ("",))[0],
+                })
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def run_dns_lab_network_probes(timeout_ms):
+    system_target = {
+        "id": "system",
+        "label": "Системный DNS",
+        "address": dns_lab_system_resolver(),
+    }
+    plain_targets = [system_target, *DNS_LAB_PLAIN_TARGETS]
+    jobs = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for target in plain_targets:
+            for protocol in ("udp", "tcp"):
+                jobs.append(("plain", pool.submit(probe_dns_lab_plain, target, protocol, timeout_ms)))
+        for target in DNS_LAB_ENCRYPTED_TARGETS:
+            jobs.append(("encrypted", pool.submit(probe_dns_lab_dot, target, timeout_ms)))
+            jobs.append(("encrypted", pool.submit(probe_dns_lab_doh, target, timeout_ms)))
+        plain = []
+        encrypted = []
+        for kind, future in jobs:
+            result = future.result()
+            (plain if kind == "plain" else encrypted).append(result)
+    return {"plain": plain, "encrypted": encrypted}
+
+
+def classify_dns_lab_cycle(probes, previous_runtime):
+    plain = probes.get("plain", [])
+    encrypted = probes.get("encrypted", [])
+    system = [item for item in plain if item.get("id") == "system"]
+    public_plain = [item for item in plain if item.get("id") != "system"]
+    dot = [item for item in encrypted if item.get("transport") == "dot"]
+    doh = [item for item in encrypted if item.get("transport") == "doh"]
+    system_ok = sum(item.get("ok") is True for item in system)
+    public_plain_ok = sum(item.get("ok") is True for item in public_plain)
+    dot_ok = sum(item.get("ok") is True for item in dot)
+    doh_ok = sum(item.get("ok") is True for item in doh)
+    public_ok = public_plain_ok + dot_ok + doh_ok
+
+    if public_ok <= 1:
+        raw_state = "link_unstable"
+        raw_message = "Одновременно недоступны разные DNS-транспорты: вероятнее нестабильность канала"
+    elif system_ok == 0 and doh_ok >= 1:
+        raw_state = "dns_issue"
+        raw_message = "Системный DNS не отвечает, хотя DNS-over-HTTPS доступен"
+    elif system_ok == 2 and public_plain_ok >= 4 and (dot_ok == 0 or doh_ok == 0):
+        raw_state = "selective"
+        if dot_ok == 0 and doh_ok >= 1:
+            raw_message = "Обычный DNS и DoH работают, а DNS-over-TLS недоступен"
+        elif doh_ok == 0 and dot_ok >= 1:
+            raw_message = "Обычный DNS и DoT работают, а DNS-over-HTTPS недоступен"
+        else:
+            raw_message = "Обычный DNS работает, а зашифрованные DNS-транспорты недоступны"
+    elif system_ok == 2 and public_plain_ok >= 4:
+        raw_state = "healthy"
+        raw_message = "Системный и публичный DNS отвечают"
+    else:
+        raw_state = "degraded"
+        raw_message = "Часть DNS-проверок завершилась сбоем"
+
+    previous_raw = str(previous_runtime.get("rawState") or "idle")
+    consecutive = int(previous_runtime.get("consecutiveRawState") or 0) + 1 if previous_raw == raw_state else 1
+    if raw_state in {"link_unstable", "dns_issue", "selective", "degraded"} and consecutive < 2:
+        state = "observing"
+        message = f"Единичное наблюдение: {raw_message.lower()}. Нужен повторный цикл"
+    else:
+        state = raw_state
+        message = raw_message
+    return {
+        "state": state,
+        "rawState": raw_state,
+        "message": message,
+        "consecutiveRawState": consecutive,
+        "consecutiveHealthy": int(previous_runtime.get("consecutiveHealthy") or 0) + 1 if raw_state == "healthy" else 0,
+        "consecutiveUnstable": int(previous_runtime.get("consecutiveUnstable") or 0) + 1 if raw_state == "link_unstable" else 0,
+        "consecutiveDnsIssue": int(previous_runtime.get("consecutiveDnsIssue") or 0) + 1 if raw_state in {"dns_issue", "selective"} else 0,
+        "counts": {
+            "systemOk": system_ok,
+            "systemTotal": len(system),
+            "publicPlainOk": public_plain_ok,
+            "publicPlainTotal": len(public_plain),
+            "dotOk": dot_ok,
+            "dotTotal": len(dot),
+            "dohOk": doh_ok,
+            "dohTotal": len(doh),
+        },
+    }
+
+
+def run_dns_lab_cycle(app_dir):
+    with dns_lab_lock:
+        started = time.monotonic()
+        checked_at = int(time.time())
+        settings = load_dns_lab_settings(app_dir)
+        previous_runtime = load_dns_lab_runtime(app_dir)
+        whitelist_context = get_dns_lab_whitelist_context(app_dir)
+        probes = run_dns_lab_network_probes(settings["timeoutMs"])
+        classification = classify_dns_lab_cycle(probes, previous_runtime)
+        config_text = read_config_text(get_config_path(app_dir))
+        event = {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "timestamp": checked_at,
+            "type": "measurement",
+            "state": classification["state"],
+            "rawState": classification["rawState"],
+            "message": classification["message"],
+            "consecutiveRawState": classification["consecutiveRawState"],
+            "counts": classification["counts"],
+            "routeContext": "system",
+            "routeWarning": "Системный маршрут роутера может перехватываться XKeen; результат не доказывает DIRECT",
+            "queryName": DNS_LAB_QUERY_NAME,
+            "probes": probes,
+            "whitelist": {
+                **whitelist_context,
+                "changed": whitelist_context.get("state") != previous_runtime.get("whitelistContext", {}).get("state"),
+                "previousState": previous_runtime.get("whitelistContext", {}).get("state"),
+            },
+            "config": summarize_dns_config(config_text),
+            "port53": get_dns_port_listeners(),
+            "services": get_dns_lab_services(app_dir),
+            "system": get_dns_lab_system_health(app_dir),
+        }
+        event["durationMs"] = max(1, round((time.monotonic() - started) * 1000))
+        runtime = {
+            "state": classification["state"],
+            "rawState": classification["rawState"],
+            "message": classification["message"],
+            "checkedAt": checked_at,
+            "durationMs": event["durationMs"],
+            "consecutiveRawState": classification["consecutiveRawState"],
+            "consecutiveHealthy": classification["consecutiveHealthy"],
+            "consecutiveUnstable": classification["consecutiveUnstable"],
+            "consecutiveDnsIssue": classification["consecutiveDnsIssue"],
+            "whitelistContext": whitelist_context,
+        }
+        append_dns_lab_event(app_dir, event)
+        save_dns_lab_runtime(app_dir, runtime)
+        return event
+
+
+def run_dns_lab_job(app_dir):
+    error_message = ""
+    try:
+        run_dns_lab_cycle(app_dir)
+    except Exception as error:
+        error_message = str(error)[:500]
+        checked_at = int(time.time())
+        runtime = load_dns_lab_runtime(app_dir)
+        runtime.update({
+            "state": "error",
+            "rawState": "error",
+            "message": error_message,
+            "checkedAt": checked_at,
+        })
+        save_dns_lab_runtime(app_dir, runtime)
+        append_dns_lab_event(app_dir, {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "timestamp": checked_at,
+            "type": "internal_error",
+            "state": "error",
+            "rawState": "error",
+            "message": error_message,
+            "routeContext": "system",
+            "whitelist": get_dns_lab_whitelist_context(app_dir),
+        })
+    finally:
+        with dns_lab_state_lock:
+            dns_lab_job_state.update({
+                "running": False,
+                "finishedAt": int(time.time()),
+                "error": error_message,
+            })
+
+
+def start_dns_lab_check(app_dir):
+    with dns_lab_state_lock:
+        if dns_lab_job_state["running"]:
+            return {"ok": False, "message": "DNS check already running", "job": dict(dns_lab_job_state)}
+        dns_lab_job_state.update({
+            "running": True,
+            "startedAt": int(time.time()),
+            "finishedAt": None,
+            "error": "",
+        })
+    thread = threading.Thread(target=run_dns_lab_job, args=(Path(app_dir),), daemon=True)
+    thread.start()
+    return {"ok": True, "job": snapshot_dns_lab_job()}
+
+
+def get_dns_lab_status(app_dir, event_limit=DNS_LAB_STATUS_EVENT_LIMIT):
+    events = read_dns_lab_events(app_dir, limit=event_limit)
+    return {
+        "ok": True,
+        "config": load_dns_lab_settings(app_dir),
+        "runtime": load_dns_lab_runtime(app_dir),
+        "events": events,
+        "latest": events[-1] if events else None,
+        "job": snapshot_dns_lab_job(),
+    }
+
+
+def dns_lab_worker(app_dir):
+    while True:
+        time.sleep(5)
+        settings = load_dns_lab_settings(app_dir)
+        if not settings["enabled"] or snapshot_dns_lab_job()["running"]:
+            continue
+        runtime = load_dns_lab_runtime(app_dir)
+        checked_at = runtime.get("checkedAt")
+        now = int(time.time())
+        if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:
+            start_dns_lab_check(app_dir)
+
+
+def initialize_dns_lab(app_dir):
+    thread = threading.Thread(target=dns_lab_worker, args=(Path(app_dir),), daemon=True)
+    thread.start()
+
+
 def normalize_current_group_selections(proxies):
     if not isinstance(proxies, dict):
         return []
@@ -6545,6 +7399,7 @@ def main():
     initialize_update_state(app_dir)
     initialize_resource_monitor(app_dir)
     initialize_whitelist_monitor(app_dir)
+    initialize_dns_lab(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,

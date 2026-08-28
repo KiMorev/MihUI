@@ -569,6 +569,29 @@ test('primary UI files expose stable automatic whitelist routing', () => {
   }
 });
 
+test('primary UI files expose a read-only DNS test bench with whitelist context', () => {
+  const html = read('index.html');
+  assert.match(html, /data-section="dns-lab"/);
+  assert.match(html, /data-section-panel="dns-lab"/);
+  assert.match(html, /id="dnsLabEnabled"/);
+  assert.match(html, /id="dnsLabCheckButton"/);
+  assert.match(html, /id="dnsLabWhitelistBadge"/);
+  assert.match(html, /Единичные сбои не классифицируются/);
+  assert.match(html, /Наблюдение без изменения DNS, маршрутов и конфигурации Mihomo/);
+
+  const script = read('app.js');
+  assert.match(script, /\/api\/dns-lab/);
+  assert.match(script, /X-Mihui-Action': 'dns-lab'/);
+  assert.match(script, /link_unstable/);
+  assert.match(script, /function downloadDnsLabLog\(\)/);
+  assert.match(script, /Белые списки: маршрут активен/);
+
+  const styles = read('styles.css');
+  assert.match(styles, /\.dns-lab-state\.is-link_unstable/);
+  assert.match(styles, /\.dns-lab-context\.is-active/);
+  assert.match(styles, /\.dns-lab-event pre/);
+});
+
 test('installer and updater require checksum and path validation before extraction', () => {
   for (const name of ['router/install.sh', 'router/cgi-bin/mihui-update']) {
     const script = read(name);

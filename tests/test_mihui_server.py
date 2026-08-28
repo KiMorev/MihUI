@@ -1732,6 +1732,160 @@ class ProviderAdapterTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 
+    def test_dns_lab_settings_are_validated_and_persisted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = {"enabled": True, "intervalSeconds": 120, "timeoutMs": 5000}
+            validated = mihui_server.validate_dns_lab_settings(settings)
+            mihui_server.save_dns_lab_settings(app_dir, validated)
+
+            self.assertEqual(mihui_server.load_dns_lab_settings(app_dir), validated)
+            with self.assertRaises(ValueError):
+                mihui_server.validate_dns_lab_settings({**settings, "intervalSeconds": 30})
+            with self.assertRaises(ValueError):
+                mihui_server.validate_dns_lab_settings({**settings, "timeoutMs": 11000})
+
+    def test_dns_lab_requires_repeated_failures_on_unstable_link(self):
+        failed = {"ok": False, "error": {"category": "timeout"}}
+        probes = {
+            "plain": [
+                {**failed, "id": "system", "transport": "udp"},
+                {**failed, "id": "system", "transport": "tcp"},
+                {**failed, "id": "cloudflare", "transport": "udp"},
+                {**failed, "id": "cloudflare", "transport": "tcp"},
+            ],
+            "encrypted": [
+                {**failed, "id": "cloudflare", "transport": "dot"},
+                {**failed, "id": "cloudflare", "transport": "doh"},
+            ],
+        }
+
+        first = mihui_server.classify_dns_lab_cycle(
+            probes,
+            mihui_server.default_dns_lab_runtime(),
+        )
+        second = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), **first},
+        )
+
+        self.assertEqual(first["rawState"], "link_unstable")
+        self.assertEqual(first["state"], "observing")
+        self.assertEqual(second["state"], "link_unstable")
+        self.assertEqual(second["consecutiveUnstable"], 2)
+
+    def test_dns_lab_distinguishes_selective_dot_failure_from_link_loss(self):
+        ok = {"ok": True}
+        failed = {"ok": False, "error": {"category": "no_route"}}
+        probes = {
+            "plain": [
+                {**ok, "id": "system", "transport": "udp"},
+                {**ok, "id": "system", "transport": "tcp"},
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("yandex", "cloudflare", "google")
+                    for protocol in ("udp", "tcp")
+                ],
+            ],
+            "encrypted": [
+                {**failed, "id": "cloudflare", "transport": "dot"},
+                {**failed, "id": "google", "transport": "dot"},
+                {**ok, "id": "cloudflare", "transport": "doh"},
+                {**ok, "id": "google", "transport": "doh"},
+            ],
+        }
+
+        result = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), "rawState": "selective", "consecutiveRawState": 1},
+        )
+
+        self.assertEqual(result["state"], "selective")
+        self.assertEqual(result["counts"]["dotOk"], 0)
+        self.assertEqual(result["counts"]["dohOk"], 2)
+
+    def test_dns_lab_decodes_chunked_doh_payload(self):
+        body = b"4\r\n{\"St\r\n8\r\natus\":0}\r\n0\r\n\r\n"
+
+        decoded = mihui_server.decode_http_chunked_body(body)
+
+        self.assertEqual(decoded, b'{"Status":0}')
+
+    def test_dns_lab_cycle_logs_sanitized_config_and_whitelist_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text(
+                "dns:\n"
+                "  enable: true\n"
+                "  nameserver:\n"
+                "    - https://user:secret@dns.example.test/dns-query\n"
+                "  fallback:\n"
+                "    - tls://dns.example.test:853\n",
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            probes = {
+                "plain": [
+                    {"id": "system", "transport": "udp", "ok": True},
+                    {"id": "system", "transport": "tcp", "ok": True},
+                    *[
+                        {"id": target, "transport": protocol, "ok": True}
+                        for target in ("yandex", "cloudflare", "google")
+                        for protocol in ("udp", "tcp")
+                    ],
+                ],
+                "encrypted": [
+                    {"id": "cloudflare", "transport": "dot", "ok": True},
+                    {"id": "cloudflare", "transport": "doh", "ok": True},
+                    {"id": "google", "transport": "dot", "ok": True},
+                    {"id": "google", "transport": "doh", "ok": True},
+                ],
+            }
+            whitelist = {"state": "active", "fallbackActive": True}
+            with mock.patch.object(
+                mihui_server, "run_dns_lab_network_probes", return_value=probes
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_whitelist_context", return_value=whitelist
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_services", return_value={"mihomo": {"state": "ok"}}
+            ), mock.patch.object(
+                mihui_server, "get_dns_port_listeners", return_value={"available": True, "listeners": []}
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_system_health", return_value={"hostname": "router"}
+            ):
+                event = mihui_server.run_dns_lab_cycle(app_dir)
+
+            stored = mihui_server.read_dns_lab_events(app_dir)
+            serialized = json.dumps(event)
+
+        self.assertEqual(event["state"], "healthy")
+        self.assertEqual(event["whitelist"]["state"], "active")
+        self.assertEqual(event["routeContext"], "system")
+        self.assertEqual(event["config"]["upstreams"]["nameserver"], 1)
+        self.assertEqual(event["config"]["transports"], {"https": 1, "tls": 1})
+        self.assertNotIn("secret", serialized)
+        self.assertNotIn("dns.example.test", serialized)
+        self.assertEqual(len(stored), 1)
+
+    def test_dns_lab_manual_check_is_available_while_periodic_mode_is_disabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server.threading, "Thread"
+        ) as thread_class:
+            app_dir = Path(temp_dir)
+            with mihui_server.dns_lab_state_lock:
+                mihui_server.dns_lab_job_state.update(
+                    {"running": False, "startedAt": None, "finishedAt": None, "error": ""}
+                )
+            result = mihui_server.start_dns_lab_check(app_dir)
+            with mihui_server.dns_lab_state_lock:
+                mihui_server.dns_lab_job_state["running"] = False
+
+        self.assertTrue(result["ok"])
+        thread_class.return_value.start.assert_called_once_with()
+
     def test_whitelist_domain_list_parser_validates_and_deduplicates(self):
         domains = mihui_server.parse_whitelist_domain_list(
             "# source\nExample.com\nexample.com\nпример.рф\n",
@@ -2910,6 +3064,32 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
+
+    def test_dns_lab_endpoints_save_settings_and_require_action_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            settings = {"enabled": True, "intervalSeconds": 120, "timeoutMs": 5000}
+            try:
+                forbidden_status, forbidden = self.post_json(
+                    server, "/api/dns-lab/settings", settings
+                )
+                status, result = self.post_json(
+                    server,
+                    "/api/dns-lab/settings",
+                    settings,
+                    headers={"X-Mihui-Action": "dns-lab"},
+                )
+                get_status, loaded = self.get_json(server, "/api/dns-lab")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(forbidden_status, 403)
+        self.assertFalse(forbidden["ok"])
+        self.assertEqual(status, 200)
+        self.assertEqual(result["config"], settings)
+        self.assertEqual(get_status, 200)
+        self.assertEqual(loaded["config"], settings)
 
     def test_whitelist_monitor_endpoint_saves_settings_without_checking_mihomo(self):
         with tempfile.TemporaryDirectory() as temp_dir:

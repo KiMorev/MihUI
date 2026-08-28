@@ -79,6 +79,7 @@
           <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
+          <button class="section-tab" type="button" data-section="dns-lab" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>DNS-площадка</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -114,6 +115,7 @@
           <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="dns-lab" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>DNS</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -840,6 +842,105 @@
             </div>
           </footer>
         </div>
+      </section>
+
+      <section class="app-section dns-lab-section" data-section-panel="dns-lab" hidden>
+        <header class="dns-lab-page-head">
+          <div>
+            <h2>DNS-площадка</h2>
+            <p>Наблюдение без изменения DNS, маршрутов и конфигурации Mihomo</p>
+          </div>
+          <label class="resource-monitor-switch dns-lab-main-switch">
+            <input id="dnsLabEnabled" type="checkbox" />
+            <span aria-hidden="true"></span>
+            <strong id="dnsLabEnabledLabel">Выключено</strong>
+          </label>
+        </header>
+
+        <article class="panel dns-lab-route-note">
+          <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
+          <div>
+            <h3>Тестируется системный маршрут роутера</h3>
+            <p>Его может перехватывать XKeen, поэтому успешный ответ не считается доказательством DIRECT. Единичные сбои не классифицируются: для вывода нужен повторный цикл.</p>
+          </div>
+        </article>
+
+        <section class="panel dns-lab-status-card" aria-live="polite">
+          <div class="dns-lab-state-copy">
+            <div class="dns-lab-badges">
+              <span id="dnsLabStateBadge" class="dns-lab-state is-idle">Нет данных</span>
+              <span id="dnsLabWhitelistBadge" class="dns-lab-context is-disabled">Белые списки: монитор выключен</span>
+            </div>
+            <h3 id="dnsLabStateTitle">Проверка ещё не выполнялась</h3>
+            <p id="dnsLabStateMessage">Запустите замер вручную или включите периодическое наблюдение.</p>
+          </div>
+          <dl class="dns-lab-metrics">
+            <div><dt>Проверено</dt><dd id="dnsLabCheckedAt">—</dd></div>
+            <div><dt>Системный UDP</dt><dd id="dnsLabSystemUdp">—</dd></div>
+            <div><dt>Системный TCP</dt><dd id="dnsLabSystemTcp">—</dd></div>
+            <div><dt>DoT</dt><dd id="dnsLabDotSummary">—</dd></div>
+            <div><dt>DoH</dt><dd id="dnsLabDohSummary">—</dd></div>
+            <div><dt>Mihomo</dt><dd id="dnsLabMihomoState">—</dd></div>
+          </dl>
+          <button id="dnsLabCheckButton" class="button primary compact" type="button">Запустить замер</button>
+        </section>
+
+        <section class="panel dns-lab-settings">
+          <header class="dns-lab-block-head">
+            <div>
+              <h3>Периодическое наблюдение</h3>
+              <p>Рекомендуемый интервал для нестабильного канала — 5 минут; журнал хранит до 48 часов при таком интервале.</p>
+            </div>
+          </header>
+          <div class="dns-lab-settings-grid">
+            <label>
+              <span>Проверять каждые</span>
+              <select id="dnsLabInterval">
+                <option value="60">1 минуту</option>
+                <option value="300">5 минут</option>
+                <option value="600">10 минут</option>
+                <option value="1800">30 минут</option>
+              </select>
+            </label>
+            <label>
+              <span>Тайм-аут проверки</span>
+              <select id="dnsLabTimeout">
+                <option value="3000">3 секунды</option>
+                <option value="4000">4 секунды</option>
+                <option value="5000">5 секунд</option>
+                <option value="8000">8 секунд</option>
+              </select>
+            </label>
+          </div>
+          <footer class="dns-lab-actions">
+            <p id="dnsLabNotice" hidden></p>
+            <div>
+              <button id="dnsLabDownloadButton" class="button" type="button">Скачать JSON</button>
+              <button id="dnsLabSaveButton" class="button primary" type="button">Сохранить настройки</button>
+            </div>
+          </footer>
+        </section>
+
+        <section class="panel dns-lab-results">
+          <header class="dns-lab-block-head">
+            <div>
+              <h3>Последний замер</h3>
+              <p>UDP/TCP, DoT и DoH проверяются параллельно по закреплённым IP-адресам.</p>
+            </div>
+          </header>
+          <div id="dnsLabLatestResults" class="dns-lab-result-list empty-state">Данных пока нет.</div>
+        </section>
+
+        <section class="panel dns-lab-journal">
+          <header class="dns-lab-block-head">
+            <div>
+              <h3>Журнал измерений</h3>
+              <p>Контекст белых списков записывается вместе с каждым замером и подсвечивается отдельно.</p>
+            </div>
+            <span id="dnsLabEventsCount">0 измерений</span>
+          </header>
+          <div id="dnsLabEvents" class="dns-lab-event-list"></div>
+        </section>
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>
