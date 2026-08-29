@@ -5305,6 +5305,7 @@ body.component-manager-open {
 
 .dns-lab-state.is-observing,
 .dns-lab-state.is-degraded,
+.dns-lab-state.is-upstream_limited,
 .dns-lab-state.is-selective,
 .dns-lab-context.is-suspected {
   color: var(--warning);
@@ -5313,6 +5314,7 @@ body.component-manager-open {
 
 .dns-lab-state.is-observing::before,
 .dns-lab-state.is-degraded::before,
+.dns-lab-state.is-upstream_limited::before,
 .dns-lab-state.is-selective::before,
 .dns-lab-context.is-suspected::before {
   background: var(--warning);

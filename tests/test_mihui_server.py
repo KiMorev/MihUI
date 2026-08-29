@@ -1804,6 +1804,55 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(result["counts"]["dotOk"], 0)
         self.assertEqual(result["counts"]["dohOk"], 2)
 
+    def test_dns_lab_distinguishes_upstream_tcp_limit_from_listener_failure(self):
+        ok = {"ok": True}
+        timeout = {"ok": False, "error": {"category": "timeout"}}
+        probes = {
+            "plain": [
+                {**ok, "id": "system", "transport": "udp"},
+                {**timeout, "id": "system", "transport": "tcp", "connected": True, "failureStage": "response"},
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("yandex", "cloudflare", "google")
+                    for protocol in ("udp", "tcp")
+                ],
+            ],
+            "encrypted": [
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("cloudflare", "google")
+                    for protocol in ("dot", "doh")
+                ],
+            ],
+        }
+
+        result = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), "rawState": "upstream_limited", "consecutiveRawState": 1},
+        )
+
+        self.assertEqual(result["state"], "upstream_limited")
+        self.assertIn("upstream", result["message"])
+        self.assertEqual(result["consecutiveDnsIssue"], 1)
+
+    def test_dns_lab_tcp_probe_records_accepted_connection_before_timeout(self):
+        stream = mock.MagicMock()
+        stream.recv.side_effect = mihui_server.socket.timeout("timed out")
+        context = mock.MagicMock()
+        context.__enter__.return_value = stream
+
+        with mock.patch.object(mihui_server.socket, "create_connection", return_value=context):
+            result = mihui_server.probe_dns_lab_plain(
+                {"id": "system", "label": "Системный DNS", "address": "127.0.0.1"},
+                "tcp",
+                100,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["connected"])
+        self.assertEqual(result["failureStage"], "response")
+        self.assertEqual(result["error"]["category"], "timeout")
+
     def test_dns_lab_decodes_chunked_doh_payload(self):
         body = b"4\r\n{\"St\r\n8\r\natus\":0}\r\n0\r\n\r\n"
 

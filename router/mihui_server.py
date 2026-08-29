@@ -6531,6 +6531,8 @@ def probe_dns_lab_plain(target, protocol, timeout_ms):
         "ok": False,
         "latencyMs": None,
     }
+    if protocol == "tcp":
+        result["connected"] = False
     query_id, packet = build_dns_query()
     family = socket.AF_INET6 if ":" in target["address"] else socket.AF_INET
     try:
@@ -6541,6 +6543,7 @@ def probe_dns_lab_plain(target, protocol, timeout_ms):
                 payload, _ = stream.recvfrom(4096)
         else:
             with socket.create_connection((target["address"], 53), timeout=timeout_ms / 1000) as stream:
+                result["connected"] = True
                 stream.settimeout(timeout_ms / 1000)
                 stream.sendall(struct.pack("!H", len(packet)) + packet)
                 payload_size = struct.unpack("!H", receive_exact(stream, 2))[0]
@@ -6550,6 +6553,8 @@ def probe_dns_lab_plain(target, protocol, timeout_ms):
         result["ok"] = parsed["rcode"] == 0
     except Exception as error:
         result["error"] = dns_lab_error(error)
+        if protocol == "tcp":
+            result["failureStage"] = "response" if result["connected"] else "connect"
     result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
     return result
 
@@ -6706,6 +6711,8 @@ def classify_dns_lab_cycle(probes, previous_runtime):
     dot_ok = sum(item.get("ok") is True for item in dot)
     doh_ok = sum(item.get("ok") is True for item in doh)
     public_ok = public_plain_ok + dot_ok + doh_ok
+    system_udp = next((item for item in system if item.get("transport") == "udp"), None)
+    system_tcp = next((item for item in system if item.get("transport") == "tcp"), None)
 
     if public_ok <= 1:
         raw_state = "link_unstable"
@@ -6713,6 +6720,20 @@ def classify_dns_lab_cycle(probes, previous_runtime):
     elif system_ok == 0 and doh_ok >= 1:
         raw_state = "dns_issue"
         raw_message = "Системный DNS не отвечает, хотя DNS-over-HTTPS доступен"
+    elif (
+        system_udp
+        and system_udp.get("ok") is True
+        and system_tcp
+        and system_tcp.get("ok") is not True
+        and system_tcp.get("connected") is True
+        and public_plain_ok >= 4
+        and (dot_ok >= 1 or doh_ok >= 1)
+    ):
+        raw_state = "upstream_limited"
+        raw_message = (
+            "Системный DNS принимает TCP-соединение, но внешний запрос остаётся без ответа; "
+            "вероятно, upstream не обслуживает TCP"
+        )
     elif system_ok == 2 and public_plain_ok >= 4 and (dot_ok == 0 or doh_ok == 0):
         raw_state = "selective"
         if dot_ok == 0 and doh_ok >= 1:
@@ -6730,7 +6751,7 @@ def classify_dns_lab_cycle(probes, previous_runtime):
 
     previous_raw = str(previous_runtime.get("rawState") or "idle")
     consecutive = int(previous_runtime.get("consecutiveRawState") or 0) + 1 if previous_raw == raw_state else 1
-    if raw_state in {"link_unstable", "dns_issue", "selective", "degraded"} and consecutive < 2:
+    if raw_state in {"link_unstable", "dns_issue", "upstream_limited", "selective", "degraded"} and consecutive < 2:
         state = "observing"
         message = f"Единичное наблюдение: {raw_message.lower()}. Нужен повторный цикл"
     else:
@@ -6743,7 +6764,7 @@ def classify_dns_lab_cycle(probes, previous_runtime):
         "consecutiveRawState": consecutive,
         "consecutiveHealthy": int(previous_runtime.get("consecutiveHealthy") or 0) + 1 if raw_state == "healthy" else 0,
         "consecutiveUnstable": int(previous_runtime.get("consecutiveUnstable") or 0) + 1 if raw_state == "link_unstable" else 0,
-        "consecutiveDnsIssue": int(previous_runtime.get("consecutiveDnsIssue") or 0) + 1 if raw_state in {"dns_issue", "selective"} else 0,
+        "consecutiveDnsIssue": int(previous_runtime.get("consecutiveDnsIssue") or 0) + 1 if raw_state in {"dns_issue", "upstream_limited", "selective"} else 0,
         "counts": {
             "systemOk": system_ok,
             "systemTotal": len(system),

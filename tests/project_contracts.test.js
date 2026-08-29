@@ -583,11 +583,14 @@ test('primary UI files expose a read-only DNS test bench with whitelist context'
   assert.match(script, /\/api\/dns-lab/);
   assert.match(script, /X-Mihui-Action': 'dns-lab'/);
   assert.match(script, /link_unstable/);
+  assert.match(script, /upstream_limited/);
+  assert.match(script, /соединение принято, ответа нет/);
   assert.match(script, /function downloadDnsLabLog\(\)/);
   assert.match(script, /Белые списки: маршрут активен/);
 
   const styles = read('styles.css');
   assert.match(styles, /\.dns-lab-state\.is-link_unstable/);
+  assert.match(styles, /\.dns-lab-state\.is-upstream_limited/);
   assert.match(styles, /\.dns-lab-context\.is-active/);
   assert.match(styles, /\.dns-lab-event pre/);
 });

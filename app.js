@@ -4715,6 +4715,7 @@ function getDnsLabStatePresentation(value) {
     healthy: { label: 'Работает', title: 'DNS отвечает устойчиво' },
     observing: { label: 'Нужен повтор', title: 'Зафиксирован единичный сбой' },
     degraded: { label: 'Частичный сбой', title: 'Часть DNS-транспортов недоступна' },
+    upstream_limited: { label: 'Вероятно upstream', title: 'TCP-порт системного DNS доступен, но внешний запрос остаётся без ответа' },
     selective: { label: 'Избирательно', title: 'Отказы зависят от DNS-транспорта' },
     dns_issue: { label: 'DNS под вопросом', title: 'Вероятна проблема системного DNS' },
     link_unstable: { label: 'Нестабильный канал', title: 'Сбой похож на общий обрыв интернета' },
@@ -4745,6 +4746,9 @@ function getDnsLabProbeText(probe) {
     reset: 'сброс',
     network: 'сеть',
   }[probe.error?.category] || 'ошибка';
+  if (probe.transport === 'tcp' && probe.connected === true && probe.failureStage === 'response') {
+    return `соединение принято, ответа нет · ${Number(probe.latencyMs || 0)} мс`;
+  }
   return `${category} · ${Number(probe.latencyMs || 0)} мс`;
 }
 
