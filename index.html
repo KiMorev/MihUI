@@ -79,7 +79,7 @@
           <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
-          <button class="section-tab" type="button" data-section="dns-lab" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>DNS-площадка</span></button>
+          <button class="section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Защищённый DNS</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -115,7 +115,7 @@
           <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
-          <button class="mobile-section-tab" type="button" data-section="dns-lab" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>DNS</span></button>
+          <button class="mobile-section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>DNS</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -844,102 +844,158 @@
         </div>
       </section>
 
-      <section class="app-section dns-lab-section" data-section-panel="dns-lab" hidden>
-        <header class="dns-lab-page-head">
+      <section class="app-section dns-protection-section" data-section-panel="dns" hidden>
+        <header class="dns-protection-page-head">
           <div>
-            <h2>DNS-площадка</h2>
-            <p>Наблюдение без изменения DNS, маршрутов и конфигурации Mihomo</p>
+            <h2>Защищённый DNS</h2>
+            <p>DNS через правила Mihomo с автоматическим возвратом к системному резолверу</p>
           </div>
-          <label class="resource-monitor-switch dns-lab-main-switch">
-            <input id="dnsLabEnabled" type="checkbox" />
-            <span aria-hidden="true"></span>
-            <strong id="dnsLabEnabledLabel">Выключено</strong>
-          </label>
+          <button id="dnsRefreshButton" class="button compact" type="button">Обновить состояние</button>
         </header>
 
-        <article class="panel dns-lab-route-note">
-          <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
-          <div>
-            <h3>Тестируется системный маршрут роутера</h3>
-            <p>Его может перехватывать XKeen, поэтому успешный ответ не считается доказательством DIRECT. Единичные сбои не классифицируются: для вывода нужен повторный цикл.</p>
-          </div>
-        </article>
-
-        <section class="panel dns-lab-status-card" aria-live="polite">
-          <div class="dns-lab-state-copy">
-            <div class="dns-lab-badges">
-              <span id="dnsLabStateBadge" class="dns-lab-state is-idle">Нет данных</span>
-              <span id="dnsLabWhitelistBadge" class="dns-lab-context is-disabled">Белые списки: монитор выключен</span>
+        <section class="panel dns-protection-status-card" aria-live="polite">
+          <div class="dns-protection-state-copy">
+            <div class="dns-protection-badges">
+              <span id="dnsStateBadge" class="dns-protection-state is-idle">Нет данных</span>
+              <span id="dnsFallbackBadge" class="dns-protection-context is-idle">Fallback не проверен</span>
             </div>
-            <h3 id="dnsLabStateTitle">Проверка ещё не выполнялась</h3>
-            <p id="dnsLabStateMessage">Запустите замер вручную или включите периодическое наблюдение.</p>
+            <h3 id="dnsStateTitle">Состояние ещё не загружено</h3>
+            <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
           </div>
-          <dl class="dns-lab-metrics">
-            <div><dt>Проверено</dt><dd id="dnsLabCheckedAt">—</dd></div>
-            <div><dt>Системный UDP</dt><dd id="dnsLabSystemUdp">—</dd></div>
-            <div><dt>Системный TCP</dt><dd id="dnsLabSystemTcp">—</dd></div>
-            <div><dt>DoT</dt><dd id="dnsLabDotSummary">—</dd></div>
-            <div><dt>DoH</dt><dd id="dnsLabDohSummary">—</dd></div>
-            <div><dt>Mihomo</dt><dd id="dnsLabMihomoState">—</dd></div>
+
+          <div class="dns-protection-route" aria-label="Маршрут DNS">
+            <div class="dns-protection-route-main">
+              <span>Устройства</span>
+              <b aria-hidden="true">→</b>
+              <span id="dnsProtectedPath">Mihomo :1053 (не активен)</span>
+              <b aria-hidden="true">→</b>
+              <span>DNS по правилам</span>
+            </div>
+            <div class="dns-protection-route-fallback">
+              <strong>При отказе</strong>
+              <span id="dnsFallbackPath">ndnproxy :53 → DNS провайдера</span>
+            </div>
+          </div>
+
+          <dl class="dns-protection-metrics">
+            <div><dt>Текущий режим</dt><dd id="dnsModeValue">—</dd></div>
+            <div><dt>Профиль</dt><dd id="dnsProfileValue">—</dd></div>
+            <div><dt>Слушатель Mihomo</dt><dd id="dnsListenerValue">—</dd></div>
+            <div><dt>IPv4</dt><dd id="dnsIpv4Value">—</dd></div>
+            <div><dt>IPv6</dt><dd id="dnsIpv6Value">—</dd></div>
+            <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
           </dl>
-          <button id="dnsLabCheckButton" class="button primary compact" type="button">Запустить замер</button>
         </section>
 
-        <section class="panel dns-lab-settings">
-          <header class="dns-lab-block-head">
+        <section class="panel dns-protection-profile-card">
+          <header class="dns-protection-block-head">
             <div>
-              <h3>Периодическое наблюдение</h3>
-              <p>Рекомендуемый интервал для нестабильного канала — 5 минут; журнал хранит до 48 часов при таком интервале.</p>
+              <h3>Профиль защиты</h3>
+              <p>Отказоустойчивый режим сохраняет DNS провайдера как независимый аварийный путь.</p>
             </div>
           </header>
-          <div class="dns-lab-settings-grid">
-            <label>
-              <span>Проверять каждые</span>
-              <select id="dnsLabInterval">
-                <option value="60">1 минуту</option>
-                <option value="300">5 минут</option>
-                <option value="600">10 минут</option>
-                <option value="1800">30 минут</option>
-              </select>
+
+          <div class="dns-protection-profile-grid" role="radiogroup" aria-label="Профиль защищённого DNS">
+            <label class="dns-protection-profile is-recommended">
+              <input id="dnsProfileResilient" type="radio" name="dnsProfile" value="resilient" checked />
+              <span>
+                <strong>Отказоустойчивый <small>Рекомендуется</small></strong>
+                <em>DNS провайдера и транзитные настройки не меняются. При отказе Mihomo запросы возвращаются в ndnproxy.</em>
+              </span>
             </label>
-            <label>
-              <span>Тайм-аут проверки</span>
-              <select id="dnsLabTimeout">
-                <option value="3000">3 секунды</option>
-                <option value="4000">4 секунды</option>
-                <option value="5000">5 секунд</option>
-                <option value="8000">8 секунд</option>
-              </select>
+            <label class="dns-protection-profile">
+              <input id="dnsProfileStrict" type="radio" name="dnsProfile" value="strict" />
+              <span>
+                <strong>Строгий <small>Только план</small></strong>
+                <em>Показывает план исключения DNS провайдера и перехвата обычных запросов к стороннему DNS. Активация пока недоступна.</em>
+              </span>
             </label>
           </div>
-          <footer class="dns-lab-actions">
-            <p id="dnsLabNotice" hidden></p>
+
+          <div class="dns-protection-settings-grid">
+            <label>
+              <span>Прокси-группа для защищённых DNS</span>
+              <select id="dnsProxyGroup">
+                <option value="PROXY">PROXY</option>
+              </select>
+            </label>
             <div>
-              <button id="dnsLabDownloadButton" class="button" type="button">Скачать JSON</button>
-              <button id="dnsLabSaveButton" class="button primary" type="button">Сохранить настройки</button>
+              <span>Основные upstream</span>
+              <strong id="dnsUpstreams">Cloudflare и Google · через PROXY</strong>
             </div>
-          </footer>
+          </div>
+
+          <fieldset id="dnsStrictOptions" class="dns-protection-strict-options" disabled hidden>
+            <legend>Подтвердите каждое изменение строгого режима</legend>
+            <label><input id="dnsStrictIgnoreProvider" type="checkbox" /> <span>Игнорировать DNS провайдера только после проверки альтернативного системного резолвера.</span></label>
+            <label><input id="dnsStrictInterceptTransit" type="checkbox" /> <span>Перехватывать обычные DNS-запросы клиентов к сторонним адресам.</span></label>
+            <label><input id="dnsStrictWanConfirm" type="checkbox" /> <span>Понимаю, что изменение DNS-профиля может кратковременно переподключить WAN.</span></label>
+            <p>DoH в браузерах, Private DNS/DoT на устройствах и DNS Tailscale этим режимом не перехватываются.</p>
+          </fieldset>
         </section>
 
-        <section class="panel dns-lab-results">
-          <header class="dns-lab-block-head">
+        <section class="panel dns-protection-preflight-card">
+          <header class="dns-protection-block-head">
             <div>
-              <h3>Последний замер</h3>
-              <p>UDP/TCP, DoT и DoH проверяются параллельно по закреплённым IP-адресам.</p>
+              <h3>Проверка готовности</h3>
+              <p>Предварительная проверка только читает настройки и показывает план. Клиенты ещё не переключаются.</p>
             </div>
+            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
           </header>
-          <div id="dnsLabLatestResults" class="dns-lab-result-list empty-state">Данных пока нет.</div>
+          <div id="dnsCapabilities" class="dns-protection-capability-list empty-state">Проверка ещё не выполнялась.</div>
+          <div id="dnsPlan" class="dns-protection-plan" hidden></div>
+          <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
         </section>
 
-        <section class="panel dns-lab-journal">
-          <header class="dns-lab-block-head">
+        <section class="panel dns-protection-router-card">
+          <header class="dns-protection-block-head">
             <div>
-              <h3>Журнал измерений</h3>
-              <p>Контекст белых списков записывается вместе с каждым замером и подсвечивается отдельно.</p>
+              <h3>Системный резерв роутера</h3>
+              <p>Эти параметры используются после автоматического прекращения перехвата.</p>
             </div>
-            <span id="dnsLabEventsCount">0 измерений</span>
           </header>
-          <div id="dnsLabEvents" class="dns-lab-event-list"></div>
+          <dl class="dns-protection-router-grid">
+            <div><dt>Системный резолвер</dt><dd id="dnsSystemResolver">—</dd></div>
+            <div><dt>Локальные/private-зоны</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
+            <div><dt>DNS провайдера</dt><dd id="dnsProviderServers">—</dd></div>
+            <div><dt>Игнорировать DNSv4 провайдера</dt><dd id="dnsIgnoreProviderV4">—</dd></div>
+            <div><dt>Игнорировать DNSv6 провайдера</dt><dd id="dnsIgnoreProviderV6">—</dd></div>
+            <div><dt>Транзитные DNS-запросы</dt><dd id="dnsTransitState">—</dd></div>
+            <div><dt>Автоматический fallback</dt><dd id="dnsFallbackState">—</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel dns-protection-exclusions-card">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3>Что останется вне защиты</h3>
+              <p>Здесь отображаются обнаруженные способы обхода DNS роутера.</p>
+            </div>
+          </header>
+          <div id="dnsExclusions" class="dns-protection-exclusion-list empty-state">Данные появятся после проверки.</div>
+        </section>
+
+        <footer class="panel dns-protection-actions">
+          <p id="dnsActionNotice" aria-live="polite" hidden></p>
+          <div>
+            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
+            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
+            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
+          </div>
+        </footer>
+
+        <section class="panel dns-protection-journal">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3>Журнал DNS</h3>
+              <p>Проверки и переключения сохраняются вместе с диагностическими данными.</p>
+            </div>
+            <div class="dns-protection-journal-tools">
+              <span id="dnsEventsCount">0 событий</span>
+              <button id="dnsDownloadButton" class="button compact" type="button">Скачать JSON</button>
+            </div>
+          </header>
+          <div id="dnsEvents" class="dns-protection-event-list"></div>
         </section>
       </section>
 

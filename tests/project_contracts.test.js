@@ -569,30 +569,58 @@ test('primary UI files expose stable automatic whitelist routing', () => {
   }
 });
 
-test('primary UI files expose a read-only DNS test bench with whitelist context', () => {
+test('primary UI files expose protected DNS with explicit fail-open and strict safeguards', () => {
   const html = read('index.html');
-  assert.match(html, /data-section="dns-lab"/);
-  assert.match(html, /data-section-panel="dns-lab"/);
-  assert.match(html, /id="dnsLabEnabled"/);
-  assert.match(html, /id="dnsLabCheckButton"/);
-  assert.match(html, /id="dnsLabWhitelistBadge"/);
-  assert.match(html, /Единичные сбои не классифицируются/);
-  assert.match(html, /Наблюдение без изменения DNS, маршрутов и конфигурации Mihomo/);
+  assert.match(html, /data-section="dns"/);
+  assert.match(html, /data-section-panel="dns"/);
+  assert.match(html, /<h2>Защищённый DNS<\/h2>/);
+  assert.match(html, /id="dnsProfileResilient"[^>]+checked/);
+  assert.match(html, /id="dnsProfileStrict"/);
+  assert.match(html, /id="dnsStrictIgnoreProvider"/);
+  assert.match(html, /id="dnsStrictInterceptTransit"/);
+  assert.match(html, /id="dnsStrictWanConfirm"/);
+  assert.match(html, /id="dnsProxyGroup"/);
+  assert.match(html, /id="dnsProviderServers"/);
+  assert.match(html, /id="dnsIgnoreProviderV4"/);
+  assert.match(html, /id="dnsIgnoreProviderV6"/);
+  assert.match(html, /id="dnsTransitState"/);
+  assert.match(html, /id="dnsFallbackState"/);
+  assert.match(html, /id="dnsCapabilities"/);
+  assert.match(html, /id="dnsExclusions"/);
+  assert.match(html, /DoH в браузерах, Private DNS\/DoT на устройствах и DNS Tailscale/);
+  assert.doesNotMatch(html, /DNS-площадка|Периодическое наблюдение|dnsLabEnabled/);
 
   const script = read('app.js');
-  assert.match(script, /\/api\/dns-lab/);
-  assert.match(script, /X-Mihui-Action': 'dns-lab'/);
-  assert.match(script, /link_unstable/);
-  assert.match(script, /upstream_limited/);
-  assert.match(script, /соединение принято, ответа нет/);
-  assert.match(script, /function downloadDnsLabLog\(\)/);
-  assert.match(script, /Белые списки: маршрут активен/);
+  assert.match(script, /renderProtectedDnsPlan\(preview\?\.plan\)/);
+  assert.match(script, /const routerDns = capabilities\.routerDns \|\| \{\}/);
+  assert.match(script, /mode === 'system' && fallback\.pending !== true/);
+  assert.match(script, /'external-dns': 'Внешний DNS на устройствах'/);
+  assert.doesNotMatch(script, /dnsLab|DnsLab|\/api\/dns-lab/);
+  assert.match(script, /apiJson\('\/api\/dns'\)/);
+  assert.match(script, /apiJson\('\/api\/dns\/preview'/);
+  assert.match(script, /apiJson\('\/api\/dns\/action'/);
+  assert.match(script, /X-Mihui-Action': 'dns'/);
+  assert.match(script, /action === 'system'/);
+  assert.match(script, /mergeProtectedDnsResponse\(error\.data\)/);
+  assert.match(script, /mode !== 'test'/);
+  assert.match(script, /strictSelected \|\| !canTest/);
+  assert.match(script, /strictSelected \|\| !canActivate/);
+  assert.match(script, /expectedRevision/);
+  assert.match(script, /proxyGroup/);
+  assert.match(script, /function downloadProtectedDnsLog\(\)/);
 
   const styles = read('styles.css');
-  assert.match(styles, /\.dns-lab-state\.is-link_unstable/);
-  assert.match(styles, /\.dns-lab-state\.is-upstream_limited/);
-  assert.match(styles, /\.dns-lab-context\.is-active/);
-  assert.match(styles, /\.dns-lab-event pre/);
+  assert.match(styles, /\.dns-protection-profile:has\(input:checked\)/);
+  assert.match(styles, /\.dns-protection-capability\.is-error/);
+  assert.match(styles, /\.dns-protection-context\.is-ready/);
+  assert.match(styles, /\.dns-protection-event pre/);
+});
+
+test('uninstaller refuses to leave a managed DNS block behind', () => {
+  const script = read('router/uninstall.sh');
+  assert.match(script, /mihui-protected-dns: begin/);
+  assert.match(script, /Вернуться к системному DNS/);
+  assert.match(script, /protected DNS is still configured/);
 });
 
 test('installer and updater require checksum and path validation before extraction', () => {

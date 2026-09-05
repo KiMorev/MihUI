@@ -6,7 +6,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'dns-lab', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'dns', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -19,7 +19,6 @@ const RESOURCE_MONITOR_REFRESH_MS = 30000;
 const RESOURCE_MONITOR_HISTORY_HOURS = 24;
 const RESOURCE_MONITOR_SWITCH_NOTE_TTL_SECONDS = 2 * 60 * 60;
 const WHITELIST_MONITOR_REFRESH_MS = 30000;
-const DNS_LAB_REFRESH_MS = 30000;
 const WHITELIST_FALLBACK_MARKER = 'webmihomo-whitelist:';
 const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
@@ -433,16 +432,16 @@ const state = {
     proxyCheckingId: '',
     manualProxyResults: {},
   },
-  dnsLab: {
+  protectedDns: {
     loaded: false,
     loading: false,
-    checking: false,
+    action: '',
     error: '',
-    config: null,
-    runtime: null,
-    latest: null,
+    notice: '',
+    noticeTone: '',
+    data: null,
+    preview: null,
     events: [],
-    pollTimer: 0,
   },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
@@ -790,27 +789,46 @@ const els = {
   whitelistMonitorNotice: document.querySelector('#whitelistMonitorNotice'),
   whitelistMonitorRestoreButton: document.querySelector('#whitelistMonitorRestoreButton'),
   whitelistMonitorSaveButton: document.querySelector('#whitelistMonitorSaveButton'),
-  dnsLabEnabled: document.querySelector('#dnsLabEnabled'),
-  dnsLabEnabledLabel: document.querySelector('#dnsLabEnabledLabel'),
-  dnsLabStateBadge: document.querySelector('#dnsLabStateBadge'),
-  dnsLabWhitelistBadge: document.querySelector('#dnsLabWhitelistBadge'),
-  dnsLabStateTitle: document.querySelector('#dnsLabStateTitle'),
-  dnsLabStateMessage: document.querySelector('#dnsLabStateMessage'),
-  dnsLabCheckedAt: document.querySelector('#dnsLabCheckedAt'),
-  dnsLabSystemUdp: document.querySelector('#dnsLabSystemUdp'),
-  dnsLabSystemTcp: document.querySelector('#dnsLabSystemTcp'),
-  dnsLabDotSummary: document.querySelector('#dnsLabDotSummary'),
-  dnsLabDohSummary: document.querySelector('#dnsLabDohSummary'),
-  dnsLabMihomoState: document.querySelector('#dnsLabMihomoState'),
-  dnsLabCheckButton: document.querySelector('#dnsLabCheckButton'),
-  dnsLabInterval: document.querySelector('#dnsLabInterval'),
-  dnsLabTimeout: document.querySelector('#dnsLabTimeout'),
-  dnsLabNotice: document.querySelector('#dnsLabNotice'),
-  dnsLabDownloadButton: document.querySelector('#dnsLabDownloadButton'),
-  dnsLabSaveButton: document.querySelector('#dnsLabSaveButton'),
-  dnsLabLatestResults: document.querySelector('#dnsLabLatestResults'),
-  dnsLabEventsCount: document.querySelector('#dnsLabEventsCount'),
-  dnsLabEvents: document.querySelector('#dnsLabEvents'),
+  dnsRefreshButton: document.querySelector('#dnsRefreshButton'),
+  dnsStateBadge: document.querySelector('#dnsStateBadge'),
+  dnsFallbackBadge: document.querySelector('#dnsFallbackBadge'),
+  dnsStateTitle: document.querySelector('#dnsStateTitle'),
+  dnsStateMessage: document.querySelector('#dnsStateMessage'),
+  dnsProtectedPath: document.querySelector('#dnsProtectedPath'),
+  dnsFallbackPath: document.querySelector('#dnsFallbackPath'),
+  dnsModeValue: document.querySelector('#dnsModeValue'),
+  dnsProfileValue: document.querySelector('#dnsProfileValue'),
+  dnsListenerValue: document.querySelector('#dnsListenerValue'),
+  dnsIpv4Value: document.querySelector('#dnsIpv4Value'),
+  dnsIpv6Value: document.querySelector('#dnsIpv6Value'),
+  dnsCheckedAt: document.querySelector('#dnsCheckedAt'),
+  dnsProfileResilient: document.querySelector('#dnsProfileResilient'),
+  dnsProfileStrict: document.querySelector('#dnsProfileStrict'),
+  dnsProxyGroup: document.querySelector('#dnsProxyGroup'),
+  dnsUpstreams: document.querySelector('#dnsUpstreams'),
+  dnsStrictOptions: document.querySelector('#dnsStrictOptions'),
+  dnsStrictIgnoreProvider: document.querySelector('#dnsStrictIgnoreProvider'),
+  dnsStrictInterceptTransit: document.querySelector('#dnsStrictInterceptTransit'),
+  dnsStrictWanConfirm: document.querySelector('#dnsStrictWanConfirm'),
+  dnsPreviewButton: document.querySelector('#dnsPreviewButton'),
+  dnsCapabilities: document.querySelector('#dnsCapabilities'),
+  dnsPlan: document.querySelector('#dnsPlan'),
+  dnsWarnings: document.querySelector('#dnsWarnings'),
+  dnsSystemResolver: document.querySelector('#dnsSystemResolver'),
+  dnsLocalResolver: document.querySelector('#dnsLocalResolver'),
+  dnsProviderServers: document.querySelector('#dnsProviderServers'),
+  dnsIgnoreProviderV4: document.querySelector('#dnsIgnoreProviderV4'),
+  dnsIgnoreProviderV6: document.querySelector('#dnsIgnoreProviderV6'),
+  dnsTransitState: document.querySelector('#dnsTransitState'),
+  dnsFallbackState: document.querySelector('#dnsFallbackState'),
+  dnsExclusions: document.querySelector('#dnsExclusions'),
+  dnsActionNotice: document.querySelector('#dnsActionNotice'),
+  dnsSystemButton: document.querySelector('#dnsSystemButton'),
+  dnsTestButton: document.querySelector('#dnsTestButton'),
+  dnsActivateButton: document.querySelector('#dnsActivateButton'),
+  dnsEventsCount: document.querySelector('#dnsEventsCount'),
+  dnsDownloadButton: document.querySelector('#dnsDownloadButton'),
+  dnsEvents: document.querySelector('#dnsEvents'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -930,10 +948,15 @@ els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('clic
   container.addEventListener('change', handleWhitelistMonitorEndpointInput);
   container.addEventListener('click', handleWhitelistMonitorEndpointClick);
 });
-els.dnsLabEnabled?.addEventListener('change', toggleDnsLab);
-els.dnsLabCheckButton?.addEventListener('click', checkDnsLab);
-els.dnsLabSaveButton?.addEventListener('click', saveDnsLabSettings);
-els.dnsLabDownloadButton?.addEventListener('click', downloadDnsLabLog);
+els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns());
+[els.dnsProfileResilient, els.dnsProfileStrict].forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
+[els.dnsProxyGroup, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
+  .forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
+els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
+els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('system'));
+els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
+els.dnsActivateButton?.addEventListener('click', () => runProtectedDnsAction('activate'));
+els.dnsDownloadButton?.addEventListener('click', downloadProtectedDnsLog);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -1043,8 +1066,8 @@ function setActiveSection(section, options = {}) {
     if (section === 'whitelist' && state.routerApiAvailable) {
       loadWhitelistMonitor({ silent: true });
     }
-    if (section === 'dns-lab' && state.routerApiAvailable) {
-      loadDnsLab({ silent: true });
+    if (section === 'dns' && state.routerApiAvailable) {
+      loadProtectedDns({ silent: true });
     }
     if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
       loadXkeenCommands({ silent: true });
@@ -1235,12 +1258,11 @@ function initRouterMode() {
   loadComponents({ silent: true });
   loadResourceMonitor({ silent: true });
   loadWhitelistMonitor({ silent: true });
-  loadDnsLab({ silent: true });
+  loadProtectedDns({ silent: true });
   startServiceHealthPolling();
   startProviderStatusPolling();
   startResourceMonitorPolling();
   startWhitelistMonitorPolling();
-  startDnsLabPolling();
   checkMihuiUpdate();
 }
 
@@ -1272,7 +1294,7 @@ async function loadRouterConfig(options = {}) {
     await loadNodeInventory({ silent: true });
     await loadResourceMonitor({ silent: true });
     await loadWhitelistMonitor({ silent: true });
-    await loadDnsLab({ silent: true });
+    await loadProtectedDns({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
     if (!options.silent) {
@@ -4671,289 +4693,547 @@ function startWhitelistMonitorPolling() {
   }, WHITELIST_MONITOR_REFRESH_MS);
 }
 
-function defaultDnsLabClientSettings() {
-  return { enabled: false, intervalSeconds: 300, timeoutMs: 4000 };
+function getProtectedDnsProfile() {
+  return els.dnsProfileStrict?.checked ? 'strict' : 'resilient';
 }
 
-async function loadDnsLab(options = {}) {
+function getProtectedDnsConfirmations() {
+  return {
+    providerDns: Boolean(els.dnsStrictIgnoreProvider?.checked),
+    transitDns: Boolean(els.dnsStrictInterceptTransit?.checked),
+    wanReconnect: Boolean(els.dnsStrictWanConfirm?.checked),
+  };
+}
+
+function getProtectedDnsPayload(action = '') {
+  const payload = {
+    profile: getProtectedDnsProfile(),
+    proxyGroup: String(els.dnsProxyGroup?.value || 'PROXY'),
+    confirmations: getProtectedDnsConfirmations(),
+  };
+  const revision = String(state.protectedDns.data?.revision || '');
+  if (revision) payload.expectedRevision = revision;
+  if (action) payload.action = action;
+  return payload;
+}
+
+function mergeProtectedDnsResponse(data, options = {}) {
+  const previous = state.protectedDns.data || {};
+  state.protectedDns.data = {
+    ...previous,
+    ...data,
+    capabilities: data.capabilities || previous.capabilities || {},
+    fallback: data.fallback || previous.fallback || {},
+  };
+  if (Array.isArray(data.events)) state.protectedDns.events = data.events;
+  if (data.event && !data.events) state.protectedDns.events = [...state.protectedDns.events, data.event];
+  if (options.preview) state.protectedDns.preview = data;
+  if (options.syncProfile && ['resilient', 'strict'].includes(data.profile)) {
+    els.dnsProfileResilient.checked = data.profile === 'resilient';
+    els.dnsProfileStrict.checked = data.profile === 'strict';
+  }
+  renderProtectedDnsProxyGroups(data);
+}
+
+async function loadProtectedDns(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
-  state.dnsLab.loading = true;
-  renderDnsLab();
+  state.protectedDns.loading = true;
+  state.protectedDns.error = '';
+  renderProtectedDns();
   try {
-    const data = await apiJson('/api/dns-lab?limit=48');
-    state.dnsLab.loaded = true;
-    state.dnsLab.config = data.config || defaultDnsLabClientSettings();
-    state.dnsLab.runtime = data.runtime || null;
-    state.dnsLab.latest = data.latest || null;
-    state.dnsLab.events = Array.isArray(data.events) ? data.events : [];
-    state.dnsLab.checking = Boolean(data.job?.running);
-    state.dnsLab.error = data.job?.error || '';
+    const data = await apiJson('/api/dns');
+    state.protectedDns.loaded = true;
+    mergeProtectedDnsResponse(data, { syncProfile: !state.protectedDns.preview });
   } catch (error) {
-    state.dnsLab.error = error?.message || String(error);
+    state.protectedDns.error = error?.message || String(error);
     if (!options.silent) {
-      showMessage(`Не удалось получить журнал DNS: ${state.dnsLab.error}`, { severity: 'error' });
+      showMessage(`Не удалось получить состояние защищённого DNS: ${state.protectedDns.error}`, { severity: 'error' });
     }
   } finally {
-    state.dnsLab.loading = false;
-    renderDnsLab();
+    state.protectedDns.loading = false;
+    renderProtectedDns();
   }
 }
 
-function startDnsLabPolling() {
-  if (typeof window.setInterval !== 'function') return;
-  if (state.dnsLab.pollTimer) window.clearInterval(state.dnsLab.pollTimer);
-  state.dnsLab.pollTimer = window.setInterval(() => {
-    const shouldRefresh = state.activeSection === 'dns-lab' || state.dnsLab.config?.enabled;
-    if (!document.hidden && state.routerApiAvailable && shouldRefresh) {
-      loadDnsLab({ silent: true });
-    }
-  }, DNS_LAB_REFRESH_MS);
+function handleProtectedDnsDraftChange() {
+  state.protectedDns.preview = null;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  renderProtectedDns();
 }
 
-function getDnsLabStatePresentation(value) {
+function renderProtectedDnsProxyGroups(data = {}) {
+  if (!els.dnsProxyGroup) return;
+  const source = data.proxyGroups || data.capabilities?.proxyGroups;
+  const groups = Array.isArray(source)
+    ? source.map((item) => typeof item === 'string' ? item : item?.name).filter(Boolean)
+    : [];
+  const preferred = String(data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
+  const names = [...new Set(groups.length ? groups : [preferred, 'PROXY'])];
+  els.dnsProxyGroup.textContent = '';
+  names.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    els.dnsProxyGroup.append(option);
+  });
+  els.dnsProxyGroup.value = names.includes(preferred) ? preferred : names[0];
+}
+
+function getProtectedDnsModePresentation(mode) {
   return {
-    healthy: { label: 'Работает', title: 'DNS отвечает устойчиво' },
-    observing: { label: 'Нужен повтор', title: 'Зафиксирован единичный сбой' },
-    degraded: { label: 'Частичный сбой', title: 'Часть DNS-транспортов недоступна' },
-    upstream_limited: { label: 'Вероятно upstream', title: 'TCP-порт системного DNS доступен, но внешний запрос остаётся без ответа' },
-    selective: { label: 'Избирательно', title: 'Отказы зависят от DNS-транспорта' },
-    dns_issue: { label: 'DNS под вопросом', title: 'Вероятна проблема системного DNS' },
-    link_unstable: { label: 'Нестабильный канал', title: 'Сбой похож на общий обрыв интернета' },
-    error: { label: 'Ошибка стенда', title: 'Замер не завершён' },
-    idle: { label: 'Нет данных', title: 'Проверка ещё не выполнялась' },
-  }[value] || { label: 'Нет данных', title: 'Проверка ещё не выполнялась' };
+    system: {
+      label: 'Системный DNS',
+      title: 'Работает системный DNS роутера',
+      message: 'Перехват отключён. Запросы обслуживает ndnproxy и настроенные системные DNS-серверы.',
+    },
+    test: {
+      label: 'Тестовый режим',
+      title: 'Mihomo DNS проверяется без переключения клиентов',
+      message: 'Слушатель Mihomo запущен отдельно, но устройства продолжают использовать системный DNS.',
+    },
+    active: {
+      label: 'Защита включена',
+      title: 'DNS клиентов проходит через Mihomo',
+      message: 'Перехват поддерживается только пока Mihomo отвечает; при отказе запросы вернутся к ndnproxy.',
+    },
+    fallback: {
+      label: 'Аварийный возврат',
+      title: 'Защищённый путь отключён автоматически',
+      message: 'Lease истёк: запросы снова обслуживает системный ndnproxy. Проверьте Mihomo перед повторным включением.',
+    },
+  }[mode] || {
+    label: 'Нет данных',
+    title: 'Состояние ещё не подтверждено',
+    message: 'MihUI не будет считать DNS включённым до успешного ответа роутера.',
+  };
 }
 
-function getDnsLabWhitelistPresentation(context = {}) {
+function getProtectedDnsCapabilityLabel(id) {
   return {
-    active: { label: 'Белые списки: маршрут активен', tone: 'active' },
-    confirmed: { label: 'Белые списки: подтверждены', tone: 'confirmed' },
-    suspected: { label: 'Белые списки: подозрение', tone: 'suspected' },
-    normal: { label: 'Белые списки: норма', tone: 'normal' },
-    disabled: { label: 'Белые списки: монитор выключен', tone: 'disabled' },
-  }[context.state] || { label: 'Белые списки: нет данных', tone: 'disabled' };
+    root: 'Права root',
+    ndmc: 'Управление Netcraze/Keenetic',
+    mihomo: 'Mihomo',
+    config: 'Конфигурация Mihomo',
+    configWritable: 'Запись конфигурации',
+    listener: 'Порт Mihomo :1053',
+    port1053: 'Порт Mihomo :1053',
+    ndnproxy: 'Системный ndnproxy :53',
+    iptables: 'Перехват IPv4',
+    ip6tables: 'Перехват IPv6',
+    ipset: 'Аварийный lease ipset',
+    ipsetTimeout: 'Автоматический fail-open',
+    dnsOverride: 'Конфликт dns-override',
+    ipv4: 'DNS клиентов по IPv4',
+    ipv6: 'DNS клиентов по IPv6',
+    ipv6ClientDns: 'DNS клиентов по IPv6',
+    'mihomo-binary': 'Исполняемый файл Mihomo',
+    'mihomo-api': 'API Mihomo',
+    'proxy-group': 'Выбранная прокси-группа',
+    'config-ownership': 'DNS-блок конфигурации',
+    'dns-override': 'Конфликт XKeen dns-override',
+    'lan-ipv4': 'LAN-адрес IPv4',
+    'port-1053': 'Порт Mihomo :1053',
+    'ipset-timeout': 'Автоматический fail-open',
+    'firewall-chain4': 'Цепочка firewall IPv4',
+    'firewall-chain6': 'Цепочка firewall IPv6',
+    'local-resolver': 'Локальный резолвер :41100',
+  }[id] || id;
 }
 
-function getDnsLabProbeText(probe) {
-  if (!probe) return '—';
-  if (probe.ok) return `OK · ${Number(probe.latencyMs || 0)} мс`;
-  const category = {
-    timeout: 'тайм-аут',
-    no_route: 'нет маршрута',
-    refused: 'отказ',
-    certificate: 'сертификат',
-    tls: 'TLS',
-    reset: 'сброс',
-    network: 'сеть',
-  }[probe.error?.category] || 'ошибка';
-  if (probe.transport === 'tcp' && probe.connected === true && probe.failureStage === 'response') {
-    return `соединение принято, ответа нет · ${Number(probe.latencyMs || 0)} мс`;
+function normalizeProtectedDnsChecks(capabilities = {}) {
+  return Array.isArray(capabilities.checks) ? capabilities.checks : [];
+}
+
+function getProtectedDnsCheckState(check) {
+  if (check.ok === true || check.ready === true || check.state === 'ok' || check.state === 'ready') return 'ok';
+  if (check.required === false || check.state === 'warning' || check.warning === true) return 'warning';
+  return 'error';
+}
+
+function getProtectedDnsCheckMessage(check, tone) {
+  const localized = {
+    root: ['MihUI запущен с правами root', 'Нужны права root'],
+    'mihomo-binary': ['Mihomo найден', 'Mihomo не найден'],
+    'mihomo-api': ['API Mihomo доступен', 'API Mihomo недоступен'],
+    'proxy-group': ['Прокси-группа найдена', 'Прокси-группа не найдена'],
+    'config-ownership': ['DNS-блок свободен или управляется MihUI', 'Обнаружен сторонний DNS-блок'],
+    ndmc: ['Чтение настроек через ndmc доступно', 'ndmc недоступен'],
+    'dns-override': ['XKeen dns-override выключен', 'XKeen dns-override конфликтует с режимом'],
+    ndnproxy: ['ndnproxy занимает системный порт 53', 'Системный ndnproxy не подтверждён'],
+    'lan-ipv4': ['LAN-адрес IPv4 найден', 'LAN-адрес IPv4 не найден'],
+    'port-1053': ['Порт 1053 свободен или занят управляемым Mihomo', 'Порт 1053 занят другим процессом'],
+    iptables: ['IPv4 NAT и ipset доступны', 'IPv4 NAT или ipset недоступны'],
+    'ipset-timeout': ['Kernel timeout доступен', 'Kernel timeout недоступен'],
+    'firewall-chain4': ['Имя цепочки IPv4 безопасно', 'Обнаружен конфликт цепочки IPv4'],
+    ip6tables: ['Защищённый путь IPv6 доступен', 'Защищённый путь IPv6 недоступен'],
+    'firewall-chain6': ['Имя цепочки IPv6 безопасно', 'Обнаружен конфликт цепочки IPv6'],
+    'local-resolver': ['Локальный UDP-резолвер :41100 доступен', 'Локальный UDP-резолвер :41100 недоступен'],
+  }[check.id];
+  if (localized) return localized[tone === 'ok' ? 0 : 1];
+  const detail = check.message ?? check.detail ?? check.value;
+  if (detail !== undefined && detail !== null && detail !== '') {
+    if (typeof detail === 'boolean') return detail ? 'Да' : 'Нет';
+    if (Array.isArray(detail)) return detail.join(', ');
+    return String(detail);
   }
-  return `${category} · ${Number(probe.latencyMs || 0)} мс`;
+  return tone === 'ok' ? 'Готово' : tone === 'warning' ? 'Нужно учесть' : 'Недоступно';
 }
 
-function renderDnsLabProbeList(latest) {
-  if (!els.dnsLabLatestResults) return;
-  els.dnsLabLatestResults.textContent = '';
-  const probes = [...(latest?.probes?.plain || []), ...(latest?.probes?.encrypted || [])];
-  if (!probes.length) {
-    els.dnsLabLatestResults.className = 'dns-lab-result-list empty-state';
-    els.dnsLabLatestResults.textContent = 'Данных пока нет.';
+function renderProtectedDnsCapabilities(capabilities = {}) {
+  if (!els.dnsCapabilities) return;
+  const checks = normalizeProtectedDnsChecks(capabilities);
+  els.dnsCapabilities.textContent = '';
+  if (!checks.length) {
+    els.dnsCapabilities.className = 'dns-protection-capability-list empty-state';
+    els.dnsCapabilities.textContent = 'Нажмите «Проверить и показать план».';
     return;
   }
-  els.dnsLabLatestResults.className = 'dns-lab-result-list';
-  probes.forEach((probe) => {
-    const item = document.createElement('article');
-    const copy = document.createElement('div');
-    const title = document.createElement('strong');
-    const meta = document.createElement('span');
-    const result = document.createElement('span');
-    item.className = `dns-lab-result${probe.ok ? ' is-ok' : ' is-error'}`;
-    title.textContent = `${probe.label || probe.id} · ${String(probe.transport || '').toUpperCase()}`;
-    meta.textContent = probe.id === 'system' ? 'Системный резолвер' : probe.address || '';
-    result.className = 'dns-lab-result-value';
-    result.textContent = getDnsLabProbeText(probe);
-    copy.append(title, meta);
-    item.append(copy, result);
-    els.dnsLabLatestResults.append(item);
+  els.dnsCapabilities.className = 'dns-protection-capability-list';
+  checks.forEach((check) => {
+    const item = document.createElement('div');
+    const label = document.createElement('strong');
+    const value = document.createElement('span');
+    const tone = getProtectedDnsCheckState(check);
+    item.className = `dns-protection-capability is-${tone}`;
+    label.textContent = check.label || getProtectedDnsCapabilityLabel(check.id || 'Проверка');
+    value.textContent = getProtectedDnsCheckMessage(check, tone);
+    item.append(label, value);
+    els.dnsCapabilities.append(item);
   });
 }
 
-function renderDnsLabEvents() {
-  if (!els.dnsLabEvents || !els.dnsLabEventsCount) return;
-  const events = Array.isArray(state.dnsLab.events) ? [...state.dnsLab.events].reverse() : [];
-  els.dnsLabEventsCount.textContent = `${events.length} измерений`;
-  els.dnsLabEvents.textContent = '';
+function normalizeProtectedDnsTextList(value) {
+  if (!value) return [];
+  if (!Array.isArray(value) && typeof value === 'object' && value.listener) {
+    const lines = [
+      `Подготовить DNS-слушатель Mihomo ${value.listener} (${value.enhancedMode || 'redir-host'}).`,
+      `Направить защищённые upstream через группу ${value.upstreamRoute || 'PROXY'}.`,
+    ];
+    if (value.localPrivateResolver) lines.push('Передавать только локальные/private-зоны системному резолверу 127.0.0.1:41100.');
+    if (value.providerDnsChange) lines.push('Подготовить изменение настройки DNS провайдера после отдельного подтверждения.');
+    if (value.transitDnsChange) lines.push('Подготовить перехват транзитных DNS-запросов после отдельного подтверждения.');
+    return lines;
+  }
+  const list = Array.isArray(value) ? value : value.steps || value.changes || value.items || [value];
+  return list.map((item) => {
+    if (typeof item === 'string') return item;
+    return item?.message || item?.label || item?.title || item?.description || '';
+  }).filter(Boolean);
+}
+
+function renderProtectedDnsPlan(plan) {
+  if (!els.dnsPlan) return;
+  const steps = normalizeProtectedDnsTextList(plan);
+  els.dnsPlan.textContent = '';
+  els.dnsPlan.hidden = !steps.length;
+  if (!steps.length) return;
+  const title = document.createElement('strong');
+  const list = document.createElement('ol');
+  title.textContent = 'План изменений';
+  steps.forEach((step) => {
+    const item = document.createElement('li');
+    item.textContent = step;
+    list.append(item);
+  });
+  els.dnsPlan.append(title, list);
+}
+
+function renderProtectedDnsWarnings(warnings, strictSelected) {
+  if (!els.dnsWarnings) return;
+  const items = normalizeProtectedDnsTextList(warnings);
+  if (strictSelected) {
+    items.unshift('Строгий профиль в этой версии можно только проверить: применение будет доступно после подтверждения безопасных команд ndmc.');
+  }
+  els.dnsWarnings.textContent = '';
+  els.dnsWarnings.hidden = !items.length;
+  items.forEach((message) => {
+    const item = document.createElement('p');
+    item.textContent = message;
+    els.dnsWarnings.append(item);
+  });
+}
+
+function getProtectedDnsBooleanText(value, enabledText = 'Включено', disabledText = 'Выключено') {
+  if (value === true) return enabledText;
+  if (value === false) return disabledText;
+  return value === undefined || value === null || value === '' ? '—' : String(value);
+}
+
+function getProtectedDnsServerList(value) {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  const names = list.map((item) => typeof item === 'string'
+    ? item
+    : item?.address || item?.server || item?.host || item?.label).filter(Boolean);
+  return names.length ? names.join(', ') : '—';
+}
+
+function getProtectedDnsUpstreamLabels(value) {
+  const list = Array.isArray(value) ? value : [];
+  const labels = list.map((item) => {
+    const source = typeof item === 'string' ? item : item?.label || item?.url || '';
+    if (/1\.1\.1\.1|cloudflare/i.test(source)) return 'Cloudflare';
+    if (/8\.8\.8\.8|dns\.google|google/i.test(source)) return 'Google';
+    try {
+      return new URL(source).hostname || source;
+    } catch (error) {
+      return source;
+    }
+  }).filter(Boolean);
+  return [...new Set(labels)];
+}
+
+function getProtectedDnsTime(value) {
+  if (!value) return '—';
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return formatResourceMonitorTime(numeric > 1e12 ? numeric / 1000 : numeric);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderProtectedDnsExclusions(exclusions = []) {
+  if (!els.dnsExclusions) return;
+  const items = Array.isArray(exclusions) ? exclusions : exclusions.items || [];
+  els.dnsExclusions.textContent = '';
+  if (!items.length) {
+    els.dnsExclusions.className = 'dns-protection-exclusion-list empty-state';
+    els.dnsExclusions.textContent = 'Обходы не обнаружены или проверка ещё не выполнялась.';
+    return;
+  }
+  els.dnsExclusions.className = 'dns-protection-exclusion-list';
+  items.forEach((entry) => {
+    const item = document.createElement('article');
+    const title = document.createElement('strong');
+    const message = document.createElement('span');
+    const exclusionTitle = {
+      'application-doh': 'DoH и Private DNS приложений',
+      'tailscale-dns': 'DNS Tailscale',
+      'external-dns': 'Внешний DNS на устройствах',
+    }[entry?.id];
+    title.textContent = typeof entry === 'string' ? entry : entry.label || entry.title || exclusionTitle || entry.type || 'Исключение';
+    message.textContent = typeof entry === 'string' ? '' : entry.message || entry.description || entry.value || '';
+    item.append(title);
+    if (message.textContent) item.append(message);
+    els.dnsExclusions.append(item);
+  });
+}
+
+function renderProtectedDnsEvents() {
+  if (!els.dnsEvents || !els.dnsEventsCount) return;
+  const events = Array.isArray(state.protectedDns.events) ? [...state.protectedDns.events].reverse() : [];
+  els.dnsEventsCount.textContent = `${events.length} событий`;
+  els.dnsEvents.textContent = '';
   if (!events.length) {
     const empty = document.createElement('span');
     empty.className = 'muted';
-    empty.textContent = 'Измерений пока нет';
-    els.dnsLabEvents.append(empty);
+    empty.textContent = 'Событий пока нет';
+    els.dnsEvents.append(empty);
     return;
   }
   events.forEach((event) => {
     const details = document.createElement('details');
     const summary = document.createElement('summary');
-    const heading = document.createElement('span');
     const badge = document.createElement('span');
-    const context = document.createElement('span');
+    const heading = document.createElement('span');
     const time = document.createElement('time');
     const raw = document.createElement('pre');
-    const presentation = getDnsLabStatePresentation(event.state);
-    const whitelist = getDnsLabWhitelistPresentation(event.whitelist || {});
-    details.className = 'dns-lab-event';
-    badge.className = `dns-lab-state is-${event.state || 'idle'}`;
-    badge.textContent = presentation.label;
-    context.className = `dns-lab-context is-${whitelist.tone}`;
-    context.textContent = whitelist.label;
-    heading.className = 'dns-lab-event-heading';
-    heading.textContent = event.message || 'DNS-замер';
+    const ok = event.ok !== false && event.state !== 'error';
+    details.className = 'dns-protection-event';
+    badge.className = `dns-protection-state ${ok ? 'is-active' : 'is-error'}`;
+    badge.textContent = event.action || event.mode || event.type || (ok ? 'Проверка' : 'Ошибка');
+    heading.className = 'dns-protection-event-heading';
+    heading.textContent = event.message || event.title || 'Событие DNS';
     time.dateTime = event.at || '';
-    time.textContent = formatResourceMonitorTime(event.timestamp);
-    summary.append(badge, context, heading, time);
+    time.textContent = getProtectedDnsTime(event.timestamp || event.at);
     raw.textContent = JSON.stringify(event, null, 2);
+    summary.append(badge, heading, time);
     details.append(summary, raw);
-    els.dnsLabEvents.append(details);
+    els.dnsEvents.append(details);
   });
 }
 
-function renderDnsLab() {
-  if (!els.dnsLabEnabled) return;
+function renderProtectedDns() {
+  if (!els.dnsStateBadge) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
-  const config = state.dnsLab.config || defaultDnsLabClientSettings();
-  const runtime = state.dnsLab.runtime || {};
-  const latest = state.dnsLab.latest;
-  const presentation = getDnsLabStatePresentation(runtime.state || 'idle');
-  const whitelist = getDnsLabWhitelistPresentation(latest?.whitelist || runtime.whitelistContext || {});
-  const systemProbes = latest?.probes?.plain || [];
-  const encrypted = latest?.probes?.encrypted || [];
-  const systemUdp = systemProbes.find((item) => item.id === 'system' && item.transport === 'udp');
-  const systemTcp = systemProbes.find((item) => item.id === 'system' && item.transport === 'tcp');
-  const dot = encrypted.filter((item) => item.transport === 'dot');
-  const doh = encrypted.filter((item) => item.transport === 'doh');
+  const data = state.protectedDns.data || {};
+  const preview = state.protectedDns.preview;
+  const visible = preview || data;
+  const capabilities = visible.capabilities || {};
+  const fallback = data.fallback || {};
+  const runtime = data.runtime || {};
+  const mode = data.mode || 'unknown';
+  const presentation = getProtectedDnsModePresentation(mode);
+  const strictSelected = getProtectedDnsProfile() === 'strict';
+  const busy = state.protectedDns.loading || Boolean(state.protectedDns.action);
+  const canTest = preview?.canTest === true;
+  const canActivate = preview?.canActivate === true;
+  const routerDns = capabilities.routerDns || {};
+  const providerDns = routerDns.provider || {};
+  const transitDns = routerDns.transit || {};
+  const providerServers = providerDns.servers || [];
+  const fallbackPreserved = fallback.preserved === true;
 
-  els.dnsLabEnabled.checked = apiAvailable && Boolean(config.enabled);
-  els.dnsLabEnabled.disabled = !apiAvailable || state.dnsLab.loading || state.dnsLab.checking;
-  els.dnsLabEnabledLabel.textContent = apiAvailable ? config.enabled ? 'Включено' : 'Выключено' : 'Только в MihUI';
-  els.dnsLabStateBadge.className = `dns-lab-state is-${runtime.state || 'idle'}`;
-  els.dnsLabStateBadge.textContent = presentation.label;
-  els.dnsLabWhitelistBadge.className = `dns-lab-context is-${whitelist.tone}`;
-  els.dnsLabWhitelistBadge.textContent = whitelist.label;
-  els.dnsLabStateTitle.textContent = presentation.title;
-  els.dnsLabStateMessage.textContent = runtime.message || 'Запустите замер вручную или включите периодическое наблюдение.';
-  els.dnsLabCheckedAt.textContent = runtime.checkedAt ? formatResourceMonitorTime(runtime.checkedAt) : '—';
-  els.dnsLabSystemUdp.textContent = getDnsLabProbeText(systemUdp);
-  els.dnsLabSystemTcp.textContent = getDnsLabProbeText(systemTcp);
-  els.dnsLabDotSummary.textContent = dot.length ? `${dot.filter((item) => item.ok).length}/${dot.length}` : '—';
-  els.dnsLabDohSummary.textContent = doh.length ? `${doh.filter((item) => item.ok).length}/${doh.length}` : '—';
-  els.dnsLabMihomoState.textContent = latest?.services?.mihomo?.state === 'ok' ? 'Работает' : latest ? 'Не отвечает' : '—';
-  els.dnsLabInterval.value = String(config.intervalSeconds || 300);
-  els.dnsLabTimeout.value = String(config.timeoutMs || 4000);
-  els.dnsLabInterval.disabled = !apiAvailable || state.dnsLab.loading || state.dnsLab.checking;
-  els.dnsLabTimeout.disabled = !apiAvailable || state.dnsLab.loading || state.dnsLab.checking;
-  els.dnsLabCheckButton.disabled = !apiAvailable || state.dnsLab.loading || state.dnsLab.checking;
-  els.dnsLabCheckButton.textContent = state.dnsLab.checking ? 'Измеряем…' : 'Запустить замер';
-  els.dnsLabSaveButton.disabled = !apiAvailable || state.dnsLab.loading || state.dnsLab.checking;
-  els.dnsLabDownloadButton.disabled = !state.dnsLab.events.length;
-  els.dnsLabNotice.hidden = !state.dnsLab.error;
-  els.dnsLabNotice.textContent = state.dnsLab.error;
-  renderDnsLabProbeList(latest);
-  renderDnsLabEvents();
+  els.dnsStateBadge.className = `dns-protection-state is-${mode === 'unknown' ? 'idle' : mode}`;
+  els.dnsStateBadge.textContent = state.protectedDns.loading && !state.protectedDns.loaded ? 'Загрузка…' : presentation.label;
+  els.dnsStateTitle.textContent = presentation.title;
+  els.dnsStateMessage.textContent = presentation.message;
+  els.dnsFallbackBadge.className = `dns-protection-context ${fallbackPreserved ? 'is-ready' : fallback.preserved === false ? 'is-error' : 'is-idle'}`;
+  els.dnsFallbackBadge.textContent = fallbackPreserved ? 'Fallback сохранён' : fallback.preserved === false ? 'Fallback не готов' : 'Fallback не проверен';
+  els.dnsProtectedPath.textContent = mode === 'active' ? 'Mihomo :1053' : 'Mihomo :1053 (не активен)';
+  els.dnsFallbackPath.textContent = `ndnproxy :${fallback.ndnproxyPort || 53} → системные DNS`;
+  els.dnsModeValue.textContent = presentation.label;
+  els.dnsProfileValue.textContent = data.profile === 'strict' ? 'Строгий' : data.profile === 'resilient' ? 'Отказоустойчивый' : '—';
+  els.dnsListenerValue.textContent = mode === 'test' || mode === 'active' ? ':1053' : 'Не активен';
+  const ipv4Addresses = capabilities.addresses?.ipv4 || [];
+  const ipv6Addresses = capabilities.addresses?.ipv6 || [];
+  const ipv6Path = normalizeProtectedDnsChecks(capabilities).find((item) => item.id === 'ip6tables');
+  els.dnsIpv4Value.textContent = !state.protectedDns.loaded ? 'Не проверено' : ipv4Addresses.length ? `Готово · ${ipv4Addresses.join(', ')}` : 'Не готово';
+  els.dnsIpv6Value.textContent = capabilities.ipv6ClientDns === true
+    ? `${getProtectedDnsCheckState(ipv6Path || {}) === 'ok' ? 'Готово' : 'Путь не готов'}${ipv6Addresses.length ? ` · ${ipv6Addresses.join(', ')}` : ''}`
+    : capabilities.ipv6ClientDns === false ? 'Не обнаружен' : 'Не проверено';
+  els.dnsCheckedAt.textContent = getProtectedDnsTime(data.health?.lastProbeAt || runtime.updatedAt);
+  els.dnsSystemResolver.textContent = fallback.ndnproxyPort ? `ndnproxy :${fallback.ndnproxyPort}` : '—';
+  const providerServerText = getProtectedDnsServerList(providerServers);
+  els.dnsProviderServers.textContent = providerServerText === '—' && providerDns.changed === false
+    ? 'Не определены · без изменений'
+    : providerServerText;
+  els.dnsIgnoreProviderV4.textContent = getProtectedDnsBooleanText(
+    providerDns.ignoreIpv4 ?? (providerDns.changed === false ? 'Не определено · без изменений' : undefined),
+    'Да',
+    'Нет',
+  );
+  els.dnsIgnoreProviderV6.textContent = getProtectedDnsBooleanText(
+    providerDns.ignoreIpv6 ?? (providerDns.changed === false ? 'Не определено · без изменений' : undefined),
+    'Да',
+    'Нет',
+  );
+  els.dnsTransitState.textContent = transitDns.blocked === true
+    ? 'Перехватываются'
+    : transitDns.blocked === false
+      ? 'Разрешены'
+      : transitDns.changed === false ? 'Не определено · без изменений' : '—';
+  els.dnsFallbackState.textContent = fallbackPreserved ? 'Готов · автоматический' : fallback.preserved === false ? 'Не готов' : 'Не проверен';
+  els.dnsLocalResolver.textContent = capabilities.localResolver?.ok === true
+    ? '127.0.0.1:41100 · только private-зоны'
+    : capabilities.ready === true ? 'Не используется: UDP-проверка не пройдена' : 'Не используется до успешной проверки';
+
+  const upstreams = getProtectedDnsUpstreamLabels(preview?.plan?.upstreams || []);
+  els.dnsUpstreams.textContent = `${upstreams.length ? upstreams.join(', ') : 'Cloudflare и Google'} · через ${els.dnsProxyGroup.value || 'PROXY'}`;
+  els.dnsStrictOptions.hidden = !strictSelected;
+  els.dnsStrictOptions.disabled = !strictSelected || busy;
+  els.dnsProfileResilient.disabled = busy;
+  els.dnsProfileStrict.disabled = busy;
+  els.dnsProxyGroup.disabled = !apiAvailable || busy;
+  renderProtectedDnsCapabilities(capabilities);
+  renderProtectedDnsPlan(preview?.plan);
+  renderProtectedDnsWarnings(visible.warnings || [], strictSelected);
+  renderProtectedDnsExclusions(data.exclusions || []);
+  renderProtectedDnsEvents();
+
+  els.dnsRefreshButton.disabled = !apiAvailable || busy;
+  els.dnsPreviewButton.disabled = !apiAvailable || busy;
+  els.dnsPreviewButton.textContent = state.protectedDns.action === 'preview' ? 'Проверяем…' : 'Проверить и показать план';
+  els.dnsSystemButton.disabled = !apiAvailable || busy || (mode === 'system' && fallback.pending !== true);
+  els.dnsTestButton.disabled = !apiAvailable || busy || strictSelected || !canTest || mode === 'active';
+  els.dnsActivateButton.disabled = !apiAvailable || busy || strictSelected || !canActivate || mode !== 'test';
+  els.dnsTestButton.textContent = state.protectedDns.action === 'test' ? 'Запускаем тест…' : 'Запустить тестовый режим';
+  els.dnsActivateButton.textContent = state.protectedDns.action === 'activate' ? 'Включаем…' : 'Включить защиту';
+  els.dnsSystemButton.textContent = state.protectedDns.action === 'system' ? 'Возвращаем…' : 'Вернуться к системному DNS';
+  els.dnsTestButton.title = strictSelected
+    ? 'Строгий профиль в этой версии доступен только для предварительной проверки.'
+    : !canTest ? 'Сначала выполните успешную проверку и изучите план.' : '';
+  els.dnsActivateButton.title = strictSelected
+    ? 'Активация строгого профиля пока недоступна.'
+    : !canActivate ? 'Проверка не подтвердила готовность к безопасному перехвату.'
+      : mode !== 'test' ? 'Сначала успешно запустите тестовый режим.' : '';
+  els.dnsDownloadButton.disabled = !state.protectedDns.events.length;
+  els.dnsActionNotice.hidden = !(state.protectedDns.error || state.protectedDns.notice || state.protectedDns.action);
+  els.dnsActionNotice.className = state.protectedDns.error ? 'is-error' : state.protectedDns.noticeTone === 'success' ? 'is-success' : '';
+  els.dnsActionNotice.textContent = state.protectedDns.error
+    || (state.protectedDns.action ? 'Операция выполняется. Текущее состояние изменится только после ответа роутера.' : state.protectedDns.notice);
 }
 
-async function postDnsLabSettings(settings) {
-  const data = await apiJson('/api/dns-lab/settings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns-lab' },
-    body: JSON.stringify(settings),
-  });
-  state.dnsLab.loaded = true;
-  state.dnsLab.config = data.config || settings;
-  state.dnsLab.runtime = data.runtime || state.dnsLab.runtime;
-  state.dnsLab.latest = data.latest || state.dnsLab.latest;
-  state.dnsLab.events = Array.isArray(data.events) ? data.events : state.dnsLab.events;
-  state.dnsLab.checking = Boolean(data.job?.running);
-  state.dnsLab.error = '';
-  renderDnsLab();
-}
-
-async function toggleDnsLab() {
-  const enabled = els.dnsLabEnabled.checked;
-  const settings = {
-    enabled,
-    intervalSeconds: Number(els.dnsLabInterval.value || 300),
-    timeoutMs: Number(els.dnsLabTimeout.value || 4000),
-  };
+async function previewProtectedDns() {
+  if (state.protectedDns.action || !state.routerApiAvailable) return;
+  state.protectedDns.action = 'preview';
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  renderProtectedDns();
   try {
-    await postDnsLabSettings(settings);
-    showMessage(enabled ? 'Периодическое DNS-наблюдение включено.' : 'Периодическое DNS-наблюдение выключено.', { severity: 'success' });
-    if (enabled) await checkDnsLab({ silent: true });
-  } catch (error) {
-    els.dnsLabEnabled.checked = !enabled;
-    state.dnsLab.error = error?.message || String(error);
-    renderDnsLab();
-  }
-}
-
-async function saveDnsLabSettings() {
-  const settings = {
-    enabled: Boolean(els.dnsLabEnabled.checked),
-    intervalSeconds: Number(els.dnsLabInterval.value || 300),
-    timeoutMs: Number(els.dnsLabTimeout.value || 4000),
-  };
-  try {
-    await postDnsLabSettings(settings);
-    showMessage('Настройки DNS-площадки сохранены.', { severity: 'success' });
-  } catch (error) {
-    state.dnsLab.error = error?.message || String(error);
-    renderDnsLab();
-  }
-}
-
-async function checkDnsLab(options = {}) {
-  if (state.dnsLab.checking || !state.routerApiAvailable) return;
-  state.dnsLab.checking = true;
-  state.dnsLab.error = '';
-  renderDnsLab();
-  try {
-    await apiJson('/api/dns-lab/check', {
+    const data = await apiJson('/api/dns/preview', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns-lab' },
-      body: '{}',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify(getProtectedDnsPayload()),
     });
-    await pollDnsLabCheck();
+    mergeProtectedDnsResponse(data, { preview: true });
+    state.protectedDns.notice = data.message || 'Проверка завершена. Изучите план перед запуском тестового режима.';
+    state.protectedDns.noticeTone = data.capabilities?.ready ? 'success' : 'warning';
   } catch (error) {
-    state.dnsLab.checking = false;
-    state.dnsLab.error = error?.message || String(error);
-    renderDnsLab();
-    if (!options.silent) showMessage(`DNS-замер не запущен: ${state.dnsLab.error}`, { severity: 'error' });
+    if (error?.data && typeof error.data === 'object') {
+      mergeProtectedDnsResponse(error.data, { preview: true });
+    }
+    state.protectedDns.error = error?.message || String(error);
+  } finally {
+    state.protectedDns.action = '';
+    renderProtectedDns();
   }
 }
 
-async function pollDnsLabCheck(attempt = 0) {
-  await new Promise((resolve) => window.setTimeout(resolve, 800));
-  await loadDnsLab({ silent: true });
-  if (state.dnsLab.checking && attempt < 75) return pollDnsLabCheck(attempt + 1);
-}
-
-async function downloadDnsLabLog() {
-  if (!state.dnsLab.events.length) return;
+async function runProtectedDnsAction(action) {
+  if (state.protectedDns.action || !state.routerApiAvailable) return;
+  state.protectedDns.action = action;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  renderProtectedDns();
   try {
-    const data = await apiJson('/api/dns-lab?limit=576');
-    const payload = JSON.stringify({ exportedAt: new Date().toISOString(), events: data.events || [] }, null, 2);
-    const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `mihui-dns-lab-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    const payload = getProtectedDnsPayload(action);
+    if (action === 'system') {
+      payload.profile = state.protectedDns.data?.profile || 'resilient';
+      payload.confirmations = { providerDns: false, transitDns: false, wanReconnect: false };
+    }
+    const data = await apiJson('/api/dns/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify(payload),
+    });
+    mergeProtectedDnsResponse(data, { syncProfile: true });
+    state.protectedDns.preview = action === 'system' ? null : state.protectedDns.preview;
+    state.protectedDns.notice = data.message || {
+      test: 'Тестовый режим подтверждён роутером. Клиенты ещё используют системный DNS.',
+      activate: 'Роутер подтвердил включение защищённого DNS.',
+      system: 'Роутер подтвердил возврат к системному DNS.',
+    }[action];
+    state.protectedDns.noticeTone = 'success';
+    showMessage(state.protectedDns.notice, { severity: 'success' });
   } catch (error) {
-    state.dnsLab.error = error?.message || String(error);
-    renderDnsLab();
+    if (error?.data && typeof error.data === 'object') {
+      mergeProtectedDnsResponse(error.data);
+    }
+    state.protectedDns.error = error?.message || String(error);
+    showMessage(`DNS не переключён: ${state.protectedDns.error}`, { severity: 'error' });
+  } finally {
+    state.protectedDns.action = '';
+    renderProtectedDns();
   }
+}
+
+function downloadProtectedDnsLog() {
+  if (!state.protectedDns.events.length) return;
+  const payload = JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    revision: state.protectedDns.data?.revision || '',
+    events: state.protectedDns.events,
+  }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mihui-protected-dns-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function getWhitelistMonitorStatePresentation(value, evidenceState = '') {
@@ -6175,7 +6455,7 @@ function render() {
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
   renderWhitelistMonitor();
-  renderDnsLab();
+  renderProtectedDns();
 }
 
 function renderShellStatus(diagnostics) {

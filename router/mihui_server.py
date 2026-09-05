@@ -312,9 +312,28 @@ DNS_LAB_ENCRYPTED_TARGETS = [
     },
 ]
 
+DNS_PROTECTION_PORT = 1053
+DNS_PROTECTION_LOCAL_PORT = 41100
+DNS_PROTECTION_LEASE_SECONDS = 30
+DNS_PROTECTION_REFRESH_SECONDS = 5
+DNS_PROTECTION_EVENT_LIMIT = 100
+DNS_PROTECTION_MARKER_BEGIN = "# mihui-protected-dns: begin"
+DNS_PROTECTION_MARKER_END = "# mihui-protected-dns: end"
+DNS_PROTECTION_CHAIN4 = "MIHUI_DNS4"
+DNS_PROTECTION_CHAIN6 = "MIHUI_DNS6"
+DNS_PROTECTION_SET4 = "MIHUI_DNS_READY4"
+DNS_PROTECTION_SET6 = "MIHUI_DNS_READY6"
+DNS_PROTECTION_COMMENT = "mihui-protected-dns"
+DNS_PROTECTION_UPSTREAMS = (
+    "https://1.1.1.1/dns-query",
+    "https://8.8.8.8/dns-query",
+)
+DNS_PROTECTION_BOOTSTRAP = ("1.1.1.1", "8.8.8.8")
+DNS_PROTECTION_PROXY_RESOLVER = "udp://127.0.0.1:53"
+
 
 update_lock = threading.Lock()
-config_write_lock = threading.Lock()
+config_write_lock = threading.RLock()
 update_state = {
     "running": False,
     "ok": None,
@@ -375,6 +394,16 @@ dns_lab_job_state = {
     "startedAt": None,
     "finishedAt": None,
     "error": "",
+}
+dns_protection_lock = threading.Lock()
+dns_protection_health_lock = threading.Lock()
+dns_protection_health = {
+    "firewallReady": False,
+    "leaseHealthy": False,
+    "lastProbeAt": None,
+    "lastFirewallCheckAt": None,
+    "consecutiveFailures": 0,
+    "message": "",
 }
 xray_provider_adapter_slots = threading.BoundedSemaphore(2)
 xray_provider_adapter_status_lock = threading.Lock()
@@ -466,6 +495,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/whitelist-monitor/domain-list":
             self.handle_whitelist_domain_list_get()
             return
+        if route == "/api/dns":
+            self.handle_dns_get()
+            return
         if route == "/api/dns-lab":
             self.handle_dns_lab_get()
             return
@@ -527,6 +559,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/whitelist-monitor/proxy-check":
             self.handle_whitelist_monitor_proxy_check()
+            return
+        if route == "/api/dns/preview":
+            self.handle_dns_preview()
+            return
+        if route == "/api/dns/action":
+            self.handle_dns_action()
             return
         if route == "/api/dns-lab/settings":
             self.handle_dns_lab_settings()
@@ -984,6 +1022,41 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "result": result,
             },
         )
+
+    def handle_dns_get(self):
+        self.send_json(HTTPStatus.OK, get_dns_protection_status(self.app_dir))
+
+    def handle_dns_preview(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+        try:
+            request_data = validate_dns_protection_request(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = preview_dns_protection(self.app_dir, request_data)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.UNPROCESSABLE_ENTITY, result)
+
+    def handle_dns_action(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            return
+        try:
+            request_data = validate_dns_protection_request(self.read_json_body(), require_action=True)
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = apply_dns_protection_action(self.app_dir, request_data)
+        if result.get("ok"):
+            status = HTTPStatus.OK
+        elif result.get("stage") == "conflict":
+            status = HTTPStatus.CONFLICT
+        elif result.get("stage") in {"validation", "unsupported", "preflight", "probe"}:
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_GATEWAY
+        self.send_json(status, result)
 
     def handle_dns_lab_get(self):
         raw_limit = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("limit", [""])[0]
@@ -6106,6 +6179,1645 @@ def initialize_whitelist_monitor(app_dir):
     domain_list_thread.start()
 
 
+def dns_protection_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_RUNTIME_PATH", str(Path(app_dir) / "dns-protection.json")))
+
+
+def dns_protection_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LOG_PATH", str(Path(app_dir) / "dns-protection.jsonl")))
+
+
+def default_dns_protection_runtime():
+    return {
+        "requestedMode": "system",
+        "profile": "resilient",
+        "proxyGroup": "PROXY",
+        "managedRevision": "",
+        "managedBlockRevision": "",
+        "fallbackPending": False,
+        "ipv6": False,
+        "lanInterfaces": [],
+        "addresses": {"ipv4": [], "ipv6": []},
+        "updatedAt": None,
+    }
+
+
+def load_dns_protection_runtime(app_dir):
+    defaults = default_dns_protection_runtime()
+    saved = read_json_file(dns_protection_runtime_path(app_dir), {})
+    if not isinstance(saved, dict):
+        return defaults
+    runtime = {key: saved.get(key, value) for key, value in defaults.items()}
+    if runtime["requestedMode"] not in {"system", "test", "active"}:
+        runtime["requestedMode"] = "system"
+    if runtime["profile"] not in {"resilient", "strict"}:
+        runtime["profile"] = "resilient"
+    runtime["fallbackPending"] = runtime.get("fallbackPending") is True
+    if not isinstance(runtime.get("lanInterfaces"), list):
+        runtime["lanInterfaces"] = []
+    if not isinstance(runtime.get("addresses"), dict):
+        runtime["addresses"] = {"ipv4": [], "ipv6": []}
+    for family in ("ipv4", "ipv6"):
+        values = runtime["addresses"].get(family)
+        runtime["addresses"][family] = values if isinstance(values, list) else []
+    return runtime
+
+
+def save_dns_protection_runtime(app_dir, runtime):
+    write_json_atomic(dns_protection_runtime_path(app_dir), runtime)
+
+
+def append_dns_protection_event(app_dir, event_type, message, **details):
+    event = {
+        "timestamp": int(time.time()),
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "type": str(event_type),
+        "message": str(message)[:500],
+        **details,
+    }
+    path = dns_protection_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(lines) > DNS_PROTECTION_EVENT_LIMIT:
+            path.write_text(
+                "\n".join(lines[-DNS_PROTECTION_EVENT_LIMIT:]) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+    return event
+
+
+def read_dns_protection_events(app_dir, limit=20):
+    try:
+        lines = dns_protection_log_path(app_dir).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return []
+    events = []
+    for line in lines[-max(1, min(DNS_PROTECTION_EVENT_LIMIT, int(limit))):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def validate_dns_protection_request(payload, require_action=False):
+    if not isinstance(payload, dict):
+        raise TypeError("request must be an object")
+    allowed = {
+        "action",
+        "profile",
+        "proxyGroup",
+        "confirmations",
+        "expectedRevision",
+        "revision",
+    }
+    if set(payload) - allowed:
+        raise ValueError("unknown DNS request field")
+
+    action = str(payload.get("action") or "").strip().casefold()
+    if require_action and action not in {"test", "activate", "system"}:
+        raise ValueError("action must be test, activate or system")
+    if not require_action and action:
+        raise ValueError("preview does not accept an action")
+
+    profile = str(payload.get("profile") or "resilient").strip().casefold()
+    if profile not in {"resilient", "strict"}:
+        raise ValueError("profile must be resilient or strict")
+
+    proxy_group = str(payload.get("proxyGroup") or "").strip()
+    if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
+        raise ValueError("invalid proxyGroup")
+
+    expected_revision = payload.get("expectedRevision")
+    revision_alias = payload.get("revision")
+    if expected_revision is not None and revision_alias is not None and expected_revision != revision_alias:
+        raise ValueError("revision fields do not match")
+    expected_revision = expected_revision if expected_revision is not None else revision_alias
+    if expected_revision is not None and (
+        not isinstance(expected_revision, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_revision)
+    ):
+        raise ValueError("expectedRevision must be a config revision")
+    if require_action and expected_revision is None:
+        raise ValueError("expectedRevision is required")
+
+    confirmations = payload.get("confirmations", {})
+    if not isinstance(confirmations, dict):
+        raise TypeError("confirmations must be an object")
+    confirmation_keys = {"providerDns", "transitDns", "wanReconnect"}
+    if set(confirmations) - confirmation_keys:
+        raise ValueError("unknown confirmation")
+    normalized_confirmations = {
+        key: confirmations.get(key) is True for key in sorted(confirmation_keys)
+    }
+    return {
+        "action": action,
+        "profile": profile,
+        "proxyGroup": proxy_group,
+        "expectedRevision": expected_revision,
+        "confirmations": normalized_confirmations,
+    }
+
+
+def dns_protection_managed_range(text):
+    lines = str(text or "").splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == DNS_PROTECTION_MARKER_BEGIN]
+    ends = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == DNS_PROTECTION_MARKER_END]
+    if not starts and not ends:
+        return lines, None
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError("managed DNS markers are incomplete")
+    return lines, (starts[0], ends[0] + 1)
+
+
+def has_top_level_dns_config(text, ignore_range=None):
+    for index, line in enumerate(str(text or "").splitlines()):
+        if ignore_range and ignore_range[0] <= index < ignore_range[1]:
+            continue
+        if re.match(r"^dns\s*:", strip_yaml_comment(line)):
+            return True
+    return False
+
+
+def has_managed_dns_config(text):
+    try:
+        _, managed_range = dns_protection_managed_range(text)
+    except ValueError:
+        return False
+    return managed_range is not None
+
+
+def dns_managed_block_revision(text):
+    try:
+        lines, managed_range = dns_protection_managed_range(text)
+    except ValueError:
+        return ""
+    if not managed_range:
+        return ""
+    block = "".join(lines[managed_range[0]:managed_range[1]])
+    return config_revision(block)
+
+
+def yaml_single_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False):
+    upstreams = [f"{url}#{proxy_group}" for url in DNS_PROTECTION_UPSTREAMS]
+    lines = [
+        DNS_PROTECTION_MARKER_BEGIN,
+        "dns:",
+        "  enable: true",
+        f"  listen: {yaml_single_quote(f':{DNS_PROTECTION_PORT}')}",
+        f"  ipv6: {'true' if ipv6_enabled else 'false'}",
+        "  enhanced-mode: redir-host",
+        "  use-hosts: true",
+        "  use-system-hosts: true",
+        "  default-nameserver:",
+        *[f"    - {address}" for address in DNS_PROTECTION_BOOTSTRAP],
+        "  proxy-server-nameserver:",
+        f"    - {yaml_single_quote(DNS_PROTECTION_PROXY_RESOLVER)}",
+        "  nameserver:",
+        *[f"    - {yaml_single_quote(url)}" for url in upstreams],
+    ]
+    if local_resolver:
+        lines.extend(
+            [
+                "  nameserver-policy:",
+                "    'geosite:private':",
+                f"      - 'udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}'",
+            ]
+        )
+    lines.append(DNS_PROTECTION_MARKER_END)
+    return "\n".join(lines) + "\n"
+
+
+def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False):
+    lines, managed_range = dns_protection_managed_range(text)
+    if has_top_level_dns_config(text, ignore_range=managed_range):
+        raise ValueError("config already contains an unmanaged top-level dns section")
+    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver)
+    if managed_range:
+        return "".join(lines[:managed_range[0]]) + block + "".join(lines[managed_range[1]:])
+    prefix = str(text or "")
+    if prefix and not prefix.endswith(("\n", "\r")):
+        prefix += "\n"
+    if prefix and not prefix.endswith("\n\n"):
+        prefix += "\n"
+    return prefix + block
+
+
+def remove_dns_protection_text(text):
+    lines, managed_range = dns_protection_managed_range(text)
+    if not managed_range:
+        return str(text or "")
+    before = "".join(lines[:managed_range[0]])
+    after = "".join(lines[managed_range[1]:])
+    if before.endswith("\r\n\r\n"):
+        before = before[:-2]
+    elif before.endswith("\n\n"):
+        before = before[:-1]
+    return before + after
+
+
+def find_dns_tool(app_dir, name):
+    env_key = f"MIHUI_DNS_{name.upper()}_BIN"
+    configured = get_env(app_dir).get(env_key, "")
+    candidates = [
+        configured,
+        f"/usr/sbin/{name}",
+        f"/sbin/{name}",
+        f"/usr/bin/{name}",
+        f"/bin/{name}",
+        f"/opt/sbin/{name}",
+        f"/opt/bin/{name}",
+        shutil.which(name) or "",
+    ]
+    for candidate in candidates:
+        if candidate and (Path(candidate).is_file() or shutil.which(candidate)):
+            return str(candidate)
+    return ""
+
+
+def run_dns_tool(binary, arguments, timeout=5):
+    if not binary:
+        return {"ok": False, "returncode": None, "message": "tool is unavailable"}
+    try:
+        result = subprocess.run(
+            [binary, *list(arguments)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+        output = result.stdout.decode("utf-8", "replace").strip()
+        return {
+            "ok": result.returncode == 0,
+            "returncode": result.returncode,
+            "output": output,
+            "message": output[-300:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": None, "message": "command timed out", "output": ""}
+    except Exception as error:
+        return {"ok": False, "returncode": None, "message": str(error)[:300], "output": ""}
+
+
+def valid_dns_interface_name(value):
+    return bool(re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", str(value or "")))
+
+
+def discover_dns_lan_addresses(app_dir, ip_binary=None):
+    ip_binary = ip_binary or find_dns_tool(app_dir, "ip")
+    result = run_dns_tool(ip_binary, ["-o", "addr", "show"])
+    if not result["ok"]:
+        return {
+            "ok": False,
+            "interfaces": [],
+            "candidateInterfaces": [],
+            "bindings": [],
+            "ipv4": [],
+            "ipv6": [],
+            "message": result["message"],
+        }
+
+    configured = get_env(app_dir).get("MIHUI_DNS_LAN_INTERFACES", "")
+    configured_interfaces = {
+        value.strip() for value in configured.split(",") if valid_dns_interface_name(value.strip())
+    }
+    records = []
+    for raw_line in result.get("output", "").splitlines():
+        match = re.match(r"^\d+:\s+([^\s]+)\s+(inet6?)\s+([^/\s]+)/", raw_line)
+        if not match:
+            continue
+        interface = match.group(1).split("@", 1)[0]
+        if not valid_dns_interface_name(interface):
+            continue
+        is_bridge = (Path("/sys/class/net") / interface / "bridge").is_dir()
+        if configured_interfaces and interface not in configured_interfaces:
+            continue
+        if not configured_interfaces and not is_bridge and not interface.startswith("br"):
+            continue
+        try:
+            address = ipaddress.ip_address(match.group(3))
+        except ValueError:
+            continue
+        if address.is_loopback or address.is_unspecified or address.is_multicast:
+            continue
+        records.append((interface, match.group(2), str(address)))
+
+    detected_interfaces = list(dict.fromkeys(item[0] for item in records))
+    ambiguous = not configured_interfaces and len(detected_interfaces) > 1
+    if ambiguous:
+        records = []
+
+    return {
+        "ok": bool(records),
+        "interfaces": list(dict.fromkeys(item[0] for item in records)),
+        "candidateInterfaces": detected_interfaces,
+        "bindings": [
+            {
+                "interface": item[0],
+                "family": "ipv6" if item[1] == "inet6" else "ipv4",
+                "address": item[2],
+            }
+            for item in records
+        ],
+        "ipv4": list(dict.fromkeys(item[2] for item in records if item[1] == "inet")),
+        "ipv6": list(dict.fromkeys(item[2] for item in records if item[1] == "inet6")),
+        "message": (
+            ""
+            if records
+            else (
+                "multiple LAN bridges detected; set MIHUI_DNS_LAN_INTERFACES explicitly"
+                if ambiguous
+                else "LAN bridge addresses were not detected"
+            )
+        ),
+    }
+
+
+def get_dns_proxy_groups(app_dir):
+    try:
+        data = mihomo_api_request(app_dir, "/proxies", timeout=4)
+        proxies = data.get("proxies", data) if isinstance(data, dict) else {}
+        if not isinstance(proxies, dict):
+            raise ValueError("invalid proxy list")
+    except Exception as error:
+        return {"ok": False, "groups": [], "message": str(error)[:300]}
+    groups = []
+    for name, item in proxies.items():
+        if not isinstance(item, dict) or not isinstance(item.get("all"), list):
+            continue
+        normalized = str(item.get("name") or name or "").strip()
+        if normalized and len(normalized) <= 128 and not any(char in normalized for char in "\r\n#&"):
+            groups.append(normalized)
+    return {"ok": True, "groups": list(dict.fromkeys(groups)), "message": ""}
+
+
+def probe_dns_endpoint(
+    address,
+    port,
+    protocol,
+    timeout_ms=1000,
+    query_name=DNS_LAB_QUERY_NAME,
+    accepted_rcodes=(0,),
+):
+    started = time.monotonic()
+    result = {
+        "address": address,
+        "port": int(port),
+        "transport": protocol,
+        "ok": False,
+        "latencyMs": None,
+    }
+    query_id, packet = build_dns_query(query_name)
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    endpoint = (address, int(port))
+    try:
+        if protocol == "udp":
+            with socket.socket(family, socket.SOCK_DGRAM) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendto(packet, endpoint)
+                payload, _ = stream.recvfrom(4096)
+        elif protocol == "tcp":
+            with socket.create_connection(endpoint, timeout=timeout_ms / 1000) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, size)
+        else:
+            raise ValueError("unsupported DNS transport")
+        parsed = parse_dns_response(payload, query_id)
+        result.update(parsed)
+        result["ok"] = parsed["rcode"] in accepted_rcodes
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def probe_mihomo_dns_listener(ipv6_enabled, timeout_ms=2000):
+    addresses = ["127.0.0.1", "::1"] if ipv6_enabled else ["127.0.0.1"]
+    query_name = f"mihui-{uuid.uuid4().hex}.example.com"
+    probes = [
+        probe_dns_endpoint(
+            address,
+            DNS_PROTECTION_PORT,
+            protocol,
+            timeout_ms,
+            query_name=query_name,
+            accepted_rcodes=(0, 3),
+        )
+        for address in addresses
+        for protocol in ("udp", "tcp")
+    ]
+    return {
+        "ok": bool(probes) and all(item["ok"] for item in probes),
+        "queryName": query_name,
+        "probes": probes,
+    }
+
+
+def probe_dns_local_resolver():
+    probes = [
+        probe_dns_endpoint("127.0.0.1", DNS_PROTECTION_LOCAL_PORT, protocol, 700)
+        for protocol in ("udp", "tcp")
+    ]
+    udp_ok = probes[0]["ok"]
+    return {
+        "ok": udp_ok,
+        "udp": probes[0],
+        "tcp": probes[1],
+        "tcpDiagnosticOk": probes[1]["ok"],
+        "address": "127.0.0.1",
+        "port": DNS_PROTECTION_LOCAL_PORT,
+    }
+
+
+def probe_system_dns_fallback(bindings, timeout_ms=1200):
+    query_name = f"mihui-system-{uuid.uuid4().hex}.example.com"
+    probes = []
+    normalized_bindings = []
+    for binding in bindings:
+        address = str(binding.get("address") or "")
+        interface = str(binding.get("interface") or "")
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        target = f"{address}%{interface}" if parsed.version == 6 and parsed.is_link_local and interface else address
+        normalized_bindings.append({"address": address, "interface": interface, "target": target})
+        for protocol in ("udp", "tcp"):
+            probe = probe_dns_endpoint(
+                target,
+                53,
+                protocol,
+                timeout_ms,
+                query_name=query_name,
+                accepted_rcodes=(0, 3),
+            )
+            probe["lanAddress"] = address
+            probe["interface"] = interface
+            probes.append(probe)
+    udp_probes = [item for item in probes if item["transport"] == "udp"]
+    tcp_probes = [item for item in probes if item["transport"] == "tcp"]
+    return {
+        "ok": bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes),
+        "queryName": query_name,
+        "bindings": normalized_bindings,
+        "probes": probes,
+        "udpReady": bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes),
+        "tcpDiagnosticOk": bool(tcp_probes) and all(item["ok"] for item in tcp_probes),
+    }
+
+
+def dns_chain_is_safe(binary, chain):
+    result = run_dns_tool(binary, ["-t", "nat", "-S", chain])
+    if result["returncode"] not in {0, 1}:
+        return False
+    if result["returncode"] == 1:
+        return True
+    for line in result.get("output", "").splitlines():
+        if line.startswith(f"-N {chain}"):
+            continue
+        if DNS_PROTECTION_COMMENT not in line:
+            return False
+    return True
+
+
+def parse_router_dns_settings(running_config, available=True):
+    if not available:
+        return {
+            "provider": {
+                "ignoreIpv4": None,
+                "ignoreIpv6": None,
+                "servers": [],
+                "state": "unknown",
+                "changed": False,
+            },
+            "transit": {"blocked": None, "state": "unknown", "changed": False},
+            "system": {"servers": [], "state": "unknown"},
+        }
+    lines = [line.strip() for line in str(running_config or "").splitlines() if line.strip()]
+    ignore4_on = any(
+        re.search(r"\b(?:ip dhcp client|ipcp) no name-servers\b", line)
+        for line in lines
+    )
+    ignore4_off = any(
+        re.search(r"\b(?:ip dhcp client|ipcp) name-servers\b", line)
+        and " no name-servers" not in line
+        for line in lines
+    )
+    ignore6_on = any(
+        re.fullmatch(r"no interface \S+ ipv6 name-servers auto", line)
+        for line in lines
+    )
+    ignore6_off = any(
+        re.fullmatch(r"interface \S+ ipv6 name-servers auto", line)
+        for line in lines
+    )
+    transit_on = "dns-proxy intercept enable" in lines
+    transit_off = "no dns-proxy intercept enable" in lines
+    system_servers = []
+    for line in lines:
+        match = re.match(r"^(?:ip|ipv6) name-server\s+([^\s]+)", line)
+        if not match:
+            continue
+        try:
+            system_servers.append(str(ipaddress.ip_address(match.group(1))))
+        except ValueError:
+            continue
+    provider_state = "detected" if any((ignore4_on, ignore4_off, ignore6_on, ignore6_off)) else "unknown"
+    return {
+        "provider": {
+            "ignoreIpv4": True if ignore4_on else (False if ignore4_off else None),
+            "ignoreIpv6": True if ignore6_on else (False if ignore6_off else None),
+            "servers": [],
+            "state": provider_state,
+            "changed": False,
+        },
+        "transit": {
+            "blocked": True if transit_on else (False if transit_off else None),
+            "state": "detected" if transit_on or transit_off else "unknown",
+            "changed": False,
+        },
+        "system": {
+            "servers": list(dict.fromkeys(system_servers)),
+            "state": "detected" if system_servers else "unknown",
+        },
+    }
+
+
+def collect_dns_protection_capabilities(app_dir, proxy_group=""):
+    app_dir = Path(app_dir)
+    config_text = read_config_text(get_config_path(app_dir))
+    runtime = load_dns_protection_runtime(app_dir)
+    managed = has_managed_dns_config(config_text)
+    try:
+        _, managed_range = dns_protection_managed_range(config_text)
+        unmanaged_dns = has_top_level_dns_config(config_text, ignore_range=managed_range)
+        markers_ok = True
+    except ValueError:
+        unmanaged_dns = True
+        markers_ok = False
+
+    tools = {
+        name: find_dns_tool(app_dir, name)
+        for name in ("ndmc", "ip", "iptables", "ip6tables", "ipset")
+    }
+    root = bool(hasattr(os, "geteuid") and os.geteuid() == 0)
+    lan = discover_dns_lan_addresses(app_dir, tools["ip"])
+    ipv6_client_dns = bool(lan.get("ipv6"))
+    groups = get_dns_proxy_groups(app_dir)
+    selected_group = proxy_group or runtime.get("proxyGroup") or "PROXY"
+    if not proxy_group and selected_group not in groups.get("groups", []):
+        selected_group = "PROXY" if "PROXY" in groups.get("groups", []) else next(iter(groups.get("groups", [])), "")
+
+    ndmc = run_dns_tool(tools["ndmc"], ["-c", "show running-config"])
+    running_config = ndmc.get("output", "") if ndmc["ok"] else ""
+    router_dns = parse_router_dns_settings(running_config, available=ndmc["ok"])
+    dns_override = any(
+        strip_yaml_comment(line).strip() == "opkg dns-override"
+        for line in running_config.splitlines()
+    )
+    port53 = get_port_listeners(53)
+    ndnproxy_protocols = {
+        item["protocol"]
+        for item in port53["listeners"]
+        if "ndnproxy" in {owner.casefold() for owner in item.get("owners", [])}
+    }
+    ndnproxy_ready = {"udp", "tcp"}.issubset(ndnproxy_protocols)
+    if ipv6_client_dns:
+        ndnproxy_ready = ndnproxy_ready and {"udp6", "tcp6"}.issubset(ndnproxy_protocols)
+    system_fallback = probe_system_dns_fallback(lan.get("bindings", []))
+
+    port1053 = get_port_listeners(DNS_PROTECTION_PORT)
+    listener_owners = {
+        owner.casefold()
+        for item in port1053["listeners"]
+        for owner in item.get("owners", [])
+    }
+    port1053_ready = not port1053["listeners"] or (managed and listener_owners and listener_owners <= {"mihomo", "clash-meta"})
+
+    iptables_version = run_dns_tool(tools["iptables"], ["--version"])
+    iptables_nat = run_dns_tool(tools["iptables"], ["-t", "nat", "-S"])
+    iptables_set = run_dns_tool(tools["iptables"], ["-m", "set", "-h"])
+    iptables_comment = run_dns_tool(tools["iptables"], ["-m", "comment", "-h"])
+    iptables_set_ready = iptables_set["ok"] or "--match-set" in iptables_set.get("output", "")
+    iptables_comment_ready = iptables_comment["ok"] or "--comment" in iptables_comment.get("output", "")
+    ipset_help = run_dns_tool(tools["ipset"], ["help", "hash:ip"])
+    ipset_output = ipset_help.get("output", "").casefold()
+    ipset_timeout = ipset_help["ok"] and "timeout" in ipset_output
+    ipset_ipv6 = ipset_timeout and "inet6" in ipset_output
+    chain4_safe = bool(tools["iptables"] and dns_chain_is_safe(tools["iptables"], DNS_PROTECTION_CHAIN4))
+
+    ip6tables_ready = True
+    chain6_safe = True
+    if ipv6_client_dns:
+        version6 = run_dns_tool(tools["ip6tables"], ["--version"])
+        nat6 = run_dns_tool(tools["ip6tables"], ["-t", "nat", "-S"])
+        set6 = run_dns_tool(tools["ip6tables"], ["-m", "set", "-h"])
+        comment6 = run_dns_tool(tools["ip6tables"], ["-m", "comment", "-h"])
+        set6_ready = set6["ok"] or "--match-set" in set6.get("output", "")
+        comment6_ready = comment6["ok"] or "--comment" in comment6.get("output", "")
+        ip6tables_ready = version6["ok"] and nat6["ok"] and set6_ready and comment6_ready and ipset_ipv6
+        chain6_safe = bool(tools["ip6tables"] and dns_chain_is_safe(tools["ip6tables"], DNS_PROTECTION_CHAIN6))
+
+    local_resolver = probe_dns_local_resolver()
+    checks = []
+
+    def add_check(check_id, ok, message, required=True):
+        checks.append({"id": check_id, "ok": bool(ok), "required": bool(required), "message": message})
+
+    add_check("root", root, "MihUI runs as root" if root else "MihUI must run as root")
+    add_check("mihomo-binary", bool(find_mihomo_binary(app_dir)), "Mihomo binary is available")
+    add_check("mihomo-api", groups["ok"], "Mihomo API is available" if groups["ok"] else "Mihomo API is unavailable")
+    add_check("proxy-group", bool(selected_group and selected_group in groups.get("groups", [])), "Selected proxy group exists")
+    add_check("config-ownership", markers_ok and not unmanaged_dns, "DNS config is free or owned by MihUI")
+    add_check("ndmc", ndmc["ok"], "ndmc read-only query succeeded")
+    add_check("dns-override", not dns_override, "XKeen dns-override is disabled")
+    add_check("ndnproxy", ndnproxy_ready, "ndnproxy owns system DNS port 53")
+    add_check("system-fallback", system_fallback["ok"], "System DNS answers fresh UDP queries")
+    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "LAN bridge IPv4 address detected")
+    add_check("port-1053", port1053_ready, "Port 1053 is free or owned by managed Mihomo DNS")
+    add_check("iptables", iptables_version["ok"] and iptables_nat["ok"] and iptables_set_ready and iptables_comment_ready, "IPv4 NAT, ipset and comment matches are available")
+    add_check("ipset-timeout", ipset_timeout, "Kernel ipset timeout is available")
+    add_check("firewall-chain4", chain4_safe, "IPv4 managed chain name is safe")
+    add_check("ip6tables", ip6tables_ready, "IPv6 NAT path is available", required=ipv6_client_dns)
+    add_check("firewall-chain6", chain6_safe, "IPv6 managed chain name is safe", required=ipv6_client_dns)
+    add_check("local-resolver", local_resolver["ok"], "Local UDP resolver 127.0.0.1:41100 is available", required=False)
+
+    activation_ready = all(item["ok"] for item in checks if item["required"])
+    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "config-ownership", "port-1053"}
+    test_ready = all(item["ok"] for item in checks if item["id"] in test_ids)
+    return {
+        "ready": activation_ready,
+        "activationReady": activation_ready,
+        "testReady": test_ready,
+        "strictSupported": False,
+        "checks": checks,
+        "tools": {key: bool(value) for key, value in tools.items()},
+        "lanInterfaces": lan.get("interfaces", []),
+        "candidateLanInterfaces": lan.get("candidateInterfaces", []),
+        "addresses": {"ipv4": lan.get("ipv4", []), "ipv6": lan.get("ipv6", [])},
+        "ipv6ClientDns": ipv6_client_dns,
+        "proxyGroups": groups.get("groups", []),
+        "selectedProxyGroup": selected_group,
+        "localResolver": local_resolver,
+        "dnsOverride": dns_override,
+        "ndnproxy": {"ready": ndnproxy_ready, "protocols": sorted(ndnproxy_protocols)},
+        "systemFallback": system_fallback,
+        "port1053": {"ready": port1053_ready, "listeners": port1053["listeners"]},
+        "managedConfig": managed,
+        "routerDns": router_dns,
+    }
+
+
+def dns_protection_confirmation_plan(profile, confirmations=None):
+    confirmations = confirmations or {}
+    if profile != "strict":
+        return []
+    labels = {
+        "providerDns": "Игнорировать DNS провайдера",
+        "transitDns": "Перехватывать транзитный DNS",
+        "wanReconnect": "Допустить переподключение WAN",
+    }
+    return [
+        {"id": key, "label": label, "confirmed": confirmations.get(key) is True}
+        for key, label in labels.items()
+    ]
+
+
+def preview_dns_protection(app_dir, request_data):
+    app_dir = Path(app_dir)
+    capabilities = collect_dns_protection_capabilities(app_dir, request_data["proxyGroup"])
+    proxy_group = capabilities["selectedProxyGroup"]
+    config_text = read_config_text(get_config_path(app_dir))
+    revision = config_revision(config_text)
+    warnings = []
+    proposed_text = None
+    config_check = {"ok": False, "available": bool(find_mihomo_binary(app_dir)), "message": "preview unavailable"}
+    try:
+        if not proxy_group:
+            raise ValueError("no compatible Mihomo proxy group was detected")
+        proposed_text = prepare_dns_protection_text(
+            config_text,
+            proxy_group,
+            capabilities["ipv6ClientDns"],
+            capabilities["localResolver"]["ok"],
+        )
+        config_check = check_mihomo_config(app_dir, proposed_text)
+        if not config_check.get("available"):
+            config_check = {**config_check, "ok": False, "message": "Mihomo config check is unavailable"}
+    except ValueError as error:
+        warnings.append({"code": "config-conflict", "message": str(error)})
+
+    confirmations = dns_protection_confirmation_plan(
+        request_data["profile"], request_data["confirmations"]
+    )
+    if request_data["profile"] == "strict":
+        warnings.append({
+            "code": "strict-unsupported",
+            "message": "Строгий режим пока доступен только для предварительного просмотра: настройки провайдера и транзита не будут изменены.",
+        })
+    if capabilities["ipv6ClientDns"] and not next(
+        (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
+    ):
+        warnings.append({"code": "ipv6-unprotected", "message": "IPv6 DNS detected but the IPv6 capture path is unavailable."})
+    if not capabilities["localResolver"]["ok"]:
+        warnings.append({"code": "local-resolver", "message": "Local domains will not be delegated because UDP 127.0.0.1:41100 did not answer."})
+    elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "local-resolver-tcp", "message": "Local UDP resolver is usable; TCP/41100 did not answer and is shown only as a diagnostic."})
+    if not capabilities["systemFallback"]["ok"]:
+        warnings.append({"code": "system-fallback", "message": "System DNS did not answer a fresh UDP query; activation is blocked."})
+    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback is usable; TCP/53 did not answer and is shown only as a diagnostic."})
+
+    config_ready = bool(proposed_text is not None and config_check.get("ok"))
+    return {
+        "ok": config_ready,
+        "stage": "preview",
+        "mode": get_dns_protection_mode(app_dir),
+        "profile": request_data["profile"],
+        "proxyGroup": proxy_group,
+        "revision": revision,
+        "capabilities": capabilities,
+        "canTest": bool(config_ready and capabilities["testReady"] and request_data["profile"] == "resilient"),
+        "canActivate": bool(config_ready and capabilities["activationReady"] and request_data["profile"] == "resilient"),
+        "configCheck": config_check,
+        "fallback": {
+            "preserved": capabilities["systemFallback"]["ok"],
+            "ndnproxyPort": 53,
+            "providerDns": {**capabilities["routerDns"]["provider"], "changed": False},
+            "transitDns": {**capabilities["routerDns"]["transit"], "changed": False},
+            "leaseSeconds": DNS_PROTECTION_LEASE_SECONDS,
+        },
+        "plan": {
+            "listener": f":{DNS_PROTECTION_PORT}",
+            "enhancedMode": "redir-host",
+            "ipv6": capabilities["ipv6ClientDns"],
+            "upstreams": list(DNS_PROTECTION_UPSTREAMS),
+            "upstreamRoute": proxy_group,
+            "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
+            "localPrivateResolver": capabilities["localResolver"]["ok"],
+            "providerDnsChange": request_data["profile"] == "strict",
+            "transitDnsChange": request_data["profile"] == "strict",
+        },
+        "confirmations": confirmations,
+        "warnings": warnings,
+        "exclusions": [
+            {"id": "application-doh", "message": "DoH/Private DNS inside applications does not use router port 53."},
+            {"id": "tailscale-dns", "message": "Clients using Tailscale DNS can bypass LAN DNS."},
+            {"id": "external-dns", "message": "Resilient mode does not intercept direct DNS to external addresses; that belongs to strict mode."},
+        ],
+    }
+
+
+def dns_firewall_family_spec(capabilities, ipv6=False):
+    return {
+        "chain": DNS_PROTECTION_CHAIN6 if ipv6 else DNS_PROTECTION_CHAIN4,
+        "set": DNS_PROTECTION_SET6 if ipv6 else DNS_PROTECTION_SET4,
+        "family": "inet6" if ipv6 else "inet",
+        "addresses": capabilities["addresses"]["ipv6" if ipv6 else "ipv4"],
+        "interfaces": capabilities["lanInterfaces"],
+    }
+
+
+def dns_ipset_is_compatible(ipset_binary, set_name, family):
+    listed = run_dns_tool(ipset_binary, ["list", set_name])
+    if listed["returncode"] != 0:
+        return True
+    output = listed.get("output", "").casefold()
+    return "type: hash:ip" in output and f"family {family}" in output and "timeout" in output
+
+
+def dns_firewall_redirect_rule(spec, protocol):
+    return [
+        "-p", protocol, "--dport", "53",
+        "-m", "set", "--match-set", spec["set"], "dst",
+        "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+        "-j", "REDIRECT", "--to-ports", str(DNS_PROTECTION_PORT),
+    ]
+
+
+def dns_firewall_jump_rule(spec, interface, protocol):
+    return [
+        "-i", interface,
+        "-p", protocol, "--dport", "53",
+        "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+        "-j", spec["chain"],
+    ]
+
+
+def ensure_dns_firewall_family(ipset_binary, spec):
+    binary = spec["binary"]
+    if not binary or not ipset_binary:
+        return {"ok": False, "message": "firewall tools are unavailable"}
+    if not dns_ipset_is_compatible(ipset_binary, spec["set"], spec["family"]):
+        return {"ok": False, "message": f"ipset name collision: {spec['set']}"}
+    created_set = run_dns_tool(
+        ipset_binary,
+        [
+            "create",
+            spec["set"],
+            "hash:ip",
+            "family",
+            spec["family"],
+            "timeout",
+            str(DNS_PROTECTION_LEASE_SECONDS),
+            "-exist",
+        ],
+    )
+    if not created_set["ok"]:
+        return {"ok": False, "message": created_set["message"]}
+    cleared_set = run_dns_tool(ipset_binary, ["flush", spec["set"]])
+    if not cleared_set["ok"]:
+        return {"ok": False, "message": cleared_set["message"]}
+    if not dns_chain_is_safe(binary, spec["chain"]):
+        return {"ok": False, "message": f"firewall chain name collision: {spec['chain']}"}
+
+    chain = run_dns_tool(binary, ["-t", "nat", "-S", spec["chain"]])
+    if chain["returncode"] != 0:
+        created_chain = run_dns_tool(binary, ["-t", "nat", "-N", spec["chain"]])
+        if not created_chain["ok"]:
+            return {"ok": False, "message": created_chain["message"]}
+    flushed = run_dns_tool(binary, ["-t", "nat", "-F", spec["chain"]])
+    if not flushed["ok"]:
+        return {"ok": False, "message": flushed["message"]}
+
+    for protocol in ("udp", "tcp"):
+        rule = ["-t", "nat", "-A", spec["chain"], *dns_firewall_redirect_rule(spec, protocol)]
+        added = run_dns_tool(binary, rule)
+        if not added["ok"]:
+            return {"ok": False, "message": added["message"]}
+
+    for interface in spec["interfaces"]:
+        if not valid_dns_interface_name(interface):
+            return {"ok": False, "message": "invalid LAN interface"}
+        for protocol in ("udp", "tcp"):
+            rule = dns_firewall_jump_rule(spec, interface, protocol)
+            exists = run_dns_tool(binary, ["-t", "nat", "-C", "PREROUTING", *rule])
+            if exists["returncode"] == 0:
+                continue
+            inserted = run_dns_tool(binary, ["-t", "nat", "-I", "PREROUTING", "1", *rule])
+            if not inserted["ok"]:
+                return {"ok": False, "message": inserted["message"]}
+    return {"ok": True}
+
+
+def ensure_dns_firewall(app_dir, capabilities):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    specs = [
+        {
+            **dns_firewall_family_spec(capabilities, ipv6=False),
+            "binary": find_dns_tool(app_dir, "iptables"),
+        }
+    ]
+    if capabilities["ipv6ClientDns"]:
+        specs.append({
+            **dns_firewall_family_spec(capabilities, ipv6=True),
+            "binary": find_dns_tool(app_dir, "ip6tables"),
+        })
+    for spec in specs:
+        result = ensure_dns_firewall_family(ipset_binary, spec)
+        if not result["ok"]:
+            remove_dns_firewall(app_dir, {
+                "lanInterfaces": capabilities["lanInterfaces"],
+                "addresses": capabilities["addresses"],
+                "ipv6": capabilities["ipv6ClientDns"],
+            })
+            return result
+    with dns_protection_health_lock:
+        dns_protection_health.update({"firewallReady": True, "lastFirewallCheckAt": int(time.time())})
+    return {"ok": True}
+
+
+def dns_firewall_family_state(ipset_binary, spec):
+    if not spec["binary"] or not ipset_binary or not spec["interfaces"] or not spec["addresses"]:
+        return "unknown"
+    listed = run_dns_tool(ipset_binary, ["list", spec["set"]])
+    output = listed.get("output", "").casefold()
+    if not listed["ok"]:
+        return "missing" if listed.get("returncode") == 1 and "does not exist" in output else "unknown"
+    if "type: hash:ip" not in output or f"family {spec['family']}" not in output:
+        return "unknown"
+    chain = run_dns_tool(spec["binary"], ["-t", "nat", "-S", spec["chain"]])
+    if not chain["ok"]:
+        chain_output = chain.get("output", "").casefold()
+        return (
+            "missing"
+            if chain.get("returncode") == 1 and ("no chain" in chain_output or "does not exist" in chain_output)
+            else "unknown"
+        )
+    for line in chain.get("output", "").splitlines():
+        if line.startswith(f"-N {spec['chain']}"):
+            continue
+        if DNS_PROTECTION_COMMENT not in line:
+            return "unknown"
+    for protocol in ("udp", "tcp"):
+        redirect = run_dns_tool(
+            spec["binary"],
+            ["-t", "nat", "-C", spec["chain"], *dns_firewall_redirect_rule(spec, protocol)],
+        )
+        if not redirect["ok"]:
+            return "missing" if redirect.get("returncode") == 1 else "unknown"
+    for interface in spec["interfaces"]:
+        if not valid_dns_interface_name(interface):
+            return "unknown"
+        for protocol in ("udp", "tcp"):
+            jump = run_dns_tool(
+                spec["binary"],
+                ["-t", "nat", "-C", "PREROUTING", *dns_firewall_jump_rule(spec, interface, protocol)],
+            )
+            if not jump["ok"]:
+                return "missing" if jump.get("returncode") == 1 else "unknown"
+    return "installed"
+
+
+def dns_firewall_installed(app_dir, runtime):
+    capabilities = {
+        "lanInterfaces": list(runtime.get("lanInterfaces", [])),
+        "addresses": {
+            "ipv4": list(runtime.get("addresses", {}).get("ipv4", [])),
+            "ipv6": list(runtime.get("addresses", {}).get("ipv6", [])),
+        },
+    }
+    ipv6_enabled = bool(runtime.get("ipv6ClientDns", runtime.get("ipv6", False)))
+    specs = [{
+        **dns_firewall_family_spec(capabilities, ipv6=False),
+        "binary": find_dns_tool(app_dir, "iptables"),
+    }]
+    if ipv6_enabled:
+        specs.append({
+            **dns_firewall_family_spec(capabilities, ipv6=True),
+            "binary": find_dns_tool(app_dir, "ip6tables"),
+        })
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    family_states = {
+        spec["family"]: dns_firewall_family_state(ipset_binary, spec)
+        for spec in specs
+    }
+    states = set(family_states.values())
+    if states == {"installed"}:
+        state = "installed"
+    elif states == {"missing"}:
+        state = "missing"
+    elif "unknown" in states:
+        state = "unknown"
+    else:
+        state = "partial"
+    return {"ok": state == "installed", "state": state, "families": family_states}
+
+
+def refresh_dns_firewall_lease(app_dir, capabilities):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    families = [(DNS_PROTECTION_SET4, capabilities["addresses"]["ipv4"])]
+    if capabilities["ipv6ClientDns"]:
+        families.append((DNS_PROTECTION_SET6, capabilities["addresses"]["ipv6"]))
+    for set_name, addresses in families:
+        if not addresses:
+            return {"ok": False, "message": f"no addresses for {set_name}"}
+        for address in addresses:
+            try:
+                normalized = str(ipaddress.ip_address(address))
+            except ValueError:
+                return {"ok": False, "message": "invalid lease address"}
+            result = run_dns_tool(
+                ipset_binary,
+                ["add", set_name, normalized, "timeout", str(DNS_PROTECTION_LEASE_SECONDS), "-exist"],
+            )
+            if not result["ok"]:
+                return {"ok": False, "message": result["message"]}
+    return {"ok": True}
+
+
+def remove_dns_firewall(app_dir, runtime):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    interfaces = [
+        str(item) for item in runtime.get("lanInterfaces", [])
+        if valid_dns_interface_name(item)
+    ]
+    families = [
+        (find_dns_tool(app_dir, "iptables"), DNS_PROTECTION_CHAIN4, DNS_PROTECTION_SET4),
+        (find_dns_tool(app_dir, "ip6tables"), DNS_PROTECTION_CHAIN6, DNS_PROTECTION_SET6),
+    ]
+    errors = []
+    for binary, chain, set_name in families:
+        if ipset_binary:
+            flushed_set = run_dns_tool(ipset_binary, ["flush", set_name])
+            if flushed_set["returncode"] not in {0, 1}:
+                errors.append(flushed_set["message"])
+        if not binary:
+            continue
+        for interface in interfaces:
+            for protocol in ("udp", "tcp"):
+                rule = [
+                    "-i", interface,
+                    "-p", protocol, "--dport", "53",
+                    "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+                    "-j", chain,
+                ]
+                for _ in range(4):
+                    exists = run_dns_tool(binary, ["-t", "nat", "-C", "PREROUTING", *rule])
+                    if exists["returncode"] != 0:
+                        break
+                    deleted = run_dns_tool(binary, ["-t", "nat", "-D", "PREROUTING", *rule])
+                    if not deleted["ok"]:
+                        errors.append(deleted["message"])
+                        break
+        chain_state = run_dns_tool(binary, ["-t", "nat", "-S", chain])
+        if chain_state["returncode"] == 0:
+            if not dns_chain_is_safe(binary, chain):
+                errors.append(f"refusing to remove foreign chain {chain}")
+                continue
+            flushed = run_dns_tool(binary, ["-t", "nat", "-F", chain])
+            deleted = run_dns_tool(binary, ["-t", "nat", "-X", chain]) if flushed["ok"] else flushed
+            if not deleted["ok"]:
+                errors.append(deleted["message"])
+        if ipset_binary:
+            destroyed = run_dns_tool(ipset_binary, ["destroy", set_name])
+            if destroyed["returncode"] not in {0, 1}:
+                errors.append(destroyed["message"])
+    with dns_protection_health_lock:
+        dns_protection_health.update({"firewallReady": False, "leaseHealthy": False})
+    return {"ok": not errors, "errors": [item for item in errors if item]}
+
+
+def dns_capture_lease_state(app_dir, runtime=None):
+    runtime = runtime or load_dns_protection_runtime(app_dir)
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    if not ipset_binary:
+        return {"known": False, "active": None, "complete": False}
+    families = [(DNS_PROTECTION_SET4, runtime.get("addresses", {}).get("ipv4", []))]
+    if runtime.get("ipv6"):
+        families.append((DNS_PROTECTION_SET6, runtime.get("addresses", {}).get("ipv6", [])))
+    results = []
+    for set_name, addresses in families:
+        if not addresses:
+            results.append(None)
+            continue
+        for address in addresses:
+            result = run_dns_tool(ipset_binary, ["test", set_name, str(address)])
+            if result["returncode"] == 0:
+                results.append(True)
+                continue
+            message = " ".join(
+                str(result.get(key, "")) for key in ("output", "message")
+            ).casefold()
+            explicitly_absent = (
+                "is not in set" in message
+                or "does not exist" in message
+            )
+            results.append(False if result["returncode"] == 1 and explicitly_absent else None)
+    fully_known = bool(results) and all(item is not None for item in results)
+    return {
+        "known": fully_known,
+        "active": True if any(item is True for item in results) else (False if fully_known else None),
+        "complete": fully_known and all(item is True for item in results),
+    }
+
+
+def dns_capture_lease_active(app_dir, runtime=None):
+    return dns_capture_lease_state(app_dir, runtime)["active"] is True
+
+
+def dns_runtime_topology_matches(runtime, interfaces, addresses):
+    return (
+        bool(interfaces)
+        and set(runtime.get("lanInterfaces", [])) == set(interfaces)
+        and set(runtime.get("addresses", {}).get("ipv4", [])) == set(addresses.get("ipv4", []))
+        and set(runtime.get("addresses", {}).get("ipv6", [])) == set(addresses.get("ipv6", []))
+        and bool(runtime.get("ipv6")) == bool(addresses.get("ipv6"))
+    )
+
+
+def get_dns_protection_mode(
+    app_dir,
+    runtime=None,
+    lease_state=None,
+    firewall_state=None,
+    topology_matches=True,
+    managed_matches=None,
+):
+    runtime = runtime or load_dns_protection_runtime(app_dir)
+    config_text = read_config_text(get_config_path(app_dir))
+    managed = has_managed_dns_config(config_text)
+    if runtime.get("fallbackPending"):
+        lease_state = lease_state or dns_capture_lease_state(app_dir, runtime)
+        if not lease_state["known"] or lease_state["active"] is True:
+            return "fallback"
+    if runtime["requestedMode"] == "active":
+        if managed_matches is None:
+            managed_matches = (
+                bool(runtime.get("managedBlockRevision"))
+                and dns_managed_block_revision(config_text) == runtime["managedBlockRevision"]
+            )
+        lease_state = lease_state or dns_capture_lease_state(app_dir, runtime)
+        firewall_state = firewall_state or dns_firewall_installed(app_dir, runtime)
+        return "active" if lease_state["complete"] and firewall_state["ok"] and topology_matches and managed_matches else "fallback"
+    if runtime["requestedMode"] == "test" and managed:
+        return "test"
+    return "system"
+
+
+def get_dns_protection_status(app_dir):
+    runtime = load_dns_protection_runtime(app_dir)
+    capabilities = collect_dns_protection_capabilities(app_dir, runtime.get("proxyGroup", ""))
+    config_text = read_config_text(get_config_path(app_dir))
+    capture_state_relevant = runtime["requestedMode"] == "active" or runtime.get("fallbackPending")
+    lease_state = dns_capture_lease_state(app_dir, runtime) if capture_state_relevant else None
+    firewall_state = dns_firewall_installed(app_dir, runtime) if runtime["requestedMode"] == "active" else None
+    topology_matches = dns_runtime_topology_matches(
+        runtime,
+        capabilities["lanInterfaces"],
+        capabilities["addresses"],
+    ) if runtime["requestedMode"] == "active" else True
+    managed_matches = (
+        bool(runtime.get("managedBlockRevision"))
+        and dns_managed_block_revision(config_text) == runtime["managedBlockRevision"]
+    ) if runtime["requestedMode"] == "active" else True
+    mode = get_dns_protection_mode(
+        app_dir,
+        runtime,
+        lease_state,
+        firewall_state,
+        topology_matches,
+        managed_matches,
+    )
+    warnings = []
+    if mode == "fallback":
+        warnings.append({"code": "fail-open", "message": "Защищённый режим не подтверждён полностью; системный DNS сохранён как fallback."})
+    elif lease_state and not lease_state["complete"]:
+        warnings.append({"code": "partial-capture", "message": "DNS capture is active only for part of the detected router addresses."})
+    if firewall_state and not firewall_state["ok"]:
+        if firewall_state.get("state") == "unknown":
+            warnings.append({"code": "firewall-unknown", "message": "Managed firewall state could not be verified; system fallback is not claimed active."})
+        else:
+            warnings.append({"code": "firewall-missing", "message": "Managed DNS firewall rules are incomplete; protected mode is not active."})
+    if runtime["requestedMode"] == "active" and not topology_matches:
+        warnings.append({"code": "topology-changed", "message": "LAN DNS topology changed; the protected lease is no longer renewed until activation is repeated."})
+    if runtime.get("fallbackPending"):
+        warnings.append({"code": "fallback-pending", "message": "DNS capture removal is still draining or could not be confirmed; the managed listener is preserved."})
+    if runtime["requestedMode"] == "active" and not managed_matches:
+        warnings.append({"code": "managed-config-changed", "message": "Managed DNS block changed; its capture lease is no longer renewed."})
+    if not capabilities["systemFallback"]["ok"]:
+        warnings.append({"code": "system-fallback", "message": "System DNS fallback did not answer a fresh UDP query."})
+    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback works; TCP/53 is unavailable as a diagnostic."})
+    if capabilities["ipv6ClientDns"] and not next(
+        (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
+    ):
+        warnings.append({"code": "ipv6-unprotected", "message": "IPv6 DNS обнаружен, но защищённый IPv6-путь недоступен."})
+    with dns_protection_health_lock:
+        health = dict(dns_protection_health)
+    return {
+        "ok": True,
+        "mode": mode,
+        "profile": runtime["profile"],
+        "proxyGroup": capabilities["selectedProxyGroup"],
+        "proxyGroups": capabilities["proxyGroups"],
+        "revision": config_revision(config_text),
+        "runtime": runtime,
+        "health": health,
+        "capabilities": capabilities,
+        "fallback": {
+            "preserved": capabilities["systemFallback"]["ok"],
+            "active": (
+                mode in {"system", "fallback"}
+                and capabilities["systemFallback"]["ok"]
+                and (not lease_state or (lease_state["known"] and lease_state["active"] is False))
+            ),
+            "pending": runtime.get("fallbackPending") is True,
+            "ndnproxyPort": 53,
+            "providerDns": {**capabilities["routerDns"]["provider"], "changed": False},
+            "transitDns": {**capabilities["routerDns"]["transit"], "changed": False},
+            "leaseSeconds": DNS_PROTECTION_LEASE_SECONDS,
+        },
+        "warnings": warnings,
+        "exclusions": [
+            {"id": "application-doh", "message": "DoH/Private DNS приложений обходит порт 53 роутера."},
+            {"id": "tailscale-dns", "message": "DNS Tailscale может обходить DNS домашнего сегмента."},
+            {"id": "external-dns", "message": "Resilient-профиль не перехватывает прямой DNS к внешним адресам; это требует отдельного strict-режима."},
+        ],
+        "events": read_dns_protection_events(app_dir),
+    }
+
+
+def wait_for_mihomo_dns(ipv6_enabled, attempts=3):
+    latest = {"ok": False, "probes": []}
+    for attempt in range(max(1, attempts)):
+        latest = probe_mihomo_dns_listener(ipv6_enabled)
+        if latest["ok"]:
+            return latest
+        if attempt + 1 < attempts:
+            time.sleep(0.25)
+    return latest
+
+
+def rollback_dns_protection_config(app_dir, previous_text, applied_revision):
+    return save_checked_config(app_dir, previous_text, expected_revision=applied_revision)
+
+
+def cleanup_dns_capture_before_config_rollback(app_dir, runtime):
+    stopped_runtime = {
+        **runtime,
+        "requestedMode": "test",
+        "fallbackPending": True,
+        "updatedAt": int(time.time()),
+    }
+    save_dns_protection_runtime(app_dir, stopped_runtime)
+    firewall = remove_dns_firewall(app_dir, runtime)
+    lease_state = dns_capture_lease_state(app_dir, runtime)
+    safe = lease_state["known"] and lease_state["active"] is False
+    if safe:
+        save_dns_protection_runtime(app_dir, {**stopped_runtime, "fallbackPending": False})
+    return {
+        "ok": bool(safe),
+        "safeForRollback": bool(safe),
+        "firewall": firewall,
+        "lease": lease_state,
+        "runtime": {**stopped_runtime, "fallbackPending": not safe},
+    }
+
+
+def dns_runtime_has_capture_scope(runtime):
+    addresses = runtime.get("addresses", {})
+    return bool(addresses.get("ipv4") or addresses.get("ipv6"))
+
+
+def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
+    stopped_runtime = {
+        **runtime,
+        "requestedMode": "system",
+        "fallbackPending": dns_runtime_has_capture_scope(runtime),
+        "updatedAt": int(time.time()),
+    }
+    save_dns_protection_runtime(app_dir, stopped_runtime)
+    firewall = remove_dns_firewall(app_dir, runtime)
+    lease_state = dns_capture_lease_state(app_dir, runtime)
+    if dns_runtime_has_capture_scope(runtime) and (
+        not lease_state["known"] or lease_state["active"] is True
+    ):
+        return {
+            "ok": False,
+            "stage": "firewall",
+            "mode": "fallback",
+            "message": "Capture removal could not be confirmed; managed DNS listener was preserved until the lease expires",
+            "firewall": firewall,
+            "fallbackPending": True,
+            "runtime": stopped_runtime,
+        }
+    save_dns_protection_runtime(app_dir, {**stopped_runtime, "fallbackPending": False})
+    cleared_runtime = {**stopped_runtime, "fallbackPending": False}
+    current_revision = config_revision(current_text)
+    if request_data["expectedRevision"] != current_revision:
+        event = append_dns_protection_event(
+            app_dir,
+            "fallback",
+            "Перехват DNS отключён; управляемый блок не удалён из-за новой ревизии конфигурации",
+            profile="resilient",
+        )
+        return {
+            "ok": False,
+            "stage": "conflict",
+            "mode": "system",
+            "captureDisabled": True,
+            "currentRevision": current_revision,
+            "message": "capture was disabled, but config changed after DNS settings were loaded",
+            "firewall": firewall,
+            "runtime": cleared_runtime,
+            "event": event,
+        }
+    restored_text = remove_dns_protection_text(current_text)
+    if restored_text != current_text:
+        saved = save_checked_config(
+            app_dir,
+            restored_text,
+            expected_revision=config_revision(current_text),
+        )
+        if not saved.get("ok") or not saved.get("applied"):
+            return {**saved, "ok": False, "stage": saved.get("stage", "apply")}
+        revision = saved["revision"]
+    else:
+        revision = config_revision(current_text)
+    final_runtime = default_dns_protection_runtime()
+    final_runtime.update({"updatedAt": int(time.time())})
+    save_dns_protection_runtime(app_dir, final_runtime)
+    event = append_dns_protection_event(app_dir, "system", "Системный DNS восстановлен", profile="resilient")
+    return {"ok": True, "mode": "system", "revision": revision, "firewall": firewall, "event": event}
+
+
+def apply_dns_protection_action(app_dir, request_data):
+    app_dir = Path(app_dir)
+    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+        config_path = get_config_path(app_dir)
+        current_text = read_config_text(config_path)
+        current_revision = config_revision(current_text)
+        runtime = load_dns_protection_runtime(app_dir)
+        if request_data["action"] == "system":
+            return apply_dns_system_mode(app_dir, request_data, current_text, runtime)
+        if runtime.get("fallbackPending"):
+            pending_lease = dns_capture_lease_state(app_dir, runtime)
+            if not pending_lease["known"] or pending_lease["active"] is True:
+                return {
+                    "ok": False,
+                    "stage": "preflight",
+                    "mode": "fallback",
+                    "message": "previous DNS capture cleanup is still pending",
+                    "fallbackPending": True,
+                    "runtime": runtime,
+                    "lease": pending_lease,
+                }
+            runtime = {**runtime, "fallbackPending": False, "updatedAt": int(time.time())}
+            save_dns_protection_runtime(app_dir, runtime)
+        if request_data["expectedRevision"] != current_revision:
+            return {
+                "ok": False,
+                "stage": "conflict",
+                "message": "config changed after DNS settings were loaded",
+                "currentRevision": current_revision,
+            }
+
+        if request_data["profile"] == "strict":
+            confirmations = dns_protection_confirmation_plan("strict", request_data["confirmations"])
+            missing = [item["id"] for item in confirmations if not item["confirmed"]]
+            if missing:
+                return {
+                    "ok": False,
+                    "stage": "validation",
+                    "message": "strict mode requires every explicit confirmation",
+                    "missingConfirmations": missing,
+                }
+            return {
+                "ok": False,
+                "stage": "unsupported",
+                "message": "strict mode is not activated automatically yet; provider DNS and transit settings were not changed",
+            }
+
+        preview = preview_dns_protection(app_dir, request_data)
+        capabilities = preview["capabilities"]
+        readiness_key = "testReady" if request_data["action"] == "test" else "activationReady"
+        if not preview["ok"] or not capabilities[readiness_key]:
+            return {
+                "ok": False,
+                "stage": "preflight",
+                "message": "DNS preflight did not pass",
+                "preview": preview,
+            }
+
+        if runtime["requestedMode"] == "active":
+            stopped_runtime = {
+                **runtime,
+                "requestedMode": "system",
+                "fallbackPending": True,
+                "updatedAt": int(time.time()),
+            }
+            save_dns_protection_runtime(app_dir, stopped_runtime)
+            removed = remove_dns_firewall(app_dir, runtime)
+            lease_state = dns_capture_lease_state(app_dir, runtime)
+            if not lease_state["known"] or lease_state["active"] is True:
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback",
+                    "message": "active capture removal could not be confirmed",
+                    "firewall": removed,
+                    "fallbackPending": True,
+                    "runtime": stopped_runtime,
+                }
+            runtime = {**stopped_runtime, "fallbackPending": False}
+            save_dns_protection_runtime(app_dir, runtime)
+
+        proposed_text = prepare_dns_protection_text(
+            current_text,
+            preview["proxyGroup"],
+            capabilities["ipv6ClientDns"],
+            capabilities["localResolver"]["ok"],
+        )
+        saved = save_checked_config(app_dir, proposed_text, expected_revision=current_revision)
+        if not saved.get("ok") or not saved.get("applied"):
+            return {**saved, "ok": False, "stage": saved.get("stage", "apply")}
+
+        probe = wait_for_mihomo_dns(capabilities["ipv6ClientDns"])
+        if not probe["ok"]:
+            rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+            return {
+                "ok": False,
+                "stage": "probe",
+                "message": "Mihomo DNS listener did not pass the end-to-end UDP/TCP probe",
+                "probe": probe,
+                "rollback": rollback,
+                "revision": rollback.get("revision", saved["revision"]),
+            }
+
+        next_runtime = {
+            **default_dns_protection_runtime(),
+            "requestedMode": "test",
+            "profile": "resilient",
+            "proxyGroup": preview["proxyGroup"],
+            "managedRevision": saved["revision"],
+            "managedBlockRevision": dns_managed_block_revision(proposed_text),
+            "ipv6": capabilities["ipv6ClientDns"],
+            "lanInterfaces": capabilities["lanInterfaces"],
+            "addresses": capabilities["addresses"],
+            "updatedAt": int(time.time()),
+        }
+        if request_data["action"] == "activate":
+            firewall = ensure_dns_firewall(app_dir, capabilities)
+            if not firewall["ok"]:
+                cleanup = cleanup_dns_capture_before_config_rollback(app_dir, next_runtime)
+                if cleanup["safeForRollback"]:
+                    rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+                    revision = rollback.get("revision", saved["revision"])
+                else:
+                    rollback = {"ok": False, "applied": False, "message": "managed listener preserved until capture lease expiry"}
+                    revision = saved["revision"]
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback" if not cleanup["safeForRollback"] else "system",
+                    "message": firewall["message"],
+                    "cleanup": cleanup,
+                    "rollback": rollback,
+                    "revision": revision,
+                    "fallbackPending": not cleanup["safeForRollback"],
+                    "runtime": cleanup["runtime"],
+                }
+            lease = refresh_dns_firewall_lease(app_dir, capabilities)
+            if not lease["ok"]:
+                cleanup = cleanup_dns_capture_before_config_rollback(app_dir, next_runtime)
+                if cleanup["safeForRollback"]:
+                    rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+                    revision = rollback.get("revision", saved["revision"])
+                else:
+                    rollback = {"ok": False, "applied": False, "message": "managed listener preserved until capture lease expiry"}
+                    revision = saved["revision"]
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback" if not cleanup["safeForRollback"] else "system",
+                    "message": lease["message"],
+                    "cleanup": cleanup,
+                    "rollback": rollback,
+                    "revision": revision,
+                    "fallbackPending": not cleanup["safeForRollback"],
+                    "runtime": cleanup["runtime"],
+                }
+            next_runtime["requestedMode"] = "active"
+            with dns_protection_health_lock:
+                dns_protection_health.update({
+                    "firewallReady": True,
+                    "leaseHealthy": True,
+                    "lastProbeAt": int(time.time()),
+                    "consecutiveFailures": 0,
+                    "message": "DNS listener is healthy",
+                })
+        save_dns_protection_runtime(app_dir, next_runtime)
+        event = append_dns_protection_event(
+            app_dir,
+            next_runtime["requestedMode"],
+            "Защищённый DNS включён" if next_runtime["requestedMode"] == "active" else "Mihomo DNS проверен без перехвата клиентов",
+            profile="resilient",
+            proxyGroup=preview["proxyGroup"],
+            ipv6=capabilities["ipv6ClientDns"],
+        )
+        return {
+            "ok": True,
+            "mode": next_runtime["requestedMode"],
+            "profile": "resilient",
+            "proxyGroup": preview["proxyGroup"],
+            "revision": saved["revision"],
+            "probe": probe,
+            "fallback": preview["fallback"],
+            "event": event,
+        }
+
+
+def run_dns_protection_lease_cycle(app_dir):
+    runtime = load_dns_protection_runtime(app_dir)
+    if runtime.get("fallbackPending"):
+        lease_state = dns_capture_lease_state(app_dir, runtime)
+        if lease_state["known"] and lease_state["active"] is False:
+            save_dns_protection_runtime(
+                app_dir,
+                {**runtime, "fallbackPending": False, "updatedAt": int(time.time())},
+            )
+            append_dns_protection_event(
+                app_dir,
+                "fallback_ready",
+                "DNS capture lease expired; system fallback is fully available",
+            )
+        return
+    if runtime["requestedMode"] != "active":
+        return
+    config_text = read_config_text(get_config_path(app_dir))
+    managed_block_revision = dns_managed_block_revision(config_text)
+    if not runtime.get("managedBlockRevision") or managed_block_revision != runtime["managedBlockRevision"]:
+        with dns_protection_health_lock:
+            dns_protection_health.update({"leaseHealthy": False, "message": "Managed DNS config changed or is missing"})
+        return
+    lan = discover_dns_lan_addresses(app_dir)
+    if not lan["ok"] or not dns_runtime_topology_matches(
+        runtime,
+        lan["interfaces"],
+        {"ipv4": lan["ipv4"], "ipv6": lan["ipv6"]},
+    ):
+        with dns_protection_health_lock:
+            dns_protection_health.update({"leaseHealthy": False, "message": "LAN DNS topology changed or is unavailable"})
+        return
+
+    runtime_capabilities = {
+        "ipv6ClientDns": bool(runtime["ipv6"]),
+        "lanInterfaces": list(runtime["lanInterfaces"]),
+        "addresses": {
+            "ipv4": list(runtime["addresses"].get("ipv4", [])),
+            "ipv6": list(runtime["addresses"].get("ipv6", [])),
+        },
+    }
+    probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800)
+    if not probe["ok"]:
+        lease = {"ok": False, "message": "DNS probe failed"}
+    else:
+        firewall_state = dns_firewall_installed(app_dir, runtime)
+        with dns_protection_health_lock:
+            dns_protection_health.update({
+                "firewallReady": firewall_state["ok"],
+                "lastFirewallCheckAt": int(time.time()),
+            })
+        capabilities = runtime_capabilities
+        if not firewall_state["ok"]:
+            capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"])
+        with config_write_lock:
+            current_block_revision = dns_managed_block_revision(
+                read_config_text(get_config_path(app_dir))
+            )
+            if current_block_revision != runtime["managedBlockRevision"]:
+                lease = {"ok": False, "message": "Managed DNS config changed during health check"}
+            elif not firewall_state["ok"] and not capabilities["activationReady"]:
+                lease = {"ok": False, "message": "DNS preflight no longer passes"}
+            elif not firewall_state["ok"]:
+                firewall = ensure_dns_firewall(app_dir, capabilities)
+                lease = (
+                    refresh_dns_firewall_lease(app_dir, capabilities)
+                    if firewall["ok"]
+                    else {"ok": False, "message": firewall["message"]}
+                )
+            else:
+                lease = refresh_dns_firewall_lease(app_dir, capabilities)
+        if not lease["ok"]:
+            with dns_protection_health_lock:
+                dns_protection_health["firewallReady"] = False
+
+    now = int(time.time())
+    with dns_protection_health_lock:
+        previous_healthy = dns_protection_health["leaseHealthy"]
+        failures = 0 if lease["ok"] else int(dns_protection_health["consecutiveFailures"] or 0) + 1
+        dns_protection_health.update({
+            "leaseHealthy": lease["ok"],
+            "lastProbeAt": now,
+            "consecutiveFailures": failures,
+            "message": "DNS listener is healthy" if lease["ok"] else lease.get("message", "DNS lease refresh failed"),
+        })
+    if previous_healthy != lease["ok"]:
+        append_dns_protection_event(
+            app_dir,
+            "lease_recovered" if lease["ok"] else "lease_degraded",
+            "DNS lease восстановлен" if lease["ok"] else "DNS lease больше не обновляется; системный fallback включится автоматически",
+        )
+
+
+def dns_protection_worker(app_dir):
+    while True:
+        time.sleep(DNS_PROTECTION_REFRESH_SECONDS)
+        with dns_protection_lock:
+            try:
+                run_dns_protection_lease_cycle(Path(app_dir))
+            except Exception as error:
+                with dns_protection_health_lock:
+                    dns_protection_health.update({"leaseHealthy": False, "message": str(error)[:300]})
+
+
+def initialize_dns_protection(app_dir):
+    thread = threading.Thread(
+        target=dns_protection_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    thread.start()
+
+
 def default_dns_lab_settings():
     return {
         "enabled": False,
@@ -6364,9 +8076,10 @@ def dns_lab_decode_proc_address(value):
     return "ipv6" if len(address_hex) == 32 else "unknown"
 
 
-def get_dns_port_listeners():
+def get_port_listeners(port):
     listeners = []
     inodes = set()
+    target_port = f"{int(port):04X}"
     sources = (("udp", "/proc/net/udp"), ("udp6", "/proc/net/udp6"), ("tcp", "/proc/net/tcp"), ("tcp6", "/proc/net/tcp6"))
     for protocol, source in sources:
         try:
@@ -6377,8 +8090,8 @@ def get_dns_port_listeners():
             fields = line.split()
             if len(fields) < 10 or ":" not in fields[1]:
                 continue
-            port = fields[1].rsplit(":", 1)[1]
-            if port.upper() != "0035" or (protocol.startswith("tcp") and fields[3] != "0A"):
+            local_port = fields[1].rsplit(":", 1)[1]
+            if local_port.upper() != target_port or (protocol.startswith("tcp") and fields[3] != "0A"):
                 continue
             inode = fields[9]
             inodes.add(inode)
@@ -6406,6 +8119,10 @@ def get_dns_port_listeners():
         "available": any(Path(source).is_file() for _, source in sources),
         "listeners": listeners,
     }
+
+
+def get_dns_port_listeners():
+    return get_port_listeners(53)
 
 
 def get_dns_lab_system_health(app_dir):
@@ -7420,7 +9137,7 @@ def main():
     initialize_update_state(app_dir)
     initialize_resource_monitor(app_dir)
     initialize_whitelist_monitor(app_dir)
-    initialize_dns_lab(app_dir)
+    initialize_dns_protection(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,
