@@ -3616,6 +3616,16 @@ function renderResourceMonitor() {
     checkButton.disabled = state.resourceMonitor.checking;
     checkButton.addEventListener('click', () => checkResourceMonitor(key));
     actionCell.append(checkButton);
+    const switchButton = document.createElement('button');
+    switchButton.className = 'button ghost compact is-visible';
+    switchButton.type = 'button';
+    switchButton.textContent = 'Сменить ноду';
+    switchButton.title = `Исключить текущую ноду на ${Math.ceil(config.quarantineSeconds / 60)} мин и выбрать следующую по рейтингу`;
+    switchButton.setAttribute('aria-label', `Сменить ноду для ${definition.title}`);
+    switchButton.disabled = state.resourceMonitor.checking || !item.currentNode;
+    switchButton.addEventListener('click', () => checkResourceMonitor(key, true));
+    actionCell.className = 'resource-monitor-actions';
+    actionCell.append(switchButton);
     row.append(resourceCell, statusCell, nodeCell, checkedCell, delayCell, actionCell);
     els.resourceMonitorRows.append(row);
   });
@@ -4582,12 +4592,12 @@ async function applyPendingResourceMonitorSettings() {
   state.resourceMonitor.pendingSettings = null;
 }
 
-async function checkResourceMonitor(service) {
+async function checkResourceMonitor(service, forceSwitch = false) {
   if (state.resourceMonitor.checking) return;
   state.resourceMonitor.checking = true;
   renderResourceMonitor();
   try {
-    await apiJson('/api/resource-monitor/check', {
+    await apiJson(forceSwitch ? '/api/resource-monitor/switch' : '/api/resource-monitor/check', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4597,7 +4607,7 @@ async function checkResourceMonitor(service) {
     });
     await pollResourceMonitorCheck();
   } catch (error) {
-    showMessage(`Проверка не запущена: ${error?.message || error}`, { severity: 'error' });
+    showMessage(`${forceSwitch ? 'Смена ноды' : 'Проверка'} не запущена: ${error?.message || error}`, { severity: 'error' });
     state.resourceMonitor.checking = false;
     renderResourceMonitor();
   }

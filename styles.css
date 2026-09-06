@@ -4256,6 +4256,10 @@ body.component-manager-open {
   white-space: nowrap;
 }
 
+.resource-monitor-actions .button + .button {
+  margin-left: 6px;
+}
+
 .resource-monitor-table td:last-child .button {
   opacity: 0;
 }

@@ -549,6 +549,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/resource-monitor/settings":
             self.handle_resource_monitor_settings()
             return
+        if route == "/api/resource-monitor/switch":
+            self.handle_resource_monitor_check(force_switch=True)
+            return
         if route == "/api/resource-monitor/check":
             self.handle_resource_monitor_check()
             return
@@ -910,18 +913,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         save_resource_monitor_settings(self.app_dir, settings)
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
 
-    def handle_resource_monitor_check(self):
+    def handle_resource_monitor_check(self, force_switch=False):
         if self.headers.get("X-Mihui-Action") != "resource-monitor":
             self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         payload = self.read_json_body()
         service = str(payload.get("service") or "").strip().casefold()
-        if service and service not in RESOURCE_MONITOR_SERVICES:
+        if (service and service not in RESOURCE_MONITOR_SERVICES) or (force_switch and not service):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Неизвестный ресурс"})
             return
 
-        result = start_resource_monitor_check(self.app_dir, [service] if service else None)
+        if force_switch and not load_resource_monitor_settings(self.app_dir)["services"][service]["enabled"]:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Мониторинг ресурса не настроен"})
+            return
+        result = start_resource_monitor_check(self.app_dir, [service] if service else None, force_switch=force_switch)
         self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_whitelist_monitor_get(self):
@@ -4225,6 +4231,7 @@ def resource_monitor_candidates(group, proxies, current, quarantine, limit, allo
 
 
 def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
+    runtime = load_resource_monitor_runtime(app_dir)
     results = {}
     ok = True
     for service, service_settings in settings["services"].items():
@@ -4238,7 +4245,7 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
             group,
             proxies,
             "",
-            {},
+            runtime["services"][service]["quarantine"],
             len(options) if isinstance(options, list) else 0,
             tiers,
         )
@@ -4448,7 +4455,7 @@ def switch_resource_monitor_node(
     return True
 
 
-def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
+def run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=False):
     service_settings = settings["services"][service]
     group_name = service_settings["group"]
     group = proxies.get(group_name)
@@ -4492,18 +4499,28 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
 
     previous_state = item.get("state")
     previous_slow_checks = int(item.get("consecutiveSlowChecks") or 0)
+    if force_switch:
+        quarantine[current] = now + settings["quarantineSeconds"]
+        item.update({"state": "error", "delay": None, "consecutiveSlowChecks": 0})
+        append_resource_monitor_event(
+            app_dir, service, "excluded", "Нода исключена пользователем",
+            node=current, quarantineUntil=quarantine[current],
+        )
     result = (
         probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
-        if allowed is None or current in allowed
+        if not force_switch and (allowed is None or current in allowed)
         else {
             "ok": False,
             "delay": None,
-            "message": "Текущая нода не входит в выбранные группы-источники",
+            "message": (
+                "Смена ноды по запросу пользователя" if force_switch
+                else "Текущая нода не входит в выбранные группы-источники"
+            ),
         }
     )
     failover_timeout_ms = min(settings["timeoutMs"], RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS)
     failures = int(item.get("consecutiveFailures") or 0)
-    while not result["ok"]:
+    while not result["ok"] and not force_switch:
         item["consecutiveSlowChecks"] = 0
         failures = min(settings["failureThreshold"], failures + 1)
         item.update(
@@ -4723,7 +4740,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             else f"Высокая задержка: {current_delay} мс"
         )
 
-    if not result["ok"]:
+    if not result["ok"] and not force_switch:
         try:
             refresh_resource_monitor_provider_delays(
                 app_dir,
@@ -4835,7 +4852,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         item["consecutiveSlowChecks"] = 0
 
 
-def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
+def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switch=False):
     with resource_monitor_lock:
         settings = load_resource_monitor_settings(app_dir)
         selected_services = services or [
@@ -4847,7 +4864,7 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
                 proxies = load_resource_monitor_proxies(app_dir)
             for service in selected_services:
                 if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
-                    run_resource_monitor_service(app_dir, settings, runtime, service, proxies)
+                    run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=force_switch)
         except Exception as error:
             for service in selected_services:
                 if service in RESOURCE_MONITOR_SERVICES:
@@ -4863,12 +4880,12 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
         return runtime
 
 
-def run_resource_monitor_job(app_dir, services=None, startup=False):
+def run_resource_monitor_job(app_dir, services=None, startup=False, force_switch=False):
     try:
         if startup:
             run_resource_monitor_startup_cycle(app_dir)
         else:
-            run_resource_monitor_cycle(app_dir, services)
+            run_resource_monitor_cycle(app_dir, services, force_switch=force_switch)
     finally:
         with resource_monitor_state_lock:
             resource_monitor_job_state.update(
@@ -4880,7 +4897,7 @@ def run_resource_monitor_job(app_dir, services=None, startup=False):
             )
 
 
-def start_resource_monitor_check(app_dir, services=None, startup=False):
+def start_resource_monitor_check(app_dir, services=None, startup=False, force_switch=False):
     with resource_monitor_state_lock:
         if resource_monitor_job_state["running"]:
             return {"ok": False, "message": "Проверка ресурсов уже выполняется", "job": dict(resource_monitor_job_state)}
@@ -4894,7 +4911,7 @@ def start_resource_monitor_check(app_dir, services=None, startup=False):
         )
     thread = threading.Thread(
         target=run_resource_monitor_job,
-        args=(Path(app_dir), services, startup),
+        args=(Path(app_dir), services, startup, force_switch),
         daemon=True,
     )
     thread.start()
