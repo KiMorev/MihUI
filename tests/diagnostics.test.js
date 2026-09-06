@@ -104,6 +104,7 @@ function loadApp(source, initialStorage = {}, options = {}) {
   vm.runInContext(
     `${readSource(source)}
 globalThis.__app = {
+  document,
   els,
   state,
   addConnectionSetting,
@@ -139,6 +140,8 @@ globalThis.__app = {
   getReviewPrimaryActionState,
   getHighRiskSaveSummaries,
   getKernelCheckSummary,
+  getProtectedDnsErrorMessage,
+  getProtectedDnsRoutePresentation,
   confirmHighRiskSave,
   hasUnsavedWorkspaceChanges,
   handleBeforeUnload,
@@ -192,6 +195,8 @@ globalThis.__app = {
   renderConfigurationEditorControls,
   renderOutputOnly,
   renderConnectionSettings,
+  renderProtectedDnsExclusions,
+  renderProtectedDnsLanSelector,
   renameGroup,
   addRule,
   moveRule,
@@ -255,6 +260,107 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: DNS route reflects the current mode rather than the proposed protected path`, () => {
+    const app = loadApp(source);
+
+    for (const mode of ['system', 'test', 'fallback']) {
+      const route = app.getProtectedDnsRoutePresentation(mode);
+      assert.match(route.resolver, /ndnproxy.*:53/);
+      assert.equal(route.destination, 'Системные DNS');
+    }
+    const testRoute = app.getProtectedDnsRoutePresentation('test');
+    assert.match(testRoute.note, /Mihomo.*:1053/);
+    assert.match(testRoute.note, /без переключения клиентов/);
+    const activeRoute = app.getProtectedDnsRoutePresentation('active');
+    assert.match(activeRoute.resolver, /Mihomo.*:1053/);
+    assert.match(activeRoute.note, /ndnproxy.*:53/);
+    assert.match(app.getProtectedDnsRoutePresentation('system', { ndnproxyPort: 5353 }).resolver, /:5353/);
+    const unknownRoute = app.getProtectedDnsRoutePresentation('unknown');
+    assert.doesNotMatch(unknownRoute.resolver, /ndnproxy|Mihomo/);
+    assert.notEqual(unknownRoute.destination, 'Системные DNS');
+  });
+
+  test(`${source.name}: rebuilding LAN controls preserves the focused interface without stealing outside focus`, () => {
+    const app = loadApp(source);
+    const list = app.els.dnsLanInterfaces;
+    const focusCalls = [];
+    const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+    list.contains = (node) => descendants(list).includes(node);
+    list.querySelectorAll = () => descendants(list).filter((node) => node.type === 'checkbox');
+    Object.defineProperty(list, 'textContent', {
+      set() {
+        if (list.contains(app.document.activeElement)) app.document.activeElement = null;
+        this.children = [];
+      },
+    });
+    app.document.createElement = () => {
+      const element = createElement();
+      element.matches = (selector) => selector === '[data-dns-lan-interface]'
+        && Object.hasOwn(element.dataset, 'dnsLanInterface');
+      element.focus = () => {
+        app.document.activeElement = element;
+        focusCalls.push(element.value);
+      };
+      return element;
+    };
+    const capabilities = {
+      lanCandidates: [
+        { interface: 'br0', ipv4: ['192.0.2.1'] },
+        { interface: 'br1', ipv4: ['192.0.2.129'] },
+      ],
+    };
+    app.state.protectedDns.lanInterfaces = ['br0'];
+    app.renderProtectedDnsLanSelector(capabilities);
+    const oldControl = list.querySelectorAll()[0];
+    app.document.activeElement = oldControl;
+
+    app.renderProtectedDnsLanSelector({ lanCandidates: [...capabilities.lanCandidates].reverse() });
+
+    assert.notEqual(app.document.activeElement, oldControl);
+    assert.equal(app.document.activeElement.value, 'br0');
+    assert.equal(app.document.activeElement.checked, true);
+    assert.deepEqual(focusCalls, ['br0']);
+    const outsideControl = createElement();
+    app.document.activeElement = outsideControl;
+    app.renderProtectedDnsLanSelector(capabilities);
+    assert.equal(app.document.activeElement, outsideControl);
+    assert.deepEqual(focusCalls, ['br0']);
+  });
+
+  test(`${source.name}: known DNS exclusions are localized and unknown details remain literal text`, () => {
+    const app = loadApp(source);
+    const unknownMessage = '<img src=x onerror=alert(1)>';
+
+    app.renderProtectedDnsExclusions([
+      { id: 'application-doh', message: 'Application DoH bypasses DNS interception.' },
+      { id: 'tailscale-dns', message: 'Tailscale uses its own DNS configuration.' },
+      { id: 'external-dns', message: 'External device DNS can bypass protection.' },
+      { id: 'future-exclusion', title: 'Custom exception', message: unknownMessage },
+    ]);
+
+    const items = app.els.dnsExclusions.children;
+    for (const item of items.slice(-4, -1)) {
+      assert.match(item.children[1].textContent, /[а-яё]/i);
+      assert.doesNotMatch(item.children[1].textContent, /bypasses|configuration|device/);
+    }
+    const unknown = items.at(-1);
+    assert.equal(unknown.children[0].textContent, 'Custom exception');
+    assert.equal(unknown.children[1].textContent, unknownMessage);
+    assert.equal(unknown.children[1].children.length, 0);
+  });
+
+  test(`${source.name}: DNS validation failures point to the named configuration section`, () => {
+    const app = loadApp(source);
+    const previewError = { data: { configCheck: { ok: false } } };
+    const actionError = { data: { preview: { configCheck: { ok: false } } } };
+
+    for (const [error, action] of [[previewError, 'preview'], [actionError, 'test']]) {
+      const message = app.getProtectedDnsErrorMessage(error, action);
+      assert.match(message, /«Проверка конфигурации Mihomo»/);
+      assert.doesNotMatch(message, /ниже/);
+    }
+  });
+
   test(`${source.name}: shows the current MihUI update step and download percentage`, () => {
     const app = loadApp(source);
 

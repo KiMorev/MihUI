@@ -863,17 +863,17 @@
             <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
           </div>
 
-          <div class="dns-protection-route" aria-label="Маршрут DNS">
+          <div class="dns-protection-route" aria-label="Текущий маршрут DNS клиентов">
             <div class="dns-protection-route-main">
               <span>Устройства</span>
               <b aria-hidden="true">→</b>
-              <span id="dnsProtectedPath">Mihomo :1053 (не активен)</span>
+              <span id="dnsProtectedPath">Маршрут не подтверждён</span>
               <b aria-hidden="true">→</b>
-              <span>DNS по правилам</span>
+              <span id="dnsRouteDestination">Ожидается проверка</span>
             </div>
             <div class="dns-protection-route-fallback">
-              <strong>При отказе</strong>
-              <span id="dnsFallbackPath">ndnproxy :53 → DNS провайдера</span>
+              <strong id="dnsRouteNoteLabel">Состояние</strong>
+              <span id="dnsFallbackPath">Нет подтверждённых данных роутера</span>
             </div>
           </div>
 
@@ -925,6 +925,15 @@
             </div>
           </div>
 
+          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
+            <div>
+              <strong id="dnsLanTitle">LAN-интерфейсы для DNS клиентов</strong>
+              <span>Выберите только те интерфейсы, через которые домашние устройства обращаются к DNS роутера.</span>
+            </div>
+            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
+            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
+          </section>
+
           <fieldset id="dnsStrictOptions" class="dns-protection-strict-options" disabled hidden>
             <legend>Подтвердите каждое изменение строгого режима</legend>
             <label><input id="dnsStrictIgnoreProvider" type="checkbox" /> <span>Игнорировать DNS провайдера только после проверки альтернативного системного резолвера.</span></label>
@@ -943,6 +952,13 @@
             <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
           </header>
           <div id="dnsCapabilities" class="dns-protection-capability-list empty-state">Проверка ещё не выполнялась.</div>
+          <details id="dnsConfigCheck" class="dns-protection-config-check" hidden>
+            <summary>
+              <span>Проверка конфигурации Mihomo</span>
+              <strong id="dnsConfigCheckSummary">Не выполнялась</strong>
+            </summary>
+            <pre id="dnsConfigCheckOutput"></pre>
+          </details>
           <div id="dnsPlan" class="dns-protection-plan" hidden></div>
           <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
         </section>
@@ -956,7 +972,7 @@
           </header>
           <dl class="dns-protection-router-grid">
             <div><dt>Системный резолвер</dt><dd id="dnsSystemResolver">—</dd></div>
-            <div><dt>Локальные/private-зоны</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
+            <div><dt>Локальные имена</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
             <div><dt>DNS провайдера</dt><dd id="dnsProviderServers">—</dd></div>
             <div><dt>Игнорировать DNSv4 провайдера</dt><dd id="dnsIgnoreProviderV4">—</dd></div>
             <div><dt>Игнорировать DNSv6 провайдера</dt><dd id="dnsIgnoreProviderV6">—</dd></div>

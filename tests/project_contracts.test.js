@@ -580,18 +580,39 @@ test('primary UI files expose protected DNS with explicit fail-open and strict s
   assert.match(html, /id="dnsStrictInterceptTransit"/);
   assert.match(html, /id="dnsStrictWanConfirm"/);
   assert.match(html, /id="dnsProxyGroup"/);
+  assert.match(html, /id="dnsLanInterfaces"/);
+  assert.match(html, /id="dnsLanSelectionMessage"/);
   assert.match(html, /id="dnsProviderServers"/);
   assert.match(html, /id="dnsIgnoreProviderV4"/);
   assert.match(html, /id="dnsIgnoreProviderV6"/);
   assert.match(html, /id="dnsTransitState"/);
   assert.match(html, /id="dnsFallbackState"/);
   assert.match(html, /id="dnsCapabilities"/);
+  assert.match(html, /id="dnsConfigCheck"/);
+  assert.match(html, /id="dnsConfigCheckOutput"/);
   assert.match(html, /id="dnsExclusions"/);
   assert.match(html, /DoH в браузерах, Private DNS\/DoT на устройствах и DNS Tailscale/);
   assert.doesNotMatch(html, /DNS-площадка|Периодическое наблюдение|dnsLabEnabled/);
 
   const script = read('app.js');
   assert.match(script, /renderProtectedDnsPlan\(preview\?\.plan\)/);
+  assert.match(script, /lanInterfaces: normalizeProtectedDnsLanInterfaces\(state\.protectedDns\.lanInterfaces\)/);
+  assert.match(script, /const candidates = Array\.isArray\(capabilities\.lanCandidates\)/);
+  assert.match(script, /state\.protectedDns\.preview = null/);
+  assert.match(script, /loadProtectedDns\(\{ resetPreview: true \}\)/);
+  assert.match(script, /const data = await apiJson\('\/api\/dns'\);[\s\S]+?state\.protectedDns\.preview = null;[\s\S]+?mergeProtectedDnsResponse\(data, \{ syncProfile: true \}\)/);
+  assert.match(script, /selection\.missing\.forEach/);
+  assert.match(script, /lanSelection\.state !== 'ready'/);
+  assert.match(script, /data\.preview && typeof data\.preview === 'object'/);
+  assert.match(script, /preview_failed: 'Проверка не пройдена'/);
+  assert.match(script, /preflight_failed: 'Предусловия не пройдены'/);
+  assert.match(script, /!\/_failed\$\/\.test\(String\(event\.type \|\| ''\)\)/);
+  assert.match(script, /systemFallback\.state/);
+  assert.match(script, /const fallbackPresentation = lanDraftChanged[\s\S]+?Fallback требует проверки/);
+  assert.match(script, /renderProtectedDnsConfigCheck\(preview\?\.configCheck\)/);
+  assert.match(script, /dnsConfigCheckOutput\.textContent/);
+  assert.match(script, /preview\?\.plan\?\.localNames/);
+  assert.doesNotMatch(script, /только private-зоны/);
   assert.match(script, /const routerDns = capabilities\.routerDns \|\| \{\}/);
   assert.match(script, /mode === 'system' && fallback\.pending !== true/);
   assert.match(script, /'external-dns': 'Внешний DNS на устройствах'/);
@@ -614,6 +635,9 @@ test('primary UI files expose protected DNS with explicit fail-open and strict s
   assert.match(styles, /\.dns-protection-capability\.is-error/);
   assert.match(styles, /\.dns-protection-context\.is-ready/);
   assert.match(styles, /\.dns-protection-event pre/);
+  assert.match(styles, /\.dns-protection-lan-list/);
+  assert.match(styles, /max-height: 210px/);
+  assert.match(styles, /\.dns-protection-config-check pre/);
 });
 
 test('uninstaller refuses to leave a managed DNS block behind', () => {

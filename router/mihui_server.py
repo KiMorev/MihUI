@@ -330,6 +330,7 @@ DNS_PROTECTION_UPSTREAMS = (
 )
 DNS_PROTECTION_BOOTSTRAP = ("1.1.1.1", "8.8.8.8")
 DNS_PROTECTION_PROXY_RESOLVER = "udp://127.0.0.1:53"
+DNS_PROTECTION_LOCAL_NAMES = ("*", "+.lan", "+.localdomain", "+.home.arpa")
 
 
 update_lock = threading.Lock()
@@ -6278,6 +6279,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action",
         "profile",
         "proxyGroup",
+        "lanInterfaces",
         "confirmations",
         "expectedRevision",
         "revision",
@@ -6298,6 +6300,15 @@ def validate_dns_protection_request(payload, require_action=False):
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
         raise ValueError("invalid proxyGroup")
+
+    lan_interfaces = payload.get("lanInterfaces")
+    if "lanInterfaces" in payload and (
+        not isinstance(lan_interfaces, list)
+        or len(lan_interfaces) > 16
+        or any(not isinstance(item, str) or not valid_dns_interface_name(item) for item in lan_interfaces)
+        or len(set(lan_interfaces)) != len(lan_interfaces)
+    ):
+        raise ValueError("lanInterfaces must contain up to 16 unique LAN interface names")
 
     expected_revision = payload.get("expectedRevision")
     revision_alias = payload.get("revision")
@@ -6325,6 +6336,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action": action,
         "profile": profile,
         "proxyGroup": proxy_group,
+        "lanInterfaces": lan_interfaces,
         "expectedRevision": expected_revision,
         "confirmations": normalized_confirmations,
     }
@@ -6392,13 +6404,12 @@ def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False):
         *[f"    - {yaml_single_quote(url)}" for url in upstreams],
     ]
     if local_resolver:
-        lines.extend(
-            [
-                "  nameserver-policy:",
-                "    'geosite:private':",
+        lines.append("  nameserver-policy:")
+        for domain in DNS_PROTECTION_LOCAL_NAMES:
+            lines.extend([
+                f"    {yaml_single_quote(domain)}:",
                 f"      - 'udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}'",
-            ]
-        )
+            ])
     lines.append(DNS_PROTECTION_MARKER_END)
     return "\n".join(lines) + "\n"
 
@@ -6478,7 +6489,7 @@ def valid_dns_interface_name(value):
     return bool(re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", str(value or "")))
 
 
-def discover_dns_lan_addresses(app_dir, ip_binary=None):
+def discover_dns_lan_addresses(app_dir, ip_binary=None, lan_interfaces=None):
     ip_binary = ip_binary or find_dns_tool(app_dir, "ip")
     result = run_dns_tool(ip_binary, ["-o", "addr", "show"])
     if not result["ok"]:
@@ -6486,6 +6497,8 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None):
             "ok": False,
             "interfaces": [],
             "candidateInterfaces": [],
+            "candidates": [],
+            "selection": {"state": "unavailable", "message": "LAN addresses could not be read."},
             "bindings": [],
             "ipv4": [],
             "ipv6": [],
@@ -6493,9 +6506,11 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None):
         }
 
     configured = get_env(app_dir).get("MIHUI_DNS_LAN_INTERFACES", "")
-    configured_interfaces = {
-        value.strip() for value in configured.split(",") if valid_dns_interface_name(value.strip())
-    }
+    configured_interfaces = [value.strip() for value in configured.split(",")] if configured.strip() else []
+    explicit_empty_selection = lan_interfaces == []
+    if lan_interfaces is None:
+        lan_interfaces = load_dns_protection_runtime(app_dir).get("lanInterfaces", [])
+    selected_interfaces = lan_interfaces or configured_interfaces
     records = []
     for raw_line in result.get("output", "").splitlines():
         match = re.match(r"^\d+:\s+([^\s]+)\s+(inet6?)\s+([^/\s]+)/", raw_line)
@@ -6505,9 +6520,7 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None):
         if not valid_dns_interface_name(interface):
             continue
         is_bridge = (Path("/sys/class/net") / interface / "bridge").is_dir()
-        if configured_interfaces and interface not in configured_interfaces:
-            continue
-        if not configured_interfaces and not is_bridge and not interface.startswith("br"):
+        if not is_bridge and not interface.startswith("br") and interface not in configured_interfaces:
             continue
         try:
             address = ipaddress.ip_address(match.group(3))
@@ -6518,14 +6531,40 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None):
         records.append((interface, match.group(2), str(address)))
 
     detected_interfaces = list(dict.fromkeys(item[0] for item in records))
-    ambiguous = not configured_interfaces and len(detected_interfaces) > 1
-    if ambiguous:
+    candidates = [
+        {
+            "interface": interface,
+            "ipv4": list(dict.fromkeys(item[2] for item in records if item[0] == interface and item[1] == "inet")),
+            "ipv6": list(dict.fromkeys(item[2] for item in records if item[0] == interface and item[1] == "inet6")),
+        }
+        for interface in detected_interfaces
+    ]
+    if explicit_empty_selection:
+        selection = {"state": "required", "message": "No LAN segments are selected; select at least one LAN segment."}
         records = []
+    elif selected_interfaces and (
+        any(not valid_dns_interface_name(item) for item in selected_interfaces)
+        or not set(selected_interfaces).issubset(detected_interfaces)
+    ):
+        selection = {"state": "invalid", "message": "Selected LAN interfaces are unavailable or are not LAN candidates; select the complete LAN scope again."}
+        records = []
+    elif selected_interfaces:
+        selection = {"state": "ready", "message": "Selected LAN interfaces were detected."}
+        records = [item for item in records if item[0] in selected_interfaces]
+    elif len(detected_interfaces) > 1:
+        selection = {"state": "required", "message": "Multiple LAN bridges detected; select LAN segments or set MIHUI_DNS_LAN_INTERFACES explicitly."}
+        records = []
+    elif records:
+        selection = {"state": "ready", "message": "The only LAN bridge was selected automatically."}
+    else:
+        selection = {"state": "unavailable", "message": "LAN bridge addresses were not detected."}
 
     return {
         "ok": bool(records),
         "interfaces": list(dict.fromkeys(item[0] for item in records)),
         "candidateInterfaces": detected_interfaces,
+        "candidates": candidates,
+        "selection": selection,
         "bindings": [
             {
                 "interface": item[0],
@@ -6536,15 +6575,7 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None):
         ],
         "ipv4": list(dict.fromkeys(item[2] for item in records if item[1] == "inet")),
         "ipv6": list(dict.fromkeys(item[2] for item in records if item[1] == "inet6")),
-        "message": (
-            ""
-            if records
-            else (
-                "multiple LAN bridges detected; set MIHUI_DNS_LAN_INTERFACES explicitly"
-                if ambiguous
-                else "LAN bridge addresses were not detected"
-            )
-        ),
+        "message": selection["message"],
     }
 
 
@@ -6673,12 +6704,21 @@ def probe_system_dns_fallback(bindings, timeout_ms=1200):
             probes.append(probe)
     udp_probes = [item for item in probes if item["transport"] == "udp"]
     tcp_probes = [item for item in probes if item["transport"] == "tcp"]
+    udp_ready = bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes)
+    state = "ready" if udp_ready else ("failed" if normalized_bindings else "not-tested")
+    messages = {
+        "ready": "System DNS answers fresh UDP queries on every selected LAN address.",
+        "failed": "System DNS did not answer a fresh UDP query on every selected LAN address.",
+        "not-tested": "System DNS was not tested: no LAN addresses are selected.",
+    }
     return {
-        "ok": bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes),
+        "ok": udp_ready,
+        "state": state,
+        "message": messages[state],
         "queryName": query_name,
         "bindings": normalized_bindings,
         "probes": probes,
-        "udpReady": bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes),
+        "udpReady": udp_ready,
         "tcpDiagnosticOk": bool(tcp_probes) and all(item["ok"] for item in tcp_probes),
     }
 
@@ -6760,7 +6800,7 @@ def parse_router_dns_settings(running_config, available=True):
     }
 
 
-def collect_dns_protection_capabilities(app_dir, proxy_group=""):
+def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=None):
     app_dir = Path(app_dir)
     config_text = read_config_text(get_config_path(app_dir))
     runtime = load_dns_protection_runtime(app_dir)
@@ -6778,7 +6818,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group=""):
         for name in ("ndmc", "ip", "iptables", "ip6tables", "ipset")
     }
     root = bool(hasattr(os, "geteuid") and os.geteuid() == 0)
-    lan = discover_dns_lan_addresses(app_dir, tools["ip"])
+    lan = discover_dns_lan_addresses(app_dir, tools["ip"], lan_interfaces=lan_interfaces)
     ipv6_client_dns = bool(lan.get("ipv6"))
     groups = get_dns_proxy_groups(app_dir)
     selected_group = proxy_group or runtime.get("proxyGroup") or "PROXY"
@@ -6849,8 +6889,9 @@ def collect_dns_protection_capabilities(app_dir, proxy_group=""):
     add_check("ndmc", ndmc["ok"], "ndmc read-only query succeeded")
     add_check("dns-override", not dns_override, "XKeen dns-override is disabled")
     add_check("ndnproxy", ndnproxy_ready, "ndnproxy owns system DNS port 53")
-    add_check("system-fallback", system_fallback["ok"], "System DNS answers fresh UDP queries")
-    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "LAN bridge IPv4 address detected")
+    add_check("system-fallback", system_fallback["ok"], system_fallback["message"])
+    add_check("lan-selection", lan["selection"]["state"] == "ready", lan["selection"]["message"])
+    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "LAN bridge IPv4 address detected" if lan.get("ipv4") else lan["message"])
     add_check("port-1053", port1053_ready, "Port 1053 is free or owned by managed Mihomo DNS")
     add_check("iptables", iptables_version["ok"] and iptables_nat["ok"] and iptables_set_ready and iptables_comment_ready, "IPv4 NAT, ipset and comment matches are available")
     add_check("ipset-timeout", ipset_timeout, "Kernel ipset timeout is available")
@@ -6860,7 +6901,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group=""):
     add_check("local-resolver", local_resolver["ok"], "Local UDP resolver 127.0.0.1:41100 is available", required=False)
 
     activation_ready = all(item["ok"] for item in checks if item["required"])
-    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "config-ownership", "port-1053"}
+    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "config-ownership", "port-1053", "lan-selection"}
     test_ready = all(item["ok"] for item in checks if item["id"] in test_ids)
     return {
         "ready": activation_ready,
@@ -6871,6 +6912,8 @@ def collect_dns_protection_capabilities(app_dir, proxy_group=""):
         "tools": {key: bool(value) for key, value in tools.items()},
         "lanInterfaces": lan.get("interfaces", []),
         "candidateLanInterfaces": lan.get("candidateInterfaces", []),
+        "lanCandidates": lan["candidates"],
+        "lanSelection": lan["selection"],
         "addresses": {"ipv4": lan.get("ipv4", []), "ipv6": lan.get("ipv6", [])},
         "ipv6ClientDns": ipv6_client_dns,
         "proxyGroups": groups.get("groups", []),
@@ -6900,9 +6943,26 @@ def dns_protection_confirmation_plan(profile, confirmations=None):
     ]
 
 
-def preview_dns_protection(app_dir, request_data):
+def dns_config_check_log_summary(config_check):
+    summary = {
+        "ok": bool(config_check.get("ok")),
+        "available": bool(config_check.get("available")),
+    }
+    if isinstance(config_check.get("returncode"), int):
+        summary["returncode"] = config_check["returncode"]
+    if not summary["ok"]:
+        # Validator output can contain config values or subscription URLs. Only
+        # persist a recognized geodata error; detailed output stays in the response.
+        missing = re.search(r"list ([A-Za-z0-9_.-]{1,80}) not found in (GeoSite|GeoIP)\.dat", str(config_check.get("message", "")))
+        summary["message"] = missing.group(0) if missing else "Mihomo DNS configuration check failed; inspect the preview response for details."
+    return summary
+
+
+def preview_dns_protection(app_dir, request_data, record_event=True):
     app_dir = Path(app_dir)
-    capabilities = collect_dns_protection_capabilities(app_dir, request_data["proxyGroup"])
+    capabilities = collect_dns_protection_capabilities(
+        app_dir, request_data["proxyGroup"], lan_interfaces=request_data.get("lanInterfaces")
+    )
     proxy_group = capabilities["selectedProxyGroup"]
     config_text = read_config_text(get_config_path(app_dir))
     revision = config_revision(config_text)
@@ -6922,6 +6982,7 @@ def preview_dns_protection(app_dir, request_data):
         if not config_check.get("available"):
             config_check = {**config_check, "ok": False, "message": "Mihomo config check is unavailable"}
     except ValueError as error:
+        config_check = {**config_check, "ok": False, "message": str(error)}
         warnings.append({"code": "config-conflict", "message": str(error)})
 
     confirmations = dns_protection_confirmation_plan(
@@ -6941,13 +7002,17 @@ def preview_dns_protection(app_dir, request_data):
     elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
         warnings.append({"code": "local-resolver-tcp", "message": "Local UDP resolver is usable; TCP/41100 did not answer and is shown only as a diagnostic."})
     if not capabilities["systemFallback"]["ok"]:
-        warnings.append({"code": "system-fallback", "message": "System DNS did not answer a fresh UDP query; activation is blocked."})
+        warnings.append({
+            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
+            "message": capabilities["systemFallback"]["message"],
+        })
     elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
         warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback is usable; TCP/53 did not answer and is shown only as a diagnostic."})
 
     config_ready = bool(proposed_text is not None and config_check.get("ok"))
-    return {
+    result = {
         "ok": config_ready,
+        "message": "DNS configuration is valid." if config_ready else str(config_check.get("message") or "DNS configuration check failed")[-2000:],
         "stage": "preview",
         "mode": get_dns_protection_mode(app_dir),
         "profile": request_data["profile"],
@@ -6972,6 +7037,7 @@ def preview_dns_protection(app_dir, request_data):
             "upstreamRoute": proxy_group,
             "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
             "localPrivateResolver": capabilities["localResolver"]["ok"],
+            "localNames": list(DNS_PROTECTION_LOCAL_NAMES) if capabilities["localResolver"]["ok"] else [],
             "providerDnsChange": request_data["profile"] == "strict",
             "transitDnsChange": request_data["profile"] == "strict",
         },
@@ -6983,6 +7049,18 @@ def preview_dns_protection(app_dir, request_data):
             {"id": "external-dns", "message": "Resilient mode does not intercept direct DNS to external addresses; that belongs to strict mode."},
         ],
     }
+    if record_event:
+        failed_checks = [item["id"] for item in capabilities["checks"] if item["required"] and not item["ok"]][:32]
+        passed = config_ready and not failed_checks
+        result["event"] = append_dns_protection_event(
+            app_dir,
+            "preview" if passed else "preview_failed",
+            "Предварительная проверка DNS выполнена" if passed else "Предварительная проверка DNS выявила блокеры",
+            profile=request_data["profile"],
+            diagnostics={"failedChecks": failed_checks, "configCheck": dns_config_check_log_summary(config_check)},
+        )
+        result["events"] = read_dns_protection_events(app_dir)
+    return result
 
 
 def dns_firewall_family_spec(capabilities, ipv6=False):
@@ -7373,7 +7451,10 @@ def get_dns_protection_status(app_dir):
     if runtime["requestedMode"] == "active" and not managed_matches:
         warnings.append({"code": "managed-config-changed", "message": "Managed DNS block changed; its capture lease is no longer renewed."})
     if not capabilities["systemFallback"]["ok"]:
-        warnings.append({"code": "system-fallback", "message": "System DNS fallback did not answer a fresh UDP query."})
+        warnings.append({
+            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
+            "message": capabilities["systemFallback"]["message"],
+        })
     elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
         warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback works; TCP/53 is unavailable as a diagnostic."})
     if capabilities["ipv6ClientDns"] and not next(
@@ -7566,15 +7647,24 @@ def apply_dns_protection_action(app_dir, request_data):
                 "message": "strict mode is not activated automatically yet; provider DNS and transit settings were not changed",
             }
 
-        preview = preview_dns_protection(app_dir, request_data)
+        preview = preview_dns_protection(app_dir, request_data, record_event=False)
         capabilities = preview["capabilities"]
         readiness_key = "testReady" if request_data["action"] == "test" else "activationReady"
         if not preview["ok"] or not capabilities[readiness_key]:
+            event = append_dns_protection_event(
+                app_dir, "preflight_failed", "Запуск DNS остановлен предварительной проверкой",
+                diagnostics={
+                    "failedChecks": [item["id"] for item in capabilities["checks"] if item["required"] and not item["ok"]][:32],
+                    "configCheck": dns_config_check_log_summary(preview["configCheck"]),
+                },
+            )
             return {
                 "ok": False,
                 "stage": "preflight",
-                "message": "DNS preflight did not pass",
+                "message": preview["message"] if not preview["ok"] else "DNS preflight did not pass",
                 "preview": preview,
+                "event": event,
+                "events": read_dns_protection_events(app_dir),
             }
 
         if runtime["requestedMode"] == "active":
@@ -7699,6 +7789,8 @@ def apply_dns_protection_action(app_dir, request_data):
             "profile": "resilient",
             "proxyGroup": preview["proxyGroup"],
             "revision": saved["revision"],
+            "capabilities": capabilities,
+            "runtime": next_runtime,
             "probe": probe,
             "fallback": preview["fallback"],
             "event": event,
@@ -7728,7 +7820,7 @@ def run_dns_protection_lease_cycle(app_dir):
         with dns_protection_health_lock:
             dns_protection_health.update({"leaseHealthy": False, "message": "Managed DNS config changed or is missing"})
         return
-    lan = discover_dns_lan_addresses(app_dir)
+    lan = discover_dns_lan_addresses(app_dir, lan_interfaces=runtime["lanInterfaces"])
     if not lan["ok"] or not dns_runtime_topology_matches(
         runtime,
         lan["interfaces"],

@@ -442,6 +442,8 @@ const state = {
     data: null,
     preview: null,
     events: [],
+    lanInterfaces: [],
+    lanSelectionInitialized: false,
   },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
@@ -795,6 +797,8 @@ const els = {
   dnsStateTitle: document.querySelector('#dnsStateTitle'),
   dnsStateMessage: document.querySelector('#dnsStateMessage'),
   dnsProtectedPath: document.querySelector('#dnsProtectedPath'),
+  dnsRouteDestination: document.querySelector('#dnsRouteDestination'),
+  dnsRouteNoteLabel: document.querySelector('#dnsRouteNoteLabel'),
   dnsFallbackPath: document.querySelector('#dnsFallbackPath'),
   dnsModeValue: document.querySelector('#dnsModeValue'),
   dnsProfileValue: document.querySelector('#dnsProfileValue'),
@@ -806,12 +810,17 @@ const els = {
   dnsProfileStrict: document.querySelector('#dnsProfileStrict'),
   dnsProxyGroup: document.querySelector('#dnsProxyGroup'),
   dnsUpstreams: document.querySelector('#dnsUpstreams'),
+  dnsLanInterfaces: document.querySelector('#dnsLanInterfaces'),
+  dnsLanSelectionMessage: document.querySelector('#dnsLanSelectionMessage'),
   dnsStrictOptions: document.querySelector('#dnsStrictOptions'),
   dnsStrictIgnoreProvider: document.querySelector('#dnsStrictIgnoreProvider'),
   dnsStrictInterceptTransit: document.querySelector('#dnsStrictInterceptTransit'),
   dnsStrictWanConfirm: document.querySelector('#dnsStrictWanConfirm'),
   dnsPreviewButton: document.querySelector('#dnsPreviewButton'),
   dnsCapabilities: document.querySelector('#dnsCapabilities'),
+  dnsConfigCheck: document.querySelector('#dnsConfigCheck'),
+  dnsConfigCheckSummary: document.querySelector('#dnsConfigCheckSummary'),
+  dnsConfigCheckOutput: document.querySelector('#dnsConfigCheckOutput'),
   dnsPlan: document.querySelector('#dnsPlan'),
   dnsWarnings: document.querySelector('#dnsWarnings'),
   dnsSystemResolver: document.querySelector('#dnsSystemResolver'),
@@ -948,10 +957,11 @@ els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('clic
   container.addEventListener('change', handleWhitelistMonitorEndpointInput);
   container.addEventListener('click', handleWhitelistMonitorEndpointClick);
 });
-els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns());
+els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns({ resetPreview: true }));
 [els.dnsProfileResilient, els.dnsProfileStrict].forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
 [els.dnsProxyGroup, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
   .forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
+els.dnsLanInterfaces?.addEventListener('change', handleProtectedDnsLanChange);
 els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
 els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('system'));
 els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
@@ -4705,11 +4715,73 @@ function getProtectedDnsConfirmations() {
   };
 }
 
+function normalizeProtectedDnsLanInterfaces(value) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean))];
+}
+
+function normalizeProtectedDnsLanCandidates(capabilities = {}) {
+  const candidates = Array.isArray(capabilities.lanCandidates) ? capabilities.lanCandidates : [];
+  const seen = new Set();
+  return candidates.reduce((result, candidate) => {
+    const interfaceName = String(candidate?.interface || '').trim();
+    if (!interfaceName || seen.has(interfaceName)) return result;
+    seen.add(interfaceName);
+    result.push({
+      interface: interfaceName,
+      ipv4: normalizeProtectedDnsLanInterfaces(candidate.ipv4),
+      ipv6: normalizeProtectedDnsLanInterfaces(candidate.ipv6),
+    });
+    return result;
+  }, []);
+}
+
+function getProtectedDnsLanSelectionState(capabilities = {}) {
+  const candidates = normalizeProtectedDnsLanCandidates(capabilities);
+  const candidateNames = new Set(candidates.map((candidate) => candidate.interface));
+  const selected = normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces);
+  const missing = selected.filter((interfaceName) => !candidateNames.has(interfaceName));
+  if (missing.length) {
+    return {
+      state: 'invalid',
+      selected,
+      missing,
+      message: `Ранее выбранные интерфейсы сейчас не обнаружены: ${missing.join(', ')}. Снимите выбор или обновите состояние роутера.`,
+    };
+  }
+  if (!candidates.length) {
+    return {
+      state: 'unavailable',
+      selected,
+      missing,
+      message: 'Подходящие LAN-интерфейсы не обнаружены.',
+    };
+  }
+  if (!selected.length) {
+    return {
+      state: 'required',
+      selected,
+      missing,
+      message: candidates.length > 1
+        ? 'Найдено несколько LAN-интерфейсов. Выберите нужные; MihUI не станет угадывать.'
+        : 'Выберите LAN-интерфейс для DNS клиентов.',
+    };
+  }
+  return {
+    state: 'ready',
+    selected,
+    missing,
+    message: `Выбрано: ${selected.join(', ')}. Изменение применится только после запуска тестового режима.`,
+  };
+}
+
 function getProtectedDnsPayload(action = '') {
   const payload = {
     profile: getProtectedDnsProfile(),
     proxyGroup: String(els.dnsProxyGroup?.value || 'PROXY'),
     confirmations: getProtectedDnsConfirmations(),
+    lanInterfaces: normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces),
   };
   const revision = String(state.protectedDns.data?.revision || '');
   if (revision) payload.expectedRevision = revision;
@@ -4725,25 +4797,36 @@ function mergeProtectedDnsResponse(data, options = {}) {
     capabilities: data.capabilities || previous.capabilities || {},
     fallback: data.fallback || previous.fallback || {},
   };
-  if (Array.isArray(data.events)) state.protectedDns.events = data.events;
-  if (data.event && !data.events) state.protectedDns.events = [...state.protectedDns.events, data.event];
+  const events = Array.isArray(data.events) ? [...data.events] : [...state.protectedDns.events];
+  if (data.event && !events.some((event) => JSON.stringify(event) === JSON.stringify(data.event))) events.push(data.event);
+  state.protectedDns.events = events;
   if (options.preview) state.protectedDns.preview = data;
   if (options.syncProfile && ['resilient', 'strict'].includes(data.profile)) {
     els.dnsProfileResilient.checked = data.profile === 'resilient';
     els.dnsProfileStrict.checked = data.profile === 'strict';
+  }
+  if ((!state.protectedDns.lanSelectionInitialized || options.syncLanSelection)
+      && Array.isArray(data.capabilities?.lanInterfaces)) {
+    state.protectedDns.lanInterfaces = normalizeProtectedDnsLanInterfaces(data.capabilities.lanInterfaces);
+    state.protectedDns.lanSelectionInitialized = true;
   }
   renderProtectedDnsProxyGroups(data);
 }
 
 async function loadProtectedDns(options = {}) {
   if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  if (options.resetPreview === true) {
+    state.protectedDns.preview = null;
+    state.protectedDns.notice = '';
+  }
   state.protectedDns.loading = true;
   state.protectedDns.error = '';
   renderProtectedDns();
   try {
     const data = await apiJson('/api/dns');
     state.protectedDns.loaded = true;
-    mergeProtectedDnsResponse(data, { syncProfile: !state.protectedDns.preview });
+    state.protectedDns.preview = null;
+    mergeProtectedDnsResponse(data, { syncProfile: true });
   } catch (error) {
     state.protectedDns.error = error?.message || String(error);
     if (!options.silent) {
@@ -4762,6 +4845,17 @@ function handleProtectedDnsDraftChange() {
   renderProtectedDns();
 }
 
+function handleProtectedDnsLanChange(event) {
+  const control = event.target;
+  if (!control?.matches?.('[data-dns-lan-interface]')) return;
+  const selected = new Set(normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces));
+  if (control.checked) selected.add(control.value);
+  else selected.delete(control.value);
+  state.protectedDns.lanInterfaces = [...selected];
+  state.protectedDns.lanSelectionInitialized = true;
+  handleProtectedDnsDraftChange();
+}
+
 function renderProtectedDnsProxyGroups(data = {}) {
   if (!els.dnsProxyGroup) return;
   const source = data.proxyGroups || data.capabilities?.proxyGroups;
@@ -4778,6 +4872,142 @@ function renderProtectedDnsProxyGroups(data = {}) {
     els.dnsProxyGroup.append(option);
   });
   els.dnsProxyGroup.value = names.includes(preferred) ? preferred : names[0];
+}
+
+function renderProtectedDnsLanSelector(capabilities = {}, busy = false) {
+  if (!els.dnsLanInterfaces || !els.dnsLanSelectionMessage) return getProtectedDnsLanSelectionState(capabilities);
+  const candidates = normalizeProtectedDnsLanCandidates(capabilities);
+  const selection = getProtectedDnsLanSelectionState(capabilities);
+  const selected = new Set(selection.selected);
+  const focusedInterface = document.activeElement?.matches?.('[data-dns-lan-interface]')
+    && els.dnsLanInterfaces.contains(document.activeElement) ? document.activeElement.value : null;
+  els.dnsLanInterfaces.textContent = '';
+  els.dnsLanInterfaces.className = 'dns-protection-lan-list';
+
+  candidates.forEach((candidate) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    const addresses = document.createElement('em');
+    const addressList = [...candidate.ipv4, ...candidate.ipv6];
+    input.type = 'checkbox';
+    input.value = candidate.interface;
+    input.checked = selected.has(candidate.interface);
+    input.disabled = busy;
+    input.dataset.dnsLanInterface = '';
+    name.textContent = candidate.interface;
+    addresses.textContent = addressList.length ? addressList.join(' · ') : 'IP-адреса не обнаружены';
+    copy.append(name, addresses);
+    label.append(input, copy);
+    els.dnsLanInterfaces.append(label);
+  });
+
+  selection.missing.forEach((interfaceName) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    const message = document.createElement('em');
+    label.className = 'is-missing';
+    input.type = 'checkbox';
+    input.value = interfaceName;
+    input.checked = true;
+    input.disabled = busy;
+    input.dataset.dnsLanInterface = '';
+    name.textContent = interfaceName;
+    message.textContent = 'Ранее выбран, но сейчас не обнаружен роутером';
+    copy.append(name, message);
+    label.append(input, copy);
+    els.dnsLanInterfaces.append(label);
+  });
+
+  if (!candidates.length && !selection.missing.length) {
+    els.dnsLanInterfaces.className = 'dns-protection-lan-list empty-state';
+    els.dnsLanInterfaces.textContent = 'Подходящие интерфейсы не обнаружены.';
+  }
+  els.dnsLanSelectionMessage.className = `is-${selection.state}`;
+  els.dnsLanSelectionMessage.textContent = selection.message;
+  if (focusedInterface !== null) {
+    [...els.dnsLanInterfaces.querySelectorAll('[data-dns-lan-interface]')]
+      .find((input) => input.value === focusedInterface && !input.disabled)?.focus({ preventScroll: true });
+  }
+  return selection;
+}
+
+function getProtectedDnsConfigCheckOutput(configCheck = {}) {
+  const details = configCheck.details ?? configCheck.output ?? configCheck.message ?? '';
+  if (typeof details === 'string') return details;
+  try {
+    return JSON.stringify(details, null, 2);
+  } catch (error) {
+    return String(details);
+  }
+}
+
+function renderProtectedDnsConfigCheck(configCheck) {
+  if (!els.dnsConfigCheck || !els.dnsConfigCheckSummary || !els.dnsConfigCheckOutput) return;
+  const available = configCheck?.available !== false;
+  const tone = configCheck?.ok === true ? 'ok' : available ? 'error' : 'warning';
+  els.dnsConfigCheck.hidden = !configCheck;
+  if (!configCheck) return;
+  els.dnsConfigCheck.className = `dns-protection-config-check is-${tone}`;
+  els.dnsConfigCheckSummary.textContent = configCheck.ok === true
+    ? 'Конфигурация корректна'
+    : available ? 'Проверка не пройдена' : 'Проверка недоступна';
+  els.dnsConfigCheckOutput.textContent = getProtectedDnsConfigCheckOutput(configCheck);
+}
+
+function getProtectedDnsFallbackPresentation(capabilities = {}, fallback = {}) {
+  const systemFallback = capabilities.systemFallback || {};
+  const stateName = systemFallback.state
+    || (systemFallback.ok === true ? 'ready' : systemFallback.ok === false ? 'failed' : 'not-tested');
+  const base = {
+    ready: { tone: 'is-ready', badge: 'Fallback проверен', state: 'Готов · автоматический' },
+    failed: { tone: 'is-error', badge: 'Fallback недоступен', state: 'Системный DNS не ответил' },
+    'not-tested': { tone: 'is-idle', badge: 'Fallback не проверен', state: 'Не проверен' },
+  }[stateName] || { tone: 'is-idle', badge: 'Fallback не проверен', state: 'Не проверен' };
+  const pending = fallback.pending === true;
+  return {
+    ...base,
+    badge: pending ? 'Fallback выполняется' : base.badge,
+    state: pending
+      ? 'Ожидается подтверждение снятия перехвата'
+      : stateName === 'ready' ? 'Готов · системный DNS отвечает по UDP'
+        : stateName === 'failed' ? 'Не готов · системный DNS не ответил по UDP'
+          : 'Не проверен · сначала выберите LAN-интерфейсы',
+    message: systemFallback.message || '',
+  };
+}
+
+function getProtectedDnsErrorMessage(error, action = 'preview') {
+  const backendMessage = String(error?.data?.message || error?.message || '').trim();
+  if (!error?.data && backendMessage && !/^HTTP\s+\d+$/i.test(backendMessage)) {
+    return `Не удалось связаться с DNS API: ${backendMessage}`;
+  }
+  const hasConfigCheck = Boolean(error?.data?.configCheck || error?.data?.preview?.configCheck);
+  if (hasConfigCheck) {
+    return action === 'preview'
+      ? 'Проверка конфигурации Mihomo не пройдена. Раскройте блок «Проверка конфигурации Mihomo» для подробностей.'
+      : 'Операция DNS остановлена предварительной проверкой. Подробности — в блоке «Проверка конфигурации Mihomo».';
+  }
+  return {
+    preview: 'Предварительная проверка DNS не пройдена. Проверьте выбранные LAN-интерфейсы и блок «Проверка готовности».',
+    test: 'Тестовый режим DNS не запущен. Проверьте условия в блоке «Проверка готовности».',
+    activate: 'Защищённый DNS не включён. Проверьте условия в блоке «Проверка готовности».',
+    system: 'Не удалось подтвердить возврат к системному DNS.',
+  }[action] || 'Операция DNS не выполнена.';
+}
+
+function mergeProtectedDnsErrorResponse(data) {
+  if (!data || typeof data !== 'object') return;
+  const preview = data.preview && typeof data.preview === 'object' ? data.preview : data;
+  mergeProtectedDnsResponse({
+    ...preview,
+    message: data.message || preview.message,
+    event: data.event || preview.event,
+    events: Array.isArray(data.events) ? data.events : preview.events,
+  }, { preview: true });
 }
 
 function getProtectedDnsModePresentation(mode) {
@@ -4806,6 +5036,28 @@ function getProtectedDnsModePresentation(mode) {
     label: 'Нет данных',
     title: 'Состояние ещё не подтверждено',
     message: 'MihUI не будет считать DNS включённым до успешного ответа роутера.',
+  };
+}
+
+function getProtectedDnsRoutePresentation(mode, fallback = {}) {
+  const systemResolver = `ndnproxy :${fallback.ndnproxyPort || 53}`;
+  if (mode === 'active') {
+    return {
+      resolver: 'Mihomo :1053', destination: 'DNS по правилам Mihomo',
+      noteLabel: 'При отказе', note: `${systemResolver} → системные DNS`,
+    };
+  }
+  if (['system', 'test', 'fallback'].includes(mode)) {
+    const notes = {
+      system: { noteLabel: 'Перехват', note: 'Отключён' },
+      test: { noteLabel: 'Тестовый слушатель', note: 'Mihomo :1053 запущен отдельно, без переключения клиентов' },
+      fallback: { noteLabel: 'Аварийный возврат', note: 'Перехват прекращён, используется системный DNS' },
+    };
+    return { resolver: systemResolver, destination: 'Системные DNS', ...notes[mode] };
+  }
+  return {
+    resolver: 'Маршрут не подтверждён', destination: 'Ожидается проверка',
+    noteLabel: 'Состояние', note: 'Нет подтверждённых данных роутера',
   };
 }
 
@@ -4838,6 +5090,8 @@ function getProtectedDnsCapabilityLabel(id) {
     'firewall-chain4': 'Цепочка firewall IPv4',
     'firewall-chain6': 'Цепочка firewall IPv6',
     'local-resolver': 'Локальный резолвер :41100',
+    'system-fallback': 'Системный DNS fallback',
+    'lan-selection': 'LAN-интерфейсы DNS',
   }[id] || id;
 }
 
@@ -4847,11 +5101,18 @@ function normalizeProtectedDnsChecks(capabilities = {}) {
 
 function getProtectedDnsCheckState(check) {
   if (check.ok === true || check.ready === true || check.state === 'ok' || check.state === 'ready') return 'ok';
-  if (check.required === false || check.state === 'warning' || check.warning === true) return 'warning';
+  if (check.required === false || check.state === 'warning' || check.state === 'not-tested' || check.warning === true) return 'warning';
   return 'error';
 }
 
 function getProtectedDnsCheckMessage(check, tone) {
+  if (check.id === 'system-fallback') {
+    if (check.state === 'not-tested') return 'Не проверен: сначала выберите LAN-интерфейсы';
+    return tone === 'ok' ? 'Системный DNS отвечает по UDP' : 'Системный DNS не ответил по UDP';
+  }
+  if (check.id === 'lan-selection') {
+    return tone === 'ok' ? 'LAN-интерфейсы выбраны' : 'Требуется явный выбор LAN-интерфейсов';
+  }
   const localized = {
     root: ['MihUI запущен с правами root', 'Нужны права root'],
     'mihomo-binary': ['Mihomo найден', 'Mihomo не найден'],
@@ -4894,10 +5155,14 @@ function renderProtectedDnsCapabilities(capabilities = {}) {
     const item = document.createElement('div');
     const label = document.createElement('strong');
     const value = document.createElement('span');
-    const tone = getProtectedDnsCheckState(check);
+    const stateName = check.id === 'system-fallback'
+      ? capabilities.systemFallback?.state
+      : check.id === 'lan-selection' ? capabilities.lanSelection?.state : check.state;
+    const effectiveCheck = stateName ? { ...check, state: stateName } : check;
+    const tone = getProtectedDnsCheckState(effectiveCheck);
     item.className = `dns-protection-capability is-${tone}`;
     label.textContent = check.label || getProtectedDnsCapabilityLabel(check.id || 'Проверка');
-    value.textContent = getProtectedDnsCheckMessage(check, tone);
+    value.textContent = getProtectedDnsCheckMessage(effectiveCheck, tone);
     item.append(label, value);
     els.dnsCapabilities.append(item);
   });
@@ -4910,7 +5175,9 @@ function normalizeProtectedDnsTextList(value) {
       `Подготовить DNS-слушатель Mihomo ${value.listener} (${value.enhancedMode || 'redir-host'}).`,
       `Направить защищённые upstream через группу ${value.upstreamRoute || 'PROXY'}.`,
     ];
-    if (value.localPrivateResolver) lines.push('Передавать только локальные/private-зоны системному резолверу 127.0.0.1:41100.');
+    if (Array.isArray(value.localNames) && value.localNames.length) {
+      lines.push(`Передавать локальному резолверу 127.0.0.1:41100 только имена: ${value.localNames.join(', ')}.`);
+    }
     if (value.providerDnsChange) lines.push('Подготовить изменение настройки DNS провайдера после отдельного подтверждения.');
     if (value.transitDnsChange) lines.push('Подготовить перехват транзитных DNS-запросов после отдельного подтверждения.');
     return lines;
@@ -5011,12 +5278,28 @@ function renderProtectedDnsExclusions(exclusions = []) {
       'tailscale-dns': 'DNS Tailscale',
       'external-dns': 'Внешний DNS на устройствах',
     }[entry?.id];
+    const exclusionMessage = {
+      'application-doh': 'DoH и Private DNS в приложениях не используют DNS роутера на порту 53 и остаются вне перехвата.',
+      'tailscale-dns': 'Устройства, использующие DNS Tailscale, могут обходить DNS локальной сети.',
+      'external-dns': 'Отказоустойчивый режим не перехватывает запросы к внешним DNS-серверам, заданным на устройствах. Для этого нужен строгий режим, пока доступный только как план.',
+    }[entry?.id];
     title.textContent = typeof entry === 'string' ? entry : entry.label || entry.title || exclusionTitle || entry.type || 'Исключение';
-    message.textContent = typeof entry === 'string' ? '' : entry.message || entry.description || entry.value || '';
+    message.textContent = typeof entry === 'string' ? '' : exclusionMessage || entry.message || entry.description || entry.value || '';
     item.append(title);
     if (message.textContent) item.append(message);
     els.dnsExclusions.append(item);
   });
+}
+
+function getProtectedDnsEventLabel(event = {}) {
+  return {
+    preview: 'Проверка',
+    preview_failed: 'Проверка не пройдена',
+    test: 'Тестовый режим',
+    activate: 'Включение',
+    system: 'Системный DNS',
+    preflight_failed: 'Предусловия не пройдены',
+  }[event.type || event.action] || event.action || event.mode || event.type || (event.ok === false ? 'Ошибка' : 'Проверка');
 }
 
 function renderProtectedDnsEvents() {
@@ -5038,10 +5321,10 @@ function renderProtectedDnsEvents() {
     const heading = document.createElement('span');
     const time = document.createElement('time');
     const raw = document.createElement('pre');
-    const ok = event.ok !== false && event.state !== 'error';
+    const ok = event.ok !== false && event.state !== 'error' && !/_failed$/.test(String(event.type || ''));
     details.className = 'dns-protection-event';
     badge.className = `dns-protection-state ${ok ? 'is-active' : 'is-error'}`;
-    badge.textContent = event.action || event.mode || event.type || (ok ? 'Проверка' : 'Ошибка');
+    badge.textContent = getProtectedDnsEventLabel(event);
     heading.className = 'dns-protection-event-heading';
     heading.textContent = event.message || event.title || 'Событие DNS';
     time.dateTime = event.at || '';
@@ -5068,30 +5351,51 @@ function renderProtectedDns() {
   const busy = state.protectedDns.loading || Boolean(state.protectedDns.action);
   const canTest = preview?.canTest === true;
   const canActivate = preview?.canActivate === true;
+  const lanSelection = getProtectedDnsLanSelectionState(capabilities);
+  const serverLanInterfaces = normalizeProtectedDnsLanInterfaces(capabilities.lanInterfaces);
+  const lanDraftChanged = lanSelection.selected.length !== serverLanInterfaces.length
+    || lanSelection.selected.some((interfaceName) => !serverLanInterfaces.includes(interfaceName));
   const routerDns = capabilities.routerDns || {};
   const providerDns = routerDns.provider || {};
   const transitDns = routerDns.transit || {};
   const providerServers = providerDns.servers || [];
-  const fallbackPreserved = fallback.preserved === true;
+  const fallbackPresentation = lanDraftChanged
+    ? {
+      tone: 'is-idle',
+      badge: 'Fallback требует проверки',
+      state: 'Не проверен после изменения LAN',
+      message: 'Повторите предварительную проверку для выбранных LAN-интерфейсов.',
+    }
+    : getProtectedDnsFallbackPresentation(capabilities, fallback);
 
   els.dnsStateBadge.className = `dns-protection-state is-${mode === 'unknown' ? 'idle' : mode}`;
   els.dnsStateBadge.textContent = state.protectedDns.loading && !state.protectedDns.loaded ? 'Загрузка…' : presentation.label;
   els.dnsStateTitle.textContent = presentation.title;
   els.dnsStateMessage.textContent = presentation.message;
-  els.dnsFallbackBadge.className = `dns-protection-context ${fallbackPreserved ? 'is-ready' : fallback.preserved === false ? 'is-error' : 'is-idle'}`;
-  els.dnsFallbackBadge.textContent = fallbackPreserved ? 'Fallback сохранён' : fallback.preserved === false ? 'Fallback не готов' : 'Fallback не проверен';
-  els.dnsProtectedPath.textContent = mode === 'active' ? 'Mihomo :1053' : 'Mihomo :1053 (не активен)';
-  els.dnsFallbackPath.textContent = `ndnproxy :${fallback.ndnproxyPort || 53} → системные DNS`;
+  els.dnsFallbackBadge.className = `dns-protection-context ${fallbackPresentation.tone}`;
+  els.dnsFallbackBadge.textContent = fallbackPresentation.badge;
+  els.dnsFallbackBadge.title = fallbackPresentation.message;
+  const route = getProtectedDnsRoutePresentation(mode, fallback);
+  els.dnsProtectedPath.textContent = route.resolver;
+  els.dnsRouteDestination.textContent = route.destination;
+  els.dnsRouteNoteLabel.textContent = route.noteLabel;
+  els.dnsFallbackPath.textContent = route.note;
   els.dnsModeValue.textContent = presentation.label;
   els.dnsProfileValue.textContent = data.profile === 'strict' ? 'Строгий' : data.profile === 'resilient' ? 'Отказоустойчивый' : '—';
   els.dnsListenerValue.textContent = mode === 'test' || mode === 'active' ? ':1053' : 'Не активен';
   const ipv4Addresses = capabilities.addresses?.ipv4 || [];
   const ipv6Addresses = capabilities.addresses?.ipv6 || [];
   const ipv6Path = normalizeProtectedDnsChecks(capabilities).find((item) => item.id === 'ip6tables');
-  els.dnsIpv4Value.textContent = !state.protectedDns.loaded ? 'Не проверено' : ipv4Addresses.length ? `Готово · ${ipv4Addresses.join(', ')}` : 'Не готово';
-  els.dnsIpv6Value.textContent = capabilities.ipv6ClientDns === true
-    ? `${getProtectedDnsCheckState(ipv6Path || {}) === 'ok' ? 'Готово' : 'Путь не готов'}${ipv6Addresses.length ? ` · ${ipv6Addresses.join(', ')}` : ''}`
-    : capabilities.ipv6ClientDns === false ? 'Не обнаружен' : 'Не проверено';
+  els.dnsIpv4Value.textContent = lanSelection.state !== 'ready'
+    ? 'Не проверено: выберите LAN'
+    : lanDraftChanged ? 'Не проверено после изменения LAN'
+      : ipv4Addresses.length ? `Готово · ${ipv4Addresses.join(', ')}` : 'Не готово';
+  els.dnsIpv6Value.textContent = lanSelection.state !== 'ready'
+    ? 'Не проверено: выберите LAN'
+    : lanDraftChanged ? 'Не проверено после изменения LAN'
+      : capabilities.ipv6ClientDns === true
+        ? `${getProtectedDnsCheckState(ipv6Path || {}) === 'ok' ? 'Готово' : 'Путь не готов'}${ipv6Addresses.length ? ` · ${ipv6Addresses.join(', ')}` : ''}`
+        : capabilities.ipv6ClientDns === false ? 'Не обнаружен в выбранных LAN' : 'Не проверено';
   els.dnsCheckedAt.textContent = getProtectedDnsTime(data.health?.lastProbeAt || runtime.updatedAt);
   els.dnsSystemResolver.textContent = fallback.ndnproxyPort ? `ndnproxy :${fallback.ndnproxyPort}` : '—';
   const providerServerText = getProtectedDnsServerList(providerServers);
@@ -5113,9 +5417,11 @@ function renderProtectedDns() {
     : transitDns.blocked === false
       ? 'Разрешены'
       : transitDns.changed === false ? 'Не определено · без изменений' : '—';
-  els.dnsFallbackState.textContent = fallbackPreserved ? 'Готов · автоматический' : fallback.preserved === false ? 'Не готов' : 'Не проверен';
+  els.dnsFallbackState.textContent = fallbackPresentation.state;
+  els.dnsFallbackState.title = fallbackPresentation.message;
+  const localNames = Array.isArray(preview?.plan?.localNames) ? preview.plan.localNames : [];
   els.dnsLocalResolver.textContent = capabilities.localResolver?.ok === true
-    ? '127.0.0.1:41100 · только private-зоны'
+    ? `127.0.0.1:41100 · ${localNames.length ? localNames.join(', ') : 'локальные имена из плана'}`
     : capabilities.ready === true ? 'Не используется: UDP-проверка не пройдена' : 'Не используется до успешной проверки';
 
   const upstreams = getProtectedDnsUpstreamLabels(preview?.plan?.upstreams || []);
@@ -5125,18 +5431,20 @@ function renderProtectedDns() {
   els.dnsProfileResilient.disabled = busy;
   els.dnsProfileStrict.disabled = busy;
   els.dnsProxyGroup.disabled = !apiAvailable || busy;
+  renderProtectedDnsLanSelector(capabilities, busy);
   renderProtectedDnsCapabilities(capabilities);
+  renderProtectedDnsConfigCheck(preview?.configCheck);
   renderProtectedDnsPlan(preview?.plan);
   renderProtectedDnsWarnings(visible.warnings || [], strictSelected);
   renderProtectedDnsExclusions(data.exclusions || []);
   renderProtectedDnsEvents();
 
   els.dnsRefreshButton.disabled = !apiAvailable || busy;
-  els.dnsPreviewButton.disabled = !apiAvailable || busy;
+  els.dnsPreviewButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready';
   els.dnsPreviewButton.textContent = state.protectedDns.action === 'preview' ? 'Проверяем…' : 'Проверить и показать план';
   els.dnsSystemButton.disabled = !apiAvailable || busy || (mode === 'system' && fallback.pending !== true);
-  els.dnsTestButton.disabled = !apiAvailable || busy || strictSelected || !canTest || mode === 'active';
-  els.dnsActivateButton.disabled = !apiAvailable || busy || strictSelected || !canActivate || mode !== 'test';
+  els.dnsTestButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || strictSelected || !canTest || mode === 'active';
+  els.dnsActivateButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || strictSelected || !canActivate || mode !== 'test';
   els.dnsTestButton.textContent = state.protectedDns.action === 'test' ? 'Запускаем тест…' : 'Запустить тестовый режим';
   els.dnsActivateButton.textContent = state.protectedDns.action === 'activate' ? 'Включаем…' : 'Включить защиту';
   els.dnsSystemButton.textContent = state.protectedDns.action === 'system' ? 'Возвращаем…' : 'Вернуться к системному DNS';
@@ -5156,6 +5464,12 @@ function renderProtectedDns() {
 
 async function previewProtectedDns() {
   if (state.protectedDns.action || !state.routerApiAvailable) return;
+  const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
+  if (lanSelection.state !== 'ready') {
+    state.protectedDns.error = lanSelection.message;
+    renderProtectedDns();
+    return;
+  }
   state.protectedDns.action = 'preview';
   state.protectedDns.error = '';
   state.protectedDns.notice = '';
@@ -5171,9 +5485,9 @@ async function previewProtectedDns() {
     state.protectedDns.noticeTone = data.capabilities?.ready ? 'success' : 'warning';
   } catch (error) {
     if (error?.data && typeof error.data === 'object') {
-      mergeProtectedDnsResponse(error.data, { preview: true });
+      mergeProtectedDnsErrorResponse(error.data);
     }
-    state.protectedDns.error = error?.message || String(error);
+    state.protectedDns.error = getProtectedDnsErrorMessage(error, 'preview');
   } finally {
     state.protectedDns.action = '';
     renderProtectedDns();
@@ -5182,6 +5496,12 @@ async function previewProtectedDns() {
 
 async function runProtectedDnsAction(action) {
   if (state.protectedDns.action || !state.routerApiAvailable) return;
+  const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
+  if (action !== 'system' && lanSelection.state !== 'ready') {
+    state.protectedDns.error = lanSelection.message;
+    renderProtectedDns();
+    return;
+  }
   state.protectedDns.action = action;
   state.protectedDns.error = '';
   state.protectedDns.notice = '';
@@ -5197,7 +5517,7 @@ async function runProtectedDnsAction(action) {
       headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
       body: JSON.stringify(payload),
     });
-    mergeProtectedDnsResponse(data, { syncProfile: true });
+    mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true });
     state.protectedDns.preview = action === 'system' ? null : state.protectedDns.preview;
     state.protectedDns.notice = data.message || {
       test: 'Тестовый режим подтверждён роутером. Клиенты ещё используют системный DNS.',
@@ -5208,9 +5528,10 @@ async function runProtectedDnsAction(action) {
     showMessage(state.protectedDns.notice, { severity: 'success' });
   } catch (error) {
     if (error?.data && typeof error.data === 'object') {
-      mergeProtectedDnsResponse(error.data);
+      if (error.data.preview && typeof error.data.preview === 'object') mergeProtectedDnsErrorResponse(error.data);
+      else mergeProtectedDnsResponse(error.data);
     }
-    state.protectedDns.error = error?.message || String(error);
+    state.protectedDns.error = getProtectedDnsErrorMessage(error, action);
     showMessage(`DNS не переключён: ${state.protectedDns.error}`, { severity: 'error' });
   } finally {
     state.protectedDns.action = '';

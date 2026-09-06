@@ -5251,7 +5251,7 @@ body.component-manager-open {
   border-radius: 999px;
   color: var(--muted);
   background: var(--panel-soft);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -5266,7 +5266,7 @@ body.component-manager-open {
 
 .dns-protection-state.is-active,
 .dns-protection-context.is-ready {
-  color: var(--success);
+  color: #157347;
   background: #edf9f1;
 }
 
@@ -5321,7 +5321,7 @@ body.component-manager-open {
   border: 1px solid #d5e9e8;
   border-radius: 8px;
   background: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
   text-align: center;
 }
@@ -5335,7 +5335,7 @@ body.component-manager-open {
   align-items: center;
   gap: 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .dns-protection-route-fallback strong {
@@ -5362,7 +5362,7 @@ body.component-manager-open {
 .dns-protection-metrics dt,
 .dns-protection-router-grid dt {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -5430,9 +5430,9 @@ body.component-manager-open {
   margin-left: 5px;
   padding: 2px 6px;
   border-radius: 999px;
-  color: var(--success);
+  color: #157347;
   background: #eaf8ef;
-  font-size: 9px;
+  font-size: 12px;
   font-style: normal;
 }
 
@@ -5443,7 +5443,7 @@ body.component-manager-open {
 
 .dns-protection-profile em {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   line-height: 1.45;
 }
@@ -5463,7 +5463,7 @@ body.component-manager-open {
 
 .dns-protection-settings-grid span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -5473,6 +5473,98 @@ body.component-manager-open {
   border-radius: 8px;
   background: var(--panel-soft);
   font-size: 12px;
+}
+
+.dns-protection-lan-selector {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.dns-protection-lan-selector > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.dns-protection-lan-selector > div:first-child strong {
+  font-size: 12px;
+}
+
+.dns-protection-lan-selector > div:first-child span,
+.dns-protection-lan-selector > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-lan-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 7px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.dns-protection-lan-list.empty-state {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-lan-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dns-protection-lan-list label.is-missing {
+  border-color: #f0c77c;
+  background: #fffaf0;
+}
+
+.dns-protection-lan-list input[type='checkbox'] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.dns-protection-lan-list label > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dns-protection-lan-list strong {
+  font: 700 12px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.dns-protection-lan-list em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.dns-protection-lan-selector > p.is-ready {
+  color: #157347;
+}
+
+.dns-protection-lan-selector > p.is-required,
+.dns-protection-lan-selector > p.is-invalid,
+.dns-protection-lan-selector > p.is-unavailable {
+  color: var(--warning);
+  font-weight: 700;
 }
 
 .dns-protection-strict-options {
@@ -5491,7 +5583,7 @@ body.component-manager-open {
 
 .dns-protection-strict-options legend {
   padding: 0 5px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -5499,7 +5591,7 @@ body.component-manager-open {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -5517,7 +5609,7 @@ body.component-manager-open {
 .dns-protection-router-grid,
 .dns-protection-exclusion-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -5553,13 +5645,70 @@ body.component-manager-open {
 
 .dns-protection-capability strong,
 .dns-protection-exclusion-list strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dns-protection-capability span,
 .dns-protection-exclusion-list span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
+}
+
+.dns-protection-config-check {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.dns-protection-config-check[hidden] {
+  display: none;
+}
+
+.dns-protection-config-check.is-ok {
+  border-left-color: var(--success);
+}
+
+.dns-protection-config-check.is-warning {
+  border-left-color: var(--warning);
+}
+
+.dns-protection-config-check.is-error {
+  border-left-color: var(--danger);
+}
+
+.dns-protection-config-check summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dns-protection-config-check summary strong {
+  color: var(--muted);
+  text-align: right;
+}
+
+.dns-protection-config-check.is-ok summary strong {
+  color: #157347;
+}
+
+.dns-protection-config-check.is-error summary strong {
+  color: var(--danger);
+}
+
+.dns-protection-config-check pre {
+  max-height: 300px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: #111827;
+  color: #e5e7eb;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
 }
 
 .dns-protection-plan {
@@ -5576,7 +5725,7 @@ body.component-manager-open {
 }
 
 .dns-protection-plan > strong {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dns-protection-plan ol {
@@ -5585,7 +5734,7 @@ body.component-manager-open {
   margin: 0;
   padding-left: 18px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dns-protection-warning-list {
@@ -5599,7 +5748,7 @@ body.component-manager-open {
   border-radius: 9px;
   color: #8a5b08;
   background: #fffaf0;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dns-protection-router-grid {
@@ -5630,7 +5779,7 @@ body.component-manager-open {
 }
 
 .dns-protection-actions > p.is-success {
-  color: var(--success);
+  color: #157347;
 }
 
 .dns-protection-event-list {
@@ -5660,7 +5809,7 @@ body.component-manager-open {
 .dns-protection-event-heading,
 .dns-protection-event time,
 .dns-protection-journal-tools {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .dns-protection-event-heading {
@@ -5682,7 +5831,7 @@ body.component-manager-open {
   border-radius: 8px;
   background: #111827;
   color: #e5e7eb;
-  font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
   white-space: pre-wrap;
 }
 
