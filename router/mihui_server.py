@@ -233,6 +233,11 @@ RESOURCE_MONITOR_SERVICES = {
         "group": "INSTAGRAM",
         "endpoints": [{"url": "https://www.instagram.com/robots.txt", "expected": 200}],
     },
+    "twitter": {
+        "title": "X (Twitter)",
+        "group": "TWITTER",
+        "endpoints": [{"url": "https://x.com/robots.txt", "expected": 200}],
+    },
     "ai": {
         "title": "AI",
         "group": "AI",
@@ -3732,7 +3737,7 @@ def load_resource_monitor_settings(app_dir):
         for key, service_defaults in defaults["services"].items():
             item = saved_services.get(key)
             services[key] = dict(service_defaults)
-            if key == "instagram" and key not in saved_services:
+            if key in ("instagram", "twitter") and key not in saved_services:
                 services[key]["enabled"] = False
             if isinstance(item, dict):
                 if "enabled" in item:

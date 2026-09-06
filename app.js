@@ -28,11 +28,18 @@ const RESOURCE_MONITOR_DEFINITIONS = {
   telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
   instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
+  twitter: { title: 'X (Twitter)', group: 'TWITTER', icon: 'twitter' },
   ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
 };
 let resourceMonitorHistoryTooltipTarget = null;
 let resourceMonitorHistoryTooltipPinned = false;
 const RESOURCE_MONITOR_RULE_PROVIDERS = {
+  twitter: [
+    {
+      name: 'twitter@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/twitter.mrs',
+    },
+  ],
   instagram: [
     {
       name: 'instagram@domain',
@@ -51,6 +58,9 @@ const RESOURCE_MONITOR_RULE_PROVIDERS = {
   ],
 };
 const RESOURCE_MONITOR_RULES = {
+  twitter: [
+    ['RULE-SET', 'twitter@domain', 'TWITTER'],
+  ],
   youtube: [
     ['GEOSITE', 'youtube', 'YOUTUBE'],
   ],

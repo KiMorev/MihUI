@@ -479,6 +479,7 @@ rules:
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
 
@@ -486,6 +487,10 @@ rules:
     assert.match(output, /profile:\n  store-selected: true/);
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /name: INSTAGRAM # webmihomo-monitor: group instagram source=FASTEST/);
+    assert.match(output, /name: TWITTER # webmihomo-monitor: group twitter source=FASTEST/);
+    assert.match(output, /twitter@domain: .*twitter\.mrs/);
+    assert.ok(output.indexOf('RULE-SET,twitter@domain,TWITTER') >= 0);
+    assert.ok(output.indexOf('RULE-SET,twitter@domain,TWITTER') < output.indexOf('MATCH,PROXY'));
     assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
     assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
     assert.match(output, /exclude-filter: ["']?\(\?i\)expired/);
@@ -511,6 +516,7 @@ rules:
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
     assert.equal(app.state.outputText, before);
@@ -551,6 +557,7 @@ rules:
       telegram: [],
       whatsapp: [],
       instagram: ['FASTEST'],
+      twitter: ['FASTEST'],
       ai: ['FASTEST'],
     };
     const services = {
@@ -558,6 +565,7 @@ rules:
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
       instagram: { enabled: true, group: 'INSTAGRAM', sources: sources.instagram },
+      twitter: { enabled: true, group: 'TWITTER', sources: sources.twitter },
       ai: { enabled: true, group: 'AI', sources: sources.ai },
     };
 
@@ -603,12 +611,14 @@ rules:
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
@@ -619,8 +629,8 @@ rules:
     const output = app.state.outputText;
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /GEOSITE,youtube,YOUTUBE/);
-    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
-    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,AI(?:,|$)/m);
+    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
+    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,TWITTER(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
 
@@ -633,7 +643,7 @@ rules:
     app.prepareResourceMonitorConfig(sources, disabledServices);
 
     const disabledOutput = app.state.outputText;
-    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
+    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.doesNotMatch(disabledOutput, /webmihomo-monitor/);
     assert.match(disabledOutput, /MATCH,PROXY/);
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, disabledServices), false);
@@ -664,6 +674,7 @@ rules:
       youtube: { enabled: false, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
@@ -696,6 +707,7 @@ rules:
       telegram: ['FASTEST'],
       whatsapp: ['FASTEST'],
       instagram: ['FASTEST'],
+      twitter: ['FASTEST'],
       ai: ['FASTEST'],
     };
     const services = Object.fromEntries(
@@ -713,7 +725,7 @@ rules:
     assert.equal(app.els.resourceMonitorEnabled.checked, true);
     assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
     assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
-    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
+    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.match(app.state.outputText, /MATCH,PROXY/);
   });
 
@@ -752,12 +764,14 @@ rules:
       telegram: [],
       whatsapp: [],
       instagram: [],
+      twitter: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
@@ -819,12 +833,14 @@ rules:
       telegram: [],
       whatsapp: [],
       instagram: [],
+      twitter: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
@@ -1096,6 +1112,7 @@ rules:
       telegram: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
 

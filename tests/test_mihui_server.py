@@ -1654,6 +1654,7 @@ class ProviderAdapterTests(unittest.TestCase):
             app_dir = Path(temp_dir)
             settings = mihui_server.default_resource_monitor_settings()
             settings["services"].pop("instagram")
+            settings["services"].pop("twitter")
             mihui_server.write_json_atomic(
                 mihui_server.resource_monitor_settings_path(app_dir),
                 settings,
@@ -1661,6 +1662,8 @@ class ProviderAdapterTests(unittest.TestCase):
 
             loaded = mihui_server.load_resource_monitor_settings(app_dir)
 
+        self.assertFalse(loaded["services"]["twitter"]["enabled"])
+        self.assertEqual(loaded["services"]["twitter"]["group"], "TWITTER")
         self.assertFalse(loaded["services"]["instagram"]["enabled"])
         self.assertEqual(loaded["services"]["instagram"]["group"], "INSTAGRAM")
         self.assertEqual(
@@ -2663,7 +2666,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 "now": "provider-node",
                 "all": ["provider-node", "provider-node-2"],
             }
-            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "AI")
+            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "TWITTER", "AI")
         }
 
         with mock.patch.object(
