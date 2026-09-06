@@ -31,13 +31,13 @@ class DnsProtectionTests(unittest.TestCase):
             "checks": [],
             "lanInterfaces": ["br0"],
             "lanCandidates": [{"interface": "br0", "ipv4": ["192.168.1.1"], "ipv6": ["fe80::1"]}],
-            "lanSelection": {"state": "ready", "message": "LAN selected"},
+            "lanSelection": {"state": "ready", "message": "Локальная сеть выбрана"},
             "addresses": {"ipv4": ["192.168.1.1"], "ipv6": ["fe80::1"]},
             "ipv6ClientDns": True,
             "proxyGroups": ["PROXY", "FALLBACK"],
             "selectedProxyGroup": "PROXY",
             "localResolver": {"ok": True, "tcpDiagnosticOk": False},
-            "systemFallback": {"ok": True, "state": "ready", "message": "System DNS answers fresh UDP queries", "tcpDiagnosticOk": False},
+            "systemFallback": {"ok": True, "state": "ready", "message": "Системный DNS отвечает на новые UDP-запросы", "tcpDiagnosticOk": False},
             "routerDns": {
                 "provider": {"ignoreIpv4": None, "ignoreIpv6": None, "servers": [], "state": "unknown"},
                 "transit": {"blocked": None, "state": "unknown"},
@@ -69,14 +69,14 @@ class DnsProtectionTests(unittest.TestCase):
         self.assertNotIn("41100", without_local)
 
     def test_unmanaged_dns_section_is_never_overwritten(self):
-        with self.assertRaisesRegex(ValueError, "unmanaged"):
+        with self.assertRaisesRegex(ValueError, "не управляемый MihUI"):
             mihui_server.prepare_dns_protection_text(
                 "dns: {enable: true}\n", "PROXY", False
             )
 
     def test_dns_request_rejects_browser_supplied_command_fields(self):
         revision = "a" * 64
-        with self.assertRaisesRegex(ValueError, "unknown DNS request field"):
+        with self.assertRaisesRegex(ValueError, "Неизвестное поле в запросе настройки DNS"):
             mihui_server.validate_dns_protection_request(
                 {"action": "activate", "expectedRevision": revision, "command": "iptables -F"},
                 require_action=True,
@@ -89,6 +89,67 @@ class DnsProtectionTests(unittest.TestCase):
         self.assertEqual(mihui_server.validate_dns_protection_request({"lanInterfaces": ["br1"]})["lanInterfaces"], ["br1"])
         self.assertEqual(mihui_server.validate_dns_protection_request({"lanInterfaces": []})["lanInterfaces"], [])
         self.assertIsNone(mihui_server.validate_dns_protection_request({})["lanInterfaces"])
+
+    def test_preview_messages_are_russian_and_warning_codes_are_preserved(self):
+        seen_codes = set()
+        for scenario in ("ready", "failed", "not-tested", "conflict"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as temp_dir:
+                text = "dns: {enable: true}\n" if scenario == "conflict" else "mixed-port: 7890\n"
+                app_dir, _ = self.make_app(temp_dir, text)
+                capabilities = self.ready_capabilities()
+                if scenario in {"failed", "not-tested"}:
+                    with mock.patch.object(
+                        mihui_server, "probe_dns_endpoint",
+                        side_effect=lambda _address, _port, protocol, *_args, **_kwargs: {"ok": False, "transport": protocol},
+                    ):
+                        capabilities["systemFallback"] = mihui_server.probe_system_dns_fallback(
+                            [{"address": "192.168.1.1", "interface": "br0"}] if scenario == "failed" else []
+                        )
+                    capabilities["localResolver"] = {"ok": False}
+                request = mihui_server.validate_dns_protection_request({"profile": "strict"})
+                with mock.patch.object(
+                    mihui_server, "collect_dns_protection_capabilities", return_value=capabilities
+                ), mock.patch.object(mihui_server, "find_mihomo_binary", return_value="mihomo"), mock.patch.object(
+                    mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+                ):
+                    result = mihui_server.preview_dns_protection(app_dir, request)
+                self.assertRegex(result["message"], "[А-Яа-яЁё]")
+                self.assertRegex(result["event"]["message"], "[А-Яа-яЁё]")
+                self.assertIn(result["event"]["type"], {"preview", "preview_failed"})
+                for warning in result["warnings"]:
+                    seen_codes.add(warning["code"])
+                    self.assertRegex(warning["message"], "[А-Яа-яЁё]")
+                for exclusion in result["exclusions"]:
+                    self.assertRegex(exclusion["message"], "[А-Яа-яЁё]")
+        self.assertEqual(seen_codes, {
+            "strict-unsupported", "ipv6-unprotected", "local-resolver", "local-resolver-tcp",
+            "system-fallback", "system-fallback-not-tested", "system-fallback-tcp", "config-conflict",
+        })
+
+    def test_status_warnings_are_russian_and_codes_are_preserved(self):
+        seen_codes = set()
+        for firewall_state, mode in (("unknown", "fallback"), ("missing", "active")):
+            with self.subTest(firewall=firewall_state), tempfile.TemporaryDirectory() as temp_dir:
+                app_dir, _ = self.make_app(temp_dir)
+                runtime = mihui_server.default_dns_protection_runtime()
+                runtime.update({"requestedMode": "active", "fallbackPending": True})
+                mihui_server.save_dns_protection_runtime(app_dir, runtime)
+                with mock.patch.object(
+                    mihui_server, "collect_dns_protection_capabilities", return_value=self.ready_capabilities()
+                ), mock.patch.object(
+                    mihui_server, "dns_capture_lease_state", return_value={"known": True, "active": True, "complete": False}
+                ), mock.patch.object(
+                    mihui_server, "dns_firewall_installed", return_value={"ok": False, "state": firewall_state}
+                ), mock.patch.object(mihui_server, "get_dns_protection_mode", return_value=mode):
+                    result = mihui_server.get_dns_protection_status(app_dir)
+                for warning in result["warnings"]:
+                    seen_codes.add(warning["code"])
+                    self.assertRegex(warning["message"], "[А-Яа-яЁё]")
+                    self.assertNotRegex(warning["message"], r"\b(?:fallback|lease|firewall)\b")
+        self.assertEqual(seen_codes, {
+            "fail-open", "partial-capture", "firewall-unknown", "firewall-missing", "topology-changed",
+            "fallback-pending", "managed-config-changed", "system-fallback-tcp", "ipv6-unprotected",
+        })
 
     def test_strict_action_requires_confirmations_and_never_mutates(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -479,6 +540,7 @@ ip name-server 1.1.1.1
             ])
         self.assertTrue(ipv4["ok"])
         self.assertEqual(ipv4["state"], "ready")
+        self.assertEqual(ipv4["message"], "Системный DNS ответил на новые UDP-запросы по всем адресам выбранных локальных сетей.")
         self.assertFalse(ipv4["tcpDiagnosticOk"])
         self.assertEqual(set(targets), {"192.168.1.1"})
 
@@ -496,13 +558,14 @@ ip name-server 1.1.1.1
             ])
         self.assertFalse(dual["ok"])
         self.assertEqual(dual["state"], "failed")
+        self.assertEqual(dual["message"], "Системный DNS не ответил на новый UDP-запрос хотя бы по одному адресу выбранных локальных сетей.")
 
     def test_missing_lan_does_not_claim_system_dns_failed(self):
         with mock.patch.object(mihui_server, "probe_dns_endpoint") as probe:
             result = mihui_server.probe_system_dns_fallback([])
         self.assertFalse(result["ok"])
         self.assertEqual(result["state"], "not-tested")
-        self.assertIn("not tested", result["message"])
+        self.assertEqual(result["message"], "Системный DNS не проверен: сначала выберите локальные сети.")
         self.assertEqual(result["probes"], [])
         probe.assert_not_called()
 
@@ -786,8 +849,45 @@ ip name-server 1.1.1.1
             ):
                 mihui_server.run_dns_protection_lease_cycle(app_dir)
             saved = mihui_server.load_dns_protection_runtime(app_dir)
+            events = mihui_server.read_dns_protection_events(app_dir)
 
         self.assertFalse(saved["fallbackPending"])
+        self.assertEqual(events[0]["type"], "fallback_ready")
+        self.assertEqual(events[0]["message"], "Срок действия перехвата DNS истёк; перехват отключён. Доступность системного DNS проверяется отдельно")
+
+    def test_worker_health_and_recovery_events_are_russian(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            protected = mihui_server.prepare_dns_protection_text("mixed-port: 7890\n", "PROXY", False)
+            app_dir, _ = self.make_app(temp_dir, protected)
+            runtime = mihui_server.default_dns_protection_runtime()
+            runtime.update({
+                "requestedMode": "active",
+                "managedBlockRevision": mihui_server.dns_managed_block_revision(protected),
+                "lanInterfaces": ["br0"],
+                "addresses": {"ipv4": ["192.168.1.1"], "ipv6": []},
+            })
+            mihui_server.save_dns_protection_runtime(app_dir, runtime)
+            health = {**mihui_server.dns_protection_health, "leaseHealthy": True, "consecutiveFailures": 0}
+            lan = {"ok": True, "interfaces": ["br0"], "ipv4": ["192.168.1.1"], "ipv6": []}
+            with mock.patch.object(
+                mihui_server, "discover_dns_lan_addresses", return_value=lan
+            ), mock.patch.object(
+                mihui_server, "probe_mihomo_dns_listener", side_effect=[{"ok": False}, {"ok": True}]
+            ), mock.patch.object(
+                mihui_server, "dns_firewall_installed", return_value={"ok": True}
+            ), mock.patch.object(
+                mihui_server, "refresh_dns_firewall_lease", return_value={"ok": True}
+            ), mock.patch.object(mihui_server, "dns_protection_health", health):
+                mihui_server.run_dns_protection_lease_cycle(app_dir)
+                self.assertEqual(health["message"], "Проверка DNS не пройдена")
+                mihui_server.run_dns_protection_lease_cycle(app_dir)
+                self.assertEqual(health["message"], "DNS-служба Mihomo работает")
+            events = mihui_server.read_dns_protection_events(app_dir)
+        self.assertEqual([event["type"] for event in events], ["lease_degraded", "lease_recovered"])
+        for event in events:
+            self.assertRegex(event["message"], "[А-Яа-яЁё]")
+            self.assertNotRegex(event["message"], r"\b(?:fallback|lease|firewall)\b")
+        self.assertIn("доступность резерва проверяется отдельно", events[0]["message"])
 
     def test_multiple_unconfigured_lan_bridges_block_auto_selection(self):
         output = "\n".join((

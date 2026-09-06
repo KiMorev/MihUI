@@ -142,6 +142,12 @@ globalThis.__app = {
   getKernelCheckSummary,
   getProtectedDnsErrorMessage,
   getProtectedDnsRoutePresentation,
+  getProtectedDnsFallbackPresentation,
+  getProtectedDnsCapabilityLabel,
+  getProtectedDnsCheckMessage,
+  getProtectedDnsEventLabel,
+  getProtectedDnsEventMessage,
+  getProtectedDnsConfigCheckOutput,
   confirmHighRiskSave,
   hasUnsavedWorkspaceChanges,
   handleBeforeUnload,
@@ -197,6 +203,7 @@ globalThis.__app = {
   renderConnectionSettings,
   renderProtectedDnsExclusions,
   renderProtectedDnsLanSelector,
+  renderProtectedDnsEvents,
   renameGroup,
   addRule,
   moveRule,
@@ -260,6 +267,74 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: DNS statuses and capability messages use Russian wording`, () => {
+    const app = loadApp(source);
+    for (const state of ['ready', 'failed', 'not-tested']) {
+      const presentation = app.getProtectedDnsFallbackPresentation({ systemFallback: { state } });
+      assert.match(presentation.badge, /Резерв/);
+      assert.doesNotMatch(presentation.badge, /fallback/i);
+    }
+    assert.equal(app.getProtectedDnsFallbackPresentation({}, { pending: true }).badge, 'Возврат к системному DNS');
+    const ids = ['root', 'mihomo-binary', 'mihomo-api', 'proxy-group', 'config-ownership', 'ndmc',
+      'dns-override', 'ndnproxy', 'system-fallback', 'lan-selection', 'lan-ipv4', 'port-1053',
+      'iptables', 'ipset-timeout', 'firewall-chain4', 'ip6tables', 'firewall-chain6', 'local-resolver'];
+    for (const id of ids) {
+      const label = app.getProtectedDnsCapabilityLabel(id);
+      assert.match(label, /[а-яё]|^API Mihomo$/i, id);
+      assert.doesNotMatch(label, /fallback|fail-open|lease|firewall/i, id);
+      for (const tone of ['ok', 'error']) {
+        const message = app.getProtectedDnsCheckMessage({ id }, tone);
+        assert.match(message, /[а-яё]/i, `${id}: ${tone}`);
+        assert.doesNotMatch(message, /Kernel timeout|fallback|fail-open|lease|firewall/i, id);
+      }
+    }
+  });
+
+  test(`${source.name}: DNS journal localizes event badges and existing summaries without rewriting raw events`, () => {
+    const app = loadApp(source);
+    const labels = {
+      preview: 'Проверка', preview_failed: 'Проверка не пройдена', test: 'Тестовый режим',
+      activate: 'Включение', active: 'Включение', system: 'Системный DNS',
+      preflight_failed: 'Предусловия не пройдены', fallback: 'Аварийный возврат',
+      fallback_ready: 'Перехват прекращён', lease_recovered: 'Защита восстановлена',
+      lease_degraded: 'Защита недоступна',
+    };
+    for (const [type, expected] of Object.entries(labels)) {
+      assert.equal(app.getProtectedDnsEventLabel({ type }), expected);
+    }
+    assert.equal(app.getProtectedDnsEventLabel({ type: 'future_event' }), 'Событие DNS');
+    const events = [
+      { type: 'fallback_ready', message: 'DNS capture lease expired; system fallback is fully available' },
+      { type: 'lease_recovered', message: 'DNS lease восстановлен' },
+      { type: 'lease_degraded', message: 'DNS lease больше не обновляется; системный fallback включится автоматически' },
+    ];
+    app.state.protectedDns.events = events;
+    app.renderProtectedDnsEvents();
+    const rows = app.els.dnsEvents.children.slice(-events.length);
+    rows.forEach((row, index) => {
+      const original = events[events.length - 1 - index];
+      const [summary, raw] = row.children;
+      assert.equal(summary.children[0].textContent, labels[original.type]);
+      assert.match(summary.children[1].textContent, /[а-яё]/i);
+      assert.doesNotMatch(summary.children[1].textContent, /lease|fallback|capture/i);
+      assert.deepEqual(JSON.parse(raw.textContent), original);
+    });
+  });
+
+  test(`${source.name}: DNS translations preserve original technical details and unknown event text`, () => {
+    const app = loadApp(source);
+    const details = 'level=error msg="list private not found in GeoSite.dat"';
+    assert.equal(app.getProtectedDnsConfigCheckOutput({ output: details }), details);
+    const message = '<img src=x onerror=alert(1)>';
+    app.state.protectedDns.events = [{ type: 'future_event', message }];
+    app.renderProtectedDnsEvents();
+    const heading = app.els.dnsEvents.children.at(-1).children[0].children[1];
+    assert.equal(heading.textContent, message);
+    assert.equal(heading.children.length, 0);
+    assert.equal(app.getProtectedDnsEventMessage({ message: 'Защищённый DNS включён' }), 'Защищённый DNS включён');
+    assert.equal(app.getProtectedDnsEventMessage({ message: 'constructor' }), 'constructor');
+  });
+
   test(`${source.name}: DNS route reflects the current mode rather than the proposed protected path`, () => {
     const app = loadApp(source);
 

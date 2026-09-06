@@ -339,7 +339,7 @@ const PROVIDER_DIFF_FIELDS = [
   { key: 'userAgent', label: 'User-Agent' },
   { key: 'hasXHwid', label: 'x-hwid' },
   { key: 'xHwid', label: 'x-hwid' },
-  { key: 'customHeaders', label: 'headers' },
+  { key: 'customHeaders', label: 'заголовки' },
   { key: 'hasUdp', label: 'UDP' },
   { key: 'udp', label: 'UDP' },
   { key: 'hasTfo', label: 'быстрое открытие TCP (TFO)' },
@@ -4963,14 +4963,14 @@ function getProtectedDnsFallbackPresentation(capabilities = {}, fallback = {}) {
   const stateName = systemFallback.state
     || (systemFallback.ok === true ? 'ready' : systemFallback.ok === false ? 'failed' : 'not-tested');
   const base = {
-    ready: { tone: 'is-ready', badge: 'Fallback проверен', state: 'Готов · автоматический' },
-    failed: { tone: 'is-error', badge: 'Fallback недоступен', state: 'Системный DNS не ответил' },
-    'not-tested': { tone: 'is-idle', badge: 'Fallback не проверен', state: 'Не проверен' },
-  }[stateName] || { tone: 'is-idle', badge: 'Fallback не проверен', state: 'Не проверен' };
+    ready: { tone: 'is-ready', badge: 'Резерв проверен', state: 'Готов · автоматический' },
+    failed: { tone: 'is-error', badge: 'Резерв недоступен', state: 'Системный DNS не ответил' },
+    'not-tested': { tone: 'is-idle', badge: 'Резерв не проверен', state: 'Не проверен' },
+  }[stateName] || { tone: 'is-idle', badge: 'Резерв не проверен', state: 'Не проверен' };
   const pending = fallback.pending === true;
   return {
     ...base,
-    badge: pending ? 'Fallback выполняется' : base.badge,
+    badge: pending ? 'Возврат к системному DNS' : base.badge,
     state: pending
       ? 'Ожидается подтверждение снятия перехвата'
       : stateName === 'ready' ? 'Готов · системный DNS отвечает по UDP'
@@ -5030,7 +5030,7 @@ function getProtectedDnsModePresentation(mode) {
     fallback: {
       label: 'Аварийный возврат',
       title: 'Защищённый путь отключён автоматически',
-      message: 'Lease истёк: запросы снова обслуживает системный ndnproxy. Проверьте Mihomo перед повторным включением.',
+      message: 'Защищённый путь не подтверждён. После прекращения перехвата запросы обслуживает системный ndnproxy.',
     },
   }[mode] || {
     label: 'Нет данных',
@@ -5073,8 +5073,8 @@ function getProtectedDnsCapabilityLabel(id) {
     ndnproxy: 'Системный ndnproxy :53',
     iptables: 'Перехват IPv4',
     ip6tables: 'Перехват IPv6',
-    ipset: 'Аварийный lease ipset',
-    ipsetTimeout: 'Автоматический fail-open',
+    ipset: 'Срок действия перехвата',
+    ipsetTimeout: 'Автоматический возврат к системному DNS',
     dnsOverride: 'Конфликт dns-override',
     ipv4: 'DNS клиентов по IPv4',
     ipv6: 'DNS клиентов по IPv6',
@@ -5086,11 +5086,11 @@ function getProtectedDnsCapabilityLabel(id) {
     'dns-override': 'Конфликт XKeen dns-override',
     'lan-ipv4': 'LAN-адрес IPv4',
     'port-1053': 'Порт Mihomo :1053',
-    'ipset-timeout': 'Автоматический fail-open',
-    'firewall-chain4': 'Цепочка firewall IPv4',
-    'firewall-chain6': 'Цепочка firewall IPv6',
+    'ipset-timeout': 'Автоматический возврат к системному DNS',
+    'firewall-chain4': 'Цепочка межсетевого экрана IPv4',
+    'firewall-chain6': 'Цепочка межсетевого экрана IPv6',
     'local-resolver': 'Локальный резолвер :41100',
-    'system-fallback': 'Системный DNS fallback',
+    'system-fallback': 'Системный резерв DNS',
     'lan-selection': 'LAN-интерфейсы DNS',
   }[id] || id;
 }
@@ -5125,7 +5125,7 @@ function getProtectedDnsCheckMessage(check, tone) {
     'lan-ipv4': ['LAN-адрес IPv4 найден', 'LAN-адрес IPv4 не найден'],
     'port-1053': ['Порт 1053 свободен или занят управляемым Mihomo', 'Порт 1053 занят другим процессом'],
     iptables: ['IPv4 NAT и ipset доступны', 'IPv4 NAT или ipset недоступны'],
-    'ipset-timeout': ['Kernel timeout доступен', 'Kernel timeout недоступен'],
+    'ipset-timeout': ['Ядро поддерживает срок действия записей ipset', 'Ядро не поддерживает срок действия записей ipset'],
     'firewall-chain4': ['Имя цепочки IPv4 безопасно', 'Обнаружен конфликт цепочки IPv4'],
     ip6tables: ['Защищённый путь IPv6 доступен', 'Защищённый путь IPv6 недоступен'],
     'firewall-chain6': ['Имя цепочки IPv6 безопасно', 'Обнаружен конфликт цепочки IPv6'],
@@ -5173,7 +5173,7 @@ function normalizeProtectedDnsTextList(value) {
   if (!Array.isArray(value) && typeof value === 'object' && value.listener) {
     const lines = [
       `Подготовить DNS-слушатель Mihomo ${value.listener} (${value.enhancedMode || 'redir-host'}).`,
-      `Направить защищённые upstream через группу ${value.upstreamRoute || 'PROXY'}.`,
+      `Направить запросы к защищённым DNS-серверам через группу ${value.upstreamRoute || 'PROXY'}.`,
     ];
     if (Array.isArray(value.localNames) && value.localNames.length) {
       lines.push(`Передавать локальному резолверу 127.0.0.1:41100 только имена: ${value.localNames.join(', ')}.`);
@@ -5297,9 +5297,25 @@ function getProtectedDnsEventLabel(event = {}) {
     preview_failed: 'Проверка не пройдена',
     test: 'Тестовый режим',
     activate: 'Включение',
+    active: 'Включение',
     system: 'Системный DNS',
     preflight_failed: 'Предусловия не пройдены',
-  }[event.type || event.action] || event.action || event.mode || event.type || (event.ok === false ? 'Ошибка' : 'Проверка');
+    fallback: 'Аварийный возврат',
+    fallback_ready: 'Перехват прекращён',
+    lease_recovered: 'Защита восстановлена',
+    lease_degraded: 'Защита недоступна',
+  }[event.type || event.action || event.mode] || (event.ok === false ? 'Ошибка' : 'Событие DNS');
+}
+
+function getProtectedDnsEventMessage(event = {}) {
+  const message = event.message || event.title || 'Событие DNS';
+  // Older journal entries keep their original data; localize only known summaries.
+  const translations = {
+    'DNS capture lease expired; system fallback is fully available': 'Срок действия перехвата DNS истёк; запросы возвращаются к системному DNS.',
+    'DNS lease восстановлен': 'Срок действия перехвата DNS продлён; защита восстановлена.',
+    'DNS lease больше не обновляется; системный fallback включится автоматически': 'Срок действия перехвата DNS больше не продлевается; после его истечения запросы вернутся к системному DNS.',
+  };
+  return Object.hasOwn(translations, message) ? translations[message] : message;
 }
 
 function renderProtectedDnsEvents() {
@@ -5326,7 +5342,7 @@ function renderProtectedDnsEvents() {
     badge.className = `dns-protection-state ${ok ? 'is-active' : 'is-error'}`;
     badge.textContent = getProtectedDnsEventLabel(event);
     heading.className = 'dns-protection-event-heading';
-    heading.textContent = event.message || event.title || 'Событие DNS';
+    heading.textContent = getProtectedDnsEventMessage(event);
     time.dateTime = event.at || '';
     time.textContent = getProtectedDnsTime(event.timestamp || event.at);
     raw.textContent = JSON.stringify(event, null, 2);
@@ -5362,7 +5378,7 @@ function renderProtectedDns() {
   const fallbackPresentation = lanDraftChanged
     ? {
       tone: 'is-idle',
-      badge: 'Fallback требует проверки',
+      badge: 'Резерв требует проверки',
       state: 'Не проверен после изменения LAN',
       message: 'Повторите предварительную проверку для выбранных LAN-интерфейсов.',
     }
@@ -6643,18 +6659,18 @@ async function decodeHappProvider(provider) {
 }
 
 async function decodeHappProviderUrl(provider) {
-  if (!canUseBrowserHappDecryptor()) throw new Error('browser Happ decryptor is unavailable');
+  if (!canUseBrowserHappDecryptor()) throw new Error('Расшифровка Happ в браузере недоступна.');
   return decodeHappProviderUrlInBrowser(provider.url);
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
   const decryptor = await loadHappBrowserDecryptor();
   if (typeof decryptor.decryptLink !== 'function') {
-    throw new Error('browser module does not export decryptLink');
+    throw new Error('В модуле расшифровки Happ отсутствует функция decryptLink.');
   }
   const decryptedUrl = normalizeBrowserDecodedHappUrl(await decryptor.decryptLink(sourceUrl));
   if (!/^https?:\/\//i.test(decryptedUrl)) {
-    throw new Error('browser decryptor did not return a direct http/https URL');
+    throw new Error('Модуль расшифровки Happ не вернул прямую ссылку HTTP/HTTPS.');
   }
   return {
     ok: true,
@@ -6931,7 +6947,7 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
       attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.', severity: 'neutral' });
     }
     if (changeCount > 0) {
-      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.', severity: 'neutral' });
+      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговые изменения.', severity: 'neutral' });
     }
     if (state.routerApiAvailable && state.nodeInventoryError) {
       attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError, severity: 'danger' });
@@ -15531,7 +15547,7 @@ async function updateMihui() {
     state.mihuiUpdateAccepted = true;
     pollMihuiUpdateStatus();
   } catch (error) {
-    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    showMessage(`Не удалось обновить MihUI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
     setMihuiUpdateHint(false, 'Повторить обновление');
@@ -15609,7 +15625,7 @@ async function pollMihuiUpdateStatus() {
     }
 
     state.updatePollTimer = 0;
-    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    showMessage(`Не удалось обновить MihUI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
   } finally {

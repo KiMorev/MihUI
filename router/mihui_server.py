@@ -584,7 +584,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if not config_path.is_file():
             self.send_json(
                 HTTPStatus.NOT_FOUND,
-                {"ok": False, "path": str(config_path), "message": "config not found"},
+                {"ok": False, "path": str(config_path), "message": "Файл конфигурации не найден"},
             )
             return
 
@@ -607,10 +607,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         text = payload.get("text")
         expected_revision = payload.get("expectedRevision")
         if not isinstance(text, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указан текст конфигурации"})
             return
         if expected_revision is not None and not isinstance(expected_revision, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Версия конфигурации expectedRevision должна быть строкой"})
             return
 
         result = save_checked_config(self.app_dir, text, expected_revision=expected_revision)
@@ -637,11 +637,11 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         name = str(payload.get("name") or "")
         expected_revision = payload.get("expectedRevision")
         if expected_revision is not None and not isinstance(expected_revision, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Версия конфигурации expectedRevision должна быть строкой"})
             return
         backup = backup_path_by_name(self.app_dir, name)
         if not backup:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "backup not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Резервная копия не найдена"})
             return
 
         result = restore_checked_backup(self.app_dir, backup, expected_revision=expected_revision)
@@ -683,7 +683,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                     "ok": None,
                     "phase": "download",
                     "progress": None,
-                    "message": "starting",
+                    "message": "Запуск обновления",
                     "startedAt": int(time.time()),
                     "finishedAt": None,
                     "output": "",
@@ -696,7 +696,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_component_action(self):
         if self.headers.get("X-Mihui-Action") != "components":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -708,7 +708,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         with component_state_lock:
             if component_action_state["running"]:
-                self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "component action already running"})
+                self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "Операция с компонентом уже выполняется"})
                 return
             component_action_state.update(
                 {
@@ -737,7 +737,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         payload = self.read_json_body()
         text = payload.get("text")
         if not isinstance(text, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указан текст конфигурации"})
             return
 
         result = check_mihomo_config(self.app_dir, text)
@@ -753,7 +753,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_xkeen_network_files_save(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-network-files":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -785,7 +785,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         payload = self.read_json_body()
         name = str(payload.get("name") or "")
         if not name:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "name is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя подписки"})
             return
 
         result = update_proxy_provider(self.app_dir, name)
@@ -796,7 +796,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         group = str(payload.get("group") or "").strip()
         name = str(payload.get("name") or "").strip()
         if not group or not name:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "group and name are required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указаны группа и имя ноды"})
             return
 
         result = select_proxy_group(self.app_dir, group, name)
@@ -822,18 +822,18 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         job_id = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
         job = snapshot_xkeen_command_job(job_id)
         if job is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "command job not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Задание команды не найдено"})
             return
         self.send_json(HTTPStatus.OK, {"ok": True, "job": job})
 
     def handle_xkeen_command_run(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         flag = str(self.read_json_body().get("flag") or "").strip()
         if flag not in XKEEN_COMMAND_FLAGS:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "command is not allowed"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Эта команда не разрешена"})
             return
         if not find_xkeen_binary(self.app_dir):
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "XKeen не найден"})
@@ -850,21 +850,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_xkeen_command_input(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         payload = self.read_json_body()
         job_id = str(payload.get("jobId") or "").strip()
         text = payload.get("text")
         if not isinstance(text, str) or len(text) > 4096:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "invalid command input"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Некорректный ввод для команды"})
             return
         result = send_xkeen_command_input(job_id, text)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_xkeen_command_stop(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         job_id = str(self.read_json_body().get("jobId") or "").strip()
@@ -876,7 +876,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_resource_monitor_settings(self):
         if self.headers.get("X-Mihui-Action") != "resource-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -890,7 +890,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             if not readiness["ready"]:
                 self.send_json(
                     HTTPStatus.UNPROCESSABLE_ENTITY,
-                    {"ok": False, "message": "resource groups are not ready", "readiness": readiness},
+                    {"ok": False, "message": "Группы ресурсов не готовы", "readiness": readiness},
                 )
                 return
 
@@ -901,7 +901,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                     HTTPStatus.BAD_GATEWAY,
                     {
                         "ok": False,
-                        "message": "Mihomo did not apply the fastest resource nodes",
+                        "message": "Mihomo не применил выбор самых быстрых нод для ресурсов",
                         "selection": selection,
                     },
                 )
@@ -912,13 +912,13 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_resource_monitor_check(self):
         if self.headers.get("X-Mihui-Action") != "resource-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         payload = self.read_json_body()
         service = str(payload.get("service") or "").strip().casefold()
         if service and service not in RESOURCE_MONITOR_SERVICES:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "unknown service"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Неизвестный ресурс"})
             return
 
         result = start_resource_monitor_check(self.app_dir, [service] if service else None)
@@ -933,7 +933,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_settings(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -977,7 +977,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_check(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         result = start_whitelist_monitor_check(self.app_dir)
@@ -991,7 +991,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_proxy_check(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         endpoint_id = str(self.read_json_body().get("endpointId") or "").strip()
@@ -1005,7 +1005,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             None,
         )
         if endpoint is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "control endpoint not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Контрольный адрес не найден"})
             return
 
         result = probe_whitelist_monitor_endpoint(
@@ -1029,7 +1029,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_dns_preview(self):
         if self.headers.get("X-Mihui-Action") != "dns":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
         try:
             request_data = validate_dns_protection_request(self.read_json_body())
@@ -1041,7 +1041,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_dns_action(self):
         if self.headers.get("X-Mihui-Action") != "dns":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
         try:
             request_data = validate_dns_protection_request(self.read_json_body(), require_action=True)
@@ -1070,7 +1070,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_dns_lab_settings(self):
         if self.headers.get("X-Mihui-Action") != "dns-lab":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
         try:
             settings = validate_dns_lab_settings(self.read_json_body())
@@ -1082,7 +1082,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_dns_lab_check(self):
         if self.headers.get("X-Mihui-Action") != "dns-lab":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
         result = start_dns_lab_check(self.app_dir)
         self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
@@ -1639,7 +1639,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
                 "stage": "conflict",
                 "path": str(config_path),
                 "currentRevision": current_revision,
-                "message": "config changed on disk after it was loaded",
+                "message": "Файл конфигурации изменился после загрузки в редактор",
             }
 
         check = check_mihomo_config(app_dir, text)
@@ -1647,7 +1647,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
             return {
                 "ok": False,
                 "stage": "check",
-                "message": check.get("message", "config check failed"),
+                "message": check.get("message", "Проверка конфигурации не пройдена"),
                 "check": check,
             }
 
@@ -1681,7 +1681,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
                 "backup": backup.name if backup else None,
                 "check": check,
                 "reload": reload_result,
-                "message": "config saved, but Mihomo apply status could not be confirmed",
+                "message": "Конфигурация сохранена, но не удалось подтвердить её применение в Mihomo",
             }
 
         rollback = restore_config_backup(config_path, backup)
@@ -1700,9 +1700,9 @@ def save_checked_config(app_dir, text, expected_revision=None):
             "reload": reload_result,
             "rollback": {**rollback, "reload": rollback_reload},
             "message": (
-                "Mihomo did not apply the config; previous config restored"
+                "Mihomo не применил конфигурацию; предыдущая конфигурация восстановлена"
                 if rollback["ok"]
-                else "Mihomo did not apply the config and rollback failed"
+                else "Mihomo не применил конфигурацию; восстановить предыдущую конфигурацию не удалось"
             ),
         }
 
@@ -1718,7 +1718,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "stage": "conflict",
                 "path": str(config_path),
                 "currentRevision": current_revision,
-                "message": "config changed on disk after it was loaded",
+                "message": "Файл конфигурации изменился после загрузки в редактор",
             }
 
         backup_text = backup.read_text(encoding="utf-8", errors="replace")
@@ -1728,7 +1728,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "ok": False,
                 "restored": False,
                 "stage": "check",
-                "message": check.get("message", "backup config check failed"),
+                "message": check.get("message", "Конфигурация из резервной копии не прошла проверку"),
                 "check": check,
             }
 
@@ -1764,7 +1764,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "backup": current_backup.name if current_backup else None,
                 "check": check,
                 "reload": reload_result,
-                "message": "backup restored, but Mihomo apply status could not be confirmed",
+                "message": "Резервная копия восстановлена, но не удалось подтвердить её применение в Mihomo",
             }
 
         rollback = restore_config_backup(config_path, current_backup)
@@ -1785,9 +1785,9 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
             "reload": reload_result,
             "rollback": {**rollback, "reload": rollback_reload},
             "message": (
-                "Mihomo did not apply the backup; previous config restored"
+                "Mihomo не применил резервную копию; предыдущая конфигурация восстановлена"
                 if rollback["ok"]
-                else "Mihomo did not apply the backup and rollback failed"
+                else "Mihomo не применил резервную копию; восстановить предыдущую конфигурацию не удалось"
             ),
         }
 
@@ -1809,7 +1809,7 @@ def check_mihomo_config(app_dir, text):
         return {
             "ok": True,
             "available": False,
-            "message": "mihomo binary not found; config check skipped",
+            "message": "Исполняемый файл Mihomo не найден; проверка конфигурации пропущена",
         }
 
     tmp_path = None
@@ -1826,11 +1826,11 @@ def check_mihomo_config(app_dir, text):
         return {
             "ok": result.returncode == 0,
             "available": True,
-            "message": output or ("config is valid" if result.returncode == 0 else "config check failed"),
+            "message": output or ("Конфигурация корректна" if result.returncode == 0 else "Проверка конфигурации не пройдена"),
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "available": True, "message": "config check timed out"}
+        return {"ok": False, "available": True, "message": "Время ожидания проверки конфигурации истекло"}
     except Exception as error:
         return {"ok": False, "available": True, "message": str(error)}
     finally:
@@ -2351,11 +2351,11 @@ def fetch_component_releases(repo, limit=10):
 
 def parse_xkeen_beta_archive(body):
     if not body or len(body) > XKEEN_BETA_ARCHIVE_MAX_BYTES:
-        raise ValueError("XKeen Beta archive has an invalid size")
+        raise ValueError("Некорректный размер архива XKeen Beta")
     try:
         archive = tarfile.open(fileobj=io.BytesIO(body), mode="r:gz")
     except tarfile.TarError as error:
-        raise ValueError("XKeen Beta archive is invalid") from error
+        raise ValueError("Архив XKeen Beta повреждён или имеет неверный формат") from error
 
     with archive:
         member = next(
@@ -2368,10 +2368,10 @@ def parse_xkeen_beta_archive(body):
             None,
         )
         if not member or not member.isfile() or member.size > 64 * 1024:
-            raise ValueError("XKeen Beta build metadata is missing")
+            raise ValueError("В архиве XKeen Beta отсутствуют сведения о сборке")
         source = archive.extractfile(member)
         if source is None:
-            raise ValueError("XKeen Beta build metadata is unreadable")
+            raise ValueError("Не удалось прочитать сведения о сборке XKeen Beta")
         text = source.read(64 * 1024 + 1).decode("utf-8", "replace")
 
     def assignment(name):
@@ -2382,13 +2382,13 @@ def parse_xkeen_beta_archive(body):
     channel = normalize_xkeen_channel(assignment("xkeen_build"))
     build_timestamp = normalize_xkeen_build_timestamp(assignment("build_timestamp"))
     if not COMPONENT_VERSION_PATTERN.fullmatch(version) or channel != "beta" or not build_timestamp:
-        raise ValueError("XKeen Beta build metadata is invalid")
+        raise ValueError("Некорректные сведения о сборке XKeen Beta")
     return {"version": version, "buildTimestamp": build_timestamp}
 
 
 def fetch_xkeen_beta_build(repo):
     if not re.fullmatch(r"[0-9A-Za-z_.-]+/[0-9A-Za-z_.-]+", str(repo or "")):
-        raise ValueError("invalid XKeen GitHub repository")
+        raise ValueError("Некорректный адрес репозитория XKeen на GitHub")
     request = urllib.request.Request(
         f"https://raw.githubusercontent.com/{repo}/main/test/xkeen.tar.gz",
         headers={"Accept": "application/octet-stream", "User-Agent": "MihUI"},
@@ -2514,7 +2514,7 @@ def validate_component_action(app_dir, payload):
     target = str((payload or {}).get("target") or "").strip()
     if component == "all":
         if action != "update" or target:
-            raise ValueError("unsupported all-components action")
+            raise ValueError("Эта операция не поддерживается для всех компонентов сразу")
         status = get_components_status(app_dir, force=True)
         updates = []
         xkeen = status["components"]["xkeen"]
@@ -2524,33 +2524,33 @@ def validate_component_action(app_dir, payload):
         if mihomo.get("updateAvailable") and mihomo.get("latest"):
             updates.append({"component": "mihomo", "target": mihomo["latest"]})
         if not updates:
-            raise ValueError("no component updates available")
+            raise ValueError("Доступных обновлений компонентов нет")
         return {"component": component, "action": action, "target": "", "updates": updates}
     if component not in {"xkeen", "mihomo"}:
-        raise ValueError("unsupported component")
+        raise ValueError("Неподдерживаемый компонент")
     if component == "xkeen" and action not in {"update", "rollback", "channel", "restart", "geo-update"}:
-        raise ValueError("unsupported XKeen action")
+        raise ValueError("Неподдерживаемая операция XKeen")
     if component == "mihomo" and action not in {"update", "restart", "geo-update"}:
-        raise ValueError("unsupported Mihomo action")
+        raise ValueError("Неподдерживаемая операция Mihomo")
     if component == "xkeen" and action == "channel":
         target = target.lower()
         if target not in {"stable", "beta"}:
-            raise ValueError("invalid XKeen channel")
+            raise ValueError("Некорректный канал обновлений XKeen")
     elif component == "xkeen" and target:
-        raise ValueError("XKeen target version is not supported")
+        raise ValueError("Выбор целевой версии XKeen не поддерживается")
     if component == "mihomo" and action != "update" and target:
-        raise ValueError("Mihomo target is not supported for this action")
+        raise ValueError("Выбор целевой версии Mihomo не поддерживается для этой операции")
     if component == "mihomo" and action == "update":
         status = get_components_status(app_dir)
         versions = status["components"]["mihomo"].get("versions") or []
         if not target:
             target = status["components"]["mihomo"].get("latest") or ""
         if not COMPONENT_VERSION_PATTERN.fullmatch(target):
-            raise ValueError("invalid Mihomo version")
+            raise ValueError("Некорректная версия Mihomo")
         normalized_target = target.lstrip("v")
         allowed = {str(version).lstrip("v") for version in versions}
         if normalized_target not in allowed:
-            raise ValueError("Mihomo version is not in the checked release list")
+            raise ValueError("Версия Mihomo отсутствует в проверенном списке релизов")
         target = f"v{normalized_target}"
     return {"component": component, "action": action, "target": target}
 
@@ -3065,17 +3065,17 @@ def render_mihomo_vless_proxy(name, node):
 
 def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):
     if depth > 3:
-        raise ValueError("provider landing redirect depth exceeded")
+        raise ValueError("Превышено допустимое количество перенаправлений страницы подписки")
 
     source_url = str(source_url or "").strip()
     if not source_url:
-        raise ValueError("url query parameter is required")
+        raise ValueError("Не указан параметр url со ссылкой на подписку")
 
     parsed = urllib.parse.urlsplit(source_url)
     if parsed.scheme == "incy":
         import_payload = extract_incy_import_payload(source_url)
         if not import_payload:
-            raise ValueError("incy://import does not contain a supported URL")
+            raise ValueError("Ссылка incy://import не содержит поддерживаемого адреса подписки")
         kind, value = import_payload
         if kind == "body":
             return value, "text/yaml; charset=utf-8"
@@ -3089,9 +3089,9 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
         )
 
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError("provider adapter supports only http/https and incy://import URLs")
+        raise ValueError("Адаптер подписок поддерживает только ссылки HTTP/HTTPS и incy://import")
     if not parsed.netloc:
-        raise ValueError("provider URL host is required")
+        raise ValueError("В ссылке на подписку не указан адрес сервера")
 
     if append_hwid:
         source_url = append_hwid_query(source_url, headers or {})
@@ -3143,7 +3143,7 @@ def request_provider_payload_once(source_url, headers, timeout, max_bytes=PROVID
         content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
 
     if len(body) > max_bytes:
-        raise ValueError("provider payload is too large")
+        raise ValueError("Размер данных подписки превышает допустимый предел")
     return body, content_type
 
 
@@ -3565,7 +3565,7 @@ def update_proxy_provider(app_dir, name):
         mihomo_api_request(app_dir, f"/providers/proxies/{encoded_name}", method="PUT", timeout=30)
         return {
             "ok": True,
-            "message": "provider update started",
+            "message": "Обновление подписки запущено",
             "adapter": get_xray_provider_adapter_status(name),
         }
     except Exception as error:
@@ -3586,11 +3586,11 @@ def select_proxy_group(app_dir, group, name):
 
     group_type = str(current.get("type") or "").strip().casefold() if isinstance(current, dict) else ""
     if group_type not in {"select", "selector"}:
-        return {"ok": False, "message": "group is not selectable"}
+        return {"ok": False, "message": "Группа не поддерживает ручной выбор ноды"}
 
     options = current.get("all") if isinstance(current, dict) else None
     if not isinstance(options, list) or name not in options:
-        return {"ok": False, "message": "proxy is not available in this group"}
+        return {"ok": False, "message": "Нода недоступна в этой группе"}
 
     if str(current.get("now") or "") == name:
         return {"ok": True, "changed": False, "group": group, "now": name}
@@ -3609,7 +3609,7 @@ def select_proxy_group(app_dir, group, name):
 
     confirmed_name = str(confirmed.get("now") or "") if isinstance(confirmed, dict) else ""
     if confirmed_name != name:
-        return {"ok": False, "uncertain": True, "message": "Mihomo did not confirm the selected proxy"}
+        return {"ok": False, "uncertain": True, "message": "Mihomo не подтвердил выбор ноды"}
     return {"ok": True, "changed": True, "group": group, "now": confirmed_name}
 
 
@@ -3745,7 +3745,7 @@ def load_resource_monitor_settings(app_dir):
 
 def validate_resource_monitor_settings(payload):
     if not isinstance(payload, dict):
-        raise TypeError("settings must be an object")
+        raise TypeError("Настройки должны быть объектом")
 
     ranges = {
         "intervalSeconds": (60, 3600),
@@ -3764,37 +3764,37 @@ def validate_resource_monitor_settings(payload):
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+            raise ValueError(f"Значение {key} должно быть от {minimum} до {maximum}")
         result[key] = value
 
     if result["proactiveLatencyThresholdMs"] >= result["latencyThresholdMs"]:
-        raise ValueError("proactiveLatencyThresholdMs must be below latencyThresholdMs")
+        raise ValueError("Порог упреждающего переключения proactiveLatencyThresholdMs должен быть меньше latencyThresholdMs")
 
     services = payload.get("services")
     if not isinstance(services, dict):
-        raise ValueError("services must be an object")
+        raise ValueError("Список ресурсов services должен быть объектом")
     unknown = set(services) - set(RESOURCE_MONITOR_SERVICES)
     if unknown:
-        raise ValueError("unknown services: " + ", ".join(sorted(unknown)))
+        raise ValueError("Неизвестные ресурсы: " + ", ".join(sorted(unknown)))
 
     normalized_services = {}
     for key, definition in RESOURCE_MONITOR_SERVICES.items():
         item = services.get(key)
         if not isinstance(item, dict):
-            raise ValueError(f"service {key} is required")
+            raise ValueError(f"Не указаны настройки ресурса {key}")
         group = str(item.get("group") or "").strip()
         if not group:
-            raise ValueError(f"group is required for {key}")
+            raise ValueError(f"Не указана группа для ресурса {key}")
         sources = item.get("sources", [])
         if not isinstance(sources, list):
-            raise ValueError(f"sources must be an array for {key}")
+            raise ValueError(f"Группы-источники ресурса {key} должны быть списком")
         normalized_sources = []
         for source in sources:
             if not isinstance(source, str):
-                raise ValueError(f"source names must be strings for {key}")
+                raise ValueError(f"Имена групп-источников ресурса {key} должны быть строками")
             name = source.strip()
             if not name:
-                raise ValueError(f"source names must not be empty for {key}")
+                raise ValueError(f"Имена групп-источников ресурса {key} не должны быть пустыми")
             if name not in normalized_sources:
                 normalized_sources.append(name)
         normalized_services[key] = {
@@ -3803,7 +3803,7 @@ def validate_resource_monitor_settings(payload):
             "sources": normalized_sources,
         }
     if result["enabled"] and not any(item["enabled"] for item in normalized_services.values()):
-        raise ValueError("at least one service must be enabled")
+        raise ValueError("Необходимо включить хотя бы один ресурс")
     result["services"] = normalized_services
     return result
 
@@ -4014,7 +4014,7 @@ def load_resource_monitor_proxy_snapshot(app_dir):
     data = mihomo_api_request(app_dir, "/proxies", timeout=5)
     proxies = data.get("proxies", data)
     if not isinstance(proxies, dict):
-        raise RuntimeError("Mihomo returned an invalid proxy list")
+        raise RuntimeError("Mihomo вернул некорректный список нод")
     proxies = dict(proxies)
     providers = {}
 
@@ -4072,7 +4072,7 @@ def resource_monitor_delay(app_dir, node, endpoint, timeout_ms, proxy=None):
     )
     delay = data.get("delay") if isinstance(data, dict) else None
     if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
-        raise RuntimeError("Mihomo did not return a valid delay")
+        raise RuntimeError("Mihomo не вернул корректный результат измерения задержки")
     return int(delay)
 
 
@@ -4294,7 +4294,7 @@ def refresh_resource_monitor_provider_delays(
         data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
         providers = data.get("providers", data)
         if not isinstance(providers, dict):
-            raise RuntimeError("Mihomo returned an invalid provider list")
+            raise RuntimeError("Mihomo вернул некорректный список подписок")
 
     checked = []
     timeout = max(10, int(settings["timeoutMs"] / 1000) + 10)
@@ -4883,7 +4883,7 @@ def run_resource_monitor_job(app_dir, services=None, startup=False):
 def start_resource_monitor_check(app_dir, services=None, startup=False):
     with resource_monitor_state_lock:
         if resource_monitor_job_state["running"]:
-            return {"ok": False, "message": "resource check already running", "job": dict(resource_monitor_job_state)}
+            return {"ok": False, "message": "Проверка ресурсов уже выполняется", "job": dict(resource_monitor_job_state)}
         resource_monitor_job_state.update(
             {
                 "running": True,
@@ -5003,24 +5003,24 @@ def whitelist_domain_list_runtime_path(app_dir):
 def normalize_whitelist_domain(value):
     domain = str(value or "").strip().lower().rstrip(".")
     if not domain or len(domain) > 253 or "." not in domain:
-        raise ValueError("invalid domain")
+        raise ValueError("Некорректное доменное имя")
     if domain.startswith("*."):
-        raise ValueError("wildcard domains are not supported")
+        raise ValueError("Доменные маски с символом * не поддерживаются")
     try:
         ascii_domain = domain.encode("idna").decode("ascii")
     except UnicodeError as error:
-        raise ValueError("invalid international domain") from error
+        raise ValueError("Некорректное международное доменное имя") from error
     labels = ascii_domain.split(".")
     if any(
         not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
         for label in labels
     ):
-        raise ValueError("invalid domain label")
+        raise ValueError("Некорректная часть доменного имени")
     try:
         ipaddress.ip_address(ascii_domain)
     except ValueError:
         return ascii_domain
-    raise ValueError("IP addresses are not allowed")
+    raise ValueError("Укажите доменное имя, а не IP-адрес")
 
 
 def parse_whitelist_domain_list(
@@ -5037,13 +5037,13 @@ def parse_whitelist_domain_list(
         try:
             domain = normalize_whitelist_domain(value)
         except ValueError as error:
-            raise ValueError(f"invalid whitelist domain at line {line_number}: {error}") from error
+            raise ValueError(f"Некорректный домен белого списка в строке {line_number}: {error}") from error
         if domain not in seen:
             seen.add(domain)
             domains.append(domain)
     if not minimum <= len(domains) <= maximum:
         raise ValueError(
-            f"whitelist domain count must be between {minimum} and {maximum}"
+            f"Количество доменов белого списка должно быть от {minimum} до {maximum}"
         )
     return domains
 
@@ -5103,10 +5103,10 @@ def fetch_whitelist_domain_list_text():
     with urllib.request.urlopen(request, timeout=15) as response:
         content_length = response.headers.get("Content-Length")
         if content_length and int(content_length) > WHITELIST_DOMAIN_MAX_BYTES:
-            raise ValueError("whitelist domain list is too large")
+            raise ValueError("Список доменов белого списка слишком большой")
         payload = response.read(WHITELIST_DOMAIN_MAX_BYTES + 1)
     if len(payload) > WHITELIST_DOMAIN_MAX_BYTES:
-        raise ValueError("whitelist domain list is too large")
+        raise ValueError("Список доменов белого списка слишком большой")
     return payload.decode("utf-8-sig")
 
 
@@ -5225,19 +5225,19 @@ def get_whitelist_routing_hosts(app_dir, settings):
 
 def validate_whitelist_monitor_endpoint(item, kind, index):
     if not isinstance(item, dict):
-        raise ValueError(f"{kind} endpoint {index + 1} must be an object")
+        raise ValueError(f"Адрес {kind} № {index + 1} должен быть задан объектом")
     endpoint_id = str(item.get("id") or "").strip()
     name = str(item.get("name") or "").strip()
     url = str(item.get("url") or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", endpoint_id):
-        raise ValueError(f"{kind} endpoint {index + 1} has an invalid id")
+        raise ValueError(f"У адреса {kind} № {index + 1} некорректный идентификатор")
     if not name or len(name) > 80:
-        raise ValueError(f"{kind} endpoint {index + 1} must have a name")
+        raise ValueError(f"Укажите название адреса {kind} № {index + 1} длиной до 80 символов")
     if len(url) > 2048:
-        raise ValueError(f"{kind} endpoint {index + 1} URL is too long")
+        raise ValueError(f"Ссылка адреса {kind} № {index + 1} слишком длинная")
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError(f"{kind} endpoint {index + 1} must use an HTTPS URL")
+        raise ValueError(f"Адрес {kind} № {index + 1} должен содержать ссылку HTTPS без имени пользователя и пароля")
     return {
         "id": endpoint_id,
         "name": name,
@@ -5248,7 +5248,7 @@ def validate_whitelist_monitor_endpoint(item, kind, index):
 
 def validate_whitelist_monitor_settings(payload):
     if not isinstance(payload, dict):
-        raise TypeError("settings must be an object")
+        raise TypeError("Настройки должны быть объектом")
 
     ranges = {
         "intervalSeconds": (60, 3600),
@@ -5263,17 +5263,17 @@ def validate_whitelist_monitor_settings(payload):
     }
     action_mode = str(payload.get("actionMode") or "observe").strip()
     if action_mode not in {"observe", "suggest", "automatic"}:
-        raise ValueError("actionMode must be observe, suggest or automatic")
+        raise ValueError("Режим actionMode должен быть observe, suggest или automatic")
     result["actionMode"] = action_mode
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+            raise ValueError(f"Значение {key} должно быть от {minimum} до {maximum}")
         result[key] = value
 
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if not proxy_group or len(proxy_group) > 128:
-        raise ValueError("proxyGroup is required")
+        raise ValueError("Не указана прокси-группа или её имя длиннее 128 символов")
     result["proxyGroup"] = proxy_group
 
     all_ids = set()
@@ -5284,13 +5284,13 @@ def validate_whitelist_monitor_settings(payload):
         items = payload.get(source_key)
         if not isinstance(items, list) or not 1 <= len(items) <= WHITELIST_MONITOR_ENDPOINT_LIMIT:
             raise ValueError(
-                f"{source_key} must contain between 1 and {WHITELIST_MONITOR_ENDPOINT_LIMIT} endpoints"
+                f"Список {source_key} должен содержать от 1 до {WHITELIST_MONITOR_ENDPOINT_LIMIT} адресов"
             )
         normalized = []
         for index, item in enumerate(items):
             endpoint = validate_whitelist_monitor_endpoint(item, kind, index)
             if endpoint["id"] in all_ids:
-                raise ValueError("endpoint ids must be unique")
+                raise ValueError("Идентификаторы адресов должны быть уникальными")
             all_ids.add(endpoint["id"])
             normalized.append(endpoint)
         result[source_key] = normalized
@@ -5298,9 +5298,9 @@ def validate_whitelist_monitor_settings(payload):
     enabled_positive = sum(item["enabled"] for item in result["positiveEndpoints"])
     enabled_controls = sum(item["enabled"] for item in result["controlEndpoints"])
     if enabled_positive < 1:
-        raise ValueError("at least one positive endpoint must be enabled")
+        raise ValueError("Необходимо включить хотя бы один разрешённый адрес")
     if enabled_controls < result["controlFailureThreshold"]:
-        raise ValueError("not enough control endpoints are enabled")
+        raise ValueError("Включено недостаточно контрольных адресов для выбранного порога подтверждения")
     return result
 
 
@@ -5467,7 +5467,7 @@ def probe_whitelist_monitor_endpoint(app_dir, route, endpoint, timeout_ms):
         )
         delay = data.get("delay") if isinstance(data, dict) else None
         if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
-            raise RuntimeError("Mihomo did not return a valid delay")
+            raise RuntimeError("Mihomo не вернул корректный результат измерения задержки")
         return {"ok": True, "delay": int(delay), "message": ""}
     except Exception as error:
         return {"ok": False, "delay": None, "message": str(error)}
@@ -5615,16 +5615,16 @@ def prepare_whitelist_fallback_text(text, settings, allowed_hosts=None):
     )
     hosts = list(dict.fromkeys(source_hosts))
     if not hosts:
-        raise ValueError("no enabled whitelist hosts")
+        raise ValueError("Нет включённых адресов белого списка")
     proxy_group = str(settings["proxyGroup"]).strip()
     if not proxy_group or any(character in proxy_group for character in ",#\r\n"):
-        raise ValueError("proxyGroup cannot be serialized into a rule")
+        raise ValueError("Имя прокси-группы нельзя безопасно записать в правило")
 
     lines, newline, trailing_newline = split_whitelist_config_lines(text)
     section = find_whitelist_rules_section(lines)
     if not section:
         if any(re.match(r"^rules\s*:", line.split("#", 1)[0].rstrip()) for line in lines):
-            raise ValueError("unsupported rules section format")
+            raise ValueError("Формат раздела rules не поддерживается")
         lines.append(f"rules: # {WHITELIST_FALLBACK_MARKER} created-rules-section")
         section = {
             "start": len(lines) - 1,
@@ -5634,7 +5634,7 @@ def prepare_whitelist_fallback_text(text, settings, allowed_hosts=None):
         }
     elif section["inlineEmpty"]:
         if "#" in lines[section["start"]]:
-            raise ValueError("inline empty rules with a comment are not supported")
+            raise ValueError("Пустой раздел rules в одну строку с комментарием не поддерживается")
         lines[section["start"]] = f"rules: # {WHITELIST_FALLBACK_MARKER} expanded-empty-rules"
         section["end"] = section["start"] + 1
 
@@ -5880,7 +5880,7 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
             if action == "activate" and action_ok
             else "Исходная маршрутизация автоматически восстановлена"
             if action_ok
-            else str(result.get("message") or "automatic config action failed")
+            else str(result.get("message") or "Не удалось автоматически изменить конфигурацию")
         )
     except Exception as error:
         result = {"ok": False, "message": str(error)}
@@ -6070,14 +6070,14 @@ def start_whitelist_monitor_check(app_dir):
         return {
             "ok": False,
             "disabled": True,
-            "message": "whitelist monitor is disabled",
+            "message": "Наблюдение за белыми списками выключено",
             "job": snapshot_whitelist_monitor_job(),
         }
     with whitelist_monitor_state_lock:
         if whitelist_monitor_job_state["running"]:
             return {
                 "ok": False,
-                "message": "whitelist check already running",
+                "message": "Проверка белых списков уже выполняется",
                 "job": dict(whitelist_monitor_job_state),
             }
         whitelist_monitor_job_state.update(
@@ -6274,7 +6274,7 @@ def read_dns_protection_events(app_dir, limit=20):
 
 def validate_dns_protection_request(payload, require_action=False):
     if not isinstance(payload, dict):
-        raise TypeError("request must be an object")
+        raise TypeError("Запрос должен быть объектом")
     allowed = {
         "action",
         "profile",
@@ -6285,21 +6285,21 @@ def validate_dns_protection_request(payload, require_action=False):
         "revision",
     }
     if set(payload) - allowed:
-        raise ValueError("unknown DNS request field")
+        raise ValueError("Неизвестное поле в запросе настройки DNS")
 
     action = str(payload.get("action") or "").strip().casefold()
     if require_action and action not in {"test", "activate", "system"}:
-        raise ValueError("action must be test, activate or system")
+        raise ValueError("Поле action должно иметь значение test, activate или system")
     if not require_action and action:
-        raise ValueError("preview does not accept an action")
+        raise ValueError("Предварительная проверка не принимает поле action")
 
     profile = str(payload.get("profile") or "resilient").strip().casefold()
     if profile not in {"resilient", "strict"}:
-        raise ValueError("profile must be resilient or strict")
+        raise ValueError("Поле profile должно иметь значение resilient или strict")
 
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
-        raise ValueError("invalid proxyGroup")
+        raise ValueError("Некорректное имя прокси-группы в поле proxyGroup")
 
     lan_interfaces = payload.get("lanInterfaces")
     if "lanInterfaces" in payload and (
@@ -6308,27 +6308,27 @@ def validate_dns_protection_request(payload, require_action=False):
         or any(not isinstance(item, str) or not valid_dns_interface_name(item) for item in lan_interfaces)
         or len(set(lan_interfaces)) != len(lan_interfaces)
     ):
-        raise ValueError("lanInterfaces must contain up to 16 unique LAN interface names")
+        raise ValueError("Поле lanInterfaces должно содержать не более 16 уникальных имён интерфейсов локальных сетей")
 
     expected_revision = payload.get("expectedRevision")
     revision_alias = payload.get("revision")
     if expected_revision is not None and revision_alias is not None and expected_revision != revision_alias:
-        raise ValueError("revision fields do not match")
+        raise ValueError("Поля ревизии конфигурации не совпадают")
     expected_revision = expected_revision if expected_revision is not None else revision_alias
     if expected_revision is not None and (
         not isinstance(expected_revision, str)
         or not re.fullmatch(r"[0-9a-f]{64}", expected_revision)
     ):
-        raise ValueError("expectedRevision must be a config revision")
+        raise ValueError("Поле expectedRevision должно содержать ревизию конфигурации")
     if require_action and expected_revision is None:
-        raise ValueError("expectedRevision is required")
+        raise ValueError("Требуется поле expectedRevision с ревизией конфигурации")
 
     confirmations = payload.get("confirmations", {})
     if not isinstance(confirmations, dict):
-        raise TypeError("confirmations must be an object")
+        raise TypeError("Поле confirmations должно быть объектом")
     confirmation_keys = {"providerDns", "transitDns", "wanReconnect"}
     if set(confirmations) - confirmation_keys:
-        raise ValueError("unknown confirmation")
+        raise ValueError("Неизвестное подтверждение")
     normalized_confirmations = {
         key: confirmations.get(key) is True for key in sorted(confirmation_keys)
     }
@@ -6349,7 +6349,7 @@ def dns_protection_managed_range(text):
     if not starts and not ends:
         return lines, None
     if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
-        raise ValueError("managed DNS markers are incomplete")
+        raise ValueError("Нарушены границы DNS-блока, управляемого MihUI")
     return lines, (starts[0], ends[0] + 1)
 
 
@@ -6417,7 +6417,7 @@ def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False):
 def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False):
     lines, managed_range = dns_protection_managed_range(text)
     if has_top_level_dns_config(text, ignore_range=managed_range):
-        raise ValueError("config already contains an unmanaged top-level dns section")
+        raise ValueError("Конфигурация уже содержит раздел dns верхнего уровня, не управляемый MihUI")
     block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver)
     if managed_range:
         return "".join(lines[:managed_range[0]]) + block + "".join(lines[managed_range[1]:])
@@ -6463,7 +6463,7 @@ def find_dns_tool(app_dir, name):
 
 def run_dns_tool(binary, arguments, timeout=5):
     if not binary:
-        return {"ok": False, "returncode": None, "message": "tool is unavailable"}
+        return {"ok": False, "returncode": None, "message": "Системная утилита недоступна"}
     try:
         result = subprocess.run(
             [binary, *list(arguments)],
@@ -6480,7 +6480,7 @@ def run_dns_tool(binary, arguments, timeout=5):
             "message": output[-300:],
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "returncode": None, "message": "command timed out", "output": ""}
+        return {"ok": False, "returncode": None, "message": "Превышено время ожидания команды", "output": ""}
     except Exception as error:
         return {"ok": False, "returncode": None, "message": str(error)[:300], "output": ""}
 
@@ -6498,7 +6498,7 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None, lan_interfaces=None):
             "interfaces": [],
             "candidateInterfaces": [],
             "candidates": [],
-            "selection": {"state": "unavailable", "message": "LAN addresses could not be read."},
+            "selection": {"state": "unavailable", "message": "Не удалось получить адреса локальных сетей."},
             "bindings": [],
             "ipv4": [],
             "ipv6": [],
@@ -6540,24 +6540,24 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None, lan_interfaces=None):
         for interface in detected_interfaces
     ]
     if explicit_empty_selection:
-        selection = {"state": "required", "message": "No LAN segments are selected; select at least one LAN segment."}
+        selection = {"state": "required", "message": "Локальные сети не выбраны. Выберите хотя бы одну сеть."}
         records = []
     elif selected_interfaces and (
         any(not valid_dns_interface_name(item) for item in selected_interfaces)
         or not set(selected_interfaces).issubset(detected_interfaces)
     ):
-        selection = {"state": "invalid", "message": "Selected LAN interfaces are unavailable or are not LAN candidates; select the complete LAN scope again."}
+        selection = {"state": "invalid", "message": "Выбранные интерфейсы недоступны или не относятся к локальным сетям. Повторно выберите все нужные локальные сети."}
         records = []
     elif selected_interfaces:
-        selection = {"state": "ready", "message": "Selected LAN interfaces were detected."}
+        selection = {"state": "ready", "message": "Выбранные интерфейсы локальных сетей обнаружены."}
         records = [item for item in records if item[0] in selected_interfaces]
     elif len(detected_interfaces) > 1:
-        selection = {"state": "required", "message": "Multiple LAN bridges detected; select LAN segments or set MIHUI_DNS_LAN_INTERFACES explicitly."}
+        selection = {"state": "required", "message": "Обнаружено несколько сетевых мостов. Выберите локальные сети или явно задайте MIHUI_DNS_LAN_INTERFACES."}
         records = []
     elif records:
-        selection = {"state": "ready", "message": "The only LAN bridge was selected automatically."}
+        selection = {"state": "ready", "message": "Единственный мост локальной сети выбран автоматически."}
     else:
-        selection = {"state": "unavailable", "message": "LAN bridge addresses were not detected."}
+        selection = {"state": "unavailable", "message": "Адреса мостов локальных сетей не обнаружены."}
 
     return {
         "ok": bool(records),
@@ -6584,7 +6584,7 @@ def get_dns_proxy_groups(app_dir):
         data = mihomo_api_request(app_dir, "/proxies", timeout=4)
         proxies = data.get("proxies", data) if isinstance(data, dict) else {}
         if not isinstance(proxies, dict):
-            raise ValueError("invalid proxy list")
+            raise ValueError("Некорректный список прокси")
     except Exception as error:
         return {"ok": False, "groups": [], "message": str(error)[:300]}
     groups = []
@@ -6629,7 +6629,7 @@ def probe_dns_endpoint(
                 size = struct.unpack("!H", receive_exact(stream, 2))[0]
                 payload = receive_exact(stream, size)
         else:
-            raise ValueError("unsupported DNS transport")
+            raise ValueError("Неподдерживаемый транспорт DNS")
         parsed = parse_dns_response(payload, query_id)
         result.update(parsed)
         result["ok"] = parsed["rcode"] in accepted_rcodes
@@ -6707,9 +6707,9 @@ def probe_system_dns_fallback(bindings, timeout_ms=1200):
     udp_ready = bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes)
     state = "ready" if udp_ready else ("failed" if normalized_bindings else "not-tested")
     messages = {
-        "ready": "System DNS answers fresh UDP queries on every selected LAN address.",
-        "failed": "System DNS did not answer a fresh UDP query on every selected LAN address.",
-        "not-tested": "System DNS was not tested: no LAN addresses are selected.",
+        "ready": "Системный DNS ответил на новые UDP-запросы по всем адресам выбранных локальных сетей.",
+        "failed": "Системный DNS не ответил на новый UDP-запрос хотя бы по одному адресу выбранных локальных сетей.",
+        "not-tested": "Системный DNS не проверен: сначала выберите локальные сети.",
     }
     return {
         "ok": udp_ready,
@@ -6881,24 +6881,24 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     def add_check(check_id, ok, message, required=True):
         checks.append({"id": check_id, "ok": bool(ok), "required": bool(required), "message": message})
 
-    add_check("root", root, "MihUI runs as root" if root else "MihUI must run as root")
-    add_check("mihomo-binary", bool(find_mihomo_binary(app_dir)), "Mihomo binary is available")
-    add_check("mihomo-api", groups["ok"], "Mihomo API is available" if groups["ok"] else "Mihomo API is unavailable")
-    add_check("proxy-group", bool(selected_group and selected_group in groups.get("groups", [])), "Selected proxy group exists")
-    add_check("config-ownership", markers_ok and not unmanaged_dns, "DNS config is free or owned by MihUI")
-    add_check("ndmc", ndmc["ok"], "ndmc read-only query succeeded")
-    add_check("dns-override", not dns_override, "XKeen dns-override is disabled")
-    add_check("ndnproxy", ndnproxy_ready, "ndnproxy owns system DNS port 53")
+    add_check("root", root, "MihUI работает с правами root" if root else "Для MihUI требуются права root")
+    add_check("mihomo-binary", bool(find_mihomo_binary(app_dir)), "Доступность исполняемого файла Mihomo")
+    add_check("mihomo-api", groups["ok"], "API Mihomo доступен" if groups["ok"] else "API Mihomo недоступен")
+    add_check("proxy-group", bool(selected_group and selected_group in groups.get("groups", [])), "Наличие выбранной прокси-группы")
+    add_check("config-ownership", markers_ok and not unmanaged_dns, "Отсутствие конфликтов с DNS-блоком, управляемым MihUI")
+    add_check("ndmc", ndmc["ok"], "Чтение настроек роутера через ndmc")
+    add_check("dns-override", not dns_override, "Отключение dns-override в XKeen")
+    add_check("ndnproxy", ndnproxy_ready, "Использование системного DNS-порта 53 службой ndnproxy")
     add_check("system-fallback", system_fallback["ok"], system_fallback["message"])
     add_check("lan-selection", lan["selection"]["state"] == "ready", lan["selection"]["message"])
-    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "LAN bridge IPv4 address detected" if lan.get("ipv4") else lan["message"])
-    add_check("port-1053", port1053_ready, "Port 1053 is free or owned by managed Mihomo DNS")
-    add_check("iptables", iptables_version["ok"] and iptables_nat["ok"] and iptables_set_ready and iptables_comment_ready, "IPv4 NAT, ipset and comment matches are available")
-    add_check("ipset-timeout", ipset_timeout, "Kernel ipset timeout is available")
-    add_check("firewall-chain4", chain4_safe, "IPv4 managed chain name is safe")
-    add_check("ip6tables", ip6tables_ready, "IPv6 NAT path is available", required=ipv6_client_dns)
-    add_check("firewall-chain6", chain6_safe, "IPv6 managed chain name is safe", required=ipv6_client_dns)
-    add_check("local-resolver", local_resolver["ok"], "Local UDP resolver 127.0.0.1:41100 is available", required=False)
+    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "IPv4-адрес моста локальной сети обнаружен" if lan.get("ipv4") else lan["message"])
+    add_check("port-1053", port1053_ready, "Порт 1053 свободен или занят DNS-службой Mihomo под управлением MihUI" if port1053_ready else "Порт 1053 занят другой службой")
+    add_check("iptables", iptables_version["ok"] and iptables_nat["ok"] and iptables_set_ready and iptables_comment_ready, "Поддержка IPv4 NAT, ipset и проверки комментариев правил")
+    add_check("ipset-timeout", ipset_timeout, "Ядро поддерживает срок действия записей ipset" if ipset_timeout else "Срок действия записей ipset не поддерживается")
+    add_check("firewall-chain4", chain4_safe, "Имя цепочки IPv4 не конфликтует с чужими правилами" if chain4_safe else "Не подтверждена безопасность имени цепочки IPv4")
+    add_check("ip6tables", ip6tables_ready, "Путь IPv6 NAT доступен" if ip6tables_ready else "Путь IPv6 NAT недоступен", required=ipv6_client_dns)
+    add_check("firewall-chain6", chain6_safe, "Имя цепочки IPv6 не конфликтует с чужими правилами" if chain6_safe else "Не подтверждена безопасность имени цепочки IPv6", required=ipv6_client_dns)
+    add_check("local-resolver", local_resolver["ok"], "Локальный UDP-резолвер 127.0.0.1:41100 доступен" if local_resolver["ok"] else "Локальный UDP-резолвер 127.0.0.1:41100 недоступен", required=False)
 
     activation_ready = all(item["ok"] for item in checks if item["required"])
     test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "config-ownership", "port-1053", "lan-selection"}
@@ -6954,7 +6954,7 @@ def dns_config_check_log_summary(config_check):
         # Validator output can contain config values or subscription URLs. Only
         # persist a recognized geodata error; detailed output stays in the response.
         missing = re.search(r"list ([A-Za-z0-9_.-]{1,80}) not found in (GeoSite|GeoIP)\.dat", str(config_check.get("message", "")))
-        summary["message"] = missing.group(0) if missing else "Mihomo DNS configuration check failed; inspect the preview response for details."
+        summary["message"] = f"Проверка DNS-конфигурации Mihomo не пройдена: {missing.group(0)}" if missing else "Проверка DNS-конфигурации Mihomo не пройдена. Подробности доступны в результатах предварительной проверки."
     return summary
 
 
@@ -6968,10 +6968,10 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
     revision = config_revision(config_text)
     warnings = []
     proposed_text = None
-    config_check = {"ok": False, "available": bool(find_mihomo_binary(app_dir)), "message": "preview unavailable"}
+    config_check = {"ok": False, "available": bool(find_mihomo_binary(app_dir)), "message": "Предварительная проверка недоступна"}
     try:
         if not proxy_group:
-            raise ValueError("no compatible Mihomo proxy group was detected")
+            raise ValueError("Совместимая прокси-группа Mihomo не обнаружена")
         proposed_text = prepare_dns_protection_text(
             config_text,
             proxy_group,
@@ -6980,7 +6980,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
         )
         config_check = check_mihomo_config(app_dir, proposed_text)
         if not config_check.get("available"):
-            config_check = {**config_check, "ok": False, "message": "Mihomo config check is unavailable"}
+            config_check = {**config_check, "ok": False, "message": "Проверка конфигурации Mihomo недоступна"}
     except ValueError as error:
         config_check = {**config_check, "ok": False, "message": str(error)}
         warnings.append({"code": "config-conflict", "message": str(error)})
@@ -6996,23 +6996,23 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
     if capabilities["ipv6ClientDns"] and not next(
         (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
     ):
-        warnings.append({"code": "ipv6-unprotected", "message": "IPv6 DNS detected but the IPv6 capture path is unavailable."})
+        warnings.append({"code": "ipv6-unprotected", "message": "DNS по IPv6 обнаружен, но перехват IPv6 недоступен."})
     if not capabilities["localResolver"]["ok"]:
-        warnings.append({"code": "local-resolver", "message": "Local domains will not be delegated because UDP 127.0.0.1:41100 did not answer."})
+        warnings.append({"code": "local-resolver", "message": "Запросы локальных доменов не будут передаваться локальному резолверу: UDP 127.0.0.1:41100 не ответил."})
     elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "local-resolver-tcp", "message": "Local UDP resolver is usable; TCP/41100 did not answer and is shown only as a diagnostic."})
+        warnings.append({"code": "local-resolver-tcp", "message": "Локальный резолвер доступен по UDP. TCP/41100 не ответил; это только диагностическая проверка."})
     if not capabilities["systemFallback"]["ok"]:
         warnings.append({
             "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
             "message": capabilities["systemFallback"]["message"],
         })
     elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback is usable; TCP/53 did not answer and is shown only as a diagnostic."})
+        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. TCP/53 не ответил; это только диагностическая проверка."})
 
     config_ready = bool(proposed_text is not None and config_check.get("ok"))
     result = {
         "ok": config_ready,
-        "message": "DNS configuration is valid." if config_ready else str(config_check.get("message") or "DNS configuration check failed")[-2000:],
+        "message": "Конфигурация DNS прошла проверку." if config_ready else str(config_check.get("message") or "Проверка конфигурации DNS не пройдена")[-2000:],
         "stage": "preview",
         "mode": get_dns_protection_mode(app_dir),
         "profile": request_data["profile"],
@@ -7044,9 +7044,9 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
         "confirmations": confirmations,
         "warnings": warnings,
         "exclusions": [
-            {"id": "application-doh", "message": "DoH/Private DNS inside applications does not use router port 53."},
-            {"id": "tailscale-dns", "message": "Clients using Tailscale DNS can bypass LAN DNS."},
-            {"id": "external-dns", "message": "Resilient mode does not intercept direct DNS to external addresses; that belongs to strict mode."},
+            {"id": "application-doh", "message": "DoH и защищённый DNS внутри приложений не используют порт 53 роутера."},
+            {"id": "tailscale-dns", "message": "Устройства с DNS Tailscale могут обходить DNS локальной сети."},
+            {"id": "external-dns", "message": "Отказоустойчивый профиль не перехватывает прямые DNS-запросы к внешним адресам. Для этого нужен отдельный строгий режим."},
         ],
     }
     if record_event:
@@ -7055,7 +7055,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
         result["event"] = append_dns_protection_event(
             app_dir,
             "preview" if passed else "preview_failed",
-            "Предварительная проверка DNS выполнена" if passed else "Предварительная проверка DNS выявила блокеры",
+            "Предварительная проверка DNS выполнена" if passed else "Предварительная проверка DNS выявила препятствия для запуска",
             profile=request_data["profile"],
             diagnostics={"failedChecks": failed_checks, "configCheck": dns_config_check_log_summary(config_check)},
         )
@@ -7102,9 +7102,9 @@ def dns_firewall_jump_rule(spec, interface, protocol):
 def ensure_dns_firewall_family(ipset_binary, spec):
     binary = spec["binary"]
     if not binary or not ipset_binary:
-        return {"ok": False, "message": "firewall tools are unavailable"}
+        return {"ok": False, "message": "Утилиты межсетевого экрана недоступны"}
     if not dns_ipset_is_compatible(ipset_binary, spec["set"], spec["family"]):
-        return {"ok": False, "message": f"ipset name collision: {spec['set']}"}
+        return {"ok": False, "message": f"Конфликт имени набора ipset: {spec['set']}"}
     created_set = run_dns_tool(
         ipset_binary,
         [
@@ -7124,7 +7124,7 @@ def ensure_dns_firewall_family(ipset_binary, spec):
     if not cleared_set["ok"]:
         return {"ok": False, "message": cleared_set["message"]}
     if not dns_chain_is_safe(binary, spec["chain"]):
-        return {"ok": False, "message": f"firewall chain name collision: {spec['chain']}"}
+        return {"ok": False, "message": f"Конфликт имени цепочки межсетевого экрана: {spec['chain']}"}
 
     chain = run_dns_tool(binary, ["-t", "nat", "-S", spec["chain"]])
     if chain["returncode"] != 0:
@@ -7143,7 +7143,7 @@ def ensure_dns_firewall_family(ipset_binary, spec):
 
     for interface in spec["interfaces"]:
         if not valid_dns_interface_name(interface):
-            return {"ok": False, "message": "invalid LAN interface"}
+            return {"ok": False, "message": "Некорректный интерфейс локальной сети"}
         for protocol in ("udp", "tcp"):
             rule = dns_firewall_jump_rule(spec, interface, protocol)
             exists = run_dns_tool(binary, ["-t", "nat", "-C", "PREROUTING", *rule])
@@ -7266,12 +7266,12 @@ def refresh_dns_firewall_lease(app_dir, capabilities):
         families.append((DNS_PROTECTION_SET6, capabilities["addresses"]["ipv6"]))
     for set_name, addresses in families:
         if not addresses:
-            return {"ok": False, "message": f"no addresses for {set_name}"}
+            return {"ok": False, "message": f"Нет адресов для набора {set_name}"}
         for address in addresses:
             try:
                 normalized = str(ipaddress.ip_address(address))
             except ValueError:
-                return {"ok": False, "message": "invalid lease address"}
+                return {"ok": False, "message": "Некорректный адрес в разрешении на перехват"}
             result = run_dns_tool(
                 ipset_binary,
                 ["add", set_name, normalized, "timeout", str(DNS_PROTECTION_LEASE_SECONDS), "-exist"],
@@ -7318,7 +7318,7 @@ def remove_dns_firewall(app_dir, runtime):
         chain_state = run_dns_tool(binary, ["-t", "nat", "-S", chain])
         if chain_state["returncode"] == 0:
             if not dns_chain_is_safe(binary, chain):
-                errors.append(f"refusing to remove foreign chain {chain}")
+                errors.append(f"Удаление чужой цепочки {chain} запрещено")
                 continue
             flushed = run_dns_tool(binary, ["-t", "nat", "-F", chain])
             deleted = run_dns_tool(binary, ["-t", "nat", "-X", chain]) if flushed["ok"] else flushed
@@ -7436,27 +7436,27 @@ def get_dns_protection_status(app_dir):
     )
     warnings = []
     if mode == "fallback":
-        warnings.append({"code": "fail-open", "message": "Защищённый режим не подтверждён полностью; системный DNS сохранён как fallback."})
+        warnings.append({"code": "fail-open", "message": "Защищённый режим не подтверждён полностью. Системный DNS сохранён как резерв; его доступность проверяется отдельно."})
     elif lease_state and not lease_state["complete"]:
-        warnings.append({"code": "partial-capture", "message": "DNS capture is active only for part of the detected router addresses."})
+        warnings.append({"code": "partial-capture", "message": "Перехват DNS действует только для части обнаруженных адресов роутера."})
     if firewall_state and not firewall_state["ok"]:
         if firewall_state.get("state") == "unknown":
-            warnings.append({"code": "firewall-unknown", "message": "Managed firewall state could not be verified; system fallback is not claimed active."})
+            warnings.append({"code": "firewall-unknown", "message": "Не удалось проверить состояние правил межсетевого экрана MihUI. Переход на системный DNS-резерв не подтверждён."})
         else:
-            warnings.append({"code": "firewall-missing", "message": "Managed DNS firewall rules are incomplete; protected mode is not active."})
+            warnings.append({"code": "firewall-missing", "message": "Правила перехвата DNS MihUI установлены не полностью. Защищённый режим не действует."})
     if runtime["requestedMode"] == "active" and not topology_matches:
-        warnings.append({"code": "topology-changed", "message": "LAN DNS topology changed; the protected lease is no longer renewed until activation is repeated."})
+        warnings.append({"code": "topology-changed", "message": "Состав или адреса локальных сетей изменились. Разрешение на перехват не продлевается; повторно проверьте настройки и включите защиту."})
     if runtime.get("fallbackPending"):
-        warnings.append({"code": "fallback-pending", "message": "DNS capture removal is still draining or could not be confirmed; the managed listener is preserved."})
+        warnings.append({"code": "fallback-pending", "message": "Отключение перехвата DNS ещё не завершено или не подтверждено. DNS-служба Mihomo под управлением MihUI сохранена."})
     if runtime["requestedMode"] == "active" and not managed_matches:
-        warnings.append({"code": "managed-config-changed", "message": "Managed DNS block changed; its capture lease is no longer renewed."})
+        warnings.append({"code": "managed-config-changed", "message": "DNS-блок, управляемый MihUI, изменён. Разрешение на его перехват больше не продлевается."})
     if not capabilities["systemFallback"]["ok"]:
         warnings.append({
             "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
             "message": capabilities["systemFallback"]["message"],
         })
     elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "system-fallback-tcp", "message": "System UDP DNS fallback works; TCP/53 is unavailable as a diagnostic."})
+        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. TCP/53 не ответил; это только диагностическая проверка."})
     if capabilities["ipv6ClientDns"] and not next(
         (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
     ):
@@ -7488,9 +7488,9 @@ def get_dns_protection_status(app_dir):
         },
         "warnings": warnings,
         "exclusions": [
-            {"id": "application-doh", "message": "DoH/Private DNS приложений обходит порт 53 роутера."},
-            {"id": "tailscale-dns", "message": "DNS Tailscale может обходить DNS домашнего сегмента."},
-            {"id": "external-dns", "message": "Resilient-профиль не перехватывает прямой DNS к внешним адресам; это требует отдельного strict-режима."},
+            {"id": "application-doh", "message": "DoH и защищённый DNS внутри приложений не используют порт 53 роутера."},
+            {"id": "tailscale-dns", "message": "Устройства с DNS Tailscale могут обходить DNS локальной сети."},
+            {"id": "external-dns", "message": "Отказоустойчивый профиль не перехватывает прямые DNS-запросы к внешним адресам. Для этого нужен отдельный строгий режим."},
         ],
         "events": read_dns_protection_events(app_dir),
     }
@@ -7555,7 +7555,7 @@ def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
             "ok": False,
             "stage": "firewall",
             "mode": "fallback",
-            "message": "Capture removal could not be confirmed; managed DNS listener was preserved until the lease expires",
+            "message": "Не удалось подтвердить отключение перехвата. DNS-служба Mihomo сохранена до истечения срока действия перехвата",
             "firewall": firewall,
             "fallbackPending": True,
             "runtime": stopped_runtime,
@@ -7576,7 +7576,7 @@ def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
             "mode": "system",
             "captureDisabled": True,
             "currentRevision": current_revision,
-            "message": "capture was disabled, but config changed after DNS settings were loaded",
+            "message": "Перехват отключён, но конфигурация изменилась после загрузки настроек DNS",
             "firewall": firewall,
             "runtime": cleared_runtime,
             "event": event,
@@ -7616,7 +7616,7 @@ def apply_dns_protection_action(app_dir, request_data):
                     "ok": False,
                     "stage": "preflight",
                     "mode": "fallback",
-                    "message": "previous DNS capture cleanup is still pending",
+                    "message": "Отключение предыдущего перехвата DNS ещё не завершено",
                     "fallbackPending": True,
                     "runtime": runtime,
                     "lease": pending_lease,
@@ -7627,7 +7627,7 @@ def apply_dns_protection_action(app_dir, request_data):
             return {
                 "ok": False,
                 "stage": "conflict",
-                "message": "config changed after DNS settings were loaded",
+                "message": "Конфигурация изменилась после загрузки настроек DNS",
                 "currentRevision": current_revision,
             }
 
@@ -7638,13 +7638,13 @@ def apply_dns_protection_action(app_dir, request_data):
                 return {
                     "ok": False,
                     "stage": "validation",
-                    "message": "strict mode requires every explicit confirmation",
+                    "message": "Для строгого режима необходимо явно подтвердить все изменения",
                     "missingConfirmations": missing,
                 }
             return {
                 "ok": False,
                 "stage": "unsupported",
-                "message": "strict mode is not activated automatically yet; provider DNS and transit settings were not changed",
+                "message": "Строгий режим пока не включается автоматически. Настройки DNS провайдера и транзитных запросов не изменены",
             }
 
         preview = preview_dns_protection(app_dir, request_data, record_event=False)
@@ -7661,7 +7661,7 @@ def apply_dns_protection_action(app_dir, request_data):
             return {
                 "ok": False,
                 "stage": "preflight",
-                "message": preview["message"] if not preview["ok"] else "DNS preflight did not pass",
+                "message": preview["message"] if not preview["ok"] else "Предварительная проверка DNS не пройдена",
                 "preview": preview,
                 "event": event,
                 "events": read_dns_protection_events(app_dir),
@@ -7682,7 +7682,7 @@ def apply_dns_protection_action(app_dir, request_data):
                     "ok": False,
                     "stage": "firewall",
                     "mode": "fallback",
-                    "message": "active capture removal could not be confirmed",
+                    "message": "Не удалось подтвердить отключение действующего перехвата",
                     "firewall": removed,
                     "fallbackPending": True,
                     "runtime": stopped_runtime,
@@ -7706,7 +7706,7 @@ def apply_dns_protection_action(app_dir, request_data):
             return {
                 "ok": False,
                 "stage": "probe",
-                "message": "Mihomo DNS listener did not pass the end-to-end UDP/TCP probe",
+                "message": "DNS-служба Mihomo не прошла сквозную проверку запросов по UDP/TCP",
                 "probe": probe,
                 "rollback": rollback,
                 "revision": rollback.get("revision", saved["revision"]),
@@ -7732,7 +7732,7 @@ def apply_dns_protection_action(app_dir, request_data):
                     rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
                     revision = rollback.get("revision", saved["revision"])
                 else:
-                    rollback = {"ok": False, "applied": False, "message": "managed listener preserved until capture lease expiry"}
+                    rollback = {"ok": False, "applied": False, "message": "DNS-служба Mihomo сохранена до истечения срока действия перехвата"}
                     revision = saved["revision"]
                 return {
                     "ok": False,
@@ -7752,7 +7752,7 @@ def apply_dns_protection_action(app_dir, request_data):
                     rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
                     revision = rollback.get("revision", saved["revision"])
                 else:
-                    rollback = {"ok": False, "applied": False, "message": "managed listener preserved until capture lease expiry"}
+                    rollback = {"ok": False, "applied": False, "message": "DNS-служба Mihomo сохранена до истечения срока действия перехвата"}
                     revision = saved["revision"]
                 return {
                     "ok": False,
@@ -7772,7 +7772,7 @@ def apply_dns_protection_action(app_dir, request_data):
                     "leaseHealthy": True,
                     "lastProbeAt": int(time.time()),
                     "consecutiveFailures": 0,
-                    "message": "DNS listener is healthy",
+                    "message": "DNS-служба Mihomo работает",
                 })
         save_dns_protection_runtime(app_dir, next_runtime)
         event = append_dns_protection_event(
@@ -7809,7 +7809,7 @@ def run_dns_protection_lease_cycle(app_dir):
             append_dns_protection_event(
                 app_dir,
                 "fallback_ready",
-                "DNS capture lease expired; system fallback is fully available",
+                "Срок действия перехвата DNS истёк; перехват отключён. Доступность системного DNS проверяется отдельно",
             )
         return
     if runtime["requestedMode"] != "active":
@@ -7818,7 +7818,7 @@ def run_dns_protection_lease_cycle(app_dir):
     managed_block_revision = dns_managed_block_revision(config_text)
     if not runtime.get("managedBlockRevision") or managed_block_revision != runtime["managedBlockRevision"]:
         with dns_protection_health_lock:
-            dns_protection_health.update({"leaseHealthy": False, "message": "Managed DNS config changed or is missing"})
+            dns_protection_health.update({"leaseHealthy": False, "message": "DNS-блок, управляемый MihUI, изменён или отсутствует"})
         return
     lan = discover_dns_lan_addresses(app_dir, lan_interfaces=runtime["lanInterfaces"])
     if not lan["ok"] or not dns_runtime_topology_matches(
@@ -7827,7 +7827,7 @@ def run_dns_protection_lease_cycle(app_dir):
         {"ipv4": lan["ipv4"], "ipv6": lan["ipv6"]},
     ):
         with dns_protection_health_lock:
-            dns_protection_health.update({"leaseHealthy": False, "message": "LAN DNS topology changed or is unavailable"})
+            dns_protection_health.update({"leaseHealthy": False, "message": "Состав или адреса локальных сетей изменились либо недоступны"})
         return
 
     runtime_capabilities = {
@@ -7840,7 +7840,7 @@ def run_dns_protection_lease_cycle(app_dir):
     }
     probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800)
     if not probe["ok"]:
-        lease = {"ok": False, "message": "DNS probe failed"}
+        lease = {"ok": False, "message": "Проверка DNS не пройдена"}
     else:
         firewall_state = dns_firewall_installed(app_dir, runtime)
         with dns_protection_health_lock:
@@ -7856,9 +7856,9 @@ def run_dns_protection_lease_cycle(app_dir):
                 read_config_text(get_config_path(app_dir))
             )
             if current_block_revision != runtime["managedBlockRevision"]:
-                lease = {"ok": False, "message": "Managed DNS config changed during health check"}
+                lease = {"ok": False, "message": "DNS-блок, управляемый MihUI, изменился во время проверки работоспособности"}
             elif not firewall_state["ok"] and not capabilities["activationReady"]:
-                lease = {"ok": False, "message": "DNS preflight no longer passes"}
+                lease = {"ok": False, "message": "Предварительная проверка DNS больше не проходит"}
             elif not firewall_state["ok"]:
                 firewall = ensure_dns_firewall(app_dir, capabilities)
                 lease = (
@@ -7880,13 +7880,13 @@ def run_dns_protection_lease_cycle(app_dir):
             "leaseHealthy": lease["ok"],
             "lastProbeAt": now,
             "consecutiveFailures": failures,
-            "message": "DNS listener is healthy" if lease["ok"] else lease.get("message", "DNS lease refresh failed"),
+            "message": "DNS-служба Mihomo работает" if lease["ok"] else lease.get("message", "Не удалось продлить разрешение на перехват DNS"),
         })
     if previous_healthy != lease["ok"]:
         append_dns_protection_event(
             app_dir,
             "lease_recovered" if lease["ok"] else "lease_degraded",
-            "DNS lease восстановлен" if lease["ok"] else "DNS lease больше не обновляется; системный fallback включится автоматически",
+            "Разрешение на перехват DNS восстановлено" if lease["ok"] else "Разрешение на перехват DNS больше не продлевается. После истечения его срока новые запросы пойдут к системному DNS; доступность резерва проверяется отдельно",
         )
 
 
@@ -8887,7 +8887,7 @@ def reload_mihomo(app_dir, config_path):
             "stage": "prepare",
             "uncertain": False,
             "path": current_path,
-            "message": f"Mihomo uses a different config path: {current_path}",
+            "message": f"Mihomo использует другой путь конфигурации: {current_path}",
         }
 
     try:
@@ -8935,7 +8935,7 @@ def reload_mihomo(app_dir, config_path):
             "stage": "verify",
             "uncertain": True,
             "path": confirmed_path,
-            "message": "Mihomo did not confirm the applied config path",
+            "message": "Mihomo не подтвердил путь применённой конфигурации",
         }
 
     return {
@@ -9078,7 +9078,7 @@ def run_update_script(app_dir):
                 "ok": success,
                 "phase": "complete" if success else "failed",
                 "progress": 100 if success else update_state["progress"],
-                "message": message or ("updated" if returncode == 0 else "failed"),
+                "message": message or ("Обновление завершено" if returncode == 0 else "Обновление не выполнено"),
                 "finishedAt": int(time.time()),
                 "output": message,
             }
@@ -9088,7 +9088,7 @@ def run_update_script(app_dir):
 def run_cgi_script(app_dir, progress_callback=None):
     script = app_dir / "www" / "cgi-bin" / "mihui-update"
     if not script.is_file():
-        body = b'{"ok":false,"message":"update script not found"}\n'
+        body = '{"ok":false,"message":"Скрипт обновления не найден"}\n'.encode("utf-8")
         return HTTPStatus.INTERNAL_SERVER_ERROR, [("Content-Type", "application/json")], body, 1
 
     env = os.environ.copy()
@@ -9201,7 +9201,7 @@ def initialize_update_state(app_dir):
         return
 
     version = read_version(app_dir)
-    message = f"MihUI updated to {version}" if version else "MihUI updated"
+    message = f"MihUI обновлён до {version}" if version else "MihUI обновлён"
     with update_lock:
         update_state.update(
             {

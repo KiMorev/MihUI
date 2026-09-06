@@ -165,7 +165,7 @@
             </div>
           </details>
           <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить MihUI через локальный сервис" hidden>
-            <span class="button-label">Обновить UI</span>
+            <span class="button-label">Обновить MihUI</span>
           </button>
           <button id="changesJumpButton" class="link-button" type="button" disabled hidden>
             <span>Изменения</span>
@@ -857,7 +857,7 @@
           <div class="dns-protection-state-copy">
             <div class="dns-protection-badges">
               <span id="dnsStateBadge" class="dns-protection-state is-idle">Нет данных</span>
-              <span id="dnsFallbackBadge" class="dns-protection-context is-idle">Fallback не проверен</span>
+              <span id="dnsFallbackBadge" class="dns-protection-context is-idle">Резерв не проверен</span>
             </div>
             <h3 id="dnsStateTitle">Состояние ещё не загружено</h3>
             <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
@@ -920,7 +920,7 @@
               </select>
             </label>
             <div>
-              <span>Основные upstream</span>
+              <span>Основные DNS-серверы</span>
               <strong id="dnsUpstreams">Cloudflare и Google · через PROXY</strong>
             </div>
           </div>
@@ -977,7 +977,7 @@
             <div><dt>Игнорировать DNSv4 провайдера</dt><dd id="dnsIgnoreProviderV4">—</dd></div>
             <div><dt>Игнорировать DNSv6 провайдера</dt><dd id="dnsIgnoreProviderV6">—</dd></div>
             <div><dt>Транзитные DNS-запросы</dt><dd id="dnsTransitState">—</dd></div>
-            <div><dt>Автоматический fallback</dt><dd id="dnsFallbackState">—</dd></div>
+            <div><dt>Автоматический возврат к системному DNS</dt><dd id="dnsFallbackState">—</dd></div>
           </dl>
         </section>
 
@@ -1539,8 +1539,8 @@
                 <span>Перегенерировать UA/HWID</span>
               </button>
             </div>
-            <label class="provider-custom-headers-field" title="Дополнительные header.* в формате Header-Name: value, по одному на строку.">
-              <span>Дополнительные headers</span>
+            <label class="provider-custom-headers-field" title="Дополнительные HTTP-заголовки (header.*) в формате Имя-Заголовка: значение, по одному на строку.">
+              <span>Дополнительные заголовки</span>
               <textarea class="provider-custom-headers" rows="3" spellcheck="false" placeholder="X-Token: value"></textarea>
             </label>
           </div>

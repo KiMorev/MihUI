@@ -324,22 +324,22 @@ select_package_dir() {
 }
 
 if [ "${REQUEST_METHOD:-POST}" != "POST" ]; then
-  respond_json "405 Method Not Allowed" '{"ok":false,"message":"POST required"}'
+  respond_json "405 Method Not Allowed" '{"ok":false,"message":"Требуется запрос POST"}'
 fi
 
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  respond_json "409 Conflict" '{"ok":false,"message":"update already running"}'
+  respond_json "409 Conflict" '{"ok":false,"message":"Обновление уже выполняется"}'
 fi
 
 TMP_DIR=$(make_tmp_dir)
-download_package_archive || fail "download failed"
+download_package_archive || fail "Не удалось загрузить пакет обновления"
 update_progress extract
-extract_archive "$DOWNLOADED_ARCHIVE" "$TMP_DIR/package" || fail "extract failed"
-PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "downloaded package has unsupported layout"
+extract_archive "$DOWNLOADED_ARCHIVE" "$TMP_DIR/package" || fail "Не удалось распаковать пакет обновления"
+PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "Структура загруженного пакета не поддерживается"
 
-[ -f "$PACKAGE_DIR/www/index.html" ] || fail "package does not contain www/index.html"
-[ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
-[ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "package does not contain mihui_server.py"
+[ -f "$PACKAGE_DIR/www/index.html" ] || fail "В пакете отсутствует www/index.html"
+[ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "В пакете отсутствует cgi-bin/mihui-update"
+[ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "В пакете отсутствует mihui_server.py"
 
 update_progress replace
 NEW_WWW="$APP_DIR/www.new.$$"
@@ -347,31 +347,31 @@ OLD_WWW="$APP_DIR/www.old.$$"
 
 rm -rf "$NEW_WWW" "$OLD_WWW"
 mkdir -p "$NEW_WWW/cgi-bin"
-cp -R "$PACKAGE_DIR/www/." "$NEW_WWW/" || fail "copy www failed"
-cp -R "$PACKAGE_DIR/cgi-bin/." "$NEW_WWW/cgi-bin/" || fail "copy cgi failed"
+cp -R "$PACKAGE_DIR/www/." "$NEW_WWW/" || fail "Не удалось скопировать файлы интерфейса"
+cp -R "$PACKAGE_DIR/cgi-bin/." "$NEW_WWW/cgi-bin/" || fail "Не удалось скопировать CGI-скрипты"
 chmod +x "$NEW_WWW/cgi-bin/mihui-update"
 
 if [ -f "$PACKAGE_DIR/uninstall.sh" ]; then
-  cp "$PACKAGE_DIR/uninstall.sh" "$APP_DIR/uninstall.sh" || fail "copy uninstall failed"
+  cp "$PACKAGE_DIR/uninstall.sh" "$APP_DIR/uninstall.sh" || fail "Не удалось скопировать скрипт удаления"
   chmod +x "$APP_DIR/uninstall.sh"
 fi
 
-cp "$PACKAGE_DIR/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "copy server failed"
+cp "$PACKAGE_DIR/mihui_server.py" "$APP_DIR/mihui_server.py" || fail "Не удалось скопировать сервер MihUI"
 [ -f "$PACKAGE_DIR/VERSION" ] && cp "$PACKAGE_DIR/VERSION" "$APP_DIR/VERSION"
 mkdir -p "$APP_DIR/bin"
 if [ -d "$PACKAGE_DIR/bin" ]; then
   rm -rf "$APP_DIR/bin"
   mkdir -p "$APP_DIR/bin"
-  cp -R "$PACKAGE_DIR/bin/." "$APP_DIR/bin/" || fail "copy bin failed"
+  cp -R "$PACKAGE_DIR/bin/." "$APP_DIR/bin/" || fail "Не удалось скопировать служебные программы"
   chmod +x "$APP_DIR/bin"/* 2>/dev/null || true
 fi
 
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
-mv "$NEW_WWW" "$WWW_DIR" || fail "replace www failed"
+mv "$NEW_WWW" "$WWW_DIR" || fail "Не удалось заменить файлы интерфейса"
 rm -rf "$OLD_WWW"
 
 if [ -x "$INIT_SCRIPT" ]; then
   ( sleep 2; "$INIT_SCRIPT" restart >/dev/null 2>&1 ) &
 fi
 
-respond_json "200 OK" '{"ok":true,"message":"MihUI updated"}'
+respond_json "200 OK" '{"ok":true,"message":"MihUI обновлён"}'

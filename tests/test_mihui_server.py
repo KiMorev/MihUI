@@ -163,6 +163,44 @@ class ProviderAdapterTests(unittest.TestCase):
         with mihui_server.xray_provider_adapter_status_lock:
             mihui_server.xray_provider_adapter_statuses.clear()
 
+    def test_config_check_own_messages_are_russian_and_external_output_is_preserved(self):
+        with mock.patch.object(mihui_server, "find_mihomo_binary", return_value=None):
+            result = mihui_server.check_mihomo_config(Path("."), "")
+        self.assertEqual(result["message"], "Исполняемый файл Mihomo не найден; проверка конфигурации пропущена")
+
+        for returncode, output, expected in (
+            (0, b"", "Конфигурация корректна"),
+            (1, b"", "Проверка конфигурации не пройдена"),
+            (1, b"external parser detail", "external parser detail"),
+        ):
+            with self.subTest(returncode=returncode, output=output), \
+                tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(mihui_server, "find_mihomo_binary", return_value="mihomo"), \
+                mock.patch.object(mihui_server, "write_temp_config_for_check", return_value=Path(temp_dir) / "check.yaml"), \
+                mock.patch.object(mihui_server.subprocess, "run", return_value=mock.Mock(returncode=returncode, stdout=output)):
+                result = mihui_server.check_mihomo_config(Path(temp_dir), "")
+            self.assertEqual(result["message"], expected)
+
+    def test_whitelist_domain_validation_messages_are_russian(self):
+        for domain, expected in (
+            ("", "Некорректное доменное имя"),
+            ("*.example.com", "Доменные маски с символом * не поддерживаются"),
+            ("-invalid.example", "Некорректная часть доменного имени"),
+            ("127.0.0.1", "Укажите доменное имя, а не IP-адрес"),
+        ):
+            with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, expected.replace("*", r"\*")):
+                mihui_server.normalize_whitelist_domain(domain)
+        with self.assertRaisesRegex(ValueError, "Количество доменов белого списка должно быть от 2 до 3"):
+            mihui_server.parse_whitelist_domain_list("example.com", minimum=2, maximum=3)
+
+    def test_missing_update_script_returns_utf8_russian_message(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status, headers, body, returncode = mihui_server.run_cgi_script(Path(temp_dir))
+        self.assertEqual(status, 500)
+        self.assertEqual(returncode, 1)
+        self.assertIn(("Content-Type", "application/json"), headers)
+        self.assertEqual(json.loads(body.decode("utf-8"))["message"], "Скрипт обновления не найден")
+
     def save_whitelist_domain_snapshot(self, app_dir, updated_at=1000, prefix="allowed"):
         domains = [f"{prefix}-{index}.example.com" for index in range(100)]
         digest = mihui_server.hashlib.sha256("\n".join(domains).encode("utf-8")).hexdigest()
@@ -358,7 +396,7 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(server.received_hwid_query, "ABC123")
 
     def test_fetch_provider_payload_rejects_happ_crypt_url(self):
-        with self.assertRaisesRegex(ValueError, "only http/https and incy"):
+        with self.assertRaisesRegex(ValueError, "только ссылки HTTP/HTTPS и incy"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
@@ -921,7 +959,7 @@ class ProviderAdapterTests(unittest.TestCase):
             result = mihui_server.validate_component_action(
                 Path("."), {"component": "mihomo", "action": "update", "target": "1.19.27"}
             )
-            with self.assertRaisesRegex(ValueError, "checked release list"):
+            with self.assertRaisesRegex(ValueError, "проверенном списке релизов"):
                 mihui_server.validate_component_action(
                     Path("."), {"component": "mihomo", "action": "update", "target": "1.18.0"}
                 )
@@ -938,11 +976,11 @@ class ProviderAdapterTests(unittest.TestCase):
         geo_update = mihui_server.validate_component_action(
             Path("."), {"component": "xkeen", "action": "geo-update"}
         )
-        with self.assertRaisesRegex(ValueError, "invalid XKeen channel"):
+        with self.assertRaisesRegex(ValueError, "Некорректный канал обновлений XKeen"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "xkeen", "action": "channel", "target": "nightly"}
             )
-        with self.assertRaisesRegex(ValueError, "target is not supported"):
+        with self.assertRaisesRegex(ValueError, "Выбор целевой версии Mihomo не поддерживается"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "mihomo", "action": "restart", "target": "shell"}
             )
@@ -973,7 +1011,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 {"component": "mihomo", "target": "v1.19.29"},
             ],
         )
-        with self.assertRaisesRegex(ValueError, "unsupported all-components action"):
+        with self.assertRaisesRegex(ValueError, "не поддерживается для всех компонентов сразу"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "all", "action": "restart"}
             )
@@ -1565,7 +1603,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 422)
         self.assertFalse(result["ok"])
-        self.assertEqual(result["message"], "group is not selectable")
+        self.assertEqual(result["message"], "Группа не поддерживает ручной выбор ноды")
 
     def test_resource_monitor_settings_are_validated_and_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1943,7 +1981,7 @@ class ProviderAdapterTests(unittest.TestCase):
         )
 
         self.assertEqual(domains, ["example.com", "xn--e1afmkfd.xn--p1ai"])
-        with self.assertRaisesRegex(ValueError, "line 2"):
+        with self.assertRaisesRegex(ValueError, "строке 2"):
             mihui_server.parse_whitelist_domain_list(
                 "example.com\nnot-a-domain\n",
                 minimum=1,

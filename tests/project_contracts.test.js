@@ -608,7 +608,7 @@ test('primary UI files expose protected DNS with explicit fail-open and strict s
   assert.match(script, /preflight_failed: 'Предусловия не пройдены'/);
   assert.match(script, /!\/_failed\$\/\.test\(String\(event\.type \|\| ''\)\)/);
   assert.match(script, /systemFallback\.state/);
-  assert.match(script, /const fallbackPresentation = lanDraftChanged[\s\S]+?Fallback требует проверки/);
+  assert.match(script, /const fallbackPresentation = lanDraftChanged[\s\S]+?Резерв требует проверки/);
   assert.match(script, /renderProtectedDnsConfigCheck\(preview\?\.configCheck\)/);
   assert.match(script, /dnsConfigCheckOutput\.textContent/);
   assert.match(script, /preview\?\.plan\?\.localNames/);
