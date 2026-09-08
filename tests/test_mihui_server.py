@@ -3246,8 +3246,33 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(forbidden_status, 403)
         self.assertFalse(forbidden["ok"])
         self.assertEqual(status, 200)
-        self.assertEqual(result["config"], settings)
+        self.assertEqual(result["config"], {**settings, "localObservation": False, "localNames": []})
         self.assertEqual(get_status, 200)
+        self.assertEqual(loaded["config"], {**settings, "localObservation": False, "localNames": []})
+
+    def test_dns_observation_api_only_saves_settings_without_network_or_activation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            settings = {**mihui_server.default_dns_lab_settings(), "enabled": True,
+                        "localObservation": True, "localNames": [{"name": "nas.lan", "expectedAddresses": []}]}
+            try:
+                with mock.patch.object(mihui_server, "apply_dns_protection_action", side_effect=AssertionError), mock.patch.object(
+                    mihui_server, "collect_local_dns_observation", side_effect=AssertionError
+                ), mock.patch.object(mihui_server, "mihomo_api_request", side_effect=AssertionError):
+                    forbidden, _ = self.post_json(server, "/api/dns/observation/settings", settings)
+                    unconfigured, _ = self.post_json(server, "/api/dns/observation/check", {},
+                                                     headers={"X-Mihui-Action": "dns-observation"})
+                    status, saved = self.post_json(server, "/api/dns/observation/settings", settings,
+                                                  headers={"X-Mihui-Action": "dns-observation"})
+                    read_status, loaded = self.get_json(server, "/api/dns/observation?limit=576")
+            finally:
+                self.stop_provider_server(server, thread)
+        self.assertEqual(forbidden, 403)
+        self.assertEqual(unconfigured, 400)
+        self.assertEqual(status, 200)
+        self.assertEqual(read_status, 200)
+        self.assertEqual(saved["config"], settings)
         self.assertEqual(loaded["config"], settings)
 
     def test_whitelist_monitor_endpoint_saves_settings_without_checking_mihomo(self):

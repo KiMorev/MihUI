@@ -1001,6 +1001,52 @@
           </div>
         </footer>
 
+        <section class="panel dns-protection-journal" aria-labelledby="dnsObservationTitle">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3 id="dnsObservationTitle">Наблюдение за DNS и домашними именами</h3>
+              <p>Только диагностические запросы. Не меняет защиту, конфигурацию Mihomo, маршруты и фильтры роутера.</p>
+            </div>
+            <button id="dnsObservationRefresh" class="button compact" type="button">Обновить журнал</button>
+          </header>
+          <div class="dns-protection-settings-grid">
+            <div>
+              <label class="dns-observation-toggle"><input id="dnsObservationEnabled" type="checkbox" /><span>Периодическое наблюдение</span></label>
+              <label for="dnsObservationInterval">Интервал замеров</label>
+              <select id="dnsObservationInterval">
+                <option value="300">5 минут</option>
+                <option value="600">10 минут</option>
+                <option value="1800">30 минут</option>
+              </select>
+              <label for="dnsObservationTimeout">Тайм-аут одного запроса</label>
+              <select id="dnsObservationTimeout">
+                <option value="2000">2 секунды</option>
+                <option value="4000" selected>4 секунды</option>
+                <option value="8000">8 секунд</option>
+              </select>
+            </div>
+            <label>
+              <span>Домашние имена — до четырёх, каждое с новой строки</span>
+              <textarea id="dnsObservationNames" rows="4" spellcheck="false" placeholder="nas.lan 192.168.1.10&#10;server.home.arpa" aria-describedby="dnsObservationNamesHelp"></textarea>
+              <span id="dnsObservationNamesHelp">После имени можно указать ожидаемые IP через запятую. Без IP ответы сравниваются с системным DNS. Примеры не запускаются автоматически.</span>
+            </label>
+          </div>
+          <p>Проверяются A/AAAA по UDP и TCP с самого роутера. Введённые имена могут уйти к внешним DNS согласно действующим правилам. PTR, mDNS и доступность NAS/Plex как сервисов не проверяются.</p>
+          <p id="dnsObservationNotice" role="status">Настройки наблюдения ещё не загружены.</p>
+          <div class="dns-protection-journal-tools dns-observation-actions">
+            <button id="dnsObservationSave" class="button" type="button" disabled>Сохранить наблюдение</button>
+            <button id="dnsObservationCheck" class="button primary" type="button" disabled>Снять один замер</button>
+            <button id="dnsObservationDownload" class="button" type="button" disabled>Скачать журнал наблюдения</button>
+          </div>
+          <p id="dnsObservationSummary">Замеров ещё нет.</p>
+          <details>
+            <summary>Ответы локальных DNS в последнем замере</summary>
+            <div id="dnsObservationResults" class="dns-observation-results"></div>
+          </details>
+          <div id="dnsObservationEvents" class="dns-observation-results"></div>
+          <p>После перезагрузки отдельно проверьте имя с обычного LAN-устройства: успешный запрос самого роутера не доказывает правильный путь клиентов. Журнал хранит до 576 замеров, но не более 4 МиБ; старые записи удаляются. Экспорт содержит внутренние имена и адреса.</p>
+        </section>
+
         <section class="panel dns-protection-journal">
           <header class="dns-protection-block-head">
             <div>

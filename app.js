@@ -442,6 +442,7 @@ const state = {
     proxyCheckingId: '',
     manualProxyResults: {},
   },
+  dnsObservation: { data: null, loading: false, busy: false, dirty: false, error: '' },
   protectedDns: {
     loaded: false,
     loading: false,
@@ -802,6 +803,18 @@ const els = {
   whitelistMonitorRestoreButton: document.querySelector('#whitelistMonitorRestoreButton'),
   whitelistMonitorSaveButton: document.querySelector('#whitelistMonitorSaveButton'),
   dnsRefreshButton: document.querySelector('#dnsRefreshButton'),
+  dnsObservationEnabled: document.querySelector('#dnsObservationEnabled'),
+  dnsObservationInterval: document.querySelector('#dnsObservationInterval'),
+  dnsObservationTimeout: document.querySelector('#dnsObservationTimeout'),
+  dnsObservationNames: document.querySelector('#dnsObservationNames'),
+  dnsObservationNotice: document.querySelector('#dnsObservationNotice'),
+  dnsObservationSummary: document.querySelector('#dnsObservationSummary'),
+  dnsObservationResults: document.querySelector('#dnsObservationResults'),
+  dnsObservationEvents: document.querySelector('#dnsObservationEvents'),
+  dnsObservationSave: document.querySelector('#dnsObservationSave'),
+  dnsObservationCheck: document.querySelector('#dnsObservationCheck'),
+  dnsObservationRefresh: document.querySelector('#dnsObservationRefresh'),
+  dnsObservationDownload: document.querySelector('#dnsObservationDownload'),
   dnsStateBadge: document.querySelector('#dnsStateBadge'),
   dnsFallbackBadge: document.querySelector('#dnsFallbackBadge'),
   dnsStateTitle: document.querySelector('#dnsStateTitle'),
@@ -977,6 +990,15 @@ els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('syst
 els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
 els.dnsActivateButton?.addEventListener('click', () => runProtectedDnsAction('activate'));
 els.dnsDownloadButton?.addEventListener('click', downloadProtectedDnsLog);
+[els.dnsObservationEnabled, els.dnsObservationInterval, els.dnsObservationTimeout, els.dnsObservationNames]
+  .forEach((control) => control?.addEventListener('input', () => {
+    state.dnsObservation.dirty = true;
+    renderDnsObservation();
+  }));
+els.dnsObservationRefresh?.addEventListener('click', loadDnsObservation);
+els.dnsObservationSave?.addEventListener('click', () => runDnsObservationAction('settings'));
+els.dnsObservationCheck?.addEventListener('click', () => runDnsObservationAction('check'));
+els.dnsObservationDownload?.addEventListener('click', downloadDnsObservation);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -1088,6 +1110,7 @@ function setActiveSection(section, options = {}) {
     }
     if (section === 'dns' && state.routerApiAvailable) {
       loadProtectedDns({ silent: true });
+      loadDnsObservation();
     }
     if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
       loadXkeenCommands({ silent: true });
@@ -2587,6 +2610,7 @@ function startServiceHealthPolling() {
   if (typeof window.setInterval !== 'function') return;
   window.setInterval(() => {
     if (!document.hidden) loadServiceHealth({ silent: true });
+    if (!document.hidden && state.activeSection === 'dns') loadDnsObservation();
   }, SERVICE_HEALTH_REFRESH_MS);
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', () => {
@@ -5591,6 +5615,167 @@ function downloadProtectedDnsLog() {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function dnsObservationSettings() {
+  const lines = String(els.dnsObservationNames.value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return {
+    localObservation: true,
+    enabled: els.dnsObservationEnabled.checked,
+    intervalSeconds: Number(els.dnsObservationInterval.value),
+    timeoutMs: Number(els.dnsObservationTimeout.value),
+    localNames: lines.map((line) => {
+      const [name, ...addresses] = line.split(/\s+/);
+      return { name, expectedAddresses: addresses.join(',').split(',').filter(Boolean) };
+    }),
+  };
+}
+
+function mergeDnsObservation(data) {
+  const observation = state.dnsObservation;
+  if (!observation.dirty) {
+    const config = data.config || {};
+    els.dnsObservationEnabled.checked = Boolean(config.enabled && config.localObservation);
+    els.dnsObservationInterval.value = String(config.localObservation ? config.intervalSeconds : 300);
+    els.dnsObservationTimeout.value = String(config.localObservation ? config.timeoutMs : 4000);
+    els.dnsObservationNames.value = (config.localNames || [])
+      .map((entry) => `${entry.name}${entry.expectedAddresses?.length ? ` ${entry.expectedAddresses.join(', ')}` : ''}`).join('\n');
+  }
+  observation.data = data;
+}
+
+async function loadDnsObservation() {
+  if (!state.routerApiAvailable || state.dnsObservation.loading || state.dnsObservation.busy) return;
+  state.dnsObservation.loading = true;
+  try {
+    mergeDnsObservation(await apiJson('/api/dns/observation?limit=12'));
+    state.dnsObservation.error = '';
+  } catch (error) {
+    state.dnsObservation.error = `Не удалось загрузить наблюдение: ${error.message || error}`;
+  } finally {
+    state.dnsObservation.loading = false;
+    renderDnsObservation();
+  }
+}
+
+function observationProbeText(probe) {
+  const comparison = { expected: 'Ожидаемый IP', same: 'Как у системного DNS', different: 'Ответ отличается',
+    no_baseline: 'Нет подтверждённого эталона', incomplete: 'Ответ не получен полностью' };
+  const errors = { timeout: 'Тайм-аут', refused: 'Соединение отклонено', no_route: 'Нет маршрута',
+    reset: 'Соединение сброшено', network: 'Ошибка запроса', certificate: 'Ошибка сертификата', tls: 'Ошибка TLS' };
+  const answer = probe.error ? (errors[probe.error.category] || 'Ошибка запроса')
+    : probe.truncated ? 'Ответ обрезан'
+      : probe.rcode === 3 ? 'Имя не найдено (NXDOMAIN)'
+        : probe.rcode !== 0 ? `Ошибка DNS: ${probe.rcode}` : probe.addresses?.join(', ') || 'Нет записей этого типа';
+  const resolver = probe.resolver === 'system' ? 'Системный DNS' : probe.resolver === 'mihomo' ? 'Mihomo' : 'Резолвер прошивки';
+  return `${probe.name} · ${probe.type}/${String(probe.transport).toUpperCase()} · ${resolver} :${probe.port} — ${answer} · ${comparison[probe.comparison] || 'Не сравнивалось'} · ${probe.latencyMs} мс`;
+}
+
+function renderDnsObservation() {
+  if (!els.dnsObservationNotice) return;
+  const observation = state.dnsObservation;
+  const data = observation.data || {};
+  const running = Boolean(data.job?.running);
+  const busy = observation.busy || observation.loading;
+  const ready = state.routerApiAvailable && Boolean(observation.data);
+  [els.dnsObservationEnabled, els.dnsObservationInterval, els.dnsObservationTimeout, els.dnsObservationNames]
+    .forEach((control) => { control.disabled = observation.busy || !ready; });
+  els.dnsObservationNotice.textContent = observation.error || (busy ? 'Операция выполняется…'
+    : observation.dirty ? 'Есть несохранённые настройки наблюдения.'
+      : running ? 'Замер выполняется. При выключении текущий замер завершится, новые запускаться не будут.'
+        : data.config?.enabled && data.config?.localObservation ? 'Периодическое наблюдение включено.'
+          : data.config?.localObservation ? 'Периодическое наблюдение выключено. Доступен разовый замер.'
+            : 'Периодическое наблюдение выключено. Для первого замера сохраните настройки.');
+  els.dnsObservationSave.disabled = !ready || busy;
+  els.dnsObservationCheck.disabled = !ready || busy || running || observation.dirty || !data.config?.localObservation;
+  els.dnsObservationRefresh.disabled = !state.routerApiAvailable || busy;
+  els.dnsObservationDownload.disabled = !ready || busy;
+  const latest = data.latest;
+  const local = latest?.observation;
+  if (!local) {
+    els.dnsObservationSummary.textContent = latest?.type === 'internal_error'
+      ? 'Последний замер завершился внутренней ошибкой. Подробности доступны в экспорте.'
+      : 'Замеров домашних имён ещё нет.';
+  } else {
+    const ports = local.candidatePorts?.join(', ') || 'не найдены';
+    const differences = local.probes.filter((probe) => probe.comparison === 'different').length;
+    const confirmed = local.probes.filter((probe) => ['same', 'expected'].includes(probe.comparison)).length;
+    const uncertain = local.probes.length - differences - confirmed;
+    const external = [...(latest.probes?.plain || []), ...(latest.probes?.encrypted || [])];
+    const externalOk = external.filter((probe) => probe.ok).length;
+    els.dnsObservationSummary.textContent = `Последний замер: ${new Date(latest.timestamp * 1000).toLocaleString('ru-RU')}. `
+      + `Порты-кандидаты: ${ports}; проверяются не более трёх. В управляемом DNS-блоке: ${local.appliedLocalPort || 'не указан'}. `
+      + `${local.names.length ? `Совпадений с эталоном: ${confirmed}; расхождений: ${differences}; без подтверждения: ${uncertain}.` : 'Домашние имена не заданы — их работа не проверена.'} `
+      + `${local.mihomoConfigured ? '' : 'Mihomo :1053 не настроен — сравнение с ним пропущено. '}`
+      + `Ответы внешних контрольных DNS: ${externalOk}/${external.length}; это не доказательство DIRECT или обрыва WAN. `
+      + `${local.rebootDetected ? 'Обнаружена перезагрузка. ' : ''}${local.candidatesChanged ? 'Список портов изменился. ' : ''}`
+      + `${latest.contextChangedDuringMeasurement ? 'Во время замера изменились настройки или контекст белых списков. ' : ''}`
+      + 'Путь LAN-клиента не проверен.';
+  }
+  els.dnsObservationResults.replaceChildren();
+  for (const probe of local?.probes || []) {
+    const row = document.createElement('p');
+    row.textContent = observationProbeText(probe);
+    els.dnsObservationResults.append(row);
+  }
+  els.dnsObservationEvents.replaceChildren();
+  const whitelistLabels = { active: 'резервный режим активен', confirmed: 'признаки подтверждены',
+    suspected: 'есть подозрение', normal: 'ограничения не обнаружены', disabled: 'монитор выключен' };
+  for (const event of [...(data.events || [])].reverse().filter((item) => item.observation).slice(0, 8)) {
+    const row = document.createElement('p');
+    const failed = event.observation.probes.filter((probe) => probe.comparison === 'different' || probe.comparison === 'incomplete').length;
+    row.textContent = `${new Date(event.timestamp * 1000).toLocaleString('ru-RU')} · Расхождения/неполные ответы: ${failed}`
+      + ` · Белые списки: ${whitelistLabels[event.whitelist?.state] || 'нет данных'}`;
+    els.dnsObservationEvents.append(row);
+  }
+}
+
+async function runDnsObservationAction(action) {
+  const observation = state.dnsObservation;
+  if (!state.routerApiAvailable || observation.busy || observation.loading) return;
+  if (action === 'check' && (observation.dirty || !observation.data?.config?.localObservation)) return;
+  observation.busy = true;
+  observation.error = '';
+  renderDnsObservation();
+  try {
+    const data = await apiJson(`/api/dns/observation/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns-observation' },
+      body: JSON.stringify(action === 'settings' ? dnsObservationSettings() : {}),
+    });
+    if (action === 'settings') {
+      observation.dirty = false;
+      mergeDnsObservation(data);
+    } else {
+      observation.data = { ...observation.data, job: data.job };
+    }
+  } catch (error) {
+    observation.error = `Наблюдение: ${error.message || error}`;
+  } finally {
+    observation.busy = false;
+    renderDnsObservation();
+  }
+}
+
+async function downloadDnsObservation() {
+  if (!state.routerApiAvailable || state.dnsObservation.busy) return;
+  state.dnsObservation.busy = true;
+  renderDnsObservation();
+  try {
+    const data = await apiJson('/api/dns/observation?limit=576');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mihui-dns-observation-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    state.dnsObservation.error = `Не удалось скачать наблюдение: ${error.message || error}`;
+  } finally {
+    state.dnsObservation.busy = false;
+    renderDnsObservation();
+  }
 }
 
 function getWhitelistMonitorStatePresentation(value, evidenceState = '') {

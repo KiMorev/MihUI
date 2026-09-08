@@ -592,7 +592,9 @@ test('primary UI files expose protected DNS with explicit fail-open and strict s
   assert.match(html, /id="dnsConfigCheckOutput"/);
   assert.match(html, /id="dnsExclusions"/);
   assert.match(html, /DoH в браузерах, Private DNS\/DoT на устройствах и DNS Tailscale/);
-  assert.doesNotMatch(html, /DNS-площадка|Периодическое наблюдение|dnsLabEnabled/);
+  assert.doesNotMatch(html, /DNS-площадка|dnsLabEnabled/);
+  assert.match(html, /id="dnsObservationEnabled"/);
+  assert.match(html, /Не меняет защиту, конфигурацию Mihomo, маршруты и фильтры роутера/);
 
   const script = read('app.js');
   assert.match(script, /renderProtectedDnsPlan\(preview\?\.plan\)/);

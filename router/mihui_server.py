@@ -504,7 +504,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/dns":
             self.handle_dns_get()
             return
-        if route == "/api/dns-lab":
+        if route in {"/api/dns-lab", "/api/dns/observation"}:
             self.handle_dns_lab_get()
             return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
@@ -575,10 +575,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/dns/action":
             self.handle_dns_action()
             return
-        if route == "/api/dns-lab/settings":
+        if route in {"/api/dns-lab/settings", "/api/dns/observation/settings"}:
             self.handle_dns_lab_settings()
             return
-        if route == "/api/dns-lab/check":
+        if route in {"/api/dns-lab/check", "/api/dns/observation/check"}:
             self.handle_dns_lab_check()
             return
         if route == "/cgi-bin/mihui-update":
@@ -1075,12 +1075,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         try:
             event_limit = min(DNS_LAB_EVENT_LIMIT, max(1, int(raw_limit))) if raw_limit else DNS_LAB_STATUS_EVENT_LIMIT
         except ValueError:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "invalid limit"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Некорректное число записей"})
             return
         self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir, event_limit=event_limit))
 
     def handle_dns_lab_settings(self):
-        if self.headers.get("X-Mihui-Action") != "dns-lab":
+        if self.headers.get("X-Mihui-Action") not in {"dns-lab", "dns-observation"}:
             self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
         try:
@@ -1092,8 +1092,11 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir))
 
     def handle_dns_lab_check(self):
-        if self.headers.get("X-Mihui-Action") != "dns-lab":
+        if self.headers.get("X-Mihui-Action") not in {"dns-lab", "dns-observation"}:
             self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        if self.path.split("?", 1)[0] == "/api/dns/observation/check" and not load_dns_lab_settings(self.app_dir)["localObservation"]:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Сначала сохраните настройки наблюдения"})
             return
         result = start_dns_lab_check(self.app_dir)
         self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
@@ -7932,27 +7935,264 @@ def initialize_dns_protection(app_dir):
     thread.start()
 
 
+def discover_observation_resolvers(directory=Path("/var")):
+    """Read firmware-generated ports; finding a file is not a health check."""
+    candidates = {}
+    unreadable = 0
+    for path in sorted(Path(directory).glob("ndnproxy_*.conf"))[:32]:
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                text = handle.read(131072)
+        except OSError:
+            unreadable += 1
+            continue
+        match = re.search(r"^\s*dns_udp_port\s*=\s*(\d{1,5})\s*(?:#.*)?$", text, re.MULTILINE)
+        port = int(match.group(1)) if match else 0
+        if 1 <= port <= 65535 and port not in {53, DNS_PROTECTION_PORT}:
+            candidates.setdefault(port, []).append(path.name)
+    return {
+        "candidates": [{"address": "127.0.0.1", "port": port, "sources": sources}
+                       for port, sources in sorted(candidates.items())],
+        "unreadableFiles": unreadable,
+    }
+
+
+def read_observation_dns_name(packet, offset):
+    labels, visited, end = [], set(), None
+    while True:
+        if offset in visited or len(visited) >= 128 or offset >= len(packet):
+            raise ValueError("Повреждённое DNS-имя")
+        visited.add(offset)
+        size = packet[offset]
+        if size & 0xC0 == 0xC0:
+            if offset + 1 >= len(packet):
+                raise ValueError("Оборванный указатель DNS")
+            if end is None:
+                end = offset + 2
+            offset = ((size & 0x3F) << 8) | packet[offset + 1]
+            continue
+        if size > 63 or offset + 1 + size > len(packet):
+            raise ValueError("Некорректная длина DNS-имени")
+        offset += 1
+        if not size:
+            return ".".join(labels).lower(), end if end is not None else offset
+        labels.append(packet[offset:offset + size].decode("ascii"))
+        if sum(len(label) + 1 for label in labels) > 254:
+            raise ValueError("Слишком длинное DNS-имя")
+        offset += size
+
+
+def parse_observation_dns_response(packet, query_id, name, qtype):
+    result = parse_dns_response(packet, query_id)
+    if result["questionCount"] != 1 or result["answerCount"] > 128:
+        raise ValueError("Неожиданное количество записей DNS")
+    if struct.unpack_from("!H", packet, 2)[0] & 0x7800:
+        raise ValueError("Неожиданный тип DNS-ответа")
+    question, offset = read_observation_dns_name(packet, 12)
+    if offset + 4 > len(packet) or question != name or struct.unpack_from("!HH", packet, offset) != (qtype, 1):
+        raise ValueError("DNS-ответ относится к другому запросу")
+    offset += 4
+    records, aliases = [], {}
+    for _ in range(result["answerCount"]):
+        owner, offset = read_observation_dns_name(packet, offset)
+        if offset + 10 > len(packet):
+            raise ValueError("Оборванная запись DNS")
+        kind, klass, _, size = struct.unpack_from("!HHIH", packet, offset)
+        offset += 10
+        end = offset + size
+        if end > len(packet):
+            raise ValueError("Оборванные данные DNS")
+        if klass == 1:
+            if kind in {1, 28} and size == (4 if kind == 1 else 16):
+                records.append((owner, kind, str(ipaddress.ip_address(packet[offset:end]))))
+            elif kind == 5:
+                alias, consumed = read_observation_dns_name(packet, offset)
+                if consumed != end:
+                    raise ValueError("Некорректная запись CNAME")
+                aliases[owner] = alias
+        offset = end
+    owners = {name}
+    for _ in range(128):
+        expanded = owners | {aliases[owner] for owner in owners if owner in aliases}
+        if expanded == owners:
+            break
+        owners = expanded
+    result["addresses"] = sorted({address for owner, kind, address in records if owner in owners and kind == qtype})
+    return result
+
+
+def probe_observation_dns(target, entry, qtype, protocol, timeout_ms):
+    started = time.monotonic()
+    deadline = started + timeout_ms / 1000
+    result = {"resolver": target["id"], "port": target["port"], "name": entry["name"],
+              "type": "A" if qtype == 1 else "AAAA", "transport": protocol,
+              "ok": False, "addresses": []}
+    if protocol == "tcp":
+        result["connected"] = False
+    query_id, packet = build_dns_query(entry["name"], qtype=qtype)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if protocol == "udp" else socket.SOCK_STREAM) as stream:
+            stream.settimeout(max(0.001, deadline - time.monotonic()))
+            stream.connect(("127.0.0.1", target["port"]))
+            if protocol == "tcp":
+                result["connected"] = True
+            if protocol == "udp":
+                stream.send(packet)
+                response = stream.recv(8192)
+            else:
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+
+                def read_count(size):
+                    chunks = bytearray()
+                    while len(chunks) < size:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError("Истёк тайм-аут запроса DNS")
+                        stream.settimeout(remaining)
+                        chunk = stream.recv(size - len(chunks))
+                        if not chunk:
+                            raise ConnectionError("DNS закрыл соединение до ответа")
+                        chunks.extend(chunk)
+                    return bytes(chunks)
+
+                size = struct.unpack("!H", read_count(2))[0]
+                if size > 8192:
+                    raise ValueError("DNS-ответ превышает предел наблюдения 8 КиБ")
+                response = read_count(size)
+            result.update(parse_observation_dns_response(response, query_id, entry["name"], qtype))
+            result["ok"] = result["rcode"] == 0 and not result["truncated"] and bool(result["addresses"])
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def observation_comparison(probe, baseline, expected):
+    if "error" in probe or probe.get("truncated"):
+        return "incomplete"
+    if expected:
+        return "expected" if probe["ok"] and set(probe["addresses"]) <= set(expected) else "different"
+    if not baseline or not baseline.get("ok"):
+        return "no_baseline"
+    return "same" if probe["ok"] and probe["addresses"] == baseline["addresses"] else "different"
+
+
+def collect_observation_route_context(app_dir):
+    """Only inspect rules. A router-originated probe cannot validate LAN ingress."""
+    tables = {}
+    for family, binary_name in (("ipv4", "iptables"), ("ipv6", "ip6tables")):
+        result = run_dns_tool(find_dns_tool(app_dir, binary_name), ["-t", "nat", "-S"])
+        output = result.get("output", "")
+        lines = [line[:500] for line in output.splitlines()
+                 if line.startswith("-A PREROUTING ") or "MIHUI_DNS" in line or "_DNS" in line]
+        tables[family] = {"available": result["ok"], "rules": lines[:64],
+                          "truncated": len(lines) > 64, "revision": config_revision(output)[:12] if result["ok"] else ""}
+    router = run_dns_tool(find_dns_tool(app_dir, "ndmc"), ["-c", "show running-config"])
+    lines = {line.strip() for line in router.get("output", "").splitlines()}
+    disabled = bool(lines & {"dns-proxy no filter engine", "no dns-proxy filter engine"})
+    configured = any(line.startswith("dns-proxy filter engine ") for line in lines)
+    return {"tables": tables, "filterEngine": "disabled" if router["ok"] and disabled
+            else "configured" if router["ok"] and configured else "unknown",
+            "lanPathVerified": False}
+
+
+def collect_local_dns_observation(app_dir, settings, config_text, previous):
+    discovered = discover_observation_resolvers()
+    runtime = load_dns_protection_runtime(app_dir)
+    summary = summarize_dns_config(config_text)
+    # Keep the applied built-in candidate even when the firmware no longer lists it.
+    applied = DNS_PROTECTION_LOCAL_PORT if has_managed_dns_config(config_text) and f"udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}" in "\n".join(extract_dns_config_block(config_text)) else None
+    ports = sorted({item["port"] for item in discovered["candidates"]})
+    sampled = ([applied] if applied else []) + [port for port in ports if port != applied]
+    sampled = sampled[:3]
+    targets = [{"id": "system", "port": 53}]
+    mihomo_configured = summary.get("enable") == "true" and summary.get("listen") in {":1053", "0.0.0.0:1053", "127.0.0.1:1053", "[::]:1053"}
+    if mihomo_configured:
+        targets.append({"id": "mihomo", "port": DNS_PROTECTION_PORT})
+    targets.extend({"id": f"firmware:{port}", "port": port} for port in sampled)
+    jobs = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for target in targets:
+            for entry in settings["localNames"]:
+                for qtype in (1, 28):
+                    for protocol in ("udp", "tcp"):
+                        jobs.append(pool.submit(probe_observation_dns, target, entry, qtype, protocol, settings["timeoutMs"]))
+        probes = [job.result() for job in jobs]
+    for probe in probes:
+        baseline = next((item for item in probes if item["resolver"] == "system" and
+                         all(item[key] == probe[key] for key in ("name", "type", "transport"))), None)
+        entry = next(item for item in settings["localNames"] if item["name"] == probe["name"])
+        expected = [value for value in entry["expectedAddresses"] if ipaddress.ip_address(value).version == (4 if probe["type"] == "A" else 6)]
+        probe["comparison"] = observation_comparison(probe, baseline, expected)
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()[:64]
+    except OSError:
+        boot_id = ""
+    previous = previous or {}
+    return {
+        "firmware": discovered, "sampledPorts": sampled, "appliedLocalPort": applied,
+        "candidatePorts": ports, "candidatesChanged": "candidatePorts" in previous and previous["candidatePorts"] != ports,
+        "bootId": boot_id, "rebootDetected": bool(boot_id and previous.get("bootId") and previous["bootId"] != boot_id),
+        "requestedMode": runtime["requestedMode"], "mihomoConfigured": mihomo_configured,
+        "names": settings["localNames"], "probes": probes,
+        "route": collect_observation_route_context(app_dir),
+        "notice": "Запросы выполняет роутер, не LAN-клиент. Проверены только A/AAAA. PTR, mDNS и доступность самих сервисов не проверяются.",
+    }
+
+
 def default_dns_lab_settings():
     return {
         "enabled": False,
         "intervalSeconds": 300,
         "timeoutMs": 4000,
+        "localObservation": False,
+        "localNames": [],
     }
 
 
 def validate_dns_lab_settings(payload):
     if not isinstance(payload, dict):
-        raise TypeError("settings must be an object")
+        raise TypeError("Настройки наблюдения должны быть объектом")
     interval = payload.get("intervalSeconds")
     timeout = payload.get("timeoutMs")
     if isinstance(interval, bool) or not isinstance(interval, int) or not 60 <= interval <= 3600:
-        raise ValueError("intervalSeconds must be between 60 and 3600")
+        raise ValueError("Интервал наблюдения должен быть от 60 до 3600 секунд")
     if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1000 <= timeout <= 10000:
-        raise ValueError("timeoutMs must be between 1000 and 10000")
+        raise ValueError("Тайм-аут должен быть от 1000 до 10000 мс")
+    for key in ("enabled", "localObservation"):
+        if key in payload and not isinstance(payload[key], bool):
+            raise ValueError("Переключатели наблюдения должны быть логическими значениями")
+    names = payload.get("localNames", [])
+    if not isinstance(names, list) or len(names) > 4:
+        raise ValueError("Укажите не более четырёх домашних имён")
+    normalized = []
+    for item in names:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError("Для каждой проверки необходимо DNS-имя")
+        try:
+            name = item["name"].strip().rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError as error:
+            raise ValueError("Некорректное DNS-имя") from error
+        if len(name) > 253 or not all(re.fullmatch(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?", label) for label in name.split(".")):
+            raise ValueError("Введите DNS-имя без схемы, порта и пути")
+        expected = item.get("expectedAddresses", [])
+        if not isinstance(expected, list) or len(expected) > 8:
+            raise ValueError("Для имени допустимо не более восьми ожидаемых IP-адресов")
+        try:
+            addresses = sorted({str(ipaddress.ip_address(value)) for value in expected if isinstance(value, str)})
+        except ValueError as error:
+            raise ValueError("Некорректный ожидаемый IP-адрес") from error
+        if any(not isinstance(value, str) for value in expected):
+            raise ValueError("Ожидаемые IP-адреса должны быть строками")
+        if name in {entry["name"] for entry in normalized}:
+            raise ValueError("DNS-имена в списке не должны повторяться")
+        normalized.append({"name": name, "expectedAddresses": addresses})
     return {
         "enabled": bool(payload.get("enabled", False)),
         "intervalSeconds": interval,
         "timeoutMs": timeout,
+        "localObservation": payload.get("localObservation", False),
+        "localNames": normalized,
     }
 
 
@@ -7997,6 +8237,7 @@ def default_dns_lab_runtime():
         "consecutiveUnstable": 0,
         "consecutiveDnsIssue": 0,
         "whitelistContext": {},
+        "observation": None,
     }
 
 
@@ -8299,11 +8540,11 @@ def get_dns_lab_services(app_dir):
     }
 
 
-def build_dns_query(name=DNS_LAB_QUERY_NAME):
+def build_dns_query(name=DNS_LAB_QUERY_NAME, qtype=1):
     query_id = uuid.uuid4().int & 0xFFFF
     labels = str(name).strip(".").split(".")
     qname = b"".join(bytes([len(label.encode("idna"))]) + label.encode("idna") for label in labels) + b"\x00"
-    return query_id, struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", 1, 1)
+    return query_id, struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", qtype, 1)
 
 
 def parse_dns_response(payload, query_id):
@@ -8643,6 +8884,16 @@ def run_dns_lab_cycle(app_dir):
             "system": get_dns_lab_system_health(app_dir),
         }
         event["durationMs"] = max(1, round((time.monotonic() - started) * 1000))
+        if settings["localObservation"]:
+            event["observation"] = collect_local_dns_observation(app_dir, settings, config_text, previous_runtime.get("observation"))
+            event["finishedTimestamp"] = int(time.time())
+            event["whitelistEnd"] = get_dns_lab_whitelist_context(app_dir)
+            event["contextChangedDuringMeasurement"] = (
+                any(event["whitelistEnd"].get(key) != whitelist_context.get(key)
+                    for key in ("state", "fallbackActive", "accessMode"))
+                or config_revision(read_config_text(get_config_path(app_dir))) != config_revision(config_text)
+            )
+            event["durationMs"] = max(1, round((time.monotonic() - started) * 1000))
         runtime = {
             "state": classification["state"],
             "rawState": classification["rawState"],
@@ -8654,6 +8905,8 @@ def run_dns_lab_cycle(app_dir):
             "consecutiveUnstable": classification["consecutiveUnstable"],
             "consecutiveDnsIssue": classification["consecutiveDnsIssue"],
             "whitelistContext": whitelist_context,
+            "observation": {key: event["observation"][key] for key in ("candidatePorts", "bootId")}
+            if "observation" in event else None,
         }
         append_dns_lab_event(app_dir, event)
         save_dns_lab_runtime(app_dir, runtime)
@@ -8697,7 +8950,7 @@ def run_dns_lab_job(app_dir):
 def start_dns_lab_check(app_dir):
     with dns_lab_state_lock:
         if dns_lab_job_state["running"]:
-            return {"ok": False, "message": "DNS check already running", "job": dict(dns_lab_job_state)}
+            return {"ok": False, "message": "Замер DNS уже выполняется", "job": dict(dns_lab_job_state)}
         dns_lab_job_state.update({
             "running": True,
             "startedAt": int(time.time()),
@@ -8725,12 +8978,12 @@ def dns_lab_worker(app_dir):
     while True:
         time.sleep(5)
         settings = load_dns_lab_settings(app_dir)
-        if not settings["enabled"] or snapshot_dns_lab_job()["running"]:
+        if not settings["enabled"] or not settings["localObservation"] or snapshot_dns_lab_job()["running"]:
             continue
         runtime = load_dns_lab_runtime(app_dir)
         checked_at = runtime.get("checkedAt")
         now = int(time.time())
-        if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:
+        if not isinstance(checked_at, (int, float)) or checked_at > now or now - int(checked_at) >= settings["intervalSeconds"]:
             start_dns_lab_check(app_dir)
 
 
@@ -9252,6 +9505,7 @@ def main():
     initialize_resource_monitor(app_dir)
     initialize_whitelist_monitor(app_dir)
     initialize_dns_protection(app_dir)
+    initialize_dns_lab(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,

@@ -5458,6 +5458,38 @@ body.component-manager-open {
   gap: 10px;
 }
 
+.dns-observation-results {
+  max-height: 320px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+#dnsObservationNames {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.dns-observation-actions {
+  flex-wrap: wrap;
+}
+
+.dns-observation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#dnsObservationEnabled {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 18px;
+}
+
 .dns-protection-settings-grid > label,
 .dns-protection-settings-grid > div {
   display: grid;
