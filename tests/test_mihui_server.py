@@ -2391,6 +2391,91 @@ class ProviderAdapterTests(unittest.TestCase):
                 mihui_server.select_resource_monitor_fastest_nodes(app_dir, settings, proxies)
                 select.assert_called_once_with(app_dir, "YOUTUBE", "node-a")
 
+    def test_resource_monitor_reserve_refresh_is_scoped_and_does_not_switch(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["maxAlternatives"] = 2
+        settings["services"]["youtube"]["sources"] = []
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "active", "all": ["active", "old", "a", "b", "c"]},
+            **{name: {"type": "VLESS", "history": [{"delay": delay}]}
+               for name, delay in [("active", 1), ("old", 2), ("a", 3), ("b", 4), ("c", 5)]},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            runtime = mihui_server.default_resource_monitor_runtime()
+            runtime["services"]["youtube"].update({
+                "currentNode": "active", "quarantine": {"old": int(time.time()) + 1000},
+            })
+            mihui_server.save_resource_monitor_runtime(app_dir, runtime)
+            with mock.patch.object(mihui_server, "load_resource_monitor_settings", return_value=settings), \
+                    mock.patch.object(mihui_server, "load_resource_monitor_proxies", return_value=proxies), \
+                    mock.patch.object(mihui_server, "select_proxy_group") as select, \
+                    mock.patch.object(mihui_server, "probe_resource_node", side_effect=[
+                        {"ok": False, "delay": None, "message": "timeout"},
+                        {"ok": True, "delay": 40, "message": ""},
+                    ]) as probe:
+                mihui_server.refresh_resource_monitor_reserve(app_dir, group="YOUTUBE")
+            select.assert_not_called()
+            self.assertEqual([call.args[2] for call in probe.call_args_list], ["a", "b"])
+            saved = mihui_server.load_resource_monitor_runtime(app_dir)
+            item = saved["services"]["youtube"]
+            self.assertEqual(item["currentNode"], "active")
+            self.assertEqual(item["quarantine"], runtime["services"]["youtube"]["quarantine"])
+            self.assertEqual(saved["services"]["telegram"], runtime["services"]["telegram"])
+            self.assertEqual([entry["node"] for entry in item["reserve"]], ["b", "a"])
+            self.assertTrue(item["reserveCheckedAt"])
+            self.assertTrue(all(entry["checkedAt"] for entry in item["reserve"]))
+            self.assertEqual(mihui_server.resource_monitor_candidates(
+                proxies["YOUTUBE"], proxies, "active", item["quarantine"], 3, reserve=item["reserve"],
+            ), ["b", "c", "a"])
+
+    def test_resource_monitor_reserve_keeps_source_priority(self):
+        group = {"all": ["a", "b"]}
+        proxies = {"a": {"type": "VLESS"}, "b": {"type": "VLESS"}}
+        tiers = mihui_server.resource_monitor_candidate_tiers(
+            group, proxies, "", {}, 2,
+            [{"name": "primary", "nodes": ["a"]}, {"name": "secondary", "nodes": ["b"]}],
+            reserve=[{"node": "a", "ok": True, "delay": 100}, {"node": "b", "ok": True, "delay": 10}],
+        )
+        self.assertEqual([tier["candidates"] for tier in tiers], [["a"], ["b"]])
+
+    def test_resource_monitor_manual_cycle_refreshes_only_after_success(self):
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "a", "all": ["a", "b"]},
+            "a": {"type": "VLESS"}, "b": {"type": "VLESS"},
+        }
+        for available in (True, False):
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as temp_dir:
+                app_dir = Path(temp_dir)
+                with mock.patch.object(mihui_server, "probe_resource_node", return_value={
+                    "ok": available, "delay": 20 if available else None, "message": "",
+                }), mock.patch.object(mihui_server, "select_proxy_group", return_value={"ok": True}), \
+                        mock.patch.object(mihui_server, "start_resource_monitor_reserve_refresh") as refresh:
+                    mihui_server.run_resource_monitor_cycle(app_dir, ["youtube"], proxies, force_switch=True)
+                if available:
+                    refresh.assert_called_once_with(app_dir, services=["youtube"])
+                    self.assertEqual(mihui_server.load_resource_monitor_runtime(app_dir)["services"]["youtube"]["currentNode"], "b")
+                else:
+                    refresh.assert_not_called()
+
+    def test_group_select_refreshes_reserve_only_when_changed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                for changed in (True, False):
+                    with mock.patch.object(mihui_server, "select_proxy_group", return_value={
+                        "ok": True, "changed": changed, "now": "node-b",
+                    }), mock.patch.object(mihui_server, "start_resource_monitor_reserve_refresh") as refresh:
+                        status, _ = self.post_json(server, "/api/groups/select", {"group": "YOUTUBE", "name": "node-b"})
+                        self.assertEqual(status, 200)
+                        if changed:
+                            refresh.assert_called_once_with(app_dir, group="YOUTUBE")
+                        else:
+                            refresh.assert_not_called()
+            finally:
+                self.stop_provider_server(server, thread)
+
     def test_resource_monitor_manual_switch_endpoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

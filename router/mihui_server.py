@@ -809,6 +809,8 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         result = select_proxy_group(self.app_dir, group, name)
         if result["ok"]:
+            if result.get("changed"):
+                start_resource_monitor_reserve_refresh(self.app_dir, group=group)
             status = HTTPStatus.OK
         elif result.get("unavailable") or result.get("uncertain"):
             status = HTTPStatus.BAD_GATEWAY
@@ -3842,6 +3844,8 @@ def default_resource_monitor_runtime():
                 "message": "Проверка ещё не выполнялась",
                 "lastSwitch": None,
                 "quarantine": {},
+                "reserve": [],
+                "reserveCheckedAt": None,
                 "historyInitialized": False,
             }
             for key in RESOURCE_MONITOR_SERVICES
@@ -4182,7 +4186,7 @@ def resource_monitor_node_tier_index(node, tiers):
     return None
 
 
-def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit, tiers):
+def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit, tiers, reserve=None):
     if tiers is None:
         return [
             {
@@ -4194,6 +4198,7 @@ def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit,
                     current,
                     quarantine,
                     limit,
+                    reserve=reserve,
                 ),
             }
         ]
@@ -4208,14 +4213,16 @@ def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit,
                 quarantine,
                 limit,
                 tier["nodes"],
+                reserve=reserve,
             ),
         }
         for tier in tiers
     ]
 
 
-def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None):
+def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None, reserve=None):
     now = int(time.time())
+    checked = {entry["node"]: entry for entry in (reserve or [])}
     candidates = []
     options = group.get("all") if isinstance(group, dict) else []
     if not isinstance(options, list):
@@ -4233,9 +4240,65 @@ def resource_monitor_candidates(group, proxies, current, quarantine, limit, allo
             continue
         proxy = proxies.get(name, {})
         known_delay = get_proxy_delay(proxy)
-        candidates.append((known_delay if known_delay is not None else 10**9, order, name))
+        result = checked.get(name)
+        rank = 0 if result and result["ok"] else 2 if result else 1
+        if result and result["ok"]:
+            known_delay = result["delay"]
+        candidates.append((rank, known_delay if known_delay is not None else 10**9, order, name))
     candidates.sort()
-    return [name for _, _, name in candidates[:limit]]
+    return [name for _, _, _, name in candidates[:limit]]
+
+
+def start_resource_monitor_reserve_refresh(app_dir, services=None, group=None):
+    threading.Thread(
+        target=refresh_resource_monitor_reserve,
+        args=(Path(app_dir), services, group),
+        daemon=True,
+    ).start()
+
+
+def refresh_resource_monitor_reserve(app_dir, services=None, group=None):
+    with resource_monitor_lock:
+        settings = load_resource_monitor_settings(app_dir)
+        selected = [
+            service for service, config in settings["services"].items()
+            if config["enabled"] and (services is None or service in services)
+            and (group is None or config["group"] == group)
+        ]
+        if not selected:
+            return
+        runtime = load_resource_monitor_runtime(app_dir)
+        try:
+            proxies = load_resource_monitor_proxies(app_dir)
+            for service in selected:
+                config = settings["services"][service]
+                item = runtime["services"][service]
+                proxy_group = proxies.get(config["group"], {})
+                current = str(proxy_group.get("now") or "")
+                tiers = resource_monitor_candidate_tiers(
+                    proxy_group, proxies, current, item["quarantine"],
+                    settings["maxAlternatives"], resource_monitor_source_tiers(config, proxies),
+                )
+                results = []
+                seen = set()
+                for priority, tier in enumerate(tiers):
+                    for node in tier["candidates"]:
+                        if node in seen or len(results) >= settings["maxAlternatives"]:
+                            continue
+                        seen.add(node)
+                        result = probe_resource_node(app_dir, service, node, settings["timeoutMs"], proxies)
+                        results.append({"node": node, "priority": priority,
+                                        "checkedAt": int(time.time()), **result})
+                results.sort(key=lambda entry: (
+                    entry["priority"], not entry["ok"],
+                    entry["delay"] if entry["delay"] is not None else 10**9,
+                ))
+                item["reserve"] = results
+                item["reserveCheckedAt"] = int(time.time())
+                save_resource_monitor_runtime(app_dir, runtime)
+        except Exception as error:
+            for service in selected:
+                append_resource_monitor_event(app_dir, service, "reserve_failed", str(error))
 
 
 def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
@@ -4773,6 +4836,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies, f
         quarantine,
         settings["maxAlternatives"],
         tiers,
+        reserve=item.get("reserve"),
     )
     if latency_switch and tiers is not None:
         refreshed_tier_index = resource_monitor_node_tier_index(current, tiers)
@@ -4867,6 +4931,10 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switc
             key for key, item in settings["services"].items() if item["enabled"]
         ]
         runtime = load_resource_monitor_runtime(app_dir)
+        previous_switches = {
+            service: dict(item.get("lastSwitch") or {})
+            for service, item in runtime["services"].items()
+        }
         try:
             if proxies is None:
                 proxies = load_resource_monitor_proxies(app_dir)
@@ -4885,6 +4953,14 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switc
                     )
         runtime["lastCycleAt"] = int(time.time())
         save_resource_monitor_runtime(app_dir, runtime)
+        if force_switch:
+            switched_services = [
+                service for service in selected_services
+                if runtime["services"][service].get("lastSwitch")
+                and runtime["services"][service]["lastSwitch"] != previous_switches[service]
+            ]
+            if switched_services:
+                start_resource_monitor_reserve_refresh(app_dir, services=switched_services)
         return runtime
 
 
