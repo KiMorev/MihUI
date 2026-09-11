@@ -25,6 +25,7 @@ const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
 const RESOURCE_MONITOR_DEFINITIONS = {
   youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
+  tiktok: { title: 'TikTok', group: 'TIKTOK', icon: 'tiktok' },
   telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
   whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
   instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
@@ -34,6 +35,12 @@ const RESOURCE_MONITOR_DEFINITIONS = {
 let resourceMonitorHistoryTooltipTarget = null;
 let resourceMonitorHistoryTooltipPinned = false;
 const RESOURCE_MONITOR_RULE_PROVIDERS = {
+  tiktok: [
+    {
+      name: 'tiktok@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/tiktok.mrs',
+    },
+  ],
   twitter: [
     {
       name: 'twitter@domain',
@@ -58,6 +65,9 @@ const RESOURCE_MONITOR_RULE_PROVIDERS = {
   ],
 };
 const RESOURCE_MONITOR_RULES = {
+  tiktok: [
+    ['RULE-SET', 'tiktok@domain', 'TIKTOK'],
+  ],
   twitter: [
     ['RULE-SET', 'twitter@domain', 'TWITTER'],
   ],

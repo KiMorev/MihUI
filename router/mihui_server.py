@@ -218,6 +218,11 @@ RESOURCE_MONITOR_SERVICES = {
         "group": "YOUTUBE",
         "endpoints": [{"url": "https://www.youtube.com/generate_204", "expected": 204}],
     },
+    "tiktok": {
+        "title": "TikTok",
+        "group": "TIKTOK",
+        "endpoints": [{"url": "https://www.tiktok.com/robots.txt", "expected": 200}],
+    },
     "telegram": {
         "title": "Telegram",
         "group": "TELEGRAM",
@@ -3742,7 +3747,7 @@ def load_resource_monitor_settings(app_dir):
         for key, service_defaults in defaults["services"].items():
             item = saved_services.get(key)
             services[key] = dict(service_defaults)
-            if key in ("instagram", "twitter") and key not in saved_services:
+            if key in ("instagram", "twitter", "tiktok") and key not in saved_services:
                 services[key]["enabled"] = False
             if isinstance(item, dict):
                 if "enabled" in item:

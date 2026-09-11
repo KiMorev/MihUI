@@ -477,6 +477,7 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
       twitter: 'FASTEST',
@@ -486,6 +487,11 @@ rules:
     const output = app.state.outputText;
     assert.match(output, /profile:\n  store-selected: true/);
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
+    assert.match(output, /name: TIKTOK # webmihomo-monitor: group tiktok source=FASTEST/);
+    assert.match(output, /tiktok@domain: .*tiktok\.mrs/);
+    assert.ok(output.indexOf('RULE-SET,tiktok@domain,TIKTOK') >= 0);
+    assert.ok(output.indexOf('RULE-SET,tiktok@domain,TIKTOK') < output.indexOf('MATCH,PROXY'));
+    assert.equal(app.state.groups.find((group) => group.name === 'TIKTOK').type, 'select');
     assert.match(output, /name: INSTAGRAM # webmihomo-monitor: group instagram source=FASTEST/);
     assert.match(output, /name: TWITTER # webmihomo-monitor: group twitter source=FASTEST/);
     assert.match(output, /twitter@domain: .*twitter\.mrs/);
@@ -514,6 +520,7 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
       twitter: 'FASTEST',
@@ -555,6 +562,7 @@ rules:
     const sources = {
       youtube: [],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: ['FASTEST'],
       twitter: ['FASTEST'],
@@ -563,6 +571,7 @@ rules:
     const services = {
       youtube: { enabled: false, group: 'YOUTUBE', sources: [] },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
       instagram: { enabled: true, group: 'INSTAGRAM', sources: sources.instagram },
       twitter: { enabled: true, group: 'TWITTER', sources: sources.twitter },
@@ -609,6 +618,7 @@ rules:
     const sources = {
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
       twitter: 'FASTEST',
@@ -617,6 +627,7 @@ rules:
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
+      tiktok: { enabled: false, group: 'TIKTOK' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
       twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
@@ -629,7 +640,7 @@ rules:
     const output = app.state.outputText;
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /GEOSITE,youtube,YOUTUBE/);
-    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
+    assert.doesNotMatch(output, /name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,TWITTER(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
@@ -643,7 +654,7 @@ rules:
     app.prepareResourceMonitorConfig(sources, disabledServices);
 
     const disabledOutput = app.state.outputText;
-    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
+    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.doesNotMatch(disabledOutput, /webmihomo-monitor/);
     assert.match(disabledOutput, /MATCH,PROXY/);
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, disabledServices), false);
@@ -673,6 +684,7 @@ rules:
     const disabledServices = {
       youtube: { enabled: false, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
+      tiktok: { enabled: false, group: 'TIKTOK' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
       twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
@@ -705,6 +717,7 @@ rules:
     const sources = {
       youtube: ['FASTEST'],
       telegram: ['FASTEST'],
+      tiktok: ['FASTEST'],
       whatsapp: ['FASTEST'],
       instagram: ['FASTEST'],
       twitter: ['FASTEST'],
@@ -725,7 +738,7 @@ rules:
     assert.equal(app.els.resourceMonitorEnabled.checked, true);
     assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
     assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
-    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
+    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.match(app.state.outputText, /MATCH,PROXY/);
   });
 
@@ -762,6 +775,7 @@ rules:
     const sources = {
       youtube: ['FASTEST', 'FALLBACK'],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: [],
       twitter: [],
@@ -770,6 +784,7 @@ rules:
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
       twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
@@ -831,6 +846,7 @@ rules:
     const sources = {
       youtube: ['PROXY'],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: [],
       twitter: [],
@@ -839,6 +855,7 @@ rules:
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
       twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
@@ -1110,6 +1127,7 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
       twitter: 'FASTEST',

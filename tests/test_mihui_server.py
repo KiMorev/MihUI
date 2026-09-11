@@ -1622,6 +1622,7 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(validated["services"]["ai"]["group"], "AI")
             self.assertEqual(validated["services"]["instagram"]["group"], "INSTAGRAM")
             self.assertEqual(validated["services"]["youtube"]["sources"], ["FASTEST", "FALLBACK"])
+            self.assertEqual(validated["services"]["tiktok"]["group"], "TIKTOK")
             self.assertTrue(validated["proactiveSwitchEnabled"])
 
             invalid = dict(settings)
@@ -1655,6 +1656,7 @@ class ProviderAdapterTests(unittest.TestCase):
             settings = mihui_server.default_resource_monitor_settings()
             settings["services"].pop("instagram")
             settings["services"].pop("twitter")
+            settings["services"].pop("tiktok")
             mihui_server.write_json_atomic(
                 mihui_server.resource_monitor_settings_path(app_dir),
                 settings,
@@ -1662,6 +1664,8 @@ class ProviderAdapterTests(unittest.TestCase):
 
             loaded = mihui_server.load_resource_monitor_settings(app_dir)
 
+        self.assertFalse(loaded["services"]["tiktok"]["enabled"])
+        self.assertEqual(loaded["services"]["tiktok"]["group"], "TIKTOK")
         self.assertFalse(loaded["services"]["twitter"]["enabled"])
         self.assertEqual(loaded["services"]["twitter"]["group"], "TWITTER")
         self.assertFalse(loaded["services"]["instagram"]["enabled"])
@@ -2751,7 +2755,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 "now": "provider-node",
                 "all": ["provider-node", "provider-node-2"],
             }
-            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "TWITTER", "AI")
+            for name in ("YOUTUBE", "TIKTOK", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "TWITTER", "AI")
         }
 
         with mock.patch.object(
