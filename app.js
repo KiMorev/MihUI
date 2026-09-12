@@ -842,6 +842,8 @@ const els = {
   dnsProfileResilient: document.querySelector('#dnsProfileResilient'),
   dnsProfileStrict: document.querySelector('#dnsProfileStrict'),
   dnsProxyGroup: document.querySelector('#dnsProxyGroup'),
+  dnsWhitelistDns: document.querySelector('#dnsWhitelistDns'),
+  dnsWhitelistDnsStatus: document.querySelector('#dnsWhitelistDnsStatus'),
   dnsUpstreams: document.querySelector('#dnsUpstreams'),
   dnsLanInterfaces: document.querySelector('#dnsLanInterfaces'),
   dnsLanSelectionMessage: document.querySelector('#dnsLanSelectionMessage'),
@@ -992,7 +994,7 @@ els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('clic
 });
 els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns({ resetPreview: true }));
 [els.dnsProfileResilient, els.dnsProfileStrict].forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
-[els.dnsProxyGroup, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
+[els.dnsProxyGroup, els.dnsWhitelistDns, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
   .forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
 els.dnsLanInterfaces?.addEventListener('change', handleProtectedDnsLanChange);
 els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
@@ -4834,6 +4836,7 @@ function getProtectedDnsPayload(action = '') {
   const payload = {
     profile: getProtectedDnsProfile(),
     proxyGroup: String(els.dnsProxyGroup?.value || 'PROXY'),
+    whitelistDns: els.dnsWhitelistDns?.checked === true,
     confirmations: getProtectedDnsConfirmations(),
     lanInterfaces: normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces),
   };
@@ -4858,6 +4861,9 @@ function mergeProtectedDnsResponse(data, options = {}) {
   if (options.syncProfile && ['resilient', 'strict'].includes(data.profile)) {
     els.dnsProfileResilient.checked = data.profile === 'resilient';
     els.dnsProfileStrict.checked = data.profile === 'strict';
+  }
+  if (options.syncProfile && els.dnsWhitelistDns) {
+    els.dnsWhitelistDns.checked = (data.whitelistDns ?? data.runtime?.whitelistDns) === true;
   }
   if ((!state.protectedDns.lanSelectionInitialized || options.syncLanSelection)
       && Array.isArray(data.capabilities?.lanInterfaces)) {
@@ -5232,6 +5238,9 @@ function normalizeProtectedDnsTextList(value) {
     if (Array.isArray(value.localNames) && value.localNames.length) {
       lines.push(`Передавать локальному резолверу 127.0.0.1:41100 только имена: ${value.localNames.join(', ')}.`);
     }
+    if (value.whitelistDns?.enabled) {
+      lines.push(`Направить DNS ${value.whitelistDns.count} доменов белого списка и их поддоменов напрямую через Яндекс Safe DoT (TCP/853). Правила трафика сайтов не меняются.`);
+    }
     if (value.providerDnsChange) lines.push('Подготовить изменение настройки DNS провайдера после отдельного подтверждения.');
     if (value.transitDnsChange) lines.push('Подготовить перехват транзитных DNS-запросов после отдельного подтверждения.');
     return lines;
@@ -5358,6 +5367,7 @@ function getProtectedDnsEventLabel(event = {}) {
     fallback_ready: 'Перехват прекращён',
     lease_recovered: 'Защита восстановлена',
     lease_degraded: 'Защита недоступна',
+    whitelist_dns_synced: 'DNS белых списков',
   }[event.type || event.action || event.mode] || (event.ok === false ? 'Ошибка' : 'Событие DNS');
 }
 
@@ -5501,6 +5511,16 @@ function renderProtectedDns() {
   els.dnsProfileResilient.disabled = busy;
   els.dnsProfileStrict.disabled = busy;
   els.dnsProxyGroup.disabled = !apiAvailable || busy;
+  if (els.dnsWhitelistDns) {
+    els.dnsWhitelistDns.disabled = !apiAvailable || busy || runtime.requestedMode === 'active';
+    const enabled = els.dnsWhitelistDns.checked;
+    const planned = preview?.plan?.whitelistDns;
+    els.dnsWhitelistDnsStatus.textContent = runtime.requestedMode === 'active'
+      ? `${runtime.whitelistDns ? `Яндекс DoT настроен для ${runtime.whitelistDnsCount} доменов.` : 'Опция выключена.'} Для изменения сначала вернитесь к системному DNS.`
+      : planned?.enabled ? `Проверен план для ${planned.count} доменов. Доступность Яндекс DoT этой проверкой не подтверждается.`
+        : enabled ? 'Выбрано: Яндекс Safe DoT. Проверьте план и запустите тестовый режим; после обновления списка повторите применение DNS.'
+          : 'Выключено. Применяется после проверки и тестового режима.';
+  }
   renderProtectedDnsLanSelector(capabilities, busy);
   renderProtectedDnsCapabilities(capabilities);
   renderProtectedDnsConfigCheck(preview?.configCheck);

@@ -5475,12 +5475,14 @@ body.component-manager-open {
   flex-wrap: wrap;
 }
 
+.dns-whitelist-toggle,
 .dns-observation-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+#dnsWhitelistDns,
 #dnsObservationEnabled {
   width: 18px;
   height: 18px;

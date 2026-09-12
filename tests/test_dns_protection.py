@@ -1175,5 +1175,178 @@ ip name-server 1.1.1.1
         self.assertEqual(mode, "fallback")
 
 
+class WhitelistDnsTests(unittest.TestCase):
+    make_app = DnsProtectionTests.make_app
+    ready_capabilities = DnsProtectionTests.ready_capabilities
+
+    def test_option_is_opt_in_and_strictly_boolean(self):
+        self.assertFalse(mihui_server.validate_dns_protection_request({})["whitelistDns"])
+        for value in ("false", 1, None, [], {}):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "whitelistDns"):
+                mihui_server.validate_dns_protection_request({"whitelistDns": value})
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, _ = self.make_app(directory)
+            self.assertFalse(mihui_server.load_dns_protection_runtime(app_dir)["whitelistDns"])
+
+    def test_dns_policy_does_not_change_other_dns_or_routing(self):
+        original = "mixed-port: 7890\nrules:\n  - MATCH,PROXY\n"
+        domains = mihui_server.normalize_dns_whitelist_domains([
+            "Example.org", "example.org", "nas", "nas.lan", "host.local", "a.home.arpa", "192.168.1.1",
+        ])
+        self.assertEqual(domains, ["example.org"])
+        text = mihui_server.prepare_dns_protection_text(original, "PROXY", True, True, domains)
+        self.assertTrue(text.startswith(original))
+        self.assertEqual(text.count("nameserver-policy:"), 1)
+        self.assertIn("'+.example.org':", text)
+        self.assertIn("https://1.1.1.1/dns-query#PROXY", text)
+        self.assertIn("udp://127.0.0.1:41100", text)
+        for server in mihui_server.DNS_WHITELIST_SERVERS:
+            self.assertIn(server, text)
+        disabled = mihui_server.prepare_dns_protection_text(text, "PROXY", True, True)
+        self.assertNotIn("77.88", disabled)
+        self.assertIn("udp://127.0.0.1:41100", disabled)
+        self.assertEqual(mihui_server.remove_dns_protection_text(text), original)
+
+    def test_uses_applied_routing_domains_instead_of_a_new_download(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, _ = self.make_app(directory)
+            text = mihui_server.prepare_whitelist_fallback_text(
+                "rules:\n  - MATCH,PROXY\n", {"proxyGroup": "PROXY"}, ["applied.example", "nas.lan"]
+            )
+            with mock.patch.object(mihui_server, "get_whitelist_routing_hosts") as downloaded:
+                self.assertEqual(mihui_server.get_dns_whitelist_domains(app_dir, text), ["applied.example"])
+                downloaded.assert_not_called()
+
+    def test_missing_list_blocks_opt_in_but_not_default_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config = self.make_app(directory)
+            original = config.read_text()
+            with mock.patch.object(mihui_server, "collect_dns_protection_capabilities", return_value=self.ready_capabilities()), mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}
+            ), mock.patch.object(mihui_server, "get_whitelist_routing_hosts", side_effect=RuntimeError("no list")):
+                enabled = mihui_server.preview_dns_protection(app_dir, mihui_server.validate_dns_protection_request({"whitelistDns": True}))
+                disabled = mihui_server.preview_dns_protection(app_dir, mihui_server.validate_dns_protection_request({}))
+            self.assertFalse(enabled["canTest"])
+            self.assertIn("Сначала загрузите", enabled["message"])
+            self.assertTrue(disabled["canTest"])
+            self.assertEqual(config.read_text(), original)
+
+    def test_apply_persists_option_and_reports_it_after_reload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config = self.make_app(directory)
+            request = mihui_server.validate_dns_protection_request({
+                "action": "test", "whitelistDns": True, "expectedRevision": mihui_server.config_revision(config.read_text()),
+            }, require_action=True)
+            capabilities = self.ready_capabilities()
+            with mock.patch.object(mihui_server, "collect_dns_protection_capabilities", return_value=capabilities), mock.patch.object(
+                mihui_server, "get_whitelist_routing_hosts", return_value=["allowed.example"]
+            ), mock.patch.object(mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}), mock.patch.object(
+                mihui_server, "reload_mihomo", return_value={"ok": True}
+            ), mock.patch.object(mihui_server, "wait_for_mihomo_dns", return_value={"ok": True}):
+                result = mihui_server.apply_dns_protection_action(app_dir, request)
+                status = mihui_server.get_dns_protection_status(app_dir)
+            self.assertTrue(result["ok"])
+            self.assertTrue(status["whitelistDns"])
+            self.assertEqual(status["runtime"]["whitelistDnsCount"], 1)
+            self.assertIn("'+.allowed.example':", config.read_text())
+
+    def make_active(self, directory):
+        text = mihui_server.prepare_dns_protection_text(
+            "mixed-port: 7890\nrules:\n  - MATCH,PROXY\n", "PROXY", False, True, ["old.example"]
+        )
+        app_dir, config = self.make_app(directory, text)
+        runtime = {**mihui_server.default_dns_protection_runtime(), "requestedMode": "active", "whitelistDns": True,
+                   "managedBlockRevision": mihui_server.dns_managed_block_revision(text),
+                   "lanInterfaces": ["br0"], "addresses": {"ipv4": ["192.168.1.1"], "ipv6": []}}
+        mihui_server.save_dns_protection_runtime(app_dir, runtime)
+        return app_dir, config, text, runtime
+
+    def test_automatic_whitelist_update_and_restore_keep_dns_and_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config, original, _ = self.make_active(directory)
+            settings = {**mihui_server.default_whitelist_monitor_settings(), "actionMode": "automatic"}
+            monitor = {"state": "confirmed", "evidenceState": "current", "controlProxyRecoveries": settings["controlFailureThreshold"]}
+            with mock.patch.object(mihui_server, "get_whitelist_routing_hosts", return_value=["new.example"]), mock.patch.object(
+                mihui_server, "check_mihomo_config", return_value={"ok": True}
+            ), mock.patch.object(mihui_server, "reload_mihomo", return_value={"ok": True}) as reload_core:
+                result = mihui_server.reconcile_automatic_whitelist_config(app_dir, settings, monitor, now=10000)
+                self.assertTrue(result["ok"])
+                self.assertEqual(reload_core.call_count, 1)
+                active = config.read_text()
+                self.assertIn("DOMAIN-SUFFIX,new.example,DIRECT", active)
+                self.assertIn("'+.new.example':", active)
+                self.assertNotIn("old.example", active)
+                runtime = mihui_server.load_dns_protection_runtime(app_dir)
+                self.assertEqual(runtime["managedBlockRevision"], mihui_server.dns_managed_block_revision(active))
+                self.assertEqual(runtime["requestedMode"], "active")
+                monitor["state"] = "normal"
+                restored = mihui_server.reconcile_automatic_whitelist_config(app_dir, settings, monitor, now=20000)
+                self.assertTrue(restored["ok"])
+                self.assertNotIn("DOMAIN-SUFFIX,new.example,DIRECT", config.read_text())
+                self.assertEqual(mihui_server.dns_managed_block_revision(config.read_text()), runtime["managedBlockRevision"])
+            with mock.patch.object(mihui_server, "discover_dns_lan_addresses", return_value={
+                "ok": True, "interfaces": ["br0"], "ipv4": ["192.168.1.1"], "ipv6": [],
+            }), mock.patch.object(mihui_server, "probe_mihomo_dns_listener", return_value={"ok": True}), mock.patch.object(
+                mihui_server, "dns_firewall_installed", return_value={"ok": True}
+            ), mock.patch.object(mihui_server, "refresh_dns_firewall_lease", return_value={"ok": True}) as refresh:
+                mihui_server.run_dns_protection_lease_cycle(app_dir)
+                refresh.assert_called_once()
+
+    def test_failed_combined_save_does_not_accept_new_dns_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config, original, runtime = self.make_active(directory)
+            with mock.patch.object(mihui_server, "check_mihomo_config", return_value={"ok": False}), mock.patch.object(
+                mihui_server, "reload_mihomo"
+            ) as reload_core:
+                result = mihui_server.save_whitelist_config_with_dns(app_dir, original, original, ["new.example"])
+            self.assertFalse(result["ok"])
+            self.assertEqual(config.read_text(), original)
+            self.assertEqual(mihui_server.load_dns_protection_runtime(app_dir), runtime)
+            reload_core.assert_not_called()
+
+    def test_manual_dns_changes_are_not_overwritten_by_whitelist_automation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config, original, _ = self.make_active(directory)
+            edited = original.replace("https://1.1.1.1", "https://9.9.9.9")
+            with mock.patch.object(mihui_server, "save_checked_config") as save:
+                with self.assertRaisesRegex(ValueError, "изменён вручную"):
+                    mihui_server.save_whitelist_config_with_dns(app_dir, edited, edited, ["new.example"])
+                save.assert_not_called()
+
+    def test_list_change_during_preflight_does_not_stop_existing_protection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config, original, runtime = self.make_active(directory)
+            request = mihui_server.validate_dns_protection_request({
+                "action": "activate", "whitelistDns": True, "expectedRevision": mihui_server.config_revision(original),
+            }, require_action=True)
+            with mock.patch.object(mihui_server, "collect_dns_protection_capabilities", return_value=self.ready_capabilities()), mock.patch.object(
+                mihui_server, "get_dns_whitelist_domains", side_effect=[["old.example"], ["new.example"]]
+            ), mock.patch.object(mihui_server, "check_mihomo_config", return_value={"ok": True, "available": True}), mock.patch.object(
+                mihui_server, "get_dns_protection_mode", return_value="active"
+            ), mock.patch.object(mihui_server, "remove_dns_firewall") as remove, mock.patch.object(mihui_server, "save_checked_config") as save:
+                result = mihui_server.apply_dns_protection_action(app_dir, request)
+            self.assertFalse(result["ok"])
+            self.assertIn("Белый список изменился", result["message"])
+            self.assertEqual(mihui_server.load_dns_protection_runtime(app_dir), runtime)
+            self.assertEqual(config.read_text(), original)
+            save.assert_not_called()
+            remove.assert_not_called()
+
+    def test_refreshed_list_only_warns_and_does_not_rewrite_dns(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir, config, original, _ = self.make_active(directory)
+            with mock.patch.object(mihui_server, "collect_dns_protection_capabilities", return_value=self.ready_capabilities()), mock.patch.object(
+                mihui_server, "get_dns_whitelist_domains", return_value=["new.example"]
+            ), mock.patch.object(mihui_server, "get_dns_protection_mode", return_value="active"), mock.patch.object(
+                mihui_server, "dns_capture_lease_state", return_value={"known": True, "active": True, "complete": True}
+            ), mock.patch.object(mihui_server, "dns_firewall_installed", return_value={"ok": True}), mock.patch.object(
+                mihui_server, "save_checked_config"
+            ) as save:
+                status = mihui_server.get_dns_protection_status(app_dir)
+            self.assertIn("whitelist-dns-changed", [item["code"] for item in status["warnings"]])
+            self.assertEqual(config.read_text(), original)
+            save.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

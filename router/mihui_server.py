@@ -341,6 +341,12 @@ DNS_PROTECTION_UPSTREAMS = (
 DNS_PROTECTION_BOOTSTRAP = ("1.1.1.1", "8.8.8.8")
 DNS_PROTECTION_PROXY_RESOLVER = "udp://127.0.0.1:53"
 DNS_PROTECTION_LOCAL_NAMES = ("*", "+.lan", "+.localdomain", "+.home.arpa")
+DNS_WHITELIST_BEGIN = "    # mihui-whitelist-dns: begin"
+DNS_WHITELIST_END = "    # mihui-whitelist-dns: end"
+DNS_WHITELIST_SERVERS = (
+    "tls://77.88.8.88#DIRECT&name-cert-verify=safe.dot.dns.yandex.net",
+    "tls://77.88.8.2#DIRECT&name-cert-verify=safe.dot.dns.yandex.net",
+)
 
 
 update_lock = threading.Lock()
@@ -5964,22 +5970,19 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
         return None
 
     try:
+        allowed_hosts = get_whitelist_routing_hosts(app_dir, settings) if action == "activate" else None
         next_text = (
             prepare_whitelist_fallback_text(
                 current_text,
                 settings,
-                get_whitelist_routing_hosts(app_dir, settings),
+                allowed_hosts,
             )
             if action == "activate"
             else remove_whitelist_fallback_text(current_text)
         )
         if next_text == current_text:
             return None
-        result = save_checked_config(
-            app_dir,
-            next_text,
-            expected_revision=config_revision(current_text),
-        )
+        result = save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts)
         action_ok = bool(result.get("ok") and result.get("applied"))
         message = (
             "Временная маршрутизация автоматически применена"
@@ -6301,6 +6304,9 @@ def default_dns_protection_runtime():
         "requestedMode": "system",
         "profile": "resilient",
         "proxyGroup": "PROXY",
+        "whitelistDns": False,
+        "whitelistDnsHash": "",
+        "whitelistDnsCount": 0,
         "managedRevision": "",
         "managedBlockRevision": "",
         "fallbackPending": False,
@@ -6322,6 +6328,7 @@ def load_dns_protection_runtime(app_dir):
     if runtime["profile"] not in {"resilient", "strict"}:
         runtime["profile"] = "resilient"
     runtime["fallbackPending"] = runtime.get("fallbackPending") is True
+    runtime["whitelistDns"] = runtime.get("whitelistDns") is True
     if not isinstance(runtime.get("lanInterfaces"), list):
         runtime["lanInterfaces"] = []
     if not isinstance(runtime.get("addresses"), dict):
@@ -6385,6 +6392,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action",
         "profile",
         "proxyGroup",
+        "whitelistDns",
         "lanInterfaces",
         "confirmations",
         "expectedRevision",
@@ -6406,6 +6414,8 @@ def validate_dns_protection_request(payload, require_action=False):
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
         raise ValueError("Некорректное имя прокси-группы в поле proxyGroup")
+    if not isinstance(payload.get("whitelistDns", False), bool):
+        raise ValueError("Поле whitelistDns должно быть логическим значением")
 
     lan_interfaces = payload.get("lanInterfaces")
     if "lanInterfaces" in payload and (
@@ -6442,6 +6452,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action": action,
         "profile": profile,
         "proxyGroup": proxy_group,
+        "whitelistDns": payload.get("whitelistDns", False),
         "lanInterfaces": lan_interfaces,
         "expectedRevision": expected_revision,
         "confirmations": normalized_confirmations,
@@ -6491,7 +6502,95 @@ def yaml_single_quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False):
+def normalize_dns_whitelist_domains(hosts):
+    domains = set()
+    for host in hosts:
+        try:
+            ipaddress.ip_address(host)
+            continue  # IP-only control endpoints do not need DNS.
+        except ValueError:
+            pass
+        if "." not in host:
+            continue  # Single-label home names retain their existing DNS path.
+        domain = normalize_whitelist_domain(host)
+        # Never send private zones to a public resolver, even if listed as controls.
+        if any(domain == zone or domain.endswith("." + zone)
+               for zone in ("lan", "local", "localdomain", "home.arpa")):
+            continue
+        domains.add(domain)
+    if not domains:
+        raise ValueError("Нет публичных доменов для DNS белых списков")
+    return sorted(domains)
+
+
+def get_dns_whitelist_domains(app_dir, config_text):
+    if has_whitelist_fallback_config(config_text):
+        # While temporary routing is active, use its actual DIRECT domains,
+        # not a newer downloaded list that has not been applied to routing yet.
+        hosts = []
+        for line in str(config_text).splitlines():
+            parts = parse_whitelist_rule_line(line)
+            if (f"# {WHITELIST_FALLBACK_MARKER} direct " in line and parts
+                    and len(parts) >= 3 and parts[0] == "DOMAIN-SUFFIX" and parts[2] == "DIRECT"):
+                hosts.append(parts[1])
+    else:
+        try:
+            hosts = get_whitelist_routing_hosts(app_dir, load_whitelist_monitor_settings(app_dir))
+        except RuntimeError as error:
+            raise ValueError("Сначала загрузите список доменов в разделе «Белые списки»") from error
+    return normalize_dns_whitelist_domains(hosts)
+
+
+def dns_whitelist_metadata(domains):
+    return {"count": len(domains), "hash": config_revision("\n".join(domains)) if domains else ""}
+
+
+def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts=None):
+    # Called under whitelist_monitor_lock. Do not take dns_protection_lock here:
+    # DNS actions acquire it before the whitelist lock. The config lock makes
+    # the combined YAML save and ownership-hash update one transition.
+    with config_write_lock:
+        runtime = load_dns_protection_runtime(app_dir)
+        domains = None
+        if allowed_hosts is not None and runtime["whitelistDns"]:
+            if (not runtime["managedBlockRevision"]
+                    or dns_managed_block_revision(current_text) != runtime["managedBlockRevision"]):
+                raise ValueError("DNS-блок изменён вручную. Повторно проверьте DNS до изменения белых списков")
+            if next_text.count(DNS_WHITELIST_BEGIN) != 1 or next_text.count(DNS_WHITELIST_END) != 1:
+                raise ValueError("Служебный блок DNS белых списков повреждён")
+            domains = normalize_dns_whitelist_domains(allowed_hosts)
+            start = next_text.index(DNS_WHITELIST_BEGIN)
+            end = next_text.index(DNS_WHITELIST_END, start) + len(DNS_WHITELIST_END)
+            next_text = next_text[:start] + build_dns_whitelist_policy(domains) + next_text[end:]
+        result = save_checked_config(app_dir, next_text, expected_revision=config_revision(current_text))
+        if domains is not None and result.get("ok") and result.get("applied"):
+            metadata = dns_whitelist_metadata(domains)
+            save_dns_protection_runtime(app_dir, {
+                **runtime,
+                "managedRevision": result["revision"],
+                "managedBlockRevision": dns_managed_block_revision(next_text),
+                "whitelistDnsHash": metadata["hash"],
+                "whitelistDnsCount": metadata["count"],
+                "updatedAt": int(time.time()),
+            })
+            append_dns_protection_event(app_dir, "whitelist_dns_synced",
+                                        "Яндекс DoT обновлён вместе с временными правилами белых списков",
+                                        whitelistDnsCount=metadata["count"])
+        return result
+
+
+def build_dns_whitelist_policy(domains):
+    return "\n".join([
+        DNS_WHITELIST_BEGIN,
+        *[line for domain in domains for line in (
+            f"    {yaml_single_quote('+.' + domain)}:",
+            *[f"      - {yaml_single_quote(server)}" for server in DNS_WHITELIST_SERVERS],
+        )],
+        DNS_WHITELIST_END,
+    ])
+
+
+def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None):
     upstreams = [f"{url}#{proxy_group}" for url in DNS_PROTECTION_UPSTREAMS]
     lines = [
         DNS_PROTECTION_MARKER_BEGIN,
@@ -6509,22 +6608,25 @@ def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False):
         "  nameserver:",
         *[f"    - {yaml_single_quote(url)}" for url in upstreams],
     ]
-    if local_resolver:
+    if local_resolver or whitelist_domains:
         lines.append("  nameserver-policy:")
+    if local_resolver:
         for domain in DNS_PROTECTION_LOCAL_NAMES:
             lines.extend([
                 f"    {yaml_single_quote(domain)}:",
                 f"      - 'udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}'",
             ])
+    if whitelist_domains:
+        lines.append(build_dns_whitelist_policy(whitelist_domains))
     lines.append(DNS_PROTECTION_MARKER_END)
     return "\n".join(lines) + "\n"
 
 
-def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False):
+def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None):
     lines, managed_range = dns_protection_managed_range(text)
     if has_top_level_dns_config(text, ignore_range=managed_range):
         raise ValueError("Конфигурация уже содержит раздел dns верхнего уровня, не управляемый MihUI")
-    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver)
+    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver, whitelist_domains)
     if managed_range:
         return "".join(lines[:managed_range[0]]) + block + "".join(lines[managed_range[1]:])
     prefix = str(text or "")
@@ -7074,15 +7176,19 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
     revision = config_revision(config_text)
     warnings = []
     proposed_text = None
+    whitelist_domains = []
     config_check = {"ok": False, "available": bool(find_mihomo_binary(app_dir)), "message": "Предварительная проверка недоступна"}
     try:
         if not proxy_group:
             raise ValueError("Совместимая прокси-группа Mihomo не обнаружена")
+        if request_data.get("whitelistDns"):
+            whitelist_domains = get_dns_whitelist_domains(app_dir, config_text)
         proposed_text = prepare_dns_protection_text(
             config_text,
             proxy_group,
             capabilities["ipv6ClientDns"],
             capabilities["localResolver"]["ok"],
+            whitelist_domains,
         )
         config_check = check_mihomo_config(app_dir, proposed_text)
         if not config_check.get("available"):
@@ -7122,6 +7228,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
         "stage": "preview",
         "mode": get_dns_protection_mode(app_dir),
         "profile": request_data["profile"],
+        "whitelistDns": request_data.get("whitelistDns", False),
         "proxyGroup": proxy_group,
         "revision": revision,
         "capabilities": capabilities,
@@ -7144,6 +7251,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
             "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
             "localPrivateResolver": capabilities["localResolver"]["ok"],
             "localNames": list(DNS_PROTECTION_LOCAL_NAMES) if capabilities["localResolver"]["ok"] else [],
+            "whitelistDns": {"enabled": request_data.get("whitelistDns", False), **dns_whitelist_metadata(whitelist_domains)},
             "providerDnsChange": request_data["profile"] == "strict",
             "transitDnsChange": request_data["profile"] == "strict",
         },
@@ -7567,12 +7675,20 @@ def get_dns_protection_status(app_dir):
         (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
     ):
         warnings.append({"code": "ipv6-unprotected", "message": "IPv6 DNS обнаружен, но защищённый IPv6-путь недоступен."})
+    if runtime["whitelistDns"]:
+        try:
+            current_whitelist = dns_whitelist_metadata(get_dns_whitelist_domains(app_dir, config_text))
+            if current_whitelist["hash"] != runtime["whitelistDnsHash"]:
+                warnings.append({"code": "whitelist-dns-changed", "message": "Список белых доменов изменился. Повторно примените DNS-настройку; при автоматическом включении временной маршрутизации DNS обновится вместе с ней."})
+        except ValueError as error:
+            warnings.append({"code": "whitelist-dns-unavailable", "message": str(error) + ". Применённые DNS-правила сохранены."})
     with dns_protection_health_lock:
         health = dict(dns_protection_health)
     return {
         "ok": True,
         "mode": mode,
         "profile": runtime["profile"],
+        "whitelistDns": runtime["whitelistDns"],
         "proxyGroup": capabilities["selectedProxyGroup"],
         "proxyGroups": capabilities["proxyGroups"],
         "revision": config_revision(config_text),
@@ -7773,6 +7889,17 @@ def apply_dns_protection_action(app_dir, request_data):
                 "events": read_dns_protection_events(app_dir),
             }
 
+        whitelist_domains = []
+        if request_data.get("whitelistDns"):
+            try:
+                whitelist_domains = get_dns_whitelist_domains(app_dir, current_text)
+                if dns_whitelist_metadata(whitelist_domains) != {
+                    key: preview["plan"]["whitelistDns"][key] for key in ("count", "hash")
+                }:
+                    raise ValueError("Белый список изменился во время проверки. Повторите проверку DNS")
+            except ValueError as error:
+                return {"ok": False, "stage": "preflight", "message": str(error)}
+
         if runtime["requestedMode"] == "active":
             stopped_runtime = {
                 **runtime,
@@ -7801,6 +7928,7 @@ def apply_dns_protection_action(app_dir, request_data):
             preview["proxyGroup"],
             capabilities["ipv6ClientDns"],
             capabilities["localResolver"]["ok"],
+            whitelist_domains,
         )
         saved = save_checked_config(app_dir, proposed_text, expected_revision=current_revision)
         if not saved.get("ok") or not saved.get("applied"):
@@ -7823,6 +7951,9 @@ def apply_dns_protection_action(app_dir, request_data):
             "requestedMode": "test",
             "profile": "resilient",
             "proxyGroup": preview["proxyGroup"],
+            "whitelistDns": request_data.get("whitelistDns", False),
+            "whitelistDnsHash": dns_whitelist_metadata(whitelist_domains)["hash"],
+            "whitelistDnsCount": len(whitelist_domains),
             "managedRevision": saved["revision"],
             "managedBlockRevision": dns_managed_block_revision(proposed_text),
             "ipv6": capabilities["ipv6ClientDns"],
@@ -7887,12 +8018,15 @@ def apply_dns_protection_action(app_dir, request_data):
             "Защищённый DNS включён" if next_runtime["requestedMode"] == "active" else "Mihomo DNS проверен без перехвата клиентов",
             profile="resilient",
             proxyGroup=preview["proxyGroup"],
+            whitelistDns=next_runtime["whitelistDns"],
+            whitelistDnsCount=len(whitelist_domains),
             ipv6=capabilities["ipv6ClientDns"],
         )
         return {
             "ok": True,
             "mode": next_runtime["requestedMode"],
             "profile": "resilient",
+            "whitelistDns": next_runtime["whitelistDns"],
             "proxyGroup": preview["proxyGroup"],
             "revision": saved["revision"],
             "capabilities": capabilities,

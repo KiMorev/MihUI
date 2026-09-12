@@ -927,6 +927,16 @@
             </div>
           </div>
 
+          <div class="dns-protection-lan-selector">
+            <label class="dns-whitelist-toggle">
+              <input id="dnsWhitelistDns" type="checkbox" aria-describedby="dnsWhitelistDnsHelp dnsWhitelistDnsStatus" />
+              <strong>DNS белых списков через Яндекс DoT</strong>
+            </label>
+            <p id="dnsWhitelistDnsHelp">Разрешённые домены и их поддомены — через Яндекс Safe DoT напрямую (TCP/853), остальные — через выбранную прокси-группу. Домашние имена не меняются. Используется наш список из раздела «Белые списки», а не список Yota. Переключатель меняет только DNS, не правила трафика сайтов.</p>
+            <p>При автоматическом включении временных правил белых списков DNS обновляется тем же изменением конфигурации. Возврат обычной маршрутизации сохраняет эту опцию. При отключении защиты DNS действует системный резерв роутера, не обязательно Яндекс DoT.</p>
+            <p id="dnsWhitelistDnsStatus" role="status">Выключено по умолчанию. Применяется после проверки и тестового режима.</p>
+          </div>
+
           <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
             <div>
               <strong id="dnsLanTitle">LAN-интерфейсы для DNS клиентов</strong>
