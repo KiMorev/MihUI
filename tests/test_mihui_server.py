@@ -747,7 +747,71 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(len(catalog_flags), len(set(catalog_flags)))
         self.assertEqual(set(catalog_flags), mihui_server.XKEEN_COMMAND_FLAGS)
+        self.assertNotIn("-rrk", catalog_flags)
         self.assertTrue({"-i", "-restart", "-diag", "-remove"}.issubset(catalog_flags))
+
+    def test_component_metadata_retries_dns_failure_using_ipv4(self):
+        request = urllib.request.Request("https://api.github.com/repos/test/test/releases",
+                                         headers={"User-Agent": "MihUI"})
+        error = urllib.error.URLError(mihui_server.socket.gaierror(-2, "DNS failure"))
+        with mock.patch.object(urllib.request, "urlopen", side_effect=error), mock.patch.object(
+            mihui_server.subprocess, "run",
+            return_value=mock.Mock(returncode=0, stdout=b"[]", stderr=b""),
+        ) as run:
+            self.assertEqual(mihui_server.fetch_component_metadata(request, 1024), b"[]")
+        command = run.call_args.args[0]
+        self.assertEqual(command[:2], ["curl", "-4"])
+        self.assertIn("User-agent: MihUI", command)
+        self.assertEqual(command[-1], request.full_url)
+
+    def test_component_metadata_does_not_retry_http_or_tls_errors(self):
+        request = urllib.request.Request("https://api.github.com/")
+        errors = [urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None),
+                  urllib.error.URLError(mihui_server.ssl.SSLError("TLS failure"))]
+        for error in errors:
+            with self.subTest(error=error), mock.patch.object(
+                urllib.request, "urlopen", side_effect=error
+            ), mock.patch.object(mihui_server.subprocess, "run") as run:
+                with self.assertRaises(urllib.error.URLError):
+                    mihui_server.fetch_component_metadata(request, 1024)
+                run.assert_not_called()
+
+    def test_component_metadata_success_does_not_use_curl(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"[]"
+        with mock.patch.object(urllib.request, "urlopen", return_value=response), mock.patch.object(
+            mihui_server.subprocess, "run"
+        ) as run:
+            self.assertEqual(mihui_server.fetch_component_metadata(
+                urllib.request.Request("https://api.github.com/"), 1024), b"[]")
+            run.assert_not_called()
+
+    def test_command_worker_cleans_up_process_on_error_stop_and_timeout(self):
+        for scenario in ("error", "stop", "timeout"):
+            with self.subTest(scenario=scenario), mock.patch.dict(
+                mihui_server.xkeen_command_jobs, {}, clear=True
+            ), mock.patch.object(mihui_server.threading.Thread, "start"):
+                job = mihui_server.start_xkeen_command_job(Path("."), "-pr")
+                stored = mihui_server.xkeen_command_jobs[job["id"]]
+                stored["stopRequested"] = scenario == "stop"
+                process = mock.Mock()
+                process.poll.return_value = None
+                def terminate(proc):
+                    proc.poll.return_value = -15
+                    proc.wait.return_value = -15
+                with mock.patch.object(mihui_server, "pty", mock.Mock(openpty=lambda: (11, 12))), \
+                     mock.patch.object(mihui_server, "find_xkeen_binary", return_value="/opt/sbin/xkeen"), \
+                     mock.patch.object(mihui_server.subprocess, "Popen", return_value=process), \
+                     mock.patch.object(mihui_server.os, "close"), \
+                     mock.patch.object(mihui_server.select, "select", side_effect=OSError("PTY failed")), \
+                     mock.patch.object(mihui_server, "XKEEN_COMMAND_TIMEOUT", -1 if scenario == "timeout" else 1800), \
+                     mock.patch.object(mihui_server, "_terminate_xkeen_command_process", side_effect=terminate) as stop:
+                    mihui_server._run_xkeen_command_job(Path("."), job["id"])
+                stop.assert_called_once_with(process)
+                self.assertIsNone(mihui_server.snapshot_active_xkeen_command_job())
+                self.assertIsNone(stored["masterFd"])
+                self.assertIsNotNone(stored["finishedAt"])
+                self.assertEqual(stored["status"], "stopped" if scenario == "stop" else "error")
 
     def test_xkeen_commands_endpoint_returns_native_catalog(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -788,6 +852,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertIsNotNone(first)
             self.assertIsNone(second)
+            self.assertEqual(mihui_server.snapshot_active_xkeen_command_job()["id"], first["id"])
             with mihui_server.xkeen_command_jobs_lock:
                 job = mihui_server.xkeen_command_jobs[first["id"]]
                 job.update({"status": "running", "masterFd": 17})
@@ -796,6 +861,10 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             write.assert_called_once_with(17, b"1\n")
+            self.assertTrue(mihui_server.stop_xkeen_command_job(first["id"])["ok"])
+            self.assertTrue(job["stopRequested"])
+            job["status"] = "stopped"
+            self.assertIsNone(mihui_server.snapshot_active_xkeen_command_job())
         finally:
             with mihui_server.xkeen_command_jobs_lock:
                 mihui_server.xkeen_command_jobs.clear()
@@ -1146,7 +1215,6 @@ class ProviderAdapterTests(unittest.TestCase):
                 mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
                 mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
                 mock.call(["/opt/bin/xkeen", "-kbr"], timeout=180),
-                mock.call(["/opt/bin/xkeen", "-rrk"], timeout=180),
                 mock.call(["/opt/bin/xkeen", "-start"], timeout=180),
             ],
         )

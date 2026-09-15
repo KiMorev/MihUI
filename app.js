@@ -2390,6 +2390,10 @@ async function loadXkeenCommands(options = {}) {
     state.xkeenCommands.loaded = true;
     state.xkeenCommands.available = Boolean(data.available);
     state.xkeenCommands.groups = Array.isArray(data.groups) ? data.groups : [];
+    if (data.activeJob) {
+      state.xkeenCommands.job = data.activeJob;
+      startXkeenCommandPolling();
+    }
   } catch (error) {
     state.xkeenCommands.loaded = false;
     state.xkeenCommands.available = false;
@@ -2445,6 +2449,7 @@ async function runXkeenCommand(flag) {
       status: 'error',
       error: error?.message || String(error),
     };
+    await loadXkeenCommands({ silent: true });
     renderXkeenCommands();
   }
 }

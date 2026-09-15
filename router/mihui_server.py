@@ -87,7 +87,6 @@ XKEEN_COMMAND_GROUPS = [
         "title": "Регистрация в системе",
         "tone": "warning",
         "items": [
-            {"flag": "-rrk", "description": "Зарегистрировать XKeen"},
             {"flag": "-rrx", "description": "Зарегистрировать Xray"},
             {"flag": "-rrm", "description": "Зарегистрировать Mihomo"},
             {"flag": "-ri", "description": "Добавить XKeen в автозапуск init.d"},
@@ -836,6 +835,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "available": bool(find_xkeen_binary(self.app_dir)),
                 "groups": XKEEN_COMMAND_GROUPS,
+                "activeJob": snapshot_active_xkeen_command_job(),
             },
         )
 
@@ -2013,6 +2013,15 @@ def snapshot_xkeen_command_job(job_id):
         return _snapshot_xkeen_command_job_locked(job) if job else None
 
 
+def snapshot_active_xkeen_command_job():
+    with xkeen_command_jobs_lock:
+        return next(
+            (_snapshot_xkeen_command_job_locked(job) for job in xkeen_command_jobs.values()
+             if job.get("status") in {"queued", "running"}),
+            None,
+        )
+
+
 def _append_xkeen_command_output(job_id, text):
     clean = strip_ansi(text)
     if not clean:
@@ -2144,6 +2153,8 @@ def _run_xkeen_command_job(app_dir, job_id):
             if job:
                 job.update({"status": "error", "error": str(error)})
     finally:
+        if process is not None and process.poll() is None:
+            _terminate_xkeen_command_process(process)
         if slave_fd is not None:
             try:
                 os.close(slave_fd)
@@ -2356,13 +2367,38 @@ def read_mihomo_binary_version(app_dir):
     }
 
 
+def fetch_component_metadata(request, max_bytes):
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            body = response.read(max_bytes + 1)
+    except urllib.error.URLError as error:
+        if not isinstance(error.reason, socket.gaierror):
+            raise
+        # Keep DNS family selection local to this retry: the server is threaded.
+        command = ["curl", "-4", "--fail", "--silent", "--show-error", "--location",
+                   "--proto", "=https", "--proto-redir", "=https",
+                   "--connect-timeout", "8", "--max-time", "15",
+                   "--max-filesize", str(max_bytes)]
+        for name, value in request.header_items():
+            command.extend(["--header", f"{name}: {value}"])
+        command.append(request.full_url)
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=20, check=False, env=_xkeen_command_environment())
+        if result.returncode:
+            raise RuntimeError("Повтор проверки через IPv4 не удался: " +
+                               result.stderr.decode("utf-8", "replace").strip()) from error
+        body = result.stdout
+    if len(body) > max_bytes:
+        raise ValueError("Ответ проверки обновлений превышает допустимый размер")
+    return body
+
+
 def fetch_component_releases(repo, limit=10):
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/releases?per_page={int(limit)}",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
     )
-    with urllib.request.urlopen(request, timeout=8) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    data = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
     versions = []
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
@@ -2420,8 +2456,7 @@ def fetch_xkeen_beta_build(repo):
         f"https://raw.githubusercontent.com/{repo}/main/test/xkeen.tar.gz",
         headers={"Accept": "application/octet-stream", "User-Agent": "MihUI"},
     )
-    with urllib.request.urlopen(request, timeout=8) as response:
-        body = response.read(XKEEN_BETA_ARCHIVE_MAX_BYTES + 1)
+    body = fetch_component_metadata(request, XKEEN_BETA_ARCHIVE_MAX_BYTES)
     return parse_xkeen_beta_archive(body)
 
 
@@ -2684,7 +2719,6 @@ def run_xkeen_component_action(app_dir, action, target=""):
     if action == "rollback":
         update_component_action_state(phase="rollback", message="Восстанавливаем последнюю копию XKeen")
         require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen")
-        run_component_command([binary, "-rrk"], timeout=180)
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if not get_xkeen_version_info(app_dir).get("version"):
@@ -2720,7 +2754,6 @@ def run_xkeen_component_action(app_dir, action, target=""):
     except Exception as error:
         update_component_action_state(phase="rollback", message="Обновление не удалось, восстанавливаем XKeen")
         rollback_code, _ = run_component_command([binary, "-kbr"], timeout=180)
-        run_component_command([binary, "-rrk"], timeout=180)
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if rollback_code != 0:
