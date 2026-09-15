@@ -853,6 +853,7 @@ const els = {
   dnsStrictInterceptTransit: document.querySelector('#dnsStrictInterceptTransit'),
   dnsStrictWanConfirm: document.querySelector('#dnsStrictWanConfirm'),
   dnsPreviewButton: document.querySelector('#dnsPreviewButton'),
+  dnsFlowHint: document.querySelector('#dnsFlowHint'),
   dnsCapabilities: document.querySelector('#dnsCapabilities'),
   dnsConfigCheck: document.querySelector('#dnsConfigCheck'),
   dnsConfigCheckSummary: document.querySelector('#dnsConfigCheckSummary'),
@@ -4878,7 +4879,7 @@ function mergeProtectedDnsResponse(data, options = {}) {
     state.protectedDns.lanInterfaces = normalizeProtectedDnsLanInterfaces(data.capabilities.lanInterfaces);
     state.protectedDns.lanSelectionInitialized = true;
   }
-  renderProtectedDnsProxyGroups(data);
+  renderProtectedDnsProxyGroups(state.protectedDns.data);
 }
 
 async function loadProtectedDns(options = {}) {
@@ -5053,12 +5054,14 @@ function getProtectedDnsErrorMessage(error, action = 'preview') {
   if (!error?.data && backendMessage && !/^HTTP\s+\d+$/i.test(backendMessage)) {
     return `Не удалось связаться с DNS API: ${backendMessage}`;
   }
-  const hasConfigCheck = Boolean(error?.data?.configCheck || error?.data?.preview?.configCheck);
+  const configCheck = error?.data?.configCheck || error?.data?.preview?.configCheck;
+  const hasConfigCheck = configCheck && configCheck.ok !== true;
   if (hasConfigCheck) {
     return action === 'preview'
       ? 'Проверка конфигурации Mihomo не пройдена. Раскройте блок «Проверка конфигурации Mihomo» для подробностей.'
       : 'Операция DNS остановлена предварительной проверкой. Подробности — в блоке «Проверка конфигурации Mihomo».';
   }
+  if (backendMessage && !/^HTTP\s+\d+$/i.test(backendMessage)) return backendMessage;
   return {
     preview: 'Предварительная проверка DNS не пройдена. Проверьте выбранные LAN-интерфейсы и блок «Проверка готовности».',
     test: 'Тестовый режим DNS не запущен. Проверьте условия в блоке «Проверка готовности».',
@@ -5072,6 +5075,9 @@ function mergeProtectedDnsErrorResponse(data) {
   const preview = data.preview && typeof data.preview === 'object' ? data.preview : data;
   mergeProtectedDnsResponse({
     ...preview,
+    capabilities: preview.capabilities || state.protectedDns.data?.capabilities || {},
+    canTest: false,
+    canActivate: false,
     message: data.message || preview.message,
     event: data.event || preview.event,
     events: Array.isArray(data.events) ? data.events : preview.events,
@@ -5437,6 +5443,7 @@ function renderProtectedDns() {
   const presentation = getProtectedDnsModePresentation(mode);
   const strictSelected = getProtectedDnsProfile() === 'strict';
   const busy = state.protectedDns.loading || Boolean(state.protectedDns.action);
+  const settingsLocked = busy || runtime.requestedMode === 'active';
   const canTest = preview?.canTest === true;
   const canActivate = preview?.canActivate === true;
   const lanSelection = getProtectedDnsLanSelectionState(capabilities);
@@ -5515,10 +5522,10 @@ function renderProtectedDns() {
   const upstreams = getProtectedDnsUpstreamLabels(preview?.plan?.upstreams || []);
   els.dnsUpstreams.textContent = `${upstreams.length ? upstreams.join(', ') : 'Cloudflare и Google'} · через ${els.dnsProxyGroup.value || 'PROXY'}`;
   els.dnsStrictOptions.hidden = !strictSelected;
-  els.dnsStrictOptions.disabled = !strictSelected || busy;
-  els.dnsProfileResilient.disabled = busy;
-  els.dnsProfileStrict.disabled = busy;
-  els.dnsProxyGroup.disabled = !apiAvailable || busy;
+  els.dnsStrictOptions.disabled = !strictSelected || settingsLocked;
+  els.dnsProfileResilient.disabled = settingsLocked;
+  els.dnsProfileStrict.disabled = settingsLocked;
+  els.dnsProxyGroup.disabled = !apiAvailable || settingsLocked;
   if (els.dnsWhitelistDns) {
     els.dnsWhitelistDns.disabled = !apiAvailable || busy || runtime.requestedMode === 'active';
     const enabled = els.dnsWhitelistDns.checked;
@@ -5529,7 +5536,7 @@ function renderProtectedDns() {
         : enabled ? 'Выбрано: Яндекс Safe DoT. Проверьте план и запустите тестовый режим; после обновления списка повторите применение DNS.'
           : 'Выключено. Применяется после проверки и тестового режима.';
   }
-  renderProtectedDnsLanSelector(capabilities, busy);
+  renderProtectedDnsLanSelector(capabilities, settingsLocked);
   renderProtectedDnsCapabilities(capabilities);
   renderProtectedDnsConfigCheck(preview?.configCheck);
   renderProtectedDnsPlan(preview?.plan);
@@ -5553,6 +5560,25 @@ function renderProtectedDns() {
     ? 'Активация строгого профиля пока недоступна.'
     : !canActivate ? 'Проверка не подтвердила готовность к безопасному перехвату.'
       : mode !== 'test' ? 'Сначала успешно запустите тестовый режим.' : '';
+  const nextStep = mode === 'active' ? 'active'
+    : !strictSelected && canTest && mode === 'test' && canActivate ? 'activate'
+      : !strictSelected && canTest && mode !== 'test' ? 'test' : 'preview';
+  els.dnsFlowHint.textContent = !apiAvailable
+    ? 'Откройте MihUI на роутере, чтобы настроить защиту DNS.'
+    : busy ? 'Дождитесь завершения проверки роутера.'
+      : mode === 'active' ? 'Защита включена. Чтобы изменить настройки, сначала вернитесь к системному DNS.'
+        : lanSelection.state !== 'ready' ? lanSelection.message
+          : strictSelected ? 'Строгий профиль доступен только для просмотра плана. Для включения выберите отказоустойчивый профиль в дополнительных настройках.'
+            : nextStep === 'activate' ? 'Тест пройден. Включите защиту, чтобы перевести устройства на защищённый DNS.'
+              : nextStep === 'test' ? 'Настройки проверены. Запустите тест: устройства пока останутся на системном DNS.'
+                : 'Проверьте настройки. Это покажет план изменений и не переключит DNS устройств.';
+  for (const [step, button] of [['preview', els.dnsPreviewButton], ['test', els.dnsTestButton], ['activate', els.dnsActivateButton]]) {
+    button.hidden = step !== 'preview' && step !== nextStep;
+    button.classList.toggle('primary', step === nextStep);
+    document.querySelector(`[data-dns-step="${step}"]`).setAttribute('aria-current', step === nextStep || nextStep === 'active' && step === 'activate' ? 'step' : 'false');
+  }
+  els.dnsPreviewButton.hidden = mode === 'active';
+  els.dnsSystemButton.hidden = mode === 'system' && fallback.pending !== true || mode === 'unknown';
   els.dnsDownloadButton.disabled = !state.protectedDns.events.length;
   els.dnsActionNotice.hidden = !(state.protectedDns.error || state.protectedDns.notice || state.protectedDns.action);
   els.dnsActionNotice.className = state.protectedDns.error ? 'is-error' : state.protectedDns.noticeTone === 'success' ? 'is-success' : '';

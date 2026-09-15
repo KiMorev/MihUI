@@ -5182,6 +5182,82 @@ body.component-manager-open {
   gap: 14px;
 }
 
+.dns-protection-section .dns-protection-status-card {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.dns-disclosure > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 0;
+}
+
+.dns-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.dns-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+
+.dns-status-details {
+  border-top: 1px solid var(--line);
+}
+
+.dns-protection-section > details.dns-disclosure {
+  display: block;
+  padding: 4px 18px;
+}
+
+.dns-diagnostics > .panel {
+  border: 0;
+  box-shadow: none;
+  padding: 16px 0;
+}
+
+.dns-protection-section .dns-protection-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 20px;
+}
+
+.dns-protection-actions > div {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.dns-flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dns-flow-steps [aria-current='step'] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.dns-protection-actions .dns-flow-hint {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dns-protection-actions button[hidden] {
+  display: none;
+}
+
 .dns-protection-page-head,
 .dns-protection-block-head,
 .dns-protection-actions,
@@ -5548,6 +5624,8 @@ body.component-manager-open {
 
 .dns-protection-lan-list.empty-state {
   display: block;
+  min-height: 0;
+  padding: 12px 0;
   color: var(--muted);
   font-size: 12px;
 }

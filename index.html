@@ -850,7 +850,7 @@
         <header class="dns-protection-page-head">
           <div>
             <h2>Защищённый DNS</h2>
-            <p>DNS через правила Mihomo с автоматическим возвратом к системному резолверу</p>
+            <p>DNS-запросы через прокси. При сбое — автоматический возврат к DNS роутера.</p>
           </div>
           <button id="dnsRefreshButton" class="button compact" type="button">Обновить состояние</button>
         </header>
@@ -865,6 +865,8 @@
             <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
           </div>
 
+          <details class="dns-disclosure dns-status-details">
+            <summary>Маршрут и состояние подключения</summary>
           <div class="dns-protection-route" aria-label="Текущий маршрут DNS клиентов">
             <div class="dns-protection-route-main">
               <span>Устройства</span>
@@ -887,15 +889,50 @@
             <div><dt>IPv6</dt><dd id="dnsIpv6Value">—</dd></div>
             <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
           </dl>
+          </details>
         </section>
 
         <section class="panel dns-protection-profile-card">
           <header class="dns-protection-block-head">
             <div>
-              <h3>Профиль защиты</h3>
-              <p>Отказоустойчивый режим сохраняет DNS провайдера как независимый аварийный путь.</p>
+              <h3>Настройка защиты</h3>
+              <p>Выберите прокси и домашние сети, для которых нужно включить защиту.</p>
             </div>
           </header>
+
+          <div class="dns-protection-settings-grid">
+            <label>
+              <span>Прокси для DNS</span>
+              <select id="dnsProxyGroup">
+                <option value="PROXY">PROXY</option>
+              </select>
+            </label>
+            <div>
+              <span>Основные DNS-серверы</span>
+              <strong id="dnsUpstreams">Cloudflare и Google · через PROXY</strong>
+            </div>
+          </div>
+
+          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
+            <div>
+              <strong id="dnsLanTitle">Домашние сети</strong>
+              <span>Отметьте сети с вашими устройствами. Защита будет работать только для них.</span>
+            </div>
+            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
+            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
+          </section>
+
+          <details class="dns-disclosure">
+            <summary>Дополнительные настройки · белые списки и профиль</summary>
+          <div class="dns-protection-lan-selector">
+            <label class="dns-whitelist-toggle">
+              <input id="dnsWhitelistDns" type="checkbox" aria-describedby="dnsWhitelistDnsHelp dnsWhitelistDnsStatus" />
+              <strong>DNS белых списков через Яндекс DoT</strong>
+            </label>
+            <p id="dnsWhitelistDnsHelp">Разрешённые домены и их поддомены — через Яндекс Safe DoT напрямую (TCP/853), остальные — через выбранную прокси-группу. Домашние имена не меняются. Используется наш список из раздела «Белые списки», а не список Yota. Переключатель меняет только DNS, не правила трафика сайтов.</p>
+            <p>При автоматическом включении временных правил белых списков DNS обновляется тем же изменением конфигурации. Возврат обычной маршрутизации сохраняет эту опцию. При отключении защиты DNS действует системный резерв роутера, не обязательно Яндекс DoT.</p>
+            <p id="dnsWhitelistDnsStatus" role="status">Выключено по умолчанию. Применяется после проверки и тестового режима.</p>
+          </div>
 
           <div class="dns-protection-profile-grid" role="radiogroup" aria-label="Профиль защищённого DNS">
             <label class="dns-protection-profile is-recommended">
@@ -914,38 +951,6 @@
             </label>
           </div>
 
-          <div class="dns-protection-settings-grid">
-            <label>
-              <span>Прокси-группа для защищённых DNS</span>
-              <select id="dnsProxyGroup">
-                <option value="PROXY">PROXY</option>
-              </select>
-            </label>
-            <div>
-              <span>Основные DNS-серверы</span>
-              <strong id="dnsUpstreams">Cloudflare и Google · через PROXY</strong>
-            </div>
-          </div>
-
-          <div class="dns-protection-lan-selector">
-            <label class="dns-whitelist-toggle">
-              <input id="dnsWhitelistDns" type="checkbox" aria-describedby="dnsWhitelistDnsHelp dnsWhitelistDnsStatus" />
-              <strong>DNS белых списков через Яндекс DoT</strong>
-            </label>
-            <p id="dnsWhitelistDnsHelp">Разрешённые домены и их поддомены — через Яндекс Safe DoT напрямую (TCP/853), остальные — через выбранную прокси-группу. Домашние имена не меняются. Используется наш список из раздела «Белые списки», а не список Yota. Переключатель меняет только DNS, не правила трафика сайтов.</p>
-            <p>При автоматическом включении временных правил белых списков DNS обновляется тем же изменением конфигурации. Возврат обычной маршрутизации сохраняет эту опцию. При отключении защиты DNS действует системный резерв роутера, не обязательно Яндекс DoT.</p>
-            <p id="dnsWhitelistDnsStatus" role="status">Выключено по умолчанию. Применяется после проверки и тестового режима.</p>
-          </div>
-
-          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
-            <div>
-              <strong id="dnsLanTitle">LAN-интерфейсы для DNS клиентов</strong>
-              <span>Выберите только те интерфейсы, через которые домашние устройства обращаются к DNS роутера.</span>
-            </div>
-            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
-            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
-          </section>
-
           <fieldset id="dnsStrictOptions" class="dns-protection-strict-options" disabled hidden>
             <legend>Подтвердите каждое изменение строгого режима</legend>
             <label><input id="dnsStrictIgnoreProvider" type="checkbox" /> <span>Игнорировать DNS провайдера только после проверки альтернативного системного резолвера.</span></label>
@@ -953,7 +958,24 @@
             <label><input id="dnsStrictWanConfirm" type="checkbox" /> <span>Понимаю, что изменение DNS-профиля может кратковременно переподключить WAN.</span></label>
             <p>DoH в браузерах, Private DNS/DoT на устройствах и DNS Tailscale этим режимом не перехватываются.</p>
           </fieldset>
+          </details>
         </section>
+
+        <footer class="panel dns-protection-actions">
+          <ol class="dns-flow-steps" aria-label="Этапы включения">
+            <li data-dns-step="preview">1. Проверка</li>
+            <li data-dns-step="test">2. Тест</li>
+            <li data-dns-step="activate">3. Включение</li>
+          </ol>
+          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
+          <p id="dnsActionNotice" aria-live="polite" hidden></p>
+          <div>
+            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
+            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
+            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
+            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
+          </div>
+        </footer>
 
         <section class="panel dns-protection-preflight-card">
           <header class="dns-protection-block-head">
@@ -961,8 +983,10 @@
               <h3>Проверка готовности</h3>
               <p>Предварительная проверка только читает настройки и показывает план. Клиенты ещё не переключаются.</p>
             </div>
-            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
+
           </header>
+          <details class="dns-disclosure">
+            <summary>Результаты проверки и план изменений</summary>
           <div id="dnsCapabilities" class="dns-protection-capability-list empty-state">Проверка ещё не выполнялась.</div>
           <details id="dnsConfigCheck" class="dns-protection-config-check" hidden>
             <summary>
@@ -972,16 +996,12 @@
             <pre id="dnsConfigCheckOutput"></pre>
           </details>
           <div id="dnsPlan" class="dns-protection-plan" hidden></div>
+          </details>
           <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
         </section>
 
-        <section class="panel dns-protection-router-card">
-          <header class="dns-protection-block-head">
-            <div>
-              <h3>Системный резерв роутера</h3>
-              <p>Эти параметры используются после автоматического прекращения перехвата.</p>
-            </div>
-          </header>
+        <details class="panel dns-disclosure dns-protection-router-card">
+          <summary>Системный резерв роутера</summary>
           <dl class="dns-protection-router-grid">
             <div><dt>Системный резолвер</dt><dd id="dnsSystemResolver">—</dd></div>
             <div><dt>Локальные имена</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
@@ -991,27 +1011,17 @@
             <div><dt>Транзитные DNS-запросы</dt><dd id="dnsTransitState">—</dd></div>
             <div><dt>Автоматический возврат к системному DNS</dt><dd id="dnsFallbackState">—</dd></div>
           </dl>
-        </section>
+        </details>
 
-        <section class="panel dns-protection-exclusions-card">
-          <header class="dns-protection-block-head">
-            <div>
-              <h3>Что останется вне защиты</h3>
-              <p>Здесь отображаются обнаруженные способы обхода DNS роутера.</p>
-            </div>
-          </header>
+        <details class="panel dns-disclosure dns-protection-exclusions-card">
+          <summary>Что останется вне защиты</summary>
           <div id="dnsExclusions" class="dns-protection-exclusion-list empty-state">Данные появятся после проверки.</div>
-        </section>
+        </details>
 
-        <footer class="panel dns-protection-actions">
-          <p id="dnsActionNotice" aria-live="polite" hidden></p>
-          <div>
-            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
-            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
-            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
-          </div>
-        </footer>
 
+
+        <details class="panel dns-disclosure dns-diagnostics">
+          <summary>Диагностика и журналы</summary>
         <section class="panel dns-protection-journal" aria-labelledby="dnsObservationTitle">
           <header class="dns-protection-block-head">
             <div>
@@ -1071,6 +1081,7 @@
           </header>
           <div id="dnsEvents" class="dns-protection-event-list"></div>
         </section>
+        </details>
       </section>
 
       <section class="app-section review-section" data-section-panel="review" hidden>

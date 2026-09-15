@@ -141,6 +141,7 @@ globalThis.__app = {
   getHighRiskSaveSummaries,
   getKernelCheckSummary,
   getProtectedDnsErrorMessage,
+  mergeProtectedDnsErrorResponse,
   getProtectedDnsRoutePresentation,
   getProtectedDnsFallbackPresentation,
   getProtectedDnsCapabilityLabel,
@@ -434,6 +435,18 @@ for (const source of SOURCES) {
       assert.match(message, /«Проверка конфигурации Mihomo»/);
       assert.doesNotMatch(message, /ниже/);
     }
+  });
+
+  test(`${source.name}: DNS errors preserve networks and revoke stale readiness`, () => {
+    const app = loadApp(source);
+    app.state.protectedDns.data = { capabilities: { lanCandidates: [{ interface: 'br0' }], lanInterfaces: ['br0'] }, proxyGroups: ['PROXY', 'FALLBACK'] };
+    app.state.protectedDns.preview = { canTest: true, canActivate: true };
+    app.mergeProtectedDnsErrorResponse({ message: 'Прокси-группа недоступна' });
+    assert.equal(app.state.protectedDns.preview.capabilities.lanCandidates[0].interface, 'br0');
+    assert.equal(app.state.protectedDns.preview.canTest, false);
+    assert.equal(app.state.protectedDns.preview.canActivate, false);
+    assert.deepEqual(Array.from(app.state.protectedDns.data.proxyGroups), ['PROXY', 'FALLBACK']);
+    assert.equal(app.getProtectedDnsErrorMessage({ data: { message: 'Прокси-группа недоступна', configCheck: { ok: true } } }), 'Прокси-группа недоступна');
   });
 
   test(`${source.name}: shows the current MihUI update step and download percentage`, () => {
