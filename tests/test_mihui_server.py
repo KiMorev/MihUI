@@ -786,6 +786,23 @@ class ProviderAdapterTests(unittest.TestCase):
                 urllib.request.Request("https://api.github.com/"), 1024), b"[]")
             run.assert_not_called()
 
+    def test_component_update_ipv4_config_is_scoped_and_preserves_curl_settings(self):
+        with tempfile.TemporaryDirectory() as home:
+            original = Path(home, ".curlrc")
+            original.write_text("silent\n", encoding="utf-8")
+            paths = []
+            def run(command, **kwargs):
+                config = Path(kwargs["env"]["CURL_HOME"], ".curlrc")
+                self.assertEqual(config.read_text(), "silent\n\nipv4\n")
+                paths.append(config)
+                return mock.Mock(returncode=0, stdout=b"ok")
+            with mock.patch.object(mihui_server, "_xkeen_command_environment", return_value={"HOME": home}), \
+                 mock.patch.object(mihui_server.subprocess, "run", side_effect=run):
+                for flag in ("-uk", "-um"):
+                    self.assertEqual(mihui_server.run_component_command(["xkeen", flag]), (0, "ok"))
+            self.assertTrue(all(not path.exists() for path in paths))
+            self.assertEqual(original.read_text(), "silent\n")
+
     def test_command_worker_cleans_up_process_on_error_stop_and_timeout(self):
         for scenario in ("error", "stop", "timeout"):
             with self.subTest(scenario=scenario), mock.patch.dict(

@@ -2638,6 +2638,21 @@ def append_component_action_output(output):
 
 
 def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    if len(command) > 1 and command[1] in {"-uk", "-um"}:
+        env = _xkeen_command_environment()
+        candidates = [Path(env[key]) / name for key, name in (
+            ("CURL_HOME", ".curlrc"), ("XDG_CONFIG_HOME", "curlrc"), ("HOME", ".curlrc")
+        ) if env.get(key)]
+        config = next((path.read_text(encoding="utf-8") for path in candidates if path.is_file()), "")
+        with tempfile.TemporaryDirectory(prefix="mihui-curl-") as directory:
+            Path(directory, ".curlrc").write_text(config + "\nipv4\n", encoding="utf-8")
+            env["CURL_HOME"] = directory
+            append_component_action_output("Загрузка компонентов: curl использует IPv4 для этой операции")
+            return _run_component_command(command, input_text, timeout, env)
+    return _run_component_command(command, input_text, timeout)
+
+
+def _run_component_command(command, input_text, timeout, env=None):
     result = subprocess.run(
         command,
         input=input_text.encode("utf-8") if input_text is not None else None,
@@ -2645,6 +2660,7 @@ def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIM
         stderr=subprocess.STDOUT,
         timeout=timeout,
         check=False,
+        env=env,
     )
     output = result.stdout.decode("utf-8", "replace")
     append_component_action_output(output)

@@ -653,6 +653,7 @@ const els = {
   mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
   installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
   checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
+  updateAllComponentsButton: document.querySelector('#updateAllComponentsButton'),
   componentVersionsChecked: document.querySelector('#componentVersionsChecked'),
   componentJobPanel: document.querySelector('#componentJobPanel'),
   componentJobTitle: document.querySelector('#componentJobTitle'),
@@ -1052,7 +1053,8 @@ els.componentOpenButtons.forEach((button) => button.addEventListener('click', op
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
 els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
-els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
+els.checkComponentUpdatesButton.addEventListener('click', checkComponentVersions);
+els.updateAllComponentsButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
 els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
   const panel = document.getElementById(button.getAttribute('aria-controls'));
@@ -2944,9 +2946,10 @@ function renderComponentManager() {
   els.mihomoVersionSelect.disabled = busy || mihomo.versions.length === 0;
   els.installMihomoVersionButton.disabled = busy || !els.mihomoVersionSelect.value;
   els.checkComponentUpdatesButton.disabled = busy;
-  els.checkComponentUpdatesButton.textContent = updateCount > 0
-    ? `Обновить всё (${updateCount})`
-    : state.components.loading
+  els.updateAllComponentsButton.hidden = updateCount === 0;
+  els.updateAllComponentsButton.disabled = busy;
+  els.updateAllComponentsButton.textContent = `Обновить всё (${updateCount})`;
+  els.checkComponentUpdatesButton.textContent = state.components.loading
       ? 'Проверяем обновления...'
       : 'Проверить обновления';
   els.componentVersionsChecked.textContent = state.components.checkedAt
