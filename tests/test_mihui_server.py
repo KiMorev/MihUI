@@ -793,6 +793,7 @@ class ProviderAdapterTests(unittest.TestCase):
             paths = []
             def run(command, **kwargs):
                 config = Path(kwargs["env"]["CURL_HOME"], ".curlrc")
+                self.assertEqual(kwargs["env"]["RES_OPTIONS"], "timeout:5 attempts:2")
                 self.assertEqual(config.read_text(), "silent\n\nipv4\n")
                 paths.append(config)
                 return mock.Mock(returncode=0, stdout=b"ok")
@@ -802,6 +803,17 @@ class ProviderAdapterTests(unittest.TestCase):
                     self.assertEqual(mihui_server.run_component_command(["xkeen", flag]), (0, "ok"))
             self.assertTrue(all(not path.exists() for path in paths))
             self.assertEqual(original.read_text(), "silent\n")
+
+    def test_component_dns_options_do_not_affect_other_commands_or_server(self):
+        with mock.patch.dict(os.environ, {"RES_OPTIONS": "timeout:1 attempts:1"}), \
+             mock.patch.object(mihui_server.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=b"ok")) as run:
+            for flag in ("-uk", "-um"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertEqual(run.call_args.kwargs["env"]["RES_OPTIONS"], "timeout:5 attempts:2")
+                self.assertEqual(os.environ["RES_OPTIONS"], "timeout:1 attempts:1")
+            for flag in ("-kb", "-kbr", "-start", "-restart", "-pr"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertIsNone(run.call_args.kwargs["env"])
 
     def test_command_worker_cleans_up_process_on_error_stop_and_timeout(self):
         for scenario in ("error", "stop", "timeout"):

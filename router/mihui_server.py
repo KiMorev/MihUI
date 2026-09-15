@@ -2640,6 +2640,7 @@ def append_component_action_output(output):
 def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
     if len(command) > 1 and command[1] in {"-uk", "-um"}:
         env = _xkeen_command_environment()
+        env["RES_OPTIONS"] = "timeout:5 attempts:2"
         candidates = [Path(env[key]) / name for key, name in (
             ("CURL_HOME", ".curlrc"), ("XDG_CONFIG_HOME", "curlrc"), ("HOME", ".curlrc")
         ) if env.get(key)]
@@ -2648,6 +2649,7 @@ def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIM
             Path(directory, ".curlrc").write_text(config + "\nipv4\n", encoding="utf-8")
             env["CURL_HOME"] = directory
             append_component_action_output("Загрузка компонентов: curl использует IPv4 для этой операции")
+            append_component_action_output("DNS для этой операции: ожидание ответа 5 секунд, до 2 попыток")
             return _run_component_command(command, input_text, timeout, env)
     return _run_component_command(command, input_text, timeout)
 
