@@ -30,6 +30,18 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
         self.server.received_user_agent = self.headers.get("User-Agent")
         self.server.received_hwid = self.headers.get("x-hwid")
         self.server.received_hwid_query = urllib.parse.parse_qs(parsed.query).get("hwid", [""])[0]
+        if parsed.path == "/happ-xray-encrypted":
+            body = (
+                b"oS/iqqIyUhAKUeW5tDj3i4xh4boBFy3hyfwbFLPbRiQeH8bK9fKRKLvnJ94QvPWoT1su17CS/x92I2/k7mCKdSZWLjOikEstFPAXzFgwr7x1cm/lgoAFJh0SmMbnK3U7l8BbTOGtwszRV23fE/X3hJmKZOU6EarMr6e/DKoPwsNr+7z67NBr60MysM7kZFrQoyW8R6pfvHNj98+kCSFUlGa1FxobWjgOY6ShrXg5c+H/OiAf62zomQDYFz/+tu/CFJ/LXdZOkavVWZlCmOS0nvcfIfVh63fo3IbWmbq5LNI5pd1Y0+L3SO6Lj8cOa7daxvHV6nfU3aPxt+SfN21szCjnf1or2J/hK7mCOpOmm/J2wKhPbQPK3gmxn4NbQaO4wITNnEMT/lYrrqBzOL/QI9pffkLd6cDotE8xIDGuYVQLYZ+KbzmHRqOKOZ/AJWRnyuOjhhzD+d8BJYNd07IDyEeVAxVUKzBerX+Cn+/Faixlc0QX6EAH/sj+PIxsdrQFyUl4zkaq3opHzJENrWskE2iUqDO11A=="
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Encrypt-Tag", "ynxkhMQfLZ15yDx7ixkCqA==")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if parsed.path == "/xray.json":
             body = json.dumps(
                 {
@@ -341,6 +353,29 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(content_type, "text/yaml; charset=utf-8")
         self.assertIn(b"name: incy", body)
 
+    def test_incy_import_accepts_case_insensitive_import_and_double_encoding(self):
+        target = "https://example.com/sub?token=abc"
+        encoded = urllib.parse.quote(urllib.parse.quote(target, safe=""), safe="")
+
+        payload = mihui_server.extract_incy_import_payload(f"incy://import?Import={encoded}")
+
+        self.assertEqual(payload, ("url", target))
+
+    def test_happ_link_normalization_accepts_escaped_schemes(self):
+        self.assertEqual(
+            mihui_server.normalize_happ_crypt_url(r"happ\:\/\/crypt5/demo-token"),
+            "happ://crypt5/demo-token",
+        )
+        self.assertEqual(
+            mihui_server.normalize_landing_url("happ%253A%252F%252Fcrypt4%252Ftoken", ""),
+            "happ://crypt4/token",
+        )
+        landing = br'<html><a href="happ\:\/\/crypt5/demo-token">Open</a></html>'
+        self.assertEqual(
+            mihui_server.extract_landing_provider_url(landing, "text/html", "https://example.com"),
+            "happ://crypt5/demo-token",
+        )
+
     def test_fetch_provider_payload_retries_happ_landing_with_happ_headers(self):
         server, thread = self.start_provider_server()
         try:
@@ -482,7 +517,7 @@ class ProviderAdapterTests(unittest.TestCase):
                             }
                         ]
                     },
-                    "streamSettings": {"network": "ws", "security": "reality"},
+                    "streamSettings": {"network": "quic", "security": "reality"},
                 }
             ]
         }
@@ -492,6 +527,222 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.source_count, 1)
         self.assertEqual(raised.exception.skipped[0]["code"], "unsupported_network")
+
+    def test_convert_xray_json_provider_supports_base64_nested_ws_without_tls(self):
+        document = {
+            "profiles": [
+                {
+                    "name": "WS node",
+                    "outbounds": [
+                        {
+                            "protocol": "vless",
+                            "settings": {
+                                "vnext": [
+                                    {
+                                        "address": "ws.example",
+                                        "port": 80,
+                                        "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                    }
+                                ]
+                            },
+                            "streamSettings": {
+                                "network": "ws",
+                                "security": "none",
+                                "wsSettings": {"path": "/socket", "headers": {"Host": "cdn.example"}},
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        encoded = base64.urlsafe_b64encode(json.dumps(document).encode()).rstrip(b"=")
+
+        body, status = mihui_server.convert_xray_json_provider(encoded, "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 1)
+        self.assertIn('name: "WS node"', text)
+        self.assertIn("network: ws", text)
+        self.assertIn("ws-opts:", text)
+        self.assertIn('path: "/socket"', text)
+        self.assertNotIn("tls: true", text)
+
+    def test_convert_xray_json_provider_supports_xhttp_and_hysteria2(self):
+        document = {
+            "configs": [
+                {
+                    "remarks": "XHTTP",
+                    "outbounds": [
+                        {
+                            "protocol": "vless",
+                            "settings": {
+                                "vnext": [
+                                    {
+                                        "address": "xhttp.example",
+                                        "port": 443,
+                                        "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                    }
+                                ]
+                            },
+                            "streamSettings": {
+                                "network": "xhttp",
+                                "security": "tls",
+                                "xhttpSettings": {
+                                    "path": "/x",
+                                    "host": "edge.example",
+                                    "mode": "auto",
+                                    "noGrpcHeader": True,
+                                    "reuseSettings": {"maxConcurrency": 2},
+                                    "downloadSettings": {"serverName": "down.example", "skipCertVerify": True},
+                                },
+                                "tlsSettings": {"serverName": "xhttp.example", "fingerprint": "chrome"},
+                            },
+                        }
+                    ],
+                },
+                {
+                    "remarks": "Hysteria",
+                    "outbounds": [
+                        {
+                            "protocol": "hysteria2",
+                            "settings": {"address": "hy.example", "port": 8443, "password": "secret"},
+                            "streamSettings": {"tlsSettings": {"serverName": "hy.example"}},
+                        }
+                    ],
+                },
+            ]
+        }
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(document).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn("network: xhttp", text)
+        self.assertIn("xhttp-opts:", text)
+        self.assertIn('mode: "auto"', text)
+        self.assertIn('reuse-settings: {"max-concurrency": 2}', text)
+        self.assertIn('download-settings: {"servername": "down.example", "skip-cert-verify": true}', text)
+        self.assertIn("type: hysteria2", text)
+        self.assertIn('password: "secret"', text)
+
+    def test_convert_xray_json_provider_supports_grpc_and_httpupgrade(self):
+        def vless_outbound(address, user_id, network, settings_key, settings):
+            return {
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": address,
+                            "port": 443,
+                            "users": [{"id": user_id}],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": network,
+                    "security": "tls",
+                    settings_key: settings,
+                    "tlsSettings": {"serverName": address, "fingerprint": "chrome"},
+                },
+            }
+
+        document = {
+            "outbounds": [
+                vless_outbound(
+                    "grpc.example",
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "grpc",
+                    "grpcSettings",
+                    {"serviceName": "proxy-service"},
+                ),
+                vless_outbound(
+                    "upgrade.example",
+                    "550e8400-e29b-41d4-a716-446655440001",
+                    "httpupgrade",
+                    "httpupgradeSettings",
+                    {"path": "/upgrade", "host": "edge.example"},
+                ),
+            ]
+        }
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(document).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn("network: grpc", text)
+        self.assertIn('grpc-service-name: "proxy-service"', text)
+        self.assertIn("network: ws", text)
+        self.assertIn("ws-opts:", text)
+        self.assertIn('path: "/upgrade"', text)
+        self.assertIn("v2ray-http-upgrade: true", text)
+
+    def test_convert_xray_json_provider_supports_array_with_raw_tls_and_reality(self):
+        documents = [
+            {
+                "remarks": "Reality node",
+                "outbounds": [
+                    {
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [
+                                {
+                                    "address": "reality.example",
+                                    "port": 443,
+                                    "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                }
+                            ]
+                        },
+                        "streamSettings": {
+                            "network": "raw",
+                            "security": "reality",
+                            "rawSettings": {"header": {"type": "none"}},
+                            "realitySettings": {
+                                "serverName": "reality.example",
+                                "fingerprint": "chrome",
+                                "publicKey": "public-key",
+                                "shortId": "0a",
+                            },
+                        },
+                    }
+                ],
+            },
+            {
+                "remarks": "TLS node",
+                "outbounds": [
+                    {
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [
+                                {
+                                    "address": "tls.example",
+                                    "port": 443,
+                                    "users": [{"id": "550e8400-e29b-41d4-a716-446655440001"}],
+                                }
+                            ]
+                        },
+                        "streamSettings": {
+                            "network": "raw",
+                            "security": "tls",
+                            "rawSettings": {"header": {"type": "none"}},
+                            "tlsSettings": {
+                                "serverName": "tls.example",
+                                "fingerprint": "chrome",
+                                "alpn": ["h2"],
+                            },
+                        },
+                    }
+                ],
+            },
+        ]
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(documents).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn('name: "Reality node · 1"', text)
+        self.assertIn('name: "TLS node · 2"', text)
+        self.assertIn("reality-opts:", text)
+        self.assertIn('      - "h2"', text)
 
     def test_xray_provider_endpoint_converts_payload_and_records_safe_status(self):
         provider_server, provider_thread = self.start_provider_server()
@@ -522,6 +773,33 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(adapter["state"], "ok")
         self.assertNotIn("secret", json.dumps(adapter, ensure_ascii=False))
         self.assertNotIn("secret", access_log.getvalue())
+
+    def test_xray_provider_endpoint_handles_happ_headers_and_encrypted_body(self):
+        provider_server, provider_thread = self.start_provider_server()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mihui, mihui_thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                source_url = f"http://127.0.0.1:{provider_server.server_address[1]}/happ-xray-encrypted?key=key01"
+                path = (
+                    f"{mihui_server.XRAY_PROVIDER_ADAPTER_PATH}?provider=Happ"
+                    f"&url={urllib.parse.quote(source_url, safe='')}&source=happ"
+                )
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{mihui.server_address[1]}{path}",
+                    headers={"x-hwid": "ABC123", "User-Agent": "MihomoTest/1.0"},
+                )
+                with urllib.request.urlopen(request, timeout=3) as response:
+                    status_code = response.status
+                    body = response.read().decode("utf-8")
+            finally:
+                self.stop_provider_server(mihui, mihui_thread)
+                self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertEqual(status_code, 200)
+        self.assertIn('name: "Happ encrypted"', body)
+        self.assertEqual(provider_server.received_user_agent, "Happ/1.0")
+        self.assertEqual(provider_server.received_hwid, "ABC123")
+        self.assertEqual(provider_server.received_hwid_query, "ABC123")
 
     def test_xray_provider_endpoint_enforces_dedicated_payload_limit(self):
         provider_server, provider_thread = self.start_provider_server()

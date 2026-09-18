@@ -1686,7 +1686,7 @@ rules:
 
   test(`${source.name}: recognizes and preserves an unchanged selective Xray provider wrapper`, () => {
     const app = loadApp(source);
-    const wrapper = 'http://127.0.0.1:9879/mihomo/xray/provider.yaml?provider=wrapped&url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc';
+    const wrapper = 'http://127.0.0.1:9879/mihomo/xray/provider.yaml?provider=wrapped&url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc&source=happ';
     const providers = hydrate(app, `
 proxy-providers:
   wrapped:
@@ -1702,6 +1702,7 @@ rules:
 `);
 
     assert.equal(providers[0].sourceFormat, 'xray-json');
+    assert.equal(providers[0].sourceKind, 'happ');
     assert.equal(providers[0].url, 'https://example.com/sub?token=abc');
     assert.equal(app.getProviderOutputUrl(providers[0]), wrapper);
     app.generateOutput();
@@ -1728,6 +1729,7 @@ rules:
       name: 'converted',
       url: 'https://xray.example/config?token=secret',
       sourceFormat: 'xray-json',
+      sourceKind: 'happ',
       groupNames: ['Proxy'],
     });
 
@@ -1736,6 +1738,7 @@ rules:
     assert.match(app.getProviderOutputUrl(converted), /^http:\/\/127\.0\.0\.1:9888\/mihomo\/xray\/provider\.yaml\?/);
     assert.match(app.getProviderOutputUrl(converted), /provider=converted/);
     assert.match(app.getProviderOutputUrl(converted), /url=https%3A%2F%2Fxray\.example%2Fconfig%3Ftoken%3Dsecret/);
+    assert.match(app.getProviderOutputUrl(converted), /source=happ/);
     assert.equal(providers[0].sourceFormat, 'direct');
   });
 

@@ -6902,12 +6902,16 @@ async function decodeHappProvider(provider) {
     const data = await decodeHappProviderUrl(provider);
     const previousName = provider.name;
     provider.url = data.decryptedUrl || provider.url;
+    provider.sourceKind = 'happ';
     provider.hasUrl = true;
+    if (data.wrapped && canUseXrayProviderAdapter(provider)) provider.sourceFormat = 'xray-json';
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
     state.happDecodeFeedback = {
       provider,
       severity: 'success',
-      message: 'Happ-ссылка расшифрована. Прямой URL подставлен.',
+      message: data.wrapped && provider.sourceFormat === 'xray-json'
+        ? 'Happ-ссылка расшифрована. Xray JSON будет преобразован локально.'
+        : 'Happ-ссылка расшифрована. Прямой URL подставлен.',
     };
     generateOutput();
     render();
@@ -6927,9 +6931,45 @@ async function decodeHappProvider(provider) {
   }
 }
 
+function normalizeHappCryptUrl(value) {
+  const source = String(value || '').trim().replace(/^happ\\*:(?:\\?\/){2}/i, 'happ://');
+  return /^happ:\/\/crypt\d*\//i.test(source) ? source : '';
+}
+
+function extractHappCryptUrl(value) {
+  const source = String(value || '').trim();
+  const direct = normalizeHappCryptUrl(source);
+  if (direct) return direct;
+  try {
+    const parsed = new URL(source);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    const supportedKeys = new Set(['link', 'uri', 'url', 'target', 'import', 'sub', 'subscription']);
+    for (const [key, value] of parsed.searchParams) {
+      if (!supportedKeys.has(String(key || '').toLowerCase())) continue;
+      let candidate = String(value || '').trim();
+      let normalized = normalizeHappCryptUrl(candidate);
+      if (normalized) return normalized;
+      try {
+        candidate = decodeURIComponent(candidate);
+      } catch {
+        continue;
+      }
+      normalized = normalizeHappCryptUrl(candidate);
+      if (normalized) return normalized;
+    }
+  } catch {
+    return '';
+  }
+  return '';
+}
+
 async function decodeHappProviderUrl(provider) {
   if (!canUseBrowserHappDecryptor()) throw new Error('Расшифровка Happ в браузере недоступна.');
-  return decodeHappProviderUrlInBrowser(provider.url);
+  const sourceUrl = String(provider?.url || '').trim();
+  const happUrl = extractHappCryptUrl(sourceUrl);
+  if (!happUrl) throw new Error('В ссылке не найден полный адрес happ://crypt*.');
+  const result = await decodeHappProviderUrlInBrowser(happUrl);
+  return { ...result, wrapped: happUrl !== sourceUrl };
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
@@ -8068,7 +8108,7 @@ function getUrlScheme(value) {
 }
 
 function isHappDeepLink(value) {
-  return String(value || '').trim().toLowerCase().startsWith('happ://crypt');
+  return Boolean(extractHappCryptUrl(value));
 }
 
 function collectDuplicateProviderUrls(activeProviders) {
@@ -8696,6 +8736,7 @@ function parseXrayProviderAdapterUrl(value) {
       sourceUrl,
       providerName,
       adapterUrl: `${parsed.origin}${parsed.pathname}`,
+      sourceKind: parsed.searchParams.get('source') === 'happ' ? 'happ' : 'direct',
     };
   } catch {
     return null;
@@ -8730,6 +8771,7 @@ function buildXrayProviderAdapterUrl(provider) {
   const output = new URL(endpoint);
   output.searchParams.set('provider', String(provider?.name || '').trim());
   output.searchParams.set('url', String(provider?.url || '').trim());
+  if (provider?.sourceKind === 'happ') output.searchParams.set('source', 'happ');
   return output.toString();
 }
 
@@ -8741,6 +8783,7 @@ function getProviderOutputUrl(provider) {
     && provider.rawUrl
     && provider.originalSourceFormat === 'xray-json'
     && provider.url === provider.originalSourceUrl
+    && (provider.sourceKind || 'direct') === (provider.originalSourceKind || 'direct')
     && provider.name === provider.originalName
     && (!currentEndpoint || currentEndpoint === originalEndpoint);
   if (unchanged) return provider.rawUrl;
@@ -13275,7 +13318,7 @@ function handleProviderCreateFormatChange() {
 function renderProviderCreateFormatHint() {
   const isXray = state.providerCreateDraft?.sourceFormat === 'xray-json';
   els.providerCreateFormatHint.textContent = isXray
-    ? 'Поддерживаются Xray JSON с VLESS / TCP / Reality.'
+    ? 'Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.'
     : canUseXrayProviderAdapter()
       ? 'Обычные подписки Mihomo, Happ и INCY передаются без локального преобразования.'
       : 'Локальное преобразование Xray JSON доступно в MihUI на роутере.';
@@ -13312,6 +13355,7 @@ function getProviderCreateUrlError(value, sourceFormat = 'direct') {
   if (sourceFormat === 'xray-json' && !/^https?:\/\/\S+$/i.test(url)) {
     return 'Для Xray JSON используйте http:// или https://.';
   }
+  if (normalizeHappCryptUrl(url)) return '';
   if (!/^(https?|happ|incy):\/\/\S+$/i.test(url)) {
     return 'Используйте http://, https://, happ:// или incy://.';
   }
@@ -13383,7 +13427,7 @@ function bindProviderSourceFormat(root, provider) {
   if (xrayOption) xrayOption.disabled = !available;
   const renderHint = () => {
     if (select.value === 'xray-json') {
-      hint.textContent = 'Поддерживаются Xray JSON с VLESS / TCP / Reality.';
+      hint.textContent = 'Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.';
     } else if (available) {
       hint.textContent = 'Обычная подписка передаётся в Mihomo без локального преобразования.';
     } else {
@@ -13544,6 +13588,8 @@ function addProvider(options = {}) {
     url: String(options.url || '').trim(),
     rawUrl: '',
     sourceFormat: options.sourceFormat === 'xray-json' ? 'xray-json' : 'direct',
+    sourceKind: options.sourceKind === 'happ' ? 'happ' : 'direct',
+    originalSourceKind: 'direct',
     originalSourceFormat: 'direct',
     originalSourceUrl: '',
     xrayAdapterUrl: normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl),
@@ -15051,6 +15097,7 @@ function parseProviders(lines, section) {
     const xraySource = parseXrayProviderAdapterUrl(rawUrl);
     const sourceFormat = xraySource ? 'xray-json' : 'direct';
     const sourceUrl = xraySource?.sourceUrl || rawUrl;
+    const sourceKind = xraySource?.sourceKind || 'direct';
     providers.push({
       name: entry.key,
       originalName: entry.key,
@@ -15058,6 +15105,8 @@ function parseProviders(lines, section) {
       url: sourceUrl,
       rawUrl,
       sourceFormat,
+      sourceKind,
+      originalSourceKind: sourceKind,
       originalSourceFormat: sourceFormat,
       originalSourceUrl: sourceUrl,
       xrayAdapterUrl: xraySource?.adapterUrl || '',

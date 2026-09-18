@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import binascii
 import codecs
 import hashlib
+import hmac
 import html
 import io
 import ipaddress
@@ -62,6 +64,19 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "accept-encoding",
 }
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
+HAPP_AES_GCM_IV = b"kkkkkkkkkkkk"
+HAPP_AES_GCM_KEYS = {
+    "key01": b"key01:3jk#R2d&Dd",
+    "key02": b'key02:+]%4ij#P"/',
+    "key03": b'key03:?&YNg/"L3}',
+    "key04": b'key04:+-4b"-?S${',
+    "key05": b"key05:N5<a/(~jJ'",
+    "key06": b'key06:s5\\["=`uC/',
+    "key07": b"key07:(H+b'')_@5",
+    "key08": b"key08:W'=)[/~i9w",
+    "key09": b"key09:'2%`C~>)_d",
+    "key10": b"key10:)\\'h]*#7MP",
+}
 XKEEN_COMMAND_GROUPS = [
     {
         "title": "Установка",
@@ -1145,12 +1160,17 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         provider_name = str((query.get("provider") or [""])[0]).strip()
         source_url = str((query.get("url") or [""])[0]).strip()
+        source_kind = str((query.get("source") or ["direct"])[0]).strip().casefold()
         if not provider_name or len(provider_name) > 128 or "\n" in provider_name or "\r" in provider_name:
             self.send_plain(HTTPStatus.BAD_REQUEST, "valid provider query parameter is required")
             return
         if not source_url:
             record_xray_provider_adapter_error(provider_name, "invalid_source", "URL источника не задан")
             self.send_plain(HTTPStatus.BAD_REQUEST, "url query parameter is required")
+            return
+        if source_kind not in {"direct", "happ"}:
+            record_xray_provider_adapter_error(provider_name, "invalid_source_kind", "Некорректный тип источника")
+            self.send_plain(HTTPStatus.BAD_REQUEST, "source query parameter must be direct or happ")
             return
         if not xray_provider_adapter_slots.acquire(timeout=5):
             record_xray_provider_adapter_error(provider_name, "busy", "Обработчик временно занят")
@@ -1161,6 +1181,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             body = fetch_xray_provider_payload(
                 source_url,
                 build_provider_request_headers(self.headers),
+                source_kind=source_kind,
             )
             yaml_body, adapter_status = convert_xray_json_provider(body, provider_name)
         except XrayProviderError as error:
@@ -2888,7 +2909,132 @@ def run_mihomo_component_update(app_dir, target):
         shutil.rmtree(backup_dir, ignore_errors=True)
 
 
-def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
+AES_SBOX = (
+    0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
+    0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
+    0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
+    0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A, 0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75,
+    0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0, 0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84,
+    0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B, 0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF,
+    0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85, 0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8,
+    0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5, 0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2,
+    0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17, 0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73,
+    0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88, 0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB,
+    0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C, 0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79,
+    0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9, 0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08,
+    0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6, 0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A,
+    0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E, 0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E,
+    0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
+    0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
+)
+AES_RCON = (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36)
+
+
+def aes128_expand_key(key):
+    if len(key) != 16:
+        raise ValueError("AES-128 key must contain 16 bytes")
+    expanded = list(key)
+    rcon_index = 0
+    while len(expanded) < 176:
+        temp = expanded[-4:]
+        if len(expanded) % 16 == 0:
+            temp = temp[1:] + temp[:1]
+            temp = [AES_SBOX[value] for value in temp]
+            temp[0] ^= AES_RCON[rcon_index]
+            rcon_index += 1
+        for value in temp:
+            expanded.append(expanded[-16] ^ value)
+    return expanded
+
+
+def aes_mix_column(column):
+    total = column[0] ^ column[1] ^ column[2] ^ column[3]
+    return [
+        column[index] ^ total ^ (((column[index] ^ column[(index + 1) % 4]) << 1)
+        ^ (0x11B if (column[index] ^ column[(index + 1) % 4]) & 0x80 else 0))
+        for index in range(4)
+    ]
+
+
+def aes128_encrypt_block(block, expanded_key):
+    if len(block) != 16:
+        raise ValueError("AES block must contain 16 bytes")
+    state = [value ^ expanded_key[index] for index, value in enumerate(block)]
+    for round_index in range(1, 11):
+        state = [AES_SBOX[value] for value in state]
+        state = [state[4 * ((column + row) % 4) + row] for column in range(4) for row in range(4)]
+        if round_index < 10:
+            mixed = []
+            for column in range(4):
+                mixed.extend(aes_mix_column(state[column * 4:(column + 1) * 4]))
+            state = mixed
+        offset = round_index * 16
+        state = [value ^ expanded_key[offset + index] for index, value in enumerate(state)]
+    return bytes(state)
+
+
+def gcm_multiply(left, right):
+    result = 0
+    value = right
+    for bit_index in range(128):
+        if left & (1 << (127 - bit_index)):
+            result ^= value
+        value = (value >> 1) ^ (0xE1000000000000000000000000000000 if value & 1 else 0)
+    return result
+
+
+def gcm_hash(hash_key, ciphertext):
+    result = 0
+    for offset in range(0, len(ciphertext), 16):
+        block = ciphertext[offset:offset + 16].ljust(16, b"\0")
+        result = gcm_multiply(result ^ int.from_bytes(block, "big"), hash_key)
+    length_block = (len(ciphertext) * 8).to_bytes(16, "big")
+    return gcm_multiply(result ^ int.from_bytes(length_block, "big"), hash_key)
+
+
+def decode_happ_base64(value):
+    compact = re.sub(rb"\s+", b"", value if isinstance(value, bytes) else str(value or "").encode("ascii", "ignore"))
+    compact += b"=" * (-len(compact) % 4)
+    try:
+        return base64.b64decode(compact, altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error):
+        return None
+
+
+def decrypt_happ_response_body(source_url, body, encrypt_tag):
+    key_name = (urllib.parse.parse_qs(urllib.parse.urlsplit(source_url).query).get("key") or [""])[0]
+    key = HAPP_AES_GCM_KEYS.get(key_name)
+    if not key or not encrypt_tag:
+        return body
+    ciphertext = decode_happ_base64(body)
+    tag = decode_happ_base64(encrypt_tag)
+    if ciphertext is None or tag is None or len(tag) != 16:
+        raise XrayProviderError("invalid_happ_encryption", "Источник Happ вернул некорректный зашифрованный ответ")
+
+    expanded_key = aes128_expand_key(key)
+    hash_key = int.from_bytes(aes128_encrypt_block(b"\0" * 16, expanded_key), "big")
+    initial_counter = HAPP_AES_GCM_IV + b"\0\0\0\1"
+    authentication = bytes(
+        left ^ right
+        for left, right in zip(
+            aes128_encrypt_block(initial_counter, expanded_key),
+            gcm_hash(hash_key, ciphertext).to_bytes(16, "big"),
+        )
+    )
+    if not hmac.compare_digest(authentication, tag):
+        raise XrayProviderError("happ_decryption_failed", "Не удалось расшифровать ответ подписки Happ")
+
+    plaintext = bytearray()
+    counter = int.from_bytes(initial_counter[-4:], "big")
+    for offset in range(0, len(ciphertext), 16):
+        counter = (counter + 1) & 0xFFFFFFFF
+        counter_block = initial_counter[:12] + counter.to_bytes(4, "big")
+        stream = aes128_encrypt_block(counter_block, expanded_key)
+        plaintext.extend(left ^ right for left, right in zip(ciphertext[offset:offset + 16], stream))
+    return bytes(plaintext)
+
+
+def fetch_xray_provider_payload(source_url, headers=None, timeout=20, source_kind="direct"):
     source_url = str(source_url or "").strip()
     parsed = urllib.parse.urlsplit(source_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -2898,14 +3044,24 @@ def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
             status=HTTPStatus.BAD_REQUEST,
         )
 
+    request_headers = dict(headers or {})
+    if source_kind == "happ":
+        request_headers = build_happ_fallback_headers(request_headers)
+        source_url = append_hwid_query(source_url, request_headers)
+
     try:
-        body, _ = request_provider_payload_once(
-            source_url,
-            headers or {},
-            timeout,
-            max_bytes=XRAY_PROVIDER_ADAPTER_MAX_BYTES,
-        )
+        request = urllib.request.Request(source_url, headers=request_headers, method="GET")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read(XRAY_PROVIDER_ADAPTER_MAX_BYTES + 1)
+            encrypt_tag = response.headers.get("Encrypt-Tag") or ""
+            final_url = response.geturl() or source_url
+        if len(body) > XRAY_PROVIDER_ADAPTER_MAX_BYTES:
+            raise ValueError("payload too large")
+        if source_kind == "happ":
+            body = decrypt_happ_response_body(final_url, body, encrypt_tag)
         return body
+    except XrayProviderError:
+        raise
     except ValueError:
         raise XrayProviderError(
             "payload_too_large",
@@ -2920,24 +3076,58 @@ def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
         ) from None
 
 
-def convert_xray_json_provider(body, provider_name):
+def load_xray_json_document(body):
     try:
-        document = json.loads(body.decode("utf-8-sig", errors="strict"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        text = body.decode("utf-8-sig", errors="strict").strip()
+    except UnicodeDecodeError:
         raise XrayProviderError("invalid_json", "Источник не содержит корректный Xray JSON") from None
 
-    if not isinstance(document, dict) or not isinstance(document.get("outbounds"), list):
-        raise XrayProviderError("invalid_config", "В Xray JSON не найден список outbounds")
+    candidates = [text]
+    decoded = decode_base64_text(text)
+    if decoded and decoded not in candidates:
+        candidates.append(decoded)
+    for candidate in candidates:
+        if not candidate or candidate[0] not in "[{":
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    raise XrayProviderError("invalid_json", "Источник не содержит корректный Xray JSON")
 
-    base_name = document.get("remarks")
-    if not isinstance(base_name, str) or not base_name.strip():
-        base_name = str(provider_name or "Xray").strip() or "Xray"
-    else:
-        base_name = base_name.strip()
-    try:
-        base_name.encode("utf-8", errors="strict")
-    except UnicodeEncodeError:
-        raise XrayProviderError("invalid_name", "Название Xray-конфигурации содержит некорректные символы") from None
+
+def iter_xray_config_documents(value, inherited_name=""):
+    if isinstance(value, list):
+        for item in value:
+            yield from iter_xray_config_documents(item, inherited_name)
+        return
+    if not isinstance(value, dict):
+        return
+
+    name = inherited_name
+    for key in ("remarks", "remark", "name", "ps", "title", "tag"):
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            name = candidate.strip()
+            break
+
+    if isinstance(value.get("outbounds"), list):
+        yield value, name
+        return
+    if isinstance(value.get("settings"), dict) and str(value.get("protocol") or "").strip():
+        yield {"outbounds": [value]}, name
+        return
+    for key in ("configs", "items", "nodes", "profiles", "servers", "subscriptions"):
+        child = value.get(key)
+        if isinstance(child, (dict, list)):
+            yield from iter_xray_config_documents(child, name)
+
+
+def convert_xray_json_provider(body, provider_name):
+    document = load_xray_json_document(body)
+    documents = list(iter_xray_config_documents(document))
+    if not documents:
+        raise XrayProviderError("invalid_config", "В Xray JSON не найден список outbounds")
 
     source_count = 0
     converted = []
@@ -2947,35 +3137,54 @@ def convert_xray_json_provider(body, provider_name):
         if len(skipped) < 5:
             skipped.append({"index": source_count, "code": code, "message": message})
 
-    for outbound in document["outbounds"]:
-        if not isinstance(outbound, dict) or str(outbound.get("protocol") or "").casefold() != "vless":
-            continue
+    for document_item, document_name in documents:
+        base_name = document_name or str(provider_name or "Xray").strip() or "Xray"
+        try:
+            base_name.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise XrayProviderError("invalid_name", "Название Xray-конфигурации содержит некорректные символы") from None
 
-        settings = outbound.get("settings")
-        vnext = settings.get("vnext") if isinstance(settings, dict) else None
-        if not isinstance(vnext, list) or not vnext:
-            source_count += 1
-            skip("invalid_vnext", "У VLESS outbound отсутствует settings.vnext")
-            continue
-
-        for endpoint in vnext:
-            users = endpoint.get("users") if isinstance(endpoint, dict) else None
-            if not isinstance(users, list) or not users:
-                source_count += 1
-                skip("invalid_users", "У VLESS endpoint отсутствует список users")
+        for outbound in document_item["outbounds"]:
+            if not isinstance(outbound, dict):
                 continue
-
-            for user in users:
+            protocol = str(outbound.get("protocol") or "").strip().casefold()
+            if protocol in {"hysteria", "hysteria2", "hy2"}:
                 source_count += 1
                 try:
-                    node = convert_xray_vless_node(outbound, endpoint, user)
+                    node = convert_xray_hysteria2_node(outbound, protocol)
                 except XrayProviderError as error:
                     skip(error.code, str(error))
                     continue
-                converted.append((source_count, node))
+                converted.append((source_count, base_name, node))
+                continue
+            if protocol != "vless":
+                continue
+
+            settings = outbound.get("settings")
+            vnext = settings.get("vnext") if isinstance(settings, dict) else None
+            if not isinstance(vnext, list) or not vnext:
+                source_count += 1
+                skip("invalid_vnext", "У VLESS outbound отсутствует settings.vnext")
+                continue
+
+            for endpoint in vnext:
+                users = endpoint.get("users") if isinstance(endpoint, dict) else None
+                if not isinstance(users, list) or not users:
+                    source_count += 1
+                    skip("invalid_users", "У VLESS endpoint отсутствует список users")
+                    continue
+
+                for user in users:
+                    source_count += 1
+                    try:
+                        node = convert_xray_vless_node(outbound, endpoint, user)
+                    except XrayProviderError as error:
+                        skip(error.code, str(error))
+                        continue
+                    converted.append((source_count, base_name, node))
 
     if not converted:
-        message = "В Xray JSON не найдено поддерживаемых VLESS/TCP/Reality узлов"
+        message = "В Xray JSON не найдено поддерживаемых VLESS или Hysteria 2 узлов"
         raise XrayProviderError(
             "no_supported_nodes",
             message,
@@ -2984,9 +3193,12 @@ def convert_xray_json_provider(body, provider_name):
         )
 
     lines = ["proxies:"]
-    for source_index, node in converted:
+    for source_index, base_name, node in converted:
         name = base_name if source_count == 1 else f"{base_name} · {source_index}"
-        lines.extend(render_mihomo_vless_proxy(name, node))
+        if node["type"] == "vless":
+            lines.extend(render_mihomo_vless_proxy(name, node))
+        else:
+            lines.extend(render_mihomo_hysteria2_proxy(name, node))
     try:
         yaml_body = ("\n".join(lines) + "\n").encode("utf-8", errors="strict")
     except UnicodeEncodeError:
@@ -3015,23 +3227,17 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if not isinstance(endpoint, dict) or not isinstance(user, dict):
         raise XrayProviderError("invalid_node", "Некорректная структура VLESS узла")
 
-    stream = outbound.get("streamSettings")
+    stream = outbound.get("streamSettings") or {}
     if not isinstance(stream, dict):
         raise XrayProviderError("missing_stream", "У VLESS узла отсутствует streamSettings")
-    if str(stream.get("network") or "").casefold() != "tcp":
-        raise XrayProviderError("unsupported_network", "Поддерживается только транспорт TCP")
-    if str(stream.get("security") or "").casefold() != "reality":
-        raise XrayProviderError("unsupported_security", "Поддерживается только Reality")
+    source_network = str(stream.get("network") or "tcp").casefold()
+    if source_network not in {"tcp", "raw", "ws", "grpc", "xhttp", "httpupgrade"}:
+        raise XrayProviderError("unsupported_network", "Неподдерживаемый транспорт VLESS")
+    security = str(stream.get("security") or "none").casefold()
+    if security not in {"none", "reality", "tls"}:
+        raise XrayProviderError("unsupported_security", "Поддерживается security none, TLS или Reality")
 
-    tcp_settings = stream.get("tcpSettings")
-    if tcp_settings is not None and not isinstance(tcp_settings, dict):
-        raise XrayProviderError("invalid_tcp", "Некорректные tcpSettings")
-    header = tcp_settings.get("header") if isinstance(tcp_settings, dict) else None
-    if header is not None and not isinstance(header, dict):
-        raise XrayProviderError("invalid_tcp", "Некорректный TCP header")
-    header_type = str((header or {}).get("type") or "none").casefold()
-    if header_type != "none":
-        raise XrayProviderError("unsupported_tcp_header", "Поддерживается только TCP header none")
+    transport_options = convert_xray_vless_transport(stream, source_network)
 
     mux = outbound.get("mux")
     if isinstance(mux, dict):
@@ -3040,10 +3246,14 @@ def convert_xray_vless_node(outbound, endpoint, user):
             raise XrayProviderError("unsupported_mux", "Mux для этого формата не поддерживается")
 
     address = endpoint.get("address")
-    port = endpoint.get("port")
+    raw_port = endpoint.get("port")
     if not isinstance(address, str) or not address.strip():
         raise XrayProviderError("invalid_address", "У VLESS узла отсутствует адрес")
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        raise XrayProviderError("invalid_port", "У VLESS узла указан некорректный порт") from None
+    if isinstance(raw_port, bool) or not 1 <= port <= 65535:
         raise XrayProviderError("invalid_port", "У VLESS узла указан некорректный порт")
 
     user_id = user.get("id")
@@ -3062,6 +3272,49 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if user_security not in {"", "auto"}:
         raise XrayProviderError("unsupported_user_security", "Неподдерживаемый параметр security у пользователя")
 
+    common = {
+        "type": "vless",
+        "server": address.strip(),
+        "port": port,
+        "uuid": user_id,
+        "flow": flow,
+        "network": "ws" if source_network == "httpupgrade" else "tcp" if source_network == "raw" else source_network,
+        "transportOptions": transport_options,
+        "security": security,
+        "servername": "",
+        "fingerprint": "",
+    }
+
+    if security == "none":
+        return common
+
+    if security == "tls":
+        tls = stream.get("tlsSettings")
+        if not isinstance(tls, dict):
+            raise XrayProviderError("missing_tls", "У VLESS/TLS узла отсутствуют tlsSettings")
+        server_name = tls.get("serverName")
+        fingerprint = tls.get("fingerprint")
+        allow_insecure = tls.get("allowInsecure")
+        alpn = tls.get("alpn")
+        if server_name is not None and not isinstance(server_name, str):
+            raise XrayProviderError("invalid_server_name", "В TLS указан некорректный serverName")
+        if fingerprint is not None and not isinstance(fingerprint, str):
+            raise XrayProviderError("invalid_fingerprint", "В TLS указан некорректный fingerprint")
+        if allow_insecure is not None and not isinstance(allow_insecure, bool):
+            raise XrayProviderError("invalid_insecure", "В TLS указан некорректный allowInsecure")
+        if alpn is not None and (
+            not isinstance(alpn, list)
+            or not all(isinstance(value, str) and value for value in alpn)
+        ):
+            raise XrayProviderError("invalid_alpn", "В TLS указан некорректный список ALPN")
+        common.update({
+            "servername": str(server_name or "").strip(),
+            "fingerprint": str(fingerprint or "chrome").strip(),
+            "allowInsecure": allow_insecure is True,
+            "alpn": list(alpn or []),
+        })
+        return common
+
     reality = stream.get("realitySettings")
     if not isinstance(reality, dict):
         raise XrayProviderError("missing_reality", "У VLESS узла отсутствуют realitySettings")
@@ -3074,6 +3327,9 @@ def convert_xray_vless_node(outbound, endpoint, user):
         "shortId",
         "spiderX",
         "allowInsecure",
+        "support-x25519mlkem768",
+        "supportX25519MLKEM768",
+        "support_x25519mlkem768",
     }
     for key, value in reality.items():
         if key not in known_reality_fields and value is not None and value != "" and value is not False:
@@ -3085,8 +3341,8 @@ def convert_xray_vless_node(outbound, endpoint, user):
     password = reality.get("password")
     if not isinstance(server_name, str) or not server_name.strip():
         raise XrayProviderError("missing_server_name", "В Reality отсутствует serverName")
-    if not isinstance(fingerprint, str) or not fingerprint.strip():
-        raise XrayProviderError("missing_fingerprint", "В Reality отсутствует fingerprint")
+    if fingerprint is not None and not isinstance(fingerprint, str):
+        raise XrayProviderError("invalid_fingerprint", "В Reality указан некорректный fingerprint")
     if public_key and password and public_key != password:
         raise XrayProviderError("conflicting_public_key", "В Reality заданы разные publicKey и password")
     public_key = public_key or password
@@ -3097,21 +3353,300 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if not isinstance(short_id, str) or len(short_id) > 16 or len(short_id) % 2 or not re.fullmatch(r"[0-9a-fA-F]*", short_id):
         raise XrayProviderError("invalid_short_id", "В Reality указан некорректный shortId")
     allow_insecure = reality.get("allowInsecure")
-    if allow_insecure is not None and allow_insecure is not False:
-        raise XrayProviderError("unsupported_insecure", "allowInsecure должен быть выключен")
-    spider = reality.get("spiderX")
-    if spider is not None and spider != "" and spider != "/":
-        raise XrayProviderError("unsupported_spider", "Поддерживается только пустой spiderX или /")
+    if allow_insecure is not None and not isinstance(allow_insecure, bool):
+        raise XrayProviderError("invalid_insecure", "В Reality указан некорректный allowInsecure")
+    spider = reality.get("spiderX", "")
+    if spider is not None and not isinstance(spider, str):
+        raise XrayProviderError("invalid_spider", "В Reality указан некорректный spiderX")
+    support_hybrid = first_xray_value(
+        reality.get("support-x25519mlkem768"),
+        reality.get("supportX25519MLKEM768"),
+        reality.get("support_x25519mlkem768"),
+        False,
+    )
 
-    return {
-        "server": address.strip(),
-        "port": port,
-        "uuid": user_id,
-        "flow": flow,
+    common.update({
         "servername": server_name.strip(),
-        "fingerprint": fingerprint.strip(),
+        "fingerprint": str(fingerprint or "chrome").strip(),
         "publicKey": public_key.strip(),
         "shortId": short_id,
+        "allowInsecure": allow_insecure is True,
+        "spiderX": str(spider or "").strip(),
+        "supportHybrid": xray_boolean(support_hybrid),
+    })
+    return common
+
+
+def convert_xray_vless_transport(stream, network):
+    if network in {"tcp", "raw"}:
+        settings = stream.get("rawSettings") if network == "raw" else stream.get("tcpSettings")
+        if settings is None and network == "raw":
+            settings = stream.get("tcpSettings")
+        if settings is not None and not isinstance(settings, dict):
+            raise XrayProviderError("invalid_tcp", "Некорректные TCP/raw settings")
+        header = settings.get("header") if isinstance(settings, dict) else None
+        if header is not None and not isinstance(header, dict):
+            raise XrayProviderError("invalid_tcp", "Некорректный TCP header")
+        if str((header or {}).get("type") or "none").casefold() != "none":
+            raise XrayProviderError("unsupported_tcp_header", "Поддерживается только TCP header none")
+        return {}
+
+    settings_key = {
+        "ws": "wsSettings",
+        "grpc": "grpcSettings",
+        "xhttp": "xhttpSettings",
+        "httpupgrade": "httpupgradeSettings",
+    }[network]
+    settings = stream.get(settings_key) or {}
+    if not isinstance(settings, dict):
+        raise XrayProviderError("invalid_transport", f"Некорректные настройки транспорта {network}")
+
+    if network == "ws":
+        path = settings.get("path", "/")
+        headers = settings.get("headers") or {}
+        if not isinstance(path, str) or not isinstance(headers, dict):
+            raise XrayProviderError("invalid_ws", "Некорректные WS settings")
+        if not all(isinstance(key, str) and isinstance(value, (str, int, float, bool)) for key, value in headers.items()):
+            raise XrayProviderError("invalid_ws", "Некорректные WS headers")
+        return {"path": path or "/", "headers": {key: str(value) for key, value in headers.items()}}
+    if network == "grpc":
+        service_name = settings.get("serviceName", "")
+        if not isinstance(service_name, str):
+            raise XrayProviderError("invalid_grpc", "Некорректный gRPC serviceName")
+        return {"grpc-service-name": service_name} if service_name else {}
+    if network == "httpupgrade":
+        path = settings.get("path", "/")
+        host = settings.get("host", "")
+        if not isinstance(path, str) or not isinstance(host, str):
+            raise XrayProviderError("invalid_httpupgrade", "Некорректные HTTPUpgrade settings")
+        result = {"path": path or "/", "v2ray-http-upgrade": True}
+        if host:
+            result["headers"] = {"Host": host}
+        return result
+
+    path = settings.get("path", "/")
+    host = settings.get("host", "")
+    mode = settings.get("mode", "")
+    headers = sanitize_xray_headers(settings.get("headers"))
+    if not all(isinstance(value, str) for value in (path, host, mode)) or headers is None:
+        raise XrayProviderError("invalid_xhttp", "Некорректные XHTTP settings")
+    result = {"path": path or "/"}
+    if host:
+        result["host"] = host
+    if mode:
+        result["mode"] = mode
+    if headers:
+        result["headers"] = headers
+    if xray_boolean(first_xray_value(settings.get("no-grpc-header"), settings.get("noGrpcHeader"), settings.get("noGRPCHeader"), False)):
+        result["no-grpc-header"] = True
+    for output_key, source_keys in {
+        "x-padding-bytes": ("x-padding-bytes", "xPaddingBytes"),
+        "sc-max-each-post-bytes": ("sc-max-each-post-bytes", "scMaxEachPostBytes"),
+    }.items():
+        value = first_xray_value(*(settings.get(key) for key in source_keys))
+        if value is not None:
+            result[output_key] = value if isinstance(value, (bool, int, float)) else str(value)
+    reuse_settings = sanitize_xray_reuse_settings(first_xray_value(settings.get("reuse-settings"), settings.get("reuseSettings")))
+    if reuse_settings:
+        result["reuse-settings"] = reuse_settings
+    download_settings = sanitize_xray_download_settings(first_xray_value(settings.get("download-settings"), settings.get("downloadSettings")))
+    if download_settings:
+        result["download-settings"] = download_settings
+    return result
+
+
+def first_xray_value(*values):
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def first_xray_text(*values):
+    value = first_xray_value(*values)
+    return str(value).strip() if value is not None else ""
+
+
+def xray_boolean(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def sanitize_xray_headers(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for key, raw_value in value.items():
+        name = str(key or "").strip()
+        if not name or raw_value in (None, ""):
+            continue
+        if isinstance(raw_value, list):
+            items = [str(item) for item in raw_value if item not in (None, "")]
+            if items:
+                result[name] = items
+        else:
+            result[name] = raw_value if isinstance(raw_value, (bool, int, float)) else str(raw_value)
+    return result
+
+
+def sanitize_xray_reuse_settings(value):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    aliases = {
+        "max-concurrency": ("max-concurrency", "maxConcurrency"),
+        "max-connections": ("max-connections", "maxConnections"),
+        "c-max-reuse-times": ("c-max-reuse-times", "cMaxReuseTimes"),
+        "h-max-request-times": ("h-max-request-times", "hMaxRequestTimes"),
+        "h-max-reusable-secs": ("h-max-reusable-secs", "hMaxReusableSecs"),
+    }
+    for output_key, source_keys in aliases.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value if isinstance(raw_value, (bool, int, float)) else str(raw_value)
+    return result
+
+
+def sanitize_xray_download_settings(value):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    aliases = {
+        "path": ("path",),
+        "host": ("host",),
+        "server": ("server",),
+        "port": ("port",),
+        "fingerprint": ("fingerprint",),
+        "servername": ("servername", "serverName"),
+        "client-fingerprint": ("client-fingerprint", "clientFingerprint"),
+        "certificate": ("certificate",),
+        "private-key": ("private-key", "privateKey"),
+        "ech-opts": ("ech-opts", "echOpts"),
+        "reality-opts": ("reality-opts", "realityOpts"),
+    }
+    for output_key, source_keys in aliases.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value
+    headers = sanitize_xray_headers(value.get("headers"))
+    if headers:
+        result["headers"] = headers
+    no_grpc_header = first_xray_value(value.get("no-grpc-header"), value.get("noGrpcHeader"), value.get("noGRPCHeader"))
+    if no_grpc_header is not None:
+        result["no-grpc-header"] = xray_boolean(no_grpc_header)
+    for output_key, source_keys in {
+        "x-padding-bytes": ("x-padding-bytes", "xPaddingBytes"),
+        "sc-max-each-post-bytes": ("sc-max-each-post-bytes", "scMaxEachPostBytes"),
+    }.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value
+    reuse_settings = sanitize_xray_reuse_settings(first_xray_value(value.get("reuse-settings"), value.get("reuseSettings")))
+    if reuse_settings:
+        result["reuse-settings"] = reuse_settings
+    for output_key, source_keys in {
+        "tls": ("tls",),
+        "skip-cert-verify": ("skip-cert-verify", "skipCertVerify"),
+    }.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = xray_boolean(raw_value)
+    alpn = value.get("alpn")
+    if isinstance(alpn, str):
+        alpn = [item.strip() for item in alpn.split(",") if item.strip()]
+    if isinstance(alpn, list) and alpn:
+        result["alpn"] = [str(item).strip() for item in alpn if str(item or "").strip()]
+    return result
+
+
+def xray_finalmask_obfs(finalmask):
+    if not isinstance(finalmask, dict):
+        return "", ""
+    masks = finalmask.get("udpmasks")
+    if not isinstance(masks, list):
+        masks = finalmask.get("udp")
+    if not isinstance(masks, list):
+        return "", ""
+    for item in masks:
+        if not isinstance(item, dict):
+            continue
+        mask_settings = item.get("settings") or {}
+        if not isinstance(mask_settings, dict):
+            mask_settings = {}
+        obfs = first_xray_text(item.get("type"))
+        password = first_xray_text(
+            mask_settings.get("password"),
+            mask_settings.get("obfs-password"),
+            mask_settings.get("obfsPassword"),
+            mask_settings.get("obfs_password"),
+        )
+        if obfs or password:
+            return obfs, password
+    return "", ""
+
+
+def convert_xray_hysteria2_node(outbound, protocol):
+    settings = outbound.get("settings") or {}
+    stream = outbound.get("streamSettings") or {}
+    if not isinstance(settings, dict) or not isinstance(stream, dict):
+        raise XrayProviderError("invalid_hysteria2", "Некорректная структура Hysteria 2 узла")
+    hysteria = stream.get("hysteriaSettings") or {}
+    tls = stream.get("tlsSettings") or {}
+    if not isinstance(hysteria, dict) or not isinstance(tls, dict):
+        raise XrayProviderError("invalid_hysteria2", "Некорректные настройки Hysteria 2")
+
+    version = first_xray_value(settings.get("version"), hysteria.get("version"))
+    if protocol == "hysteria" and version not in (None, "", 2, "2"):
+        raise XrayProviderError("unsupported_hysteria_version", "Поддерживается только Hysteria 2")
+    server = first_xray_text(settings.get("address"), settings.get("server"), hysteria.get("address"), hysteria.get("server"))
+    raw_port = first_xray_value(settings.get("port"), hysteria.get("port"))
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        raise XrayProviderError("invalid_port", "У Hysteria 2 узла указан некорректный порт") from None
+    password = first_xray_text(
+        hysteria.get("auth"), hysteria.get("auth_str"), hysteria.get("authStr"),
+        settings.get("auth"), settings.get("password"),
+    )
+    if not server or not 1 <= port <= 65535 or not password:
+        raise XrayProviderError("invalid_hysteria2", "У Hysteria 2 узла отсутствует адрес, порт или пароль")
+
+    alpn_value = first_xray_value(tls.get("alpn"), hysteria.get("alpn"))
+    if isinstance(alpn_value, str):
+        alpn = [item.strip() for item in alpn_value.split(",") if item.strip()]
+    elif isinstance(alpn_value, list) and all(isinstance(item, str) for item in alpn_value):
+        alpn = [item.strip() for item in alpn_value if item.strip()]
+    elif alpn_value is None:
+        alpn = []
+    else:
+        raise XrayProviderError("invalid_alpn", "В Hysteria 2 указан некорректный список ALPN")
+
+    finalmask = stream.get("finalmask") or {}
+    quic = finalmask.get("quicParams") if isinstance(finalmask, dict) else {}
+    quic = quic if isinstance(quic, dict) else {}
+    obfs = first_xray_text(hysteria.get("obfs"), settings.get("obfs"), hysteria.get("obfsType"))
+    obfs_password = first_xray_text(
+        hysteria.get("obfs-password"), hysteria.get("obfs_password"), hysteria.get("obfsPassword"),
+        settings.get("obfs-password"), settings.get("obfs_password"), settings.get("obfsPassword"),
+    )
+    finalmask_obfs, finalmask_password = xray_finalmask_obfs(finalmask)
+    obfs = obfs or finalmask_obfs
+    obfs_password = obfs_password or finalmask_password
+    return {
+        "type": "hysteria2",
+        "server": server,
+        "port": port,
+        "password": password,
+        "sni": first_xray_text(tls.get("serverName"), tls.get("servername"), hysteria.get("sni"), settings.get("sni")),
+        "alpn": alpn or ["h3"],
+        "allowInsecure": xray_boolean(first_xray_value(tls.get("allowInsecure"), settings.get("allowInsecure"), False)),
+        "up": first_xray_text(hysteria.get("up"), settings.get("up"), quic.get("brutalUp"), quic.get("up")),
+        "down": first_xray_text(hysteria.get("down"), settings.get("down"), quic.get("brutalDown"), quic.get("down")),
+        "obfs": obfs,
+        "obfsPassword": obfs_password,
     }
 
 
@@ -3123,21 +3658,82 @@ def render_mihomo_vless_proxy(name, node):
         f"    server: {quote(node['server'])}",
         f"    port: {node['port']}",
         f"    uuid: {quote(node['uuid'])}",
-        "    network: tcp",
-        "    tls: true",
+        '    encryption: ""',
+        f"    network: {node['network']}",
         "    udp: true",
+        "    packet-encoding: xudp",
     ]
     if node["flow"]:
         lines.append(f"    flow: {quote(node['flow'])}")
-    lines.extend(
-        [
-            f"    servername: {quote(node['servername'])}",
-            f"    client-fingerprint: {quote(node['fingerprint'])}",
-            "    reality-opts:",
-            f"      public-key: {quote(node['publicKey'])}",
-            f"      short-id: {quote(node['shortId'])}",
-        ]
-    )
+    if node["security"] in {"tls", "reality"}:
+        lines.append("    tls: true")
+    if node["servername"]:
+        lines.append(f"    servername: {quote(node['servername'])}")
+    if node["fingerprint"]:
+        lines.append(f"    client-fingerprint: {quote(node['fingerprint'])}")
+    if node["security"] == "tls":
+        if node["allowInsecure"]:
+            lines.append("    skip-cert-verify: true")
+        if node["alpn"]:
+            lines.append("    alpn:")
+            lines.extend(f"      - {quote(value)}" for value in node["alpn"])
+    elif node["security"] == "reality":
+        lines.extend(
+            [
+                "    reality-opts:",
+                f"      public-key: {quote(node['publicKey'])}",
+                f"      short-id: {quote(node['shortId'])}",
+            ]
+        )
+        if node["supportHybrid"]:
+            lines.append("      support-x25519mlkem768: true")
+        if node["spiderX"]:
+            lines.append(f"      spider-x: {quote(node['spiderX'])}")
+        if node["allowInsecure"]:
+            lines.append("    skip-cert-verify: true")
+    option_key = {
+        "ws": "ws-opts",
+        "grpc": "grpc-opts",
+        "xhttp": "xhttp-opts",
+        "httpupgrade": "http-upgrade-opts",
+    }.get(node["network"])
+    if option_key and node["transportOptions"]:
+        options = dict(node["transportOptions"])
+        if node["servername"]:
+            if node["network"] in {"ws", "httpupgrade"} and not options.get("headers"):
+                options["headers"] = {"Host": node["servername"]}
+            elif node["network"] == "xhttp" and not options.get("host"):
+                options["host"] = node["servername"]
+        lines.append(f"    {option_key}:")
+        for key, value in options.items():
+            lines.append(f"      {key}: {json.dumps(value, ensure_ascii=False)}")
+    return lines
+
+
+def render_mihomo_hysteria2_proxy(name, node):
+    quote = lambda value: json.dumps(str(value), ensure_ascii=False)
+    lines = [
+        f"  - name: {quote(name)}",
+        "    type: hysteria2",
+        f"    server: {quote(node['server'])}",
+        f"    port: {node['port']}",
+        f"    password: {quote(node['password'])}",
+        "    udp: true",
+    ]
+    if node["alpn"]:
+        lines.append(f"    alpn: {json.dumps(node['alpn'], ensure_ascii=False)}")
+    if node["sni"]:
+        lines.append(f"    sni: {quote(node['sni'])}")
+    if node["allowInsecure"]:
+        lines.append("    skip-cert-verify: true")
+    if node["up"]:
+        lines.append(f"    up: {quote(node['up'])}")
+    if node["down"]:
+        lines.append(f"    down: {quote(node['down'])}")
+    if node["obfs"]:
+        lines.append(f"    obfs: {quote(node['obfs'])}")
+    if node["obfsPassword"]:
+        lines.append(f"    obfs-password: {quote(node['obfsPassword'])}")
     return lines
 
 
@@ -3285,8 +3881,9 @@ def normalize_happ_transport_result(text):
     if isinstance(data, dict):
         for key in ("url", "uri", "link", "decryptedUrl", "decrypted_url", "subscription"):
             value = str(data.get(key) or "").strip()
-            if normalize_landing_url(value, ""):
-                return "url", value
+            normalized = normalize_landing_url(value, "")
+            if normalized:
+                return "url", normalized
         for key in ("payload", "content", "yaml", "data", "text", "body", "result", "output", "decrypted"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -3308,10 +3905,9 @@ def normalize_happ_transport_result(text):
     lines = [line.strip() for line in raw.replace("\r", "\n").split("\n") if line.strip()]
     if len(lines) == 1:
         line = lines[0]
-        if line.lower().startswith("incy://import/"):
-            return "url", line
-        if normalize_landing_url(line, ""):
-            return "url", line
+        normalized = normalize_landing_url(line, "")
+        if normalized:
+            return "url", normalized
 
     return None
 
@@ -3386,9 +3982,10 @@ def normalize_header_map(headers):
 
 def extract_incy_import_payload(source_url):
     parsed = urllib.parse.urlsplit(source_url)
-    query = urllib.parse.parse_qs(parsed.query)
-    for key in ("url", "uri", "target", "link", "sub", "subscription"):
-        value = (query.get(key) or [""])[0]
+    supported_keys = {"url", "uri", "target", "link", "import", "sub", "subscription"}
+    for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        if str(key or "").casefold() not in supported_keys:
+            continue
         result = normalize_happ_transport_text(value, "")
         if result:
             return result
@@ -3438,6 +4035,7 @@ def build_happ_transport_candidates(text):
     add(text)
     unquoted = urllib.parse.unquote_plus(str(text or "").strip())
     add(unquoted)
+    add(urllib.parse.unquote_plus(unquoted))
     for candidate in list(candidates):
         decoded = decode_base64_text(candidate)
         if decoded:
@@ -3485,7 +4083,7 @@ def extract_landing_provider_url(body, content_type, base_url):
     unescaped = html.unescape(text)
     patterns = [
         r"(?:href|data-url|data-href|url)\s*=\s*['\"]([^'\"]+)['\"]",
-        r"(happ://crypt[^\s'\"<>]+|incy://import[^\s'\"<>]+)",
+        r"(happ\\*:(?:\\?/){2}crypt[0-9]*/[^\s'\"<>]+|incy://import[^\s'\"<>]+)",
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, unescaped, flags=re.IGNORECASE):
@@ -3502,7 +4100,7 @@ def looks_like_landing_page(text, content_type):
         "html" in lower_type
         or sample.startswith("<!doctype")
         or sample.startswith("<html")
-        or "happ://crypt" in sample
+        or bool(re.search(r"happ\\*:(?:\\?/){2}crypt[0-9]*/", sample, flags=re.IGNORECASE))
         or "incy://import" in sample
     )
 
@@ -3514,15 +4112,23 @@ def looks_like_happ_landing_page(text, content_type):
     return (
         "happ" in sample
         or "incy://import" in sample
-        or "happ://crypt" in sample
+        or bool(re.search(r"happ\\*:(?:\\?/){2}crypt[0-9]*/", sample, flags=re.IGNORECASE))
     )
 
 
 def normalize_landing_url(value, base_url):
-    candidate = urllib.parse.unquote(html.unescape(str(value or "").strip()))
+    candidate = html.unescape(str(value or "").strip())
+    for _ in range(2):
+        decoded = urllib.parse.unquote(candidate)
+        if decoded == candidate:
+            break
+        candidate = decoded
     if not candidate:
         return ""
-    if re.match(r"^(https?|incy)://", candidate, flags=re.IGNORECASE) or is_happ_crypt_url(candidate):
+    happ_url = normalize_happ_crypt_url(candidate)
+    if happ_url:
+        return happ_url
+    if re.match(r"^(https?|incy)://", candidate, flags=re.IGNORECASE):
         return candidate
     if base_url and candidate.startswith(("/", "./", "../")):
         return urllib.parse.urljoin(base_url, candidate)
@@ -3530,7 +4136,17 @@ def normalize_landing_url(value, base_url):
 
 
 def is_happ_crypt_url(value):
-    return str(value or "").strip().lower().startswith("happ://crypt")
+    return bool(normalize_happ_crypt_url(value))
+
+
+def normalize_happ_crypt_url(value):
+    candidate = re.sub(
+        r"(?i)^happ\\*:(?:\\?/){2}",
+        "happ://",
+        str(value or "").strip(),
+        count=1,
+    )
+    return candidate if re.match(r"(?i)^happ://crypt[0-9]*/", candidate) else ""
 
 
 def build_provider_request_headers(incoming_headers):

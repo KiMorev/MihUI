@@ -5,12 +5,13 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync('app.js', 'utf8');
 const happFunctions = source.slice(
-  source.indexOf('async function decodeHappProviderUrl(provider)'),
+  source.indexOf('function normalizeHappCryptUrl(value)'),
   source.indexOf('function loadHappBrowserDecryptor()'),
 );
 
 function loadHappFunctions(decryptor = {}, available = true) {
   const context = vm.createContext({
+    URL,
     canUseBrowserHappDecryptor: () => available,
     loadHappBrowserDecryptor: async () => decryptor,
     normalizeBrowserDecodedHappUrl: (value) => String(value || '').trim(),
@@ -36,6 +37,42 @@ test('Happ reports invalid decoded URL in Russian and still accepts HTTPS', asyn
   const result = await valid.decodeHappProviderUrlInBrowser('happ://test');
   assert.equal(result.ok, true);
   assert.equal(result.decryptedUrl, 'https://example.com/sub');
+});
+
+test('Happ extracts the complete crypt link from an HTTPS connector', async () => {
+  let decryptedSource = '';
+  const app = loadHappFunctions({
+    decryptLink: async (sourceUrl) => {
+      decryptedSource = sourceUrl;
+      return 'https://example.com/sub?key=key01';
+    },
+  });
+  const happUrl = 'happ://crypt4/abc+def/ghi==';
+  const wrapper = `https://connector.example/?link=${encodeURIComponent(happUrl)}&cb=c2`;
+
+  const result = await app.decodeHappProviderUrl({ url: wrapper });
+
+  assert.equal(decryptedSource, happUrl);
+  assert.equal(result.wrapped, true);
+  assert.equal(result.decryptedUrl, 'https://example.com/sub?key=key01');
+});
+
+test('Happ normalizes escaped schemes and double-encoded connector values', async () => {
+  let decryptedSource = '';
+  const app = loadHappFunctions({
+    decryptLink: async (sourceUrl) => {
+      decryptedSource = sourceUrl;
+      return 'https://example.com/sub';
+    },
+  });
+  const escaped = String.raw`happ\:\/\/crypt5/demo-token`;
+  const wrapper = `https://connector.example/mobile.html?Import=${encodeURIComponent(encodeURIComponent(escaped))}`;
+
+  assert.equal(app.normalizeHappCryptUrl(String.raw`happ\://crypt4/token`), 'happ://crypt4/token');
+  const result = await app.decodeHappProviderUrl({ url: wrapper });
+
+  assert.equal(decryptedSource, 'happ://crypt5/demo-token');
+  assert.equal(result.wrapped, true);
 });
 
 test('own updater failure messages are Russian without translating shell commands', () => {
