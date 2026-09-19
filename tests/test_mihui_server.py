@@ -1325,6 +1325,54 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
 
+    def test_mihui_restart_requires_custom_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(server, "/api/mihui/restart", {})
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
+    def test_mihui_restart_schedules_service_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(mihui_server, "schedule_mihui_restart") as restart:
+                    status, result = self.post_json(
+                        server,
+                        "/api/mihui/restart",
+                        {},
+                        headers={"X-Mihui-Action": "mihui-restart"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 202)
+        self.assertTrue(result["ok"])
+        restart.assert_called_once_with(app_dir)
+
+    def test_schedule_mihui_restart_uses_owned_init_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\n', encoding="utf-8"
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_INIT_SCRIPT="{init_script}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server.subprocess, "Popen") as start:
+                mihui_server.schedule_mihui_restart(app_dir)
+
+        command = start.call_args.args[0]
+        self.assertEqual(command[-1], str(init_script))
+        self.assertEqual(command[:2], ["/bin/sh", "-c"])
+        self.assertTrue(start.call_args.kwargs["start_new_session"])
+
     def test_validate_mihomo_action_accepts_only_checked_release(self):
         status = {
             "components": {

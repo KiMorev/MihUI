@@ -39,6 +39,8 @@ except ImportError:  # pragma: no cover - PTY is available on the target router
 
 
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
+DEFAULT_MIHUI_INIT_SCRIPT = "/opt/etc/init.d/S99mihui"
+MIHUI_INIT_OWNER_MARKER = 'MIHUI_INIT_OWNER="KiMorev/MihUI"'
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
@@ -552,6 +554,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/update/start":
             self.handle_update_start()
             return
+        if route == "/api/mihui/restart":
+            self.handle_mihui_restart()
+            return
         if route == "/api/components/action":
             self.handle_component_action()
             return
@@ -726,6 +731,19 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         thread = threading.Thread(target=run_update_script, args=(self.app_dir,), daemon=True)
         thread.start()
         self.send_json(HTTPStatus.ACCEPTED, snapshot_update_state())
+
+    def handle_mihui_restart(self):
+        if self.headers.get("X-Mihui-Action") != "mihui-restart":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не подтверждён перезапуск MiHUI"})
+            return
+
+        try:
+            schedule_mihui_restart(self.app_dir)
+        except RuntimeError as error:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": str(error)})
+            return
+
+        self.send_json(HTTPStatus.ACCEPTED, {"ok": True, "message": "MiHUI перезапускается"})
 
     def handle_component_action(self):
         if self.headers.get("X-Mihui-Action") != "components":
@@ -1273,6 +1291,34 @@ def get_env(app_dir):
 
 def get_env_path(app_dir):
     return Path(app_dir) / "mihui.env"
+
+
+def schedule_mihui_restart(app_dir):
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    try:
+        init_source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Скрипт запуска MiHUI не найден") from error
+    if MIHUI_INIT_OWNER_MARKER not in init_source:
+        raise RuntimeError("Скрипт запуска MiHUI не распознан")
+
+    try:
+        subprocess.Popen(
+            [
+                "/bin/sh",
+                "-c",
+                'sleep 1; exec /bin/sh "$1" restart',
+                "mihui-restart",
+                str(init_script),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise RuntimeError("Не удалось запустить перезапуск MiHUI") from error
 
 
 def get_config_path(app_dir):

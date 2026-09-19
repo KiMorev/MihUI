@@ -646,6 +646,7 @@ const els = {
   xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
   reinstallXkeenButton: document.querySelector('#reinstallXkeenButton'),
   componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
+  restartMihuiButton: document.querySelector('#restartMihuiButton'),
   componentMaintenance: document.querySelector('#componentMaintenance'),
   openComponentMaintenanceButton: document.querySelector('#openComponentMaintenanceButton'),
   backToComponentUpdatesButton: document.querySelector('#backToComponentUpdatesButton'),
@@ -1070,6 +1071,7 @@ els.reinstallXkeenButton.addEventListener('click', reinstallXkeen);
 els.openComponentMaintenanceButton.addEventListener('click', openComponentMaintenance);
 els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates);
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
+els.restartMihuiButton.addEventListener('click', restartMihui);
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
 renderServiceHealth();
@@ -2933,6 +2935,7 @@ function renderComponentManager() {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
+  els.restartMihuiButton.disabled = busy;
 
   const mihomo = state.components.items.mihomo;
   const selectedVersion = els.mihomoVersionSelect.value;
@@ -3067,6 +3070,44 @@ async function startMaintenanceAction(component, action) {
     if (!window.confirm(`Обновить геоданные ${label}?`)) return;
   }
   await startComponentAction({ component, action });
+}
+
+async function restartMihui() {
+  if (!window.confirm('Перезапустить MiHUI? Интерфейс будет недоступен несколько секунд.')) return;
+
+  els.restartMihuiButton.disabled = true;
+  els.restartMihuiButton.textContent = 'Перезапуск...';
+  try {
+    await apiJson('/api/mihui/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-restart' },
+      body: '{}',
+    });
+    closeComponentManager();
+    showMessage('MiHUI перезапускается. Страница обновится после запуска сервиса.', { severity: 'warning' });
+    await waitForMihuiRestart();
+  } catch (error) {
+    els.restartMihuiButton.disabled = false;
+    els.restartMihuiButton.textContent = 'Перезапустить';
+    showMessage(`Не удалось перезапустить MiHUI: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+async function waitForMihuiRestart() {
+  await new Promise((resolve) => window.setTimeout(resolve, 2500));
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch('/api/services/status', { cache: 'no-store' });
+      if (response.ok) {
+        window.location.reload();
+        return;
+      }
+    } catch (error) {
+      // Краткая потеря связи ожидаема во время перезапуска сервиса.
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error('сервис не ответил в течение минуты');
 }
 
 async function rollbackComponent(component) {

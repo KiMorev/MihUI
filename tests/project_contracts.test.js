@@ -66,6 +66,7 @@ test('primary UI files expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
+    assert.match(html, /id="restartMihuiButton"[\s\S]+?>Перезапустить<\/button>/);
     assert.equal((html.match(/<button[^>]+data-component-advanced-toggle/g) || []).length, 2);
     assert.match(html, /id="componentMaintenance"[^>]+hidden/);
     assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Обслуживание<\/button>/);
@@ -192,6 +193,8 @@ test('primary UI files expose component update markers and one manager flow', ()
     assert.match(source, /action: 'channel'/);
     assert.match(source, /component: 'all', action: 'update'/);
     assert.match(source, /\['restart', 'geo-update'\]/);
+    assert.match(source, /apiJson\('\/api\/mihui\/restart'/);
+    assert.match(source, /'X-Mihui-Action': 'mihui-restart'/);
     assert.match(source, /latestBuildTimestamp/);
     assert.match(source, /Последняя сборка/);
     assert.doesNotMatch(source, /Через XKeen/);
