@@ -1,0 +1,160 @@
+#!/bin/sh
+MIHUI_INIT_OWNER="KiMorev/MihUI"
+ENABLED=yes
+APP_DIR=__MIHUI_APP_DIR__
+WWW_DIR="$APP_DIR/www"
+SERVER_PY="$APP_DIR/mihui_server.py"
+ENV_FILE="$APP_DIR/mihui.env"
+LOG_DIR="${MIHUI_LOG_DIR:-/opt/var/log/mihui}"
+RUN_DIR="${MIHUI_RUN_DIR:-/var/run}"
+PID_FILE="$RUN_DIR/mihui.pid"
+CHILD_PID_FILE="$RUN_DIR/mihui-server.pid"
+PYTHON_BIN="${MIHUI_PYTHON_BIN:-/opt/bin/python3}"
+PORT="${MIHUI_PORT:-9878}"
+LOG_FILE="$LOG_DIR/server.log"
+RESTART_DELAY=5
+SERVICE_SCRIPT="${0##*/}"
+
+[ -f /opt/etc/profile ] && . /opt/etc/profile
+[ -f "$ENV_FILE" ] && . "$ENV_FILE"
+[ -n "${MIHUI_PORT:-}" ] && PORT="$MIHUI_PORT"
+[ -n "${MIHUI_PYTHON_BIN:-}" ] && PYTHON_BIN="$MIHUI_PYTHON_BIN"
+
+pid_file_matches() {
+  pid_file="$1"
+  expected="$2"
+  [ -f "$pid_file" ] || return 1
+  pid=$(cat "$pid_file" 2>/dev/null || true)
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  [ -r "/proc/$pid/cmdline" ] || return 1
+  command_line=$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)
+  case "$command_line" in
+    *"$expected"*) return 0 ;;
+  esac
+  return 1
+}
+
+is_running() {
+  pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"
+}
+
+server_is_running() {
+  pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"
+}
+
+supervise() {
+  child_pid=""
+
+  stop_supervisor() {
+    trap - TERM INT
+    if [ -n "${child_pid:-}" ] && kill -0 "$child_pid" 2>/dev/null; then
+      kill "$child_pid" 2>/dev/null || true
+    fi
+    rm -f "$CHILD_PID_FILE"
+    exit 0
+  }
+
+  trap '' HUP
+  trap stop_supervisor TERM INT
+
+  while :; do
+    "$PYTHON_BIN" "$SERVER_PY" --host 0.0.0.0 --port "$PORT" --app-dir "$APP_DIR" &
+    child_pid=$!
+    echo "$child_pid" > "$CHILD_PID_FILE"
+    wait "$child_pid"
+    exit_code=$?
+    child_pid=""
+    rm -f "$CHILD_PID_FILE"
+    printf 'MihUI server exited with code %s; restarting in %s seconds\n' "$exit_code" "$RESTART_DELAY"
+    sleep "$RESTART_DELAY" &
+    child_pid=$!
+    wait "$child_pid" || true
+    child_pid=""
+  done
+}
+
+start() {
+  [ "$ENABLED" = "yes" ] || exit 0
+  mkdir -p "$LOG_DIR" "$RUN_DIR"
+
+  wait_left=30
+  while { [ ! -f "$WWW_DIR/index.html" ] || [ ! -f "$SERVER_PY" ]; } && [ "$wait_left" -gt 0 ]; do
+    sleep 1
+    wait_left=$((wait_left - 1))
+  done
+
+  [ -f "$WWW_DIR/index.html" ] || {
+    printf 'MihUI www directory is not ready\n' >> "$LOG_FILE"
+    exit 1
+  }
+  [ -f "$SERVER_PY" ] || {
+    printf 'MihUI server is not ready\n' >> "$LOG_FILE"
+    exit 1
+  }
+  [ -x "$PYTHON_BIN" ] || {
+    printf 'python3 is not executable: %s\n' "$PYTHON_BIN" >> "$LOG_FILE"
+    exit 1
+  }
+
+  if is_running; then
+    exit 0
+  fi
+  rm -f "$PID_FILE"
+
+  if command -v nohup >/dev/null 2>&1; then
+    nohup sh "$0" supervise >> "$LOG_FILE" 2>&1 &
+  else
+    printf 'nohup is missing, starting without nohup\n' >> "$LOG_FILE"
+    sh "$0" supervise >> "$LOG_FILE" 2>&1 &
+  fi
+
+  echo $! > "$PID_FILE"
+  sleep 1
+  is_running || {
+    rm -f "$PID_FILE"
+    printf 'MihUI server failed to start\n' >> "$LOG_FILE"
+    exit 1
+  }
+}
+
+stop() {
+  supervisor_pid=""
+  child_pid=""
+  if is_running; then
+    supervisor_pid=$(cat "$PID_FILE")
+  fi
+  if server_is_running; then
+    child_pid=$(cat "$CHILD_PID_FILE" 2>/dev/null || true)
+  fi
+  if [ -n "$supervisor_pid" ]; then
+    kill "$supervisor_pid" 2>/dev/null || true
+  fi
+  if [ -n "$child_pid" ]; then
+    kill "$child_pid" 2>/dev/null || true
+  fi
+  if [ -n "$supervisor_pid" ] || [ -n "$child_pid" ]; then
+    sleep 1
+    [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null && kill -9 "$child_pid" 2>/dev/null || true
+    [ -n "$supervisor_pid" ] && kill -0 "$supervisor_pid" 2>/dev/null && kill -9 "$supervisor_pid" 2>/dev/null || true
+  fi
+  rm -f "$PID_FILE" "$CHILD_PID_FILE"
+}
+
+case "${1:-start}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  supervise) supervise ;;
+  status)
+    if is_running; then
+      echo "MihUI is running on port $PORT"
+    else
+      echo "MihUI is stopped"
+      exit 1
+    fi
+    ;;
+  *) echo "Usage: $0 {start|stop|restart|status}"; exit 2 ;;
+esac

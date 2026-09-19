@@ -277,12 +277,13 @@ package_from_source_tree() {
   [ -f "$source_dir/app.js" ] || return 1
   [ -f "$source_dir/mihomo-editor.html" ] || return 1
   [ -f "$source_dir/router/cgi-bin/mihui-update" ] || return 1
+  [ -f "$source_dir/router/cgi-bin/mihui-service" ] || return 1
   [ -f "$source_dir/router/mihui_server.py" ] || return 1
 
   mkdir -p "$target_dir/www" "$target_dir/cgi-bin"
   cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
   [ -d "$source_dir/happ-decryptor" ] && cp -R "$source_dir/happ-decryptor" "$target_dir/www/"
-  cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
+  cp "$source_dir/router/cgi-bin/mihui-update" "$source_dir/router/cgi-bin/mihui-service" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
   if [ -d "$source_dir/bin" ]; then
     mkdir -p "$target_dir/bin"
@@ -339,6 +340,7 @@ PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "Структура
 
 [ -f "$PACKAGE_DIR/www/index.html" ] || fail "В пакете отсутствует www/index.html"
 [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "В пакете отсутствует cgi-bin/mihui-update"
+[ -f "$PACKAGE_DIR/cgi-bin/mihui-service" ] || fail "В пакете отсутствует cgi-bin/mihui-service"
 [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "В пакете отсутствует mihui_server.py"
 
 update_progress replace
@@ -350,6 +352,7 @@ mkdir -p "$NEW_WWW/cgi-bin"
 cp -R "$PACKAGE_DIR/www/." "$NEW_WWW/" || fail "Не удалось скопировать файлы интерфейса"
 cp -R "$PACKAGE_DIR/cgi-bin/." "$NEW_WWW/cgi-bin/" || fail "Не удалось скопировать CGI-скрипты"
 chmod +x "$NEW_WWW/cgi-bin/mihui-update"
+chmod +x "$NEW_WWW/cgi-bin/mihui-service"
 
 if [ -f "$PACKAGE_DIR/uninstall.sh" ]; then
   cp "$PACKAGE_DIR/uninstall.sh" "$APP_DIR/uninstall.sh" || fail "Не удалось скопировать скрипт удаления"

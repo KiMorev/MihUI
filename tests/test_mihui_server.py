@@ -1355,6 +1355,67 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         restart.assert_called_once_with(app_dir)
 
+    def test_mihui_repair_requires_custom_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(server, "/api/mihui/repair", {})
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
+    def test_mihui_repair_replaces_owned_service_and_schedules_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nold-service\n', encoding="utf-8"
+            )
+            env_text = f'MIHUI_INIT_SCRIPT="{init_script}"\nMIHUI_PORT=9878\n'
+            (app_dir / "mihui.env").write_text(env_text, encoding="utf-8")
+            template_dir = app_dir / "www" / "cgi-bin"
+            template_dir.mkdir(parents=True)
+            (template_dir / "mihui-service").write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nAPP_DIR=__MIHUI_APP_DIR__\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(mihui_server, "schedule_mihui_restart") as restart:
+                backup = mihui_server.repair_mihui_service(app_dir)
+
+            rendered = init_script.read_text(encoding="utf-8")
+            self.assertIn(f"APP_DIR={mihui_server.shlex.quote(str(app_dir.resolve()))}", rendered)
+            self.assertNotIn("__MIHUI_APP_DIR__", rendered)
+            if os.name != "nt":
+                self.assertTrue(init_script.stat().st_mode & 0o111)
+            self.assertTrue((app_dir / "backups" / backup).is_file())
+            self.assertEqual((app_dir / "mihui.env").read_text(encoding="utf-8"), env_text)
+        restart.assert_called_once_with(app_dir)
+
+    def test_mihui_repair_endpoint_runs_fixed_operation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "repair_mihui_service", return_value="S99mihui-backup.bak"
+                ) as repair:
+                    status, result = self.post_json(
+                        server,
+                        "/api/mihui/repair",
+                        {},
+                        headers={"X-Mihui-Action": "mihui-repair"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 202)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["backup"], "S99mihui-backup.bak")
+        repair.assert_called_once_with(app_dir)
+
     def test_schedule_mihui_restart_uses_owned_init_script(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

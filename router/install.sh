@@ -226,13 +226,14 @@ package_from_source_tree() {
   [ -f "$source_dir/app.js" ] || return 1
   [ -f "$source_dir/mihomo-editor.html" ] || return 1
   [ -f "$source_dir/router/cgi-bin/mihui-update" ] || return 1
+  [ -f "$source_dir/router/cgi-bin/mihui-service" ] || return 1
   [ -f "$source_dir/router/mihui_server.py" ] || return 1
   [ -f "$source_dir/router/uninstall.sh" ] || return 1
 
   mkdir -p "$target_dir/www" "$target_dir/cgi-bin"
   cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
   [ -d "$source_dir/happ-decryptor" ] && cp -R "$source_dir/happ-decryptor" "$target_dir/www/"
-  cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
+  cp "$source_dir/router/cgi-bin/mihui-update" "$source_dir/router/cgi-bin/mihui-service" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
   cp "$source_dir/router/uninstall.sh" "$target_dir/"
   if [ -d "$source_dir/bin" ]; then
@@ -355,6 +356,7 @@ validate_package() {
   [ -f "$PACKAGE_DIR/www/styles.css" ] || fail "package does not contain www/styles.css"
   [ -f "$PACKAGE_DIR/www/app.js" ] || fail "package does not contain www/app.js"
   [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
+  [ -f "$PACKAGE_DIR/cgi-bin/mihui-service" ] || fail "package does not contain cgi-bin/mihui-service"
   [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "package does not contain mihui_server.py"
   [ -f "$PACKAGE_DIR/uninstall.sh" ] || fail "package does not contain uninstall.sh"
 }

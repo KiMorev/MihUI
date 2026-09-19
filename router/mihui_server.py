@@ -13,6 +13,7 @@ import os
 import re
 import select
 import shutil
+import shlex
 import signal
 import socket
 import ssl
@@ -557,6 +558,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/mihui/restart":
             self.handle_mihui_restart()
             return
+        if route == "/api/mihui/repair":
+            self.handle_mihui_repair()
+            return
         if route == "/api/components/action":
             self.handle_component_action()
             return
@@ -744,6 +748,22 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         self.send_json(HTTPStatus.ACCEPTED, {"ok": True, "message": "MiHUI перезапускается"})
+
+    def handle_mihui_repair(self):
+        if self.headers.get("X-Mihui-Action") != "mihui-repair":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не подтверждено восстановление службы MiHUI"})
+            return
+
+        try:
+            backup = repair_mihui_service(self.app_dir)
+        except RuntimeError as error:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": str(error)})
+            return
+
+        self.send_json(
+            HTTPStatus.ACCEPTED,
+            {"ok": True, "message": "Служба MiHUI восстановлена и перезапускается", "backup": backup},
+        )
 
     def handle_component_action(self):
         if self.headers.get("X-Mihui-Action") != "components":
@@ -1319,6 +1339,44 @@ def schedule_mihui_restart(app_dir):
         )
     except OSError as error:
         raise RuntimeError("Не удалось запустить перезапуск MiHUI") from error
+
+
+def repair_mihui_service(app_dir):
+    app_dir = Path(app_dir).resolve()
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    template_path = app_dir / "www" / "cgi-bin" / "mihui-service"
+
+    try:
+        current_source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Скрипт запуска MiHUI не найден") from error
+    if MIHUI_INIT_OWNER_MARKER not in current_source:
+        raise RuntimeError("Скрипт запуска MiHUI не распознан")
+
+    try:
+        template = template_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Шаблон службы MiHUI не найден; сначала обновите MiHUI") from error
+    if MIHUI_INIT_OWNER_MARKER not in template or "__MIHUI_APP_DIR__" not in template:
+        raise RuntimeError("Шаблон службы MiHUI поврежден")
+
+    rendered = template.replace("__MIHUI_APP_DIR__", shlex.quote(str(app_dir)), 1)
+    backup_dir = app_dir / "backups"
+    backup_name = f"S99mihui-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.bak"
+    backup_path = backup_dir / backup_name
+    temporary = init_script.with_name(f".{init_script.name}.mihui.tmp")
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(init_script), str(backup_path))
+        temporary.write_text(rendered, encoding="utf-8")
+        temporary.chmod(0o755)
+        os.replace(str(temporary), str(init_script))
+    except OSError as error:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError("Не удалось заменить скрипт запуска MiHUI") from error
+
+    schedule_mihui_restart(app_dir)
+    return backup_name
 
 
 def get_config_path(app_dir):

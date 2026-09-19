@@ -67,6 +67,7 @@ test('primary UI files expose labels for audited controls', () => {
     assert.match(html, /data-xkeen-channel="beta"/);
     assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
     assert.match(html, /id="restartMihuiButton"[\s\S]+?>Перезапустить<\/button>/);
+    assert.match(html, /id="repairMihuiButton"[\s\S]+?>Восстановить службу<\/button>/);
     assert.equal((html.match(/<button[^>]+data-component-advanced-toggle/g) || []).length, 2);
     assert.match(html, /id="componentMaintenance"[^>]+hidden/);
     assert.match(html, /id="openComponentMaintenanceButton"[^>]*>Обслуживание<\/button>/);
@@ -195,6 +196,7 @@ test('primary UI files expose component update markers and one manager flow', ()
     assert.match(source, /\['restart', 'geo-update'\]/);
     assert.match(source, /apiJson\('\/api\/mihui\/restart'/);
     assert.match(source, /'X-Mihui-Action': 'mihui-restart'/);
+    assert.match(source, /'X-Mihui-Action': 'mihui-repair'/);
     assert.match(source, /latestBuildTimestamp/);
     assert.match(source, /Последняя сборка/);
     assert.doesNotMatch(source, /Через XKeen/);
@@ -696,10 +698,24 @@ test('router service supervises and restarts the MihUI server process', () => {
 test('router service rejects stale or reused MihUI PID files', () => {
   const installer = read('router/install.sh');
   const uninstaller = read('router/uninstall.sh');
+  const repairTemplate = read('router/cgi-bin/mihui-service');
 
   assert.match(installer, /RUN_DIR="\$\{MIHUI_RUN_DIR:-\/var\/run\}"/);
   assert.match(uninstaller, /PID_FILE="\$\{MIHUI_PID_FILE:-\/var\/run\/mihui\.pid\}"/);
   assert.match(installer, /pid_file_matches\(\) \{[\s\S]+?\/proc\/\\\$pid\/cmdline/);
   assert.match(installer, /pid_file_matches "\\\$PID_FILE" "\\\$SERVICE_SCRIPT supervise"/);
   assert.match(installer, /pid_file_matches "\\\$CHILD_PID_FILE" "\\\$SERVER_PY"/);
+  assert.match(repairTemplate, /RUN_DIR="\$\{MIHUI_RUN_DIR:-\/var\/run\}"/);
+  assert.match(repairTemplate, /pid_file_matches "\$PID_FILE" "\$SERVICE_SCRIPT supervise"/);
+  assert.match(repairTemplate, /pid_file_matches "\$CHILD_PID_FILE" "\$SERVER_PY"/);
+});
+
+test('router packages include the MiHUI service repair template', () => {
+  const installer = read('router/install.sh');
+  const updater = read('router/cgi-bin/mihui-update');
+  const workflow = read('.github/workflows/release.yml');
+
+  assert.match(installer, /router\/cgi-bin\/mihui-service/);
+  assert.match(updater, /router\/cgi-bin\/mihui-service/);
+  assert.match(workflow, /router\/cgi-bin\/mihui-service/);
 });

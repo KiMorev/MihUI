@@ -646,6 +646,7 @@ const els = {
   xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
   reinstallXkeenButton: document.querySelector('#reinstallXkeenButton'),
   componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
+  repairMihuiButton: document.querySelector('#repairMihuiButton'),
   restartMihuiButton: document.querySelector('#restartMihuiButton'),
   componentMaintenance: document.querySelector('#componentMaintenance'),
   openComponentMaintenanceButton: document.querySelector('#openComponentMaintenanceButton'),
@@ -1071,6 +1072,7 @@ els.reinstallXkeenButton.addEventListener('click', reinstallXkeen);
 els.openComponentMaintenanceButton.addEventListener('click', openComponentMaintenance);
 els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates);
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
+els.repairMihuiButton.addEventListener('click', repairMihui);
 els.restartMihuiButton.addEventListener('click', restartMihui);
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
@@ -2935,6 +2937,7 @@ function renderComponentManager() {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
+  els.repairMihuiButton.disabled = busy;
   els.restartMihuiButton.disabled = busy;
 
   const mihomo = state.components.items.mihomo;
@@ -3090,6 +3093,27 @@ async function restartMihui() {
     els.restartMihuiButton.disabled = false;
     els.restartMihuiButton.textContent = 'Перезапустить';
     showMessage(`Не удалось перезапустить MiHUI: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+async function repairMihui() {
+  if (!window.confirm('Восстановить службу MiHUI? Скрипт запуска будет заменен исправленной версией, а текущий сохранен в резервную копию. Настройки не изменятся.')) return;
+
+  els.repairMihuiButton.disabled = true;
+  els.repairMihuiButton.textContent = 'Восстановление...';
+  try {
+    await apiJson('/api/mihui/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-repair' },
+      body: '{}',
+    });
+    closeComponentManager();
+    showMessage('Служба MiHUI восстановлена. Страница обновится после перезапуска.', { severity: 'warning' });
+    await waitForMihuiRestart();
+  } catch (error) {
+    els.repairMihuiButton.disabled = false;
+    els.repairMihuiButton.textContent = 'Восстановить службу';
+    showMessage(`Не удалось восстановить службу MiHUI: ${error?.message || error}`, { severity: 'error' });
   }
 }
 
