@@ -5,7 +5,7 @@ APP_OWNER="KiMorev/MihUI"
 INSTALL_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
 INIT_SCRIPT="${MIHUI_INIT_SCRIPT:-/opt/etc/init.d/S99mihui}"
 LOG_DIR="${MIHUI_LOG_DIR:-/opt/var/log/mihui}"
-PID_FILE="${MIHUI_PID_FILE:-/opt/var/run/mihui.pid}"
+PID_FILE="${MIHUI_PID_FILE:-/var/run/mihui.pid}"
 
 fail() {
   printf 'Error: %s\n' "$*" >&2

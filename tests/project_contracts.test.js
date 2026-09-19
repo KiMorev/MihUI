@@ -689,3 +689,14 @@ test('router service supervises and restarts the MihUI server process', () => {
   assert.match(installer, /nohup sh "\\\$0" supervise/);
   assert.match(installer, /rm -f "\\\$PID_FILE" "\\\$CHILD_PID_FILE"/);
 });
+
+test('router service rejects stale or reused MihUI PID files', () => {
+  const installer = read('router/install.sh');
+  const uninstaller = read('router/uninstall.sh');
+
+  assert.match(installer, /RUN_DIR="\$\{MIHUI_RUN_DIR:-\/var\/run\}"/);
+  assert.match(uninstaller, /PID_FILE="\$\{MIHUI_PID_FILE:-\/var\/run\/mihui\.pid\}"/);
+  assert.match(installer, /pid_file_matches\(\) \{[\s\S]+?\/proc\/\\\$pid\/cmdline/);
+  assert.match(installer, /pid_file_matches "\\\$PID_FILE" "\\\$SERVICE_SCRIPT supervise"/);
+  assert.match(installer, /pid_file_matches "\\\$CHILD_PID_FILE" "\\\$SERVER_PY"/);
+});

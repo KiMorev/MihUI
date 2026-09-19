@@ -7,7 +7,7 @@ INSTALL_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
 INIT_DIR="${MIHUI_INIT_DIR:-/opt/etc/init.d}"
 INIT_SCRIPT="$INIT_DIR/S99mihui"
 LOG_DIR="${MIHUI_LOG_DIR:-/opt/var/log/mihui}"
-RUN_DIR="${MIHUI_RUN_DIR:-/opt/var/run}"
+RUN_DIR="${MIHUI_RUN_DIR:-/var/run}"
 ENV_FILE="$INSTALL_DIR/mihui.env"
 PID_FILE="$RUN_DIR/mihui.pid"
 PYTHON_BIN="${MIHUI_PYTHON_BIN:-/opt/bin/python3}"
@@ -386,16 +386,36 @@ PYTHON_BIN="$PYTHON_BIN"
 PORT="$SELECTED_PORT"
 LOG_FILE="\$LOG_DIR/server.log"
 RESTART_DELAY=5
+SERVICE_SCRIPT="\${0##*/}"
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "\$ENV_FILE" ] && . "\$ENV_FILE"
 [ -n "\${MIHUI_PORT:-}" ] && PORT="\$MIHUI_PORT"
 [ -n "\${MIHUI_PYTHON_BIN:-}" ] && PYTHON_BIN="\$MIHUI_PYTHON_BIN"
 
+pid_file_matches() {
+  pid_file="\$1"
+  expected="\$2"
+  [ -f "\$pid_file" ] || return 1
+  pid=\$(cat "\$pid_file" 2>/dev/null || true)
+  case "\$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "\$pid" 2>/dev/null || return 1
+  [ -r "/proc/\$pid/cmdline" ] || return 1
+  command_line=\$(tr '\\000' ' ' < "/proc/\$pid/cmdline" 2>/dev/null || true)
+  case "\$command_line" in
+    *"\$expected"*) return 0 ;;
+  esac
+  return 1
+}
+
 is_running() {
-  [ -f "\$PID_FILE" ] || return 1
-  pid=\$(cat "\$PID_FILE" 2>/dev/null || true)
-  [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null
+  pid_file_matches "\$PID_FILE" "\$SERVICE_SCRIPT supervise"
+}
+
+server_is_running() {
+  pid_file_matches "\$CHILD_PID_FILE" "\$SERVER_PY"
 }
 
 supervise() {
@@ -479,7 +499,7 @@ stop() {
   if is_running; then
     supervisor_pid=\$(cat "\$PID_FILE")
   fi
-  if [ -f "\$CHILD_PID_FILE" ]; then
+  if server_is_running; then
     child_pid=\$(cat "\$CHILD_PID_FILE" 2>/dev/null || true)
   fi
   if [ -n "\$supervisor_pid" ]; then
