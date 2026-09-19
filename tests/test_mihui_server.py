@@ -1366,6 +1366,33 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
 
+    def test_mihui_service_repair_is_required_only_for_old_owned_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_INIT_SCRIPT="{init_script}"\n', encoding="utf-8"
+            )
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nis_running() { kill -0 "$pid"; }\n',
+                encoding="utf-8",
+            )
+            old_status = mihui_server.get_mihui_service_repair_status(app_dir)
+
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\n'
+                'pid_file_matches() { return 0; }\n'
+                'is_running() { pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"; }\n'
+                'server_is_running() { pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"; }\n',
+                encoding="utf-8",
+            )
+            fixed_status = mihui_server.get_mihui_service_repair_status(app_dir)
+
+        self.assertTrue(old_status["managed"])
+        self.assertTrue(old_status["repairRequired"])
+        self.assertTrue(fixed_status["managed"])
+        self.assertFalse(fixed_status["repairRequired"])
+
     def test_mihui_repair_replaces_owned_service_and_schedules_restart(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)

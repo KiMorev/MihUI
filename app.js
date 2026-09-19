@@ -531,6 +531,7 @@ const state = {
     loaded: false,
     checkedAt: 0,
     updateCount: 0,
+    mihuiServiceRepairRequired: false,
     items: {
       xkeen: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
@@ -2710,6 +2711,7 @@ async function loadComponents(options = {}) {
     }
     state.components.xkeenChannelCurrent = xkeenChannel;
     state.components.updateCount = Number(data.updateCount) || 0;
+    state.components.mihuiServiceRepairRequired = data.mihuiService?.repairRequired === true;
     state.components.job = normalizeComponentJob(data.job);
     if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
@@ -2937,6 +2939,7 @@ function renderComponentManager() {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
+  els.repairMihuiButton.hidden = !state.components.mihuiServiceRepairRequired;
   els.repairMihuiButton.disabled = busy;
   els.restartMihuiButton.disabled = busy;
 

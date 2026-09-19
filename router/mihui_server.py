@@ -42,6 +42,11 @@ except ImportError:  # pragma: no cover - PTY is available on the target router
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_MIHUI_INIT_SCRIPT = "/opt/etc/init.d/S99mihui"
 MIHUI_INIT_OWNER_MARKER = 'MIHUI_INIT_OWNER="KiMorev/MihUI"'
+MIHUI_SERVICE_FIX_MARKERS = (
+    'pid_file_matches() {',
+    'pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"',
+    'pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"',
+)
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
@@ -1379,6 +1384,20 @@ def repair_mihui_service(app_dir):
     return backup_name
 
 
+def get_mihui_service_repair_status(app_dir):
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    try:
+        source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {"managed": False, "repairRequired": False}
+
+    managed = MIHUI_INIT_OWNER_MARKER in source
+    return {
+        "managed": managed,
+        "repairRequired": managed and not all(marker in source for marker in MIHUI_SERVICE_FIX_MARKERS),
+    }
+
+
 def get_config_path(app_dir):
     return Path(get_env(app_dir).get("MIHUI_CONFIG_PATH", DEFAULT_CONFIG_PATH))
 
@@ -2690,6 +2709,7 @@ def get_components_status(app_dir, force=False):
         "ok": True,
         "checkedAt": checked_at,
         "components": components,
+        "mihuiService": get_mihui_service_repair_status(app_dir),
         "updateCount": sum(1 for item in components.values() if item["updateAvailable"]),
         "job": snapshot_component_action_state(),
     }
