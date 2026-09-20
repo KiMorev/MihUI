@@ -2716,11 +2716,24 @@ class ProviderAdapterTests(unittest.TestCase):
                 config_path.write_text(text, encoding="utf-8")
                 return {"ok": True, "applied": True}
 
+            health_result = {
+                "ok": True,
+                "group": "PROXY",
+                "healthCheckTriggered": True,
+                "stateRead": True,
+                "now": "DIRECT",
+                "direct": True,
+                "message": "Проверка завершена, группа использует DIRECT",
+            }
             with mock.patch.object(
                 mihui_server, "save_checked_config", side_effect=save_config
             ) as save, mock.patch.object(
                 mihui_server, "fetch_whitelist_domain_list_text"
-            ) as fetch:
+            ) as fetch, mock.patch.object(
+                mihui_server,
+                "refresh_whitelist_proxy_group_health",
+                return_value=health_result,
+            ) as refresh_health:
                 activated = mihui_server.reconcile_automatic_whitelist_config(
                     app_dir, settings, runtime, now=1000
                 )
@@ -2740,6 +2753,8 @@ class ProviderAdapterTests(unittest.TestCase):
                 final_text = config_path.read_text(encoding="utf-8")
 
         self.assertTrue(activated["ok"])
+        self.assertTrue(activated["proxyGroupHealth"]["direct"])
+        self.assertTrue(runtime["lastProxyGroupHealth"]["direct"])
         self.assertIn(
             f"DOMAIN-SUFFIX,{domains[0]},DIRECT # webmihomo-whitelist: direct {domains[0]}",
             saved_texts[0],
@@ -2747,8 +2762,36 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertIsNone(waiting)
         self.assertTrue(restored["ok"])
         self.assertEqual(save.call_count, 2)
+        refresh_health.assert_called_once_with(app_dir, "PROXY", 5000)
         fetch.assert_not_called()
         self.assertEqual(final_text, original)
+
+    def test_whitelist_group_health_check_accepts_direct_fallback(self):
+        requests = []
+
+        def request(_app_dir, path, **kwargs):
+            requests.append((path, kwargs))
+            if path == "/proxies/PROXY":
+                return {"name": "PROXY", "type": "Fallback", "now": "DIRECT"}
+            return {}
+
+        with mock.patch.object(mihui_server, "mihomo_api_request", side_effect=request):
+            result = mihui_server.refresh_whitelist_proxy_group_health(
+                Path("."),
+                "PROXY",
+                5000,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["direct"])
+        self.assertEqual(result["now"], "DIRECT")
+        self.assertEqual(
+            [path for path, _kwargs in requests],
+            [
+                "/providers/proxies/PROXY/healthcheck",
+                "/proxies/PROXY",
+            ],
+        )
 
     def test_whitelist_automatic_config_does_not_fetch_during_activation(self):
         with tempfile.TemporaryDirectory() as temp_dir:

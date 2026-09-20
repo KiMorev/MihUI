@@ -1269,7 +1269,12 @@ class WhitelistDnsTests(unittest.TestCase):
             with mock.patch.object(mihui_server, "get_whitelist_routing_hosts", return_value=["new.example"]), mock.patch.object(
                 mihui_server, "check_mihomo_config", return_value={"ok": True}
             ), mock.patch.object(mihui_server, "reload_mihomo", return_value={"ok": True}) as reload_core:
-                result = mihui_server.reconcile_automatic_whitelist_config(app_dir, settings, monitor, now=10000)
+                with mock.patch.object(
+                    mihui_server,
+                    "refresh_whitelist_proxy_group_health",
+                    return_value={"ok": True, "now": "DIRECT", "direct": True},
+                ):
+                    result = mihui_server.reconcile_automatic_whitelist_config(app_dir, settings, monitor, now=10000)
                 self.assertTrue(result["ok"])
                 self.assertEqual(reload_core.call_count, 1)
                 active = config.read_text()

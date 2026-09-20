@@ -6257,6 +6257,7 @@ def default_whitelist_monitor_runtime():
         "lastConfigActionOk": None,
         "lastConfigActionMessage": "",
         "lastConfigRevision": "",
+        "lastProxyGroupHealth": {},
         "endpoints": {},
     }
 
@@ -6270,6 +6271,8 @@ def load_whitelist_monitor_runtime(app_dir, settings=None):
             runtime[field] = saved[field]
     if not isinstance(runtime.get("endpoints"), dict):
         runtime["endpoints"] = {}
+    if not isinstance(runtime.get("lastProxyGroupHealth"), dict):
+        runtime["lastProxyGroupHealth"] = {}
 
     config = settings or load_whitelist_monitor_settings(app_dir)
     current_urls = {
@@ -6397,6 +6400,65 @@ def run_whitelist_probe_batch(app_dir, route, endpoints, timeout_ms):
             except Exception as error:
                 results[endpoint_id] = {"ok": False, "delay": None, "message": str(error)}
     return results
+
+
+def refresh_whitelist_proxy_group_health(app_dir, group, timeout_ms):
+    group_name = str(group or "").strip()
+    result = {
+        "ok": False,
+        "group": group_name,
+        "healthCheckTriggered": False,
+        "stateRead": False,
+        "now": "",
+        "direct": False,
+        "message": "",
+    }
+    if not group_name:
+        result["message"] = "Не указана прокси-группа для проверки"
+        return result
+
+    encoded_group = urllib.parse.quote(group_name, safe="")
+    timeout = max(10, min(60, int(timeout_ms / 1000) + 10))
+    errors = []
+    try:
+        mihomo_api_request(
+            app_dir,
+            f"/providers/proxies/{encoded_group}/healthcheck",
+            timeout=timeout,
+        )
+        result["healthCheckTriggered"] = True
+    except Exception as error:
+        errors.append(str(error))
+
+    try:
+        current = mihomo_api_request(
+            app_dir,
+            f"/proxies/{encoded_group}",
+            timeout=5,
+        )
+        if not isinstance(current, dict):
+            raise RuntimeError("Mihomo вернул некорректное состояние прокси-группы")
+        now = str(current.get("now") or "").strip()
+        result.update(
+            {
+                "stateRead": True,
+                "now": now,
+                "direct": now.casefold() == "direct",
+            }
+        )
+    except Exception as error:
+        errors.append(str(error))
+
+    result["ok"] = result["healthCheckTriggered"] and result["stateRead"]
+    if errors:
+        result["message"] = "; ".join(dict.fromkeys(errors))
+    elif result["direct"]:
+        result["message"] = "Проверка завершена, группа использует DIRECT"
+    elif result["now"]:
+        result["message"] = f"Проверка завершена, выбран маршрут {result['now']}"
+    else:
+        result["message"] = "Проверка завершена, выбранный маршрут не указан"
+    return result
 
 
 def build_whitelist_yandex_relay_endpoint(endpoint):
@@ -6760,6 +6822,7 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
         runtime["automaticActionPending"] = action
         return None
 
+    proxy_group_health = None
     try:
         allowed_hosts = get_whitelist_routing_hosts(app_dir, settings) if action == "activate" else None
         next_text = (
@@ -6775,6 +6838,22 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
             return None
         result = save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts)
         action_ok = bool(result.get("ok") and result.get("applied"))
+        if action == "activate" and action_ok:
+            try:
+                proxy_group_health = refresh_whitelist_proxy_group_health(
+                    app_dir,
+                    settings["proxyGroup"],
+                    settings["timeoutMs"],
+                )
+            except Exception as error:
+                proxy_group_health = {
+                    "ok": False,
+                    "group": settings["proxyGroup"],
+                    "now": "",
+                    "direct": False,
+                    "message": str(error),
+                }
+            result["proxyGroupHealth"] = proxy_group_health
         message = (
             "Временная маршрутизация автоматически применена"
             if action == "activate" and action_ok
@@ -6799,11 +6878,14 @@ def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
             "lastConfigRevision": config_revision(applied_text),
         }
     )
+    if proxy_group_health is not None:
+        runtime["lastProxyGroupHealth"] = proxy_group_health
     return {
         "action": action,
         "ok": action_ok,
         "message": message,
         "result": result,
+        "proxyGroupHealth": proxy_group_health,
     }
 
 
@@ -6947,6 +7029,7 @@ def run_whitelist_monitor_cycle(app_dir):
                 automatic_action["message"],
                 action=automatic_action["action"],
                 fallbackActive=runtime["fallbackActive"],
+                proxyGroupHealth=automatic_action.get("proxyGroupHealth"),
             )
         return runtime
 
