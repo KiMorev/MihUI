@@ -58,6 +58,7 @@ XKEEN_COMMAND_TIMEOUT = 30 * 60
 XKEEN_COMMAND_MAX_OUTPUT_CHARS = 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
 COMPONENT_ACTION_TIMEOUT = 10 * 60
+MIHUI_UPDATE_TIMEOUT = 5 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
 PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
@@ -10431,9 +10432,16 @@ def run_update_script(app_dir):
             update_state["phase"] = phase
             update_state["progress"] = progress
 
-    status, headers, body, returncode = run_cgi_script(app_dir, progress_callback=report_progress)
-    message = body.decode("utf-8", "replace").strip()
-    success = returncode == 0 and 200 <= int(status) < 300
+    try:
+        status, headers, body, returncode = run_cgi_script(app_dir, progress_callback=report_progress)
+        message = body.decode("utf-8", "replace").strip()
+        success = returncode == 0 and 200 <= int(status) < 300
+    except subprocess.TimeoutExpired:
+        success = False
+        message = "Обновление остановлено: превышено время ожидания (5 минут)"
+    except Exception as error:
+        success = False
+        message = f"Не удалось выполнить обновление: {error}"
 
     with update_lock:
         update_state.update(
@@ -10476,22 +10484,25 @@ def run_cgi_script(app_dir, progress_callback=None):
         f"mihui-update-progress-{os.getpid()}-{threading.get_ident()}"
     )
     env["MIHUI_PROGRESS_FILE"] = str(progress_file)
+    process_options = {}
+    if os.name == "posix":
+        process_options["start_new_session"] = True
     process = subprocess.Popen(
         command,
         cwd=str(app_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        **process_options,
     )
-    deadline = time.monotonic() + 300
+    deadline = time.monotonic() + MIHUI_UPDATE_TIMEOUT
     last_progress = ""
     try:
         while process.poll() is None:
             last_progress = report_update_progress(progress_file, progress_callback, last_progress)
             if time.monotonic() >= deadline:
-                process.kill()
-                output, _ = process.communicate()
-                raise subprocess.TimeoutExpired(command, 300, output=output)
+                output = terminate_update_process(process)
+                raise subprocess.TimeoutExpired(command, MIHUI_UPDATE_TIMEOUT, output=output)
             time.sleep(0.2)
         output, _ = process.communicate()
         report_update_progress(progress_file, progress_callback, last_progress)
@@ -10503,6 +10514,31 @@ def run_cgi_script(app_dir, progress_callback=None):
 
     status, headers, body = parse_cgi_response(output)
     return status, headers, body, process.returncode
+
+
+def terminate_update_process(process):
+    if process.poll() is None:
+        try:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except ProcessLookupError:
+            pass
+
+    try:
+        output, _ = process.communicate(timeout=3)
+        return output
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        output, _ = process.communicate()
+        return output
 
 
 def report_update_progress(progress_file, callback, previous=""):

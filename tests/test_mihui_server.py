@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -256,6 +257,31 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(state["ok"])
         self.assertEqual(state["phase"], "complete")
         self.assertEqual(state["progress"], 100)
+
+    def test_run_update_script_clears_running_state_after_timeout(self):
+        with mihui_server.update_lock:
+            mihui_server.update_state.update(
+                {
+                    "running": True,
+                    "ok": None,
+                    "phase": "download",
+                    "progress": 100,
+                    "message": "Запуск обновления",
+                }
+            )
+
+        with mock.patch.object(
+            mihui_server,
+            "run_cgi_script",
+            side_effect=subprocess.TimeoutExpired(["mihui-update"], 300),
+        ):
+            mihui_server.run_update_script(Path("."))
+
+        state = mihui_server.snapshot_update_state()
+        self.assertFalse(state["running"])
+        self.assertFalse(state["ok"])
+        self.assertEqual(state["phase"], "failed")
+        self.assertIn("5 минут", state["message"])
 
     def start_provider_server(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderPayloadHandler)

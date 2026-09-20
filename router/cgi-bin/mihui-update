@@ -11,6 +11,8 @@ RELEASE_URL="${MIHUI_RELEASE_URL:-$DEFAULT_RELEASE_URL}"
 DOWNLOAD_URLS="${MIHUI_DOWNLOAD_URLS:-}"
 DOWNLOAD_ATTEMPTS=3
 DOWNLOAD_RETRY_DELAY=2
+DOWNLOAD_CONNECT_TIMEOUT=20
+DOWNLOAD_TOTAL_TIMEOUT=60
 TMP_DIR=""
 PACKAGE_DIR=""
 DOWNLOADED_ARCHIVE=""
@@ -49,6 +51,7 @@ cleanup() {
 }
 
 trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 command_exists() {
   command -v "$1" >/dev/null 2>&1
@@ -121,18 +124,18 @@ download_file_once() {
 
   if command_exists curl; then
     if [ "$track_progress" = "true" ]; then
-      curl -fL --connect-timeout 20 -D "$headers" -o "$target" "$url" >/dev/null 2>&1 &
+      curl -fL --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TOTAL_TIMEOUT" -D "$headers" -o "$target" "$url" >/dev/null 2>&1 &
       monitor_download "$!" "$target" "$headers" && return 0
-    elif curl -fL --connect-timeout 20 -o "$target" "$url" >/dev/null 2>&1; then
+    elif curl -fL --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_TOTAL_TIMEOUT" -o "$target" "$url" >/dev/null 2>&1; then
       return 0
     fi
   fi
 
   if command_exists wget; then
     if [ "$track_progress" = "true" ]; then
-      wget -S -O "$target" "$url" >/dev/null 2>"$headers" &
+      wget -T "$DOWNLOAD_TOTAL_TIMEOUT" -t 1 -S -O "$target" "$url" >/dev/null 2>"$headers" &
       monitor_download "$!" "$target" "$headers" && return 0
-    elif wget -O "$target" "$url" >/dev/null 2>&1; then
+    elif wget -T "$DOWNLOAD_TOTAL_TIMEOUT" -t 1 -O "$target" "$url" >/dev/null 2>&1; then
       return 0
     fi
   fi

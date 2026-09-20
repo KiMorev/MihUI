@@ -687,6 +687,18 @@ test('MihUI updater retries failed downloads', () => {
   assert.match(updater, /while \[ "\$attempt" -le "\$DOWNLOAD_ATTEMPTS" \]; do[\s\S]+?download_file_once[\s\S]+?sleep "\$DOWNLOAD_RETRY_DELAY"/);
 });
 
+test('MihUI updater bounds downloads and resumes status polling after reload', () => {
+  const updater = read('router/cgi-bin/mihui-update');
+  const app = read('app.js');
+
+  assert.match(updater, /--max-time "\$DOWNLOAD_TOTAL_TIMEOUT"/);
+  assert.match(updater, /wget -T "\$DOWNLOAD_TOTAL_TIMEOUT" -t 1/);
+  assert.match(updater, /trap 'exit 130' HUP INT TERM/);
+  assert.match(app, /initializeMihuiUpdate\(\)/);
+  assert.match(app, /if \(status\.running\) \{[\s\S]+?resumeMihuiUpdatePolling\(status\)/);
+  assert.match(app, /error\?\.status === 409 && error\?\.data\?\.running/);
+});
+
 test('router service supervises and restarts the MihUI server process', () => {
   const installer = read('router/install.sh');
 

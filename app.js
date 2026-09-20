@@ -1326,7 +1326,7 @@ function initRouterMode() {
   startProviderStatusPolling();
   startResourceMonitorPolling();
   startWhitelistMonitorPolling();
-  checkMihuiUpdate();
+  initializeMihuiUpdate();
 }
 
 async function loadRouterConfig(options = {}) {
@@ -1661,6 +1661,31 @@ async function checkMihuiUpdate() {
   } catch (error) {
     setMihuiUpdateHint(true, els.updateHint.textContent || 'MihUI');
   }
+}
+
+async function initializeMihuiUpdate() {
+  try {
+    const status = await apiJson('/api/update/status');
+    if (status.running) {
+      resumeMihuiUpdatePolling(status);
+      return;
+    }
+  } catch (error) {
+    // The regular version check below remains available if status recovery fails.
+  }
+  checkMihuiUpdate();
+}
+
+function resumeMihuiUpdatePolling(status) {
+  state.mihuiUpdateAccepted = true;
+  state.mihuiUpdateStartedAt = Number(status?.startedAt) > 0
+    ? Number(status.startedAt) * 1000
+    : Date.now();
+  state.mihuiUpdateReconnects = 0;
+  setMihuiUpdateHint(true, 'Обновление...');
+  showMihuiUpdateProgress(status);
+  if (state.updatePollTimer) window.clearTimeout(state.updatePollTimer);
+  state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
 }
 
 async function fetchMihuiUpdateCheck() {
@@ -15933,6 +15958,10 @@ async function updateMihui() {
     state.mihuiUpdateAccepted = true;
     pollMihuiUpdateStatus();
   } catch (error) {
+    if (error?.status === 409 && error?.data?.running) {
+      resumeMihuiUpdatePolling(error.data);
+      return;
+    }
     showMessage(`Не удалось обновить MihUI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
