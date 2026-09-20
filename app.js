@@ -13,6 +13,7 @@ const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязат
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const YAML_HTTP_URL_PATTERN = /https?:\/\/[^\s"'<>[\]{},]+/gi;
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
+const MIHUI_UPDATE_CHECK_RETRY_DELAYS_MS = [3000, 10000, 30000];
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
 const RESOURCE_MONITOR_REFRESH_MS = 30000;
@@ -502,6 +503,8 @@ const state = {
   backups: [],
   selectedBackupName: '',
   updatePollTimer: 0,
+  mihuiUpdateCheckTimer: 0,
+  mihuiUpdateCheckFailed: false,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
@@ -958,7 +961,7 @@ els.outputCodeView.addEventListener('auxclick', handleYamlUrlPreviewClick);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
-els.updateHint.addEventListener('click', updateMihui);
+els.updateHint.addEventListener('click', handleMihuiUpdateHintClick);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.mobileChangesButton.addEventListener('click', focusChangesPanel);
@@ -1645,9 +1648,24 @@ async function loadRouterMetadata() {
   }
 }
 
-async function checkMihuiUpdate() {
+function handleMihuiUpdateHintClick() {
+  if (state.mihuiUpdateCheckFailed) {
+    state.mihuiUpdateCheckFailed = false;
+    setMihuiUpdateHint(true, 'Проверка обновления...');
+    checkMihuiUpdate();
+    return;
+  }
+  updateMihui();
+}
+
+async function checkMihuiUpdate(attempt = 0) {
   try {
     const data = await fetchMihuiUpdateCheck();
+    if (state.mihuiUpdateCheckTimer) {
+      window.clearTimeout(state.mihuiUpdateCheckTimer);
+      state.mihuiUpdateCheckTimer = 0;
+    }
+    state.mihuiUpdateCheckFailed = false;
     state.routerApiAvailable = true;
     const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
@@ -1659,7 +1677,24 @@ async function checkMihuiUpdate() {
       setMihuiUpdateHint(true, '');
     }
   } catch (error) {
-    setMihuiUpdateHint(true, els.updateHint.textContent || 'MihUI');
+    const currentVersion = error?.data?.version
+      ? `MihUI ${error.data.version}`
+      : String(els.updateHint.textContent || 'MihUI').split(' · ')[0].split(' -> ')[0];
+    const delay = MIHUI_UPDATE_CHECK_RETRY_DELAYS_MS[attempt];
+    const errorMessage = error?.message || String(error);
+    if (delay !== undefined) {
+      const delaySeconds = Math.ceil(delay / 1000);
+      setMihuiUpdateHint(true, `${currentVersion} · ошибка проверки, повтор через ${delaySeconds} с`);
+      els.updateHint.title = errorMessage;
+      state.mihuiUpdateCheckTimer = window.setTimeout(() => {
+        state.mihuiUpdateCheckTimer = 0;
+        checkMihuiUpdate(attempt + 1);
+      }, delay);
+      return;
+    }
+    state.mihuiUpdateCheckFailed = true;
+    setMihuiUpdateHint(false, `${currentVersion} · проверить снова`);
+    els.updateHint.title = `Проверка обновления не удалась: ${errorMessage}`;
   }
 }
 
@@ -1699,8 +1734,11 @@ async function fetchMihuiUpdateCheck() {
       throw new Error(text);
     }
   }
-  if (!response.ok) {
-    throw new Error(data.message || `HTTP ${response.status}`);
+  if (!response.ok || data.ok === false) {
+    const error = new Error(data.message || `HTTP ${response.status}`);
+    error.data = data;
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
