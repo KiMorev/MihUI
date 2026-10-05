@@ -2818,7 +2818,7 @@ def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIM
     if len(command) > 1 and command[1] in {"-start", "-stop", "-restart"}:
         env = _xkeen_command_environment()
         env["XKEEN_FOREGROUND"] = "1"
-        return _run_component_command(command, input_text, timeout, env)
+        return _run_component_command(command, input_text, timeout, env, capture_output=command[1] == "-stop")
     if len(command) > 1 and command[1] in {"-uk", "-um"}:
         env = _xkeen_command_environment()
         env["RES_OPTIONS"] = "timeout:5 attempts:2"
@@ -2835,17 +2835,18 @@ def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIM
     return _run_component_command(command, input_text, timeout)
 
 
-def _run_component_command(command, input_text, timeout, env=None):
+def _run_component_command(command, input_text, timeout, env=None, capture_output=True):
     result = subprocess.run(
         command,
         input=input_text.encode("utf-8") if input_text is not None else None,
-        stdout=subprocess.PIPE,
+        # The background core inherits stdout; a pipe stays open until the core exits.
+        stdout=subprocess.PIPE if capture_output else subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
         timeout=timeout,
         check=False,
         env=env,
     )
-    output = result.stdout.decode("utf-8", "replace")
+    output = result.stdout.decode("utf-8", "replace") if capture_output else ""
     append_component_action_output(output)
     return result.returncode, output
 
@@ -3120,6 +3121,7 @@ def run_mihomo_component_update(app_dir, target, core=None):
             os.replace(replacement, binary_path)
             binary_changed = True
             if was_running:
+                update_component_action_state(phase="start", message=f"Запускаем {label} {target}")
                 require_component_command([xkeen_binary, "-start"], "Не удалось запустить ядро", timeout=180)
         else:
             update_component_action_state(phase="install", message=f"Устанавливаем {label} {target}")

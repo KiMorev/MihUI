@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -94,9 +95,43 @@ class CoreUpdateTests(unittest.TestCase):
                     mock.patch.object(mihui_server.subprocess, "run", return_value=subprocess.CompletedProcess(
                         [], 7, stdout=b"service failed\n")) as run:
                 result = mihui_server.run_component_command(["/opt/sbin/xkeen", flag], timeout=180)
-                self.assertEqual(result, (7, "service failed\n"))
+                self.assertEqual(result, (7, "service failed\n" if flag == "-stop" else ""))
                 self.assertEqual(run.call_args.kwargs["env"]["XKEEN_FOREGROUND"], "1")
                 self.assertEqual(run.call_args.kwargs["timeout"], 180)
+
+    def test_xkeen_start_does_not_wait_for_daemon_output_to_close(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            ready, release, done = (folder / name for name in ("ready", "release", "done"))
+            child = (
+                "import sys,time; from pathlib import Path; "
+                "folder=Path(sys.argv[1]); (folder/'ready').write_text('ready'); deadline=time.monotonic()+4\n"
+                "while not (folder/'release').exists() and time.monotonic()<deadline:\n"
+                " print('daemon running', flush=True); time.sleep(0.02)\n"
+                "(folder/'done').write_text('done')\n"
+            )
+            parent = (
+                "import subprocess,sys,time; from pathlib import Path; "
+                f"subprocess.Popen([sys.executable,'-c',{child!r},sys.argv[1]], "
+                "stdout=sys.stdout,stderr=sys.stderr,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0)); "
+                "ready=Path(sys.argv[1])/'ready'\n"
+                "while not ready.exists(): time.sleep(0.01)\n"
+                "print('started', flush=True)\n"
+            )
+            real_run = subprocess.run
+            def run(command, **kwargs):
+                return real_run([sys.executable, "-c", parent, directory], **kwargs)
+            try:
+                with mock.patch.object(mihui_server.subprocess, "run", side_effect=run):
+                    self.assertEqual(mihui_server.run_component_command(["xkeen", "-start"], timeout=1), (0, ""))
+                self.assertTrue(ready.exists())
+                self.assertFalse(done.exists())
+            finally:
+                release.write_text("release")
+                deadline = time.monotonic() + 5
+                while ready.exists() and not done.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+            self.assertTrue(done.exists())
 
     def test_download_selects_router_asset_and_checks_checksum(self):
         for elf_class, byte_order, machine, architecture in (

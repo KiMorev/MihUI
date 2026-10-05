@@ -3305,10 +3305,14 @@ async function pollComponentJob() {
       );
       state.xkeenFiles.restartRequested = false;
     }
-    await Promise.all([
+    const refreshTasks = [
       loadServiceHealth({ silent: true }),
       loadComponents({ force: true, silent: true }),
-    ]);
+    ];
+    if (state.components.job.component === 'mihomo' && state.components.job.action === 'core') {
+      refreshTasks.push(loadProviderStatuses({ silent: true }), loadNodeInventory({ silent: true }));
+    }
+    await Promise.all(refreshTasks);
     renderXkeenNetworkFiles();
   } catch (error) {
     state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
