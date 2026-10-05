@@ -2815,6 +2815,10 @@ def append_component_action_output(output):
 
 
 def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    if len(command) > 1 and command[1] in {"-start", "-stop", "-restart"}:
+        env = _xkeen_command_environment()
+        env["XKEEN_FOREGROUND"] = "1"
+        return _run_component_command(command, input_text, timeout, env)
     if len(command) > 1 and command[1] in {"-uk", "-um"}:
         env = _xkeen_command_environment()
         env["RES_OPTIONS"] = "timeout:5 attempts:2"
@@ -3016,7 +3020,6 @@ def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_r
     replacement = Path(f"{binary_path}.mihui-restore")
     shutil.copy2(backup_path, replacement)
     os.replace(replacement, binary_path)
-    require_component_command([xkeen_binary, "-rrm"], "Не удалось зарегистрировать прежнее ядро", timeout=180)
     if was_running:
         require_component_command([xkeen_binary, "-start"], "Не удалось запустить прежнее ядро", timeout=180)
         if not wait_for_mihomo_service(app_dir):
@@ -3116,7 +3119,6 @@ def run_mihomo_component_update(app_dir, target, core=None):
                 require_component_command([xkeen_binary, "-stop"], "Не удалось остановить ядро", timeout=180)
             os.replace(replacement, binary_path)
             binary_changed = True
-            require_component_command([xkeen_binary, "-rrm"], "Не удалось зарегистрировать ядро", timeout=180)
             if was_running:
                 require_component_command([xkeen_binary, "-start"], "Не удалось запустить ядро", timeout=180)
         else:

@@ -1115,7 +1115,11 @@ class ProviderAdapterTests(unittest.TestCase):
                 mihui_server.run_component_command(["xkeen", flag])
                 self.assertEqual(run.call_args.kwargs["env"]["RES_OPTIONS"], "timeout:5 attempts:2")
                 self.assertEqual(os.environ["RES_OPTIONS"], "timeout:1 attempts:1")
-            for flag in ("-kb", "-kbr", "-start", "-restart", "-pr"):
+            for flag in ("-start", "-stop", "-restart"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertEqual(run.call_args.kwargs["env"]["RES_OPTIONS"], "timeout:1 attempts:1")
+                self.assertEqual(os.environ["RES_OPTIONS"], "timeout:1 attempts:1")
+            for flag in ("-kb", "-kbr", "-pr"):
                 mihui_server.run_component_command(["xkeen", flag])
                 self.assertIsNone(run.call_args.kwargs["env"])
 

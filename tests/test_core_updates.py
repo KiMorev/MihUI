@@ -87,6 +87,17 @@ class CoreUpdateTests(unittest.TestCase):
             install.assert_called_once_with(Path("."), "v1.19.32-r1", core="prizrak")
             self.assertTrue(mihui_server.snapshot_component_action_state()["ok"])
 
+    def test_xkeen_service_commands_run_in_foreground_and_report_failure(self):
+        for flag in ("-start", "-stop", "-restart"):
+            with self.subTest(flag=flag), \
+                    mock.patch.dict(mihui_server.os.environ, {"XKEEN_FOREGROUND": ""}), \
+                    mock.patch.object(mihui_server.subprocess, "run", return_value=subprocess.CompletedProcess(
+                        [], 7, stdout=b"service failed\n")) as run:
+                result = mihui_server.run_component_command(["/opt/sbin/xkeen", flag], timeout=180)
+                self.assertEqual(result, (7, "service failed\n"))
+                self.assertEqual(run.call_args.kwargs["env"]["XKEEN_FOREGROUND"], "1")
+                self.assertEqual(run.call_args.kwargs["timeout"], 180)
+
     def test_download_selects_router_asset_and_checks_checksum(self):
         for elf_class, byte_order, machine, architecture in (
                 (1, 1, 8, "mipsle-softfloat"), (1, 2, 8, "mips-softfloat"),
@@ -140,6 +151,8 @@ class CoreUpdateTests(unittest.TestCase):
                     return candidate
 
                 def command(args, **kwargs):
+                    if args[0] == "xkeen" and args[1] not in {"-stop", "-start"}:
+                        return 1, f"Unknown key: {args[1]}"
                     if args[-1] == "-v":
                         return 0, "Mihomo Meta v1.19.32-r1 linux arm64"
                     if "-t" in args and scenario == "config-error":
@@ -168,6 +181,8 @@ class CoreUpdateTests(unittest.TestCase):
                             core="prizrak" if scenario == "switch" else None)
                         self.assertEqual(binary.read_bytes(), b"new-binary")
                         self.assertEqual(mihui_server.get_mihomo_core(app_dir), "prizrak")
+                        self.assertEqual([call.args[0][1] for call in run.call_args_list
+                                          if call.args[0][0] == "xkeen"], ["-stop", "-start"])
                     else:
                         with self.assertRaises(RuntimeError) as error:
                             mihui_server.run_mihomo_component_update(app_dir, "v1.19.32-r1", core="prizrak")
@@ -178,6 +193,7 @@ class CoreUpdateTests(unittest.TestCase):
                         if scenario in {"config-error", "download-error"}:
                             self.assertFalse(any(call.args[0][0] == "xkeen" for call in run.call_args_list))
                     self.assertFalse(any("-um" in call.args[0] for call in run.call_args_list))
+                    self.assertFalse(any("-rrm" in call.args[0] for call in run.call_args_list))
                 self.assertEqual(config.read_text(encoding="utf-8"), "mixed-port: 7890\n")
                 backups = list(app_dir.glob("mihui-mihomo-update-*"))
                 if scenario == "rollback-error":
