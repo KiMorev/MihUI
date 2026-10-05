@@ -3,6 +3,7 @@ import argparse
 import base64
 import binascii
 import codecs
+import gzip
 import hashlib
 import hmac
 import html
@@ -50,6 +51,7 @@ MIHUI_SERVICE_FIX_MARKERS = (
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
+PRIZRAK_GITHUB_REPO = "legiz-ru/Prizrak-Core"
 DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
 XKEEN_STATUS_TIMEOUT = 8
 XKEEN_FILES_MAX_BYTES = 512 * 1024
@@ -2409,11 +2411,11 @@ def strip_ansi(value):
 
 
 def component_version_key(value):
-    match = re.search(r"v?(\d+(?:\.\d+){1,3})", str(value or ""), re.IGNORECASE)
+    match = re.search(r"v?(\d+(?:\.\d+){1,3})(?:-r(\d+))?", str(value or ""), re.IGNORECASE)
     if not match:
         return ()
     parts = [int(item) for item in match.group(1).split(".")]
-    return tuple(parts + [0] * (4 - len(parts)))
+    return tuple(parts + [0] * (4 - len(parts)) + [int(match.group(2) or 0)])
 
 
 def component_update_available(current, latest):
@@ -2503,7 +2505,7 @@ def read_mihomo_binary_version(app_dir):
         output = strip_ansi(result.stdout.decode("utf-8", "replace")).strip()
     except Exception as error:
         return {"installed": True, "version": "", "binary": binary, "output": str(error)}
-    match = re.search(r"\bv?(\d+(?:\.\d+){2,3})\b", output)
+    match = re.search(r"\bv?(\d+(?:\.\d+){2,3}(?:-r\d+)?)\b", output)
     return {
         "installed": True,
         "version": match.group(1) if match else "",
@@ -2605,18 +2607,33 @@ def fetch_xkeen_beta_build(repo):
     return parse_xkeen_beta_archive(body)
 
 
-def get_component_release_catalog(app_dir, force=False):
-    now = int(time.time())
-    with component_release_cache_lock:
-        checked_at = int(component_release_cache.get("checkedAt") or 0)
-        if not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL:
-            return dict(component_release_cache.get("catalog") or {}), checked_at
+def get_mihomo_core(app_dir):
+    settings = read_json_file(Path(app_dir) / "mihomo-core.json", {})
+    return "prizrak" if settings.get("core") == "prizrak" else "mihomo"
 
+
+def get_mihomo_core_repo(app_dir, core=None):
+    if (core or get_mihomo_core(app_dir)) == "prizrak":
+        return PRIZRAK_GITHUB_REPO
+    return get_env(app_dir).get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO)
+
+
+def save_mihomo_core(app_dir, core):
+    write_text_atomic(Path(app_dir) / "mihomo-core.json", json.dumps({"core": core}) + "\n")
+
+
+def get_component_release_catalog(app_dir, force=False):
     env = get_env(app_dir)
     repositories = {
         "xkeen": env.get("MIHUI_XKEEN_GITHUB_REPO", DEFAULT_XKEEN_GITHUB_REPO),
-        "mihomo": env.get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO),
+        "mihomo": get_mihomo_core_repo(app_dir),
     }
+    now = int(time.time())
+    with component_release_cache_lock:
+        checked_at = int(component_release_cache.get("checkedAt") or 0)
+        if (not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL
+                and component_release_cache.get("repositories") == repositories):
+            return dict(component_release_cache.get("catalog") or {}), checked_at
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         release_futures = {
@@ -2648,7 +2665,7 @@ def get_component_release_catalog(app_dir, force=False):
             )
 
     with component_release_cache_lock:
-        component_release_cache.update({"checkedAt": now, "catalog": catalog})
+        component_release_cache.update({"checkedAt": now, "catalog": catalog, "repositories": repositories})
     return catalog, now
 
 
@@ -2698,6 +2715,8 @@ def get_components_status(app_dir, force=False):
         },
         "mihomo": {
             "installed": bool(mihomo.get("installed")),
+            "core": get_mihomo_core(app_dir),
+            "repo": get_mihomo_core_repo(app_dir),
             "current": mihomo.get("version") or "",
             "channel": "",
             "latest": mihomo_release.get("latest") or "",
@@ -2738,8 +2757,20 @@ def validate_component_action(app_dir, payload):
         raise ValueError("Неподдерживаемый компонент")
     if component == "xkeen" and action not in {"update", "rollback", "channel", "restart", "geo-update"}:
         raise ValueError("Неподдерживаемая операция XKeen")
-    if component == "mihomo" and action not in {"update", "restart", "geo-update"}:
+    if component == "mihomo" and action not in {"update", "core", "restart", "geo-update"}:
         raise ValueError("Неподдерживаемая операция Mihomo")
+    if component == "mihomo" and action == "core":
+        if target not in {"mihomo", "prizrak"}:
+            raise ValueError("Неподдерживаемое ядро")
+        if target == get_mihomo_core(app_dir):
+            raise ValueError("Выбранное ядро уже установлено")
+        try:
+            versions = fetch_component_releases(get_mihomo_core_repo(app_dir, target))
+        except Exception as error:
+            raise ValueError(f"Не удалось проверить релизы выбранного ядра: {error}") from error
+        if not versions:
+            raise ValueError("Нет доступного релиза выбранного ядра")
+        return {"component": component, "action": action, "core": target, "target": versions[0]}
     if component == "xkeen" and action == "channel":
         target = target.lower()
         if target not in {"stable", "beta"}:
@@ -2836,6 +2867,8 @@ def run_component_action(app_dir, request_data):
                 run_xkeen_maintenance_action(app_dir, action)
             elif action == "update":
                 run_mihomo_component_update(app_dir, request_data["target"])
+            elif action == "core":
+                run_mihomo_component_update(app_dir, request_data["target"], core=request_data["core"])
             else:
                 run_mihomo_maintenance_action(app_dir, action)
             update_component_action_state(
@@ -2983,15 +3016,74 @@ def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_r
     replacement = Path(f"{binary_path}.mihui-restore")
     shutil.copy2(backup_path, replacement)
     os.replace(replacement, binary_path)
-    run_component_command([xkeen_binary, "-rrm"], timeout=180)
+    require_component_command([xkeen_binary, "-rrm"], "Не удалось зарегистрировать прежнее ядро", timeout=180)
     if was_running:
-        run_component_command([xkeen_binary, "-start"], timeout=180)
+        require_component_command([xkeen_binary, "-start"], "Не удалось запустить прежнее ядро", timeout=180)
+        if not wait_for_mihomo_service(app_dir):
+            raise RuntimeError("Прежнее ядро не отвечает после восстановления")
 
 
-def run_mihomo_component_update(app_dir, target):
+def download_prizrak_binary(binary_path, target, directory):
+    with binary_path.open("rb") as source:
+        header = source.read(20)
+    if len(header) < 20 or header[:4] != b"\x7fELF" or header[4] not in {1, 2} or header[5] not in {1, 2}:
+        raise RuntimeError("Не удалось определить архитектуру установленного ядра")
+    machine = int.from_bytes(header[18:20], "little" if header[5] == 1 else "big")
+    architecture = {3: "386", 62: "amd64-v1", 183: "arm64"}.get(machine)
+    if machine == 8:
+        architecture = "mips" + ("64" if header[4] == 2 else "") + ("le" if header[5] == 1 else "")
+        if header[4] == 1:
+            architecture += "-softfloat"
+    elif machine == 40:
+        cpu = os.uname().machine.lower()
+        architecture = "armv7" if cpu.startswith("armv7") else "armv6" if cpu.startswith("armv6") else "armv5"
+    if not architecture:
+        raise RuntimeError("Архитектура установленного ядра не поддерживается для Prizrak-Core")
+    name = f"prizrak-core-linux-{architecture}-{target}.gz"
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{PRIZRAK_GITHUB_REPO}/releases/tags/{urllib.parse.quote(target, safe='')}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
+    )
+    release = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
+    asset = next((item for item in release.get("assets", []) if item.get("name") == name), None)
+    if not asset or release.get("draft") or release.get("prerelease"):
+        raise RuntimeError(f"В релизе Prizrak-Core отсутствует сборка {architecture}")
+    archive = directory / "prizrak.gz"
+    update_component_action_state(phase="download", message=f"Скачиваем Prizrak-Core {target}")
+    require_component_command(
+        ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https",
+         "--proto-redir", "=https", "--connect-timeout", "15", "--max-time", "180",
+         "--max-filesize", str(64 * 1024 * 1024), "--output", str(archive),
+         f"https://github.com/{PRIZRAK_GITHUB_REPO}/releases/download/{target}/{name}"],
+        "Не удалось скачать Prizrak-Core", timeout=200,
+    )
+    digest = str(asset.get("digest") or "")
+    if digest.startswith("sha256:"):
+        checksum = hashlib.sha256()
+        with archive.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                checksum.update(chunk)
+        if checksum.hexdigest() != digest[7:]:
+            raise RuntimeError("Контрольная сумма Prizrak-Core не совпадает")
+    candidate = directory / "prizrak"
+    with gzip.open(archive, "rb") as source, candidate.open("wb") as destination:
+        size = 0
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            size += len(chunk)
+            if size > 128 * 1024 * 1024:
+                raise RuntimeError("Превышен допустимый размер Prizrak-Core")
+            destination.write(chunk)
+    candidate.chmod(binary_path.stat().st_mode | 0o111)
+    return candidate
+
+
+def run_mihomo_component_update(app_dir, target, core=None):
+    current_core = get_mihomo_core(app_dir)
+    core = core or current_core
+    label = "Prizrak-Core" if core == "prizrak" else "Mihomo"
     xkeen_binary = find_xkeen_binary(app_dir)
     mihomo = read_mihomo_binary_version(app_dir)
-    binary_path = Path(mihomo.get("binary") or "")
+    binary_path = Path(mihomo.get("binary") or "").resolve()
     if not xkeen_binary:
         raise RuntimeError("XKeen не найден")
     if not binary_path.is_file():
@@ -3003,35 +3095,73 @@ def run_mihomo_component_update(app_dir, target):
     backup_path = backup_dir / "mihomo"
     shutil.copy2(binary_path, backup_path)
 
+    replacement = binary_path.with_name(f".{binary_path.name}.mihui-install")
+    binary_changed = False
+    keep_backup = False
     try:
         update_component_action_state(phase="backup", message="Сохраняем текущую версию Mihomo")
-        update_component_action_state(phase="install", message=f"Устанавливаем Mihomo {target}")
-        returncode, output = run_component_command(
-            [xkeen_binary, "-um"],
-            input_text=f"9\n{target}\n",
-        )
-        if returncode != 0:
-            detail = strip_ansi(output).strip().splitlines()
-            raise RuntimeError(detail[-1] if detail else "Не удалось установить Mihomo")
+        if core == "prizrak":
+            candidate = download_prizrak_binary(binary_path, target, backup_dir)
+            code, output = run_component_command([str(candidate), "-v"], timeout=15)
+            if code or component_version_key(output) != component_version_key(target):
+                raise RuntimeError("Не удалось проверить версию загруженного Prizrak-Core")
+            config_path = get_config_path(app_dir)
+            require_component_command(
+                [str(candidate), "-t", "-d", str(config_path.parent), "-f", str(config_path)],
+                "Текущая конфигурация несовместима с Prizrak-Core", timeout=60,
+            )
+            update_component_action_state(phase="install", message=f"Устанавливаем {label} {target}")
+            shutil.copy2(candidate, replacement)
+            if was_running:
+                require_component_command([xkeen_binary, "-stop"], "Не удалось остановить ядро", timeout=180)
+            os.replace(replacement, binary_path)
+            binary_changed = True
+            require_component_command([xkeen_binary, "-rrm"], "Не удалось зарегистрировать ядро", timeout=180)
+            if was_running:
+                require_component_command([xkeen_binary, "-start"], "Не удалось запустить ядро", timeout=180)
+        else:
+            update_component_action_state(phase="install", message=f"Устанавливаем {label} {target}")
+            binary_changed = True
+            returncode, output = run_component_command(
+                [xkeen_binary, "-um"],
+                input_text=f"9\n{target}\n",
+            )
+            if returncode != 0:
+                detail = strip_ansi(output).strip().splitlines()
+                raise RuntimeError(detail[-1] if detail else "Не удалось установить Mihomo")
 
-        update_component_action_state(phase="verify", message="Проверяем версию и запуск Mihomo")
+        update_component_action_state(phase="verify", message=f"Проверяем версию и запуск {label}")
         installed = read_mihomo_binary_version(app_dir).get("version") or ""
         if component_version_key(installed) != component_version_key(target):
-            raise RuntimeError(f"Установлена неожиданная версия Mihomo: {installed or 'не определена'}")
+            raise RuntimeError(f"Установлена неожиданная версия {label}: {installed or 'не определена'}")
         if was_running:
             service_ok = False
             for _ in range(10):
-                if get_mihomo_service_status(app_dir).get("state") == "ok":
+                service = get_mihomo_service_status(app_dir)
+                if (service.get("state") == "ok"
+                        and component_version_key(service.get("detail")) == component_version_key(target)):
                     service_ok = True
                     break
                 time.sleep(1)
             if not service_ok:
-                raise RuntimeError("Mihomo не запустился после обновления")
-    except Exception:
-        restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running)
+                raise RuntimeError(f"{label} не запустился после обновления")
+        if core != current_core:
+            save_mihomo_core(app_dir, core)
+    except Exception as error:
+        if binary_changed:
+            try:
+                restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running)
+            except Exception as rollback_error:
+                keep_backup = True
+                raise RuntimeError(f"{error}; не удалось восстановить прежнее ядро: {rollback_error}. "
+                                   f"Резервная копия: {backup_path}") from error
+        elif was_running and get_mihomo_service_status(app_dir).get("state") != "ok":
+            run_component_command([xkeen_binary, "-start"], timeout=180)
         raise
     finally:
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        replacement.unlink(missing_ok=True)
+        if not keep_backup:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 AES_SBOX = (

@@ -1,0 +1,207 @@
+import gzip
+import hashlib
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "router"))
+import mihui_server
+
+
+class CoreUpdateTests(unittest.TestCase):
+    def tearDown(self):
+        mihui_server.invalidate_component_release_cache()
+
+    def test_prizrak_revision_is_detected_and_compared(self):
+        with mock.patch.object(mihui_server, "find_mihomo_binary", return_value="mihomo"), \
+                mock.patch.object(mihui_server.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 0, stdout=b"Mihomo Meta v1.19.32-r1 linux arm64 with go1.26\n")):
+            self.assertEqual(mihui_server.read_mihomo_binary_version(Path("."))["version"], "1.19.32-r1")
+        self.assertTrue(mihui_server.component_update_available("1.19.32-r1", "v1.19.32-r2"))
+        self.assertFalse(mihui_server.component_update_available("1.19.32-r2", "v1.19.32-r1"))
+
+    def test_release_cache_follows_saved_core_and_survives_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            mihui_server.invalidate_component_release_cache()
+            with mock.patch.object(mihui_server, "fetch_component_releases", side_effect=lambda repo:
+                    ["v1.19.32-r1"] if repo == mihui_server.PRIZRAK_GITHUB_REPO else ["v1.19.32"]) as fetch, \
+                    mock.patch.object(mihui_server, "fetch_xkeen_beta_build", return_value={
+                        "version": "2.1.0", "buildTimestamp": "2026-10-05 12:00:00 MSK"}):
+                first, _ = mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(first["mihomo"]["repo"], "MetaCubeX/mihomo")
+                mihui_server.save_mihomo_core(app_dir, "prizrak")
+                second, _ = mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(second["mihomo"]["latest"], "v1.19.32-r1")
+                self.assertEqual(second["mihomo"]["repo"], mihui_server.PRIZRAK_GITHUB_REPO)
+                self.assertEqual(fetch.call_count, 4)
+                mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(fetch.call_count, 4)
+            self.assertEqual(mihui_server.get_mihomo_core(app_dir), "prizrak")
+            mihui_server.save_mihomo_core(app_dir, "mihomo")
+            self.assertEqual(mihui_server.get_mihomo_core_repo(app_dir), "MetaCubeX/mihomo")
+
+    def test_switch_validates_core_and_uses_latest_stable_release(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(mihui_server, "fetch_component_releases", return_value=["v1.19.32-r1"]) as fetch:
+            app_dir = Path(directory)
+            result = mihui_server.validate_component_action(app_dir, {
+                "component": "mihomo", "action": "core", "target": "prizrak"})
+            self.assertEqual(result["core"], "prizrak")
+            self.assertEqual(result["target"], "v1.19.32-r1")
+            fetch.assert_called_once_with(mihui_server.PRIZRAK_GITHUB_REPO)
+            for target in ("shell", "mihomo", "https://example.com"):
+                with self.subTest(target=target), self.assertRaises(ValueError):
+                    mihui_server.validate_component_action(app_dir, {
+                        "component": "mihomo", "action": "core", "target": target})
+
+    def test_switch_reports_release_lookup_failure(self):
+        with mock.patch.object(mihui_server, "fetch_component_releases", side_effect=OSError("offline")):
+            with self.assertRaisesRegex(ValueError, "Не удалось проверить релизы"):
+                mihui_server.validate_component_action(Path("."), {
+                    "component": "mihomo", "action": "core", "target": "prizrak"})
+
+    def test_status_reports_selected_core_and_revision_update(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            mihui_server.save_mihomo_core(app_dir, "prizrak")
+            catalog = {"mihomo": {"latest": "v1.19.32-r2", "versions": ["v1.19.32-r2"], "error": ""}}
+            with mock.patch.object(mihui_server, "get_component_release_catalog", return_value=(catalog, 123)), \
+                    mock.patch.object(mihui_server, "get_xkeen_version_info", return_value={}), \
+                    mock.patch.object(mihui_server, "read_mihomo_binary_version", return_value={
+                        "installed": True, "version": "1.19.32-r1"}):
+                status = mihui_server.get_components_status(app_dir)
+            self.assertEqual(status["components"]["mihomo"]["core"], "prizrak")
+            self.assertEqual(status["components"]["mihomo"]["repo"], mihui_server.PRIZRAK_GITHUB_REPO)
+            self.assertEqual(status["updateCount"], 1)
+
+    def test_action_dispatches_core_switch_to_installer(self):
+        with mock.patch.object(mihui_server, "run_mihomo_component_update") as install:
+            mihui_server.run_component_action(Path("."), {
+                "component": "mihomo", "action": "core", "core": "prizrak", "target": "v1.19.32-r1"})
+            install.assert_called_once_with(Path("."), "v1.19.32-r1", core="prizrak")
+            self.assertTrue(mihui_server.snapshot_component_action_state()["ok"])
+
+    def test_download_selects_router_asset_and_checks_checksum(self):
+        for elf_class, byte_order, machine, architecture in (
+                (1, 1, 8, "mipsle-softfloat"), (1, 2, 8, "mips-softfloat"),
+                (2, 1, 183, "arm64"), (2, 1, 62, "amd64-v1"), (1, 1, 40, "armv7")):
+            with self.subTest(architecture=architecture), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                header = bytearray(20)
+                header[:6] = b"\x7fELF" + bytes([elf_class, byte_order])
+                header[18:20] = machine.to_bytes(2, "little" if byte_order == 1 else "big")
+                binary = folder / "mihomo"
+                binary.write_bytes(header)
+                payload = gzip.compress(b"new-binary")
+                name = f"prizrak-core-linux-{architecture}-v1.19.32-r1.gz"
+                release = json.dumps({"assets": [{"name": name,
+                    "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}]}).encode()
+
+                def download(command, **kwargs):
+                    Path(command[command.index("--output") + 1]).write_bytes(payload)
+                    self.assertTrue(command[-1].endswith("/" + name))
+                    return 0, ""
+
+                with mock.patch.object(mihui_server, "fetch_component_metadata", return_value=release), \
+                        mock.patch.object(mihui_server, "run_component_command", side_effect=download), \
+                        mock.patch.object(mihui_server.os, "uname", return_value=SimpleNamespace(machine="armv7l"), create=True):
+                    candidate = mihui_server.download_prizrak_binary(binary, "v1.19.32-r1", folder)
+                    self.assertEqual(candidate.read_bytes(), b"new-binary")
+                    bad = json.dumps({"assets": [{"name": name, "digest": "sha256:" + "0" * 64}]}).encode()
+                    with mock.patch.object(mihui_server, "fetch_component_metadata", return_value=bad):
+                        with self.assertRaisesRegex(RuntimeError, "Контрольная сумма"):
+                            mihui_server.download_prizrak_binary(binary, "v1.19.32-r1", folder)
+
+    def test_switch_install_update_and_failure_preserve_config_and_core(self):
+        for scenario in ("switch", "update", "config-error", "download-error", "startup-error", "old-runtime", "rollback-error"):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory() as directory:
+                app_dir = Path(directory)
+                binary = app_dir / "mihomo"
+                binary.write_bytes(b"old-binary")
+                config = app_dir / "config.yaml"
+                config.write_text("mixed-port: 7890\n", encoding="utf-8")
+                (app_dir / "mihui.env").write_text(f'MIHUI_CONFIG_PATH="{config}"\n', encoding="utf-8")
+                if scenario == "update":
+                    mihui_server.save_mihomo_core(app_dir, "prizrak")
+                versions = [{"binary": str(binary), "version": "1.19.32"},
+                            {"binary": str(binary), "version": "1.19.32-r1"}]
+
+                def download(old, target, folder):
+                    if scenario == "download-error":
+                        raise RuntimeError("download failed")
+                    candidate = folder / "prizrak"
+                    candidate.write_bytes(b"new-binary")
+                    return candidate
+
+                def command(args, **kwargs):
+                    if args[-1] == "-v":
+                        return 0, "Mihomo Meta v1.19.32-r1 linux arm64"
+                    if "-t" in args and scenario == "config-error":
+                        return 1, "invalid config"
+                    if "-start" in args and scenario == "rollback-error":
+                        return 1, "start failed"
+                    return 0, ""
+
+                states = [{"state": "ok", "detail": "1.19.32"}]
+                if scenario in {"startup-error", "old-runtime"}:
+                    states += ([{"state": "error"}] if scenario == "startup-error" else
+                               [{"state": "ok", "detail": "1.19.32"}]) * 10
+                    states += [{"state": "ok", "detail": "1.19.32"}]
+                elif scenario in {"config-error", "download-error"}:
+                    states += [{"state": "ok", "detail": "1.19.32"}]
+                else:
+                    states += [{"state": "ok", "detail": "1.19.32-r1"}]
+                with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="xkeen"), \
+                        mock.patch.object(mihui_server, "read_mihomo_binary_version", side_effect=versions), \
+                        mock.patch.object(mihui_server, "get_mihomo_service_status", side_effect=states), \
+                        mock.patch.object(mihui_server, "download_prizrak_binary", side_effect=download), \
+                        mock.patch.object(mihui_server, "run_component_command", side_effect=command) as run, \
+                        mock.patch.object(mihui_server.time, "sleep"):
+                    if scenario in {"switch", "update"}:
+                        mihui_server.run_mihomo_component_update(app_dir, "v1.19.32-r1",
+                            core="prizrak" if scenario == "switch" else None)
+                        self.assertEqual(binary.read_bytes(), b"new-binary")
+                        self.assertEqual(mihui_server.get_mihomo_core(app_dir), "prizrak")
+                    else:
+                        with self.assertRaises(RuntimeError) as error:
+                            mihui_server.run_mihomo_component_update(app_dir, "v1.19.32-r1", core="prizrak")
+                        if scenario == "rollback-error":
+                            self.assertIn("Резервная копия:", str(error.exception))
+                        self.assertEqual(binary.read_bytes(), b"old-binary")
+                        self.assertEqual(mihui_server.get_mihomo_core(app_dir), "mihomo")
+                        if scenario in {"config-error", "download-error"}:
+                            self.assertFalse(any(call.args[0][0] == "xkeen" for call in run.call_args_list))
+                    self.assertFalse(any("-um" in call.args[0] for call in run.call_args_list))
+                self.assertEqual(config.read_text(encoding="utf-8"), "mixed-port: 7890\n")
+                backups = list(app_dir.glob("mihui-mihomo-update-*"))
+                if scenario == "rollback-error":
+                    self.assertEqual(len(backups), 1)
+                    self.assertEqual((backups[0] / "mihomo").read_bytes(), b"old-binary")
+                else:
+                    self.assertFalse(backups)
+
+    def test_switch_back_installs_mihomo_and_updates_source_after_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            binary = app_dir / "mihomo"
+            binary.write_bytes(b"prizrak")
+            mihui_server.save_mihomo_core(app_dir, "prizrak")
+            versions = [{"binary": str(binary), "version": "1.19.32-r1"},
+                        {"binary": str(binary), "version": "1.19.32"}]
+            with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="xkeen"), \
+                    mock.patch.object(mihui_server, "read_mihomo_binary_version", side_effect=versions), \
+                    mock.patch.object(mihui_server, "get_mihomo_service_status", return_value={"state": "error"}), \
+                    mock.patch.object(mihui_server, "run_component_command", return_value=(0, "")) as run:
+                mihui_server.run_mihomo_component_update(app_dir, "v1.19.32", core="mihomo")
+            run.assert_called_once_with(["xkeen", "-um"], input_text="9\nv1.19.32\n")
+            self.assertEqual(mihui_server.get_mihomo_core(app_dir), "mihomo")
+
+
+if __name__ == "__main__":
+    unittest.main()

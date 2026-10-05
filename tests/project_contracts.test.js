@@ -201,7 +201,7 @@ test('primary UI files expose component update markers and one manager flow', ()
     assert.match(source, /latestBuildTimestamp/);
     assert.match(source, /Последняя сборка/);
     assert.doesNotMatch(source, /Через XKeen/);
-    assert.match(source, /Понизить Mihomo/);
+    assert.match(source, /Понизить \$\{label\}/);
     assert.match(source, /Переустановить текущую Beta-сборку/);
     assert.match(source, /state\.components\.jobVisible = true/);
     assert.match(source, /state\.components\.jobVisible && job\.ok !== null/);

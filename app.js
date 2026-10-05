@@ -544,6 +544,8 @@ const state = {
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
+    mihomoCoreCurrent: 'mihomo',
+    mihomoCoreSelection: 'mihomo',
     view: 'updates',
   },
   overviewDiagnostics: [],
@@ -657,6 +659,10 @@ const els = {
   backToComponentUpdatesButton: document.querySelector('#backToComponentUpdatesButton'),
   componentUpdateFooter: document.querySelector('#componentUpdateFooter'),
   mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
+  mihomoCoreSelect: document.querySelector('#mihomoCoreSelect'),
+  switchMihomoCoreButton: document.querySelector('#switchMihomoCoreButton'),
+  mihomoCoreHint: document.querySelector('#mihomoCoreHint'),
+  mihomoCoreLabels: document.querySelectorAll('[data-mihomo-core-label]'),
   installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
   checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
   updateAllComponentsButton: document.querySelector('#updateAllComponentsButton'),
@@ -1072,6 +1078,11 @@ els.componentAdvancedButtons.forEach((button) => button.addEventListener('click'
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
+els.mihomoCoreSelect.addEventListener('change', () => {
+  state.components.mihomoCoreSelection = els.mihomoCoreSelect.value;
+  renderComponentManager();
+});
+els.switchMihomoCoreButton.addEventListener('click', switchMihomoCore);
 els.reinstallXkeenButton.addEventListener('click', reinstallXkeen);
 els.openComponentMaintenanceButton.addEventListener('click', openComponentMaintenance);
 els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates);
@@ -2721,6 +2732,7 @@ function normalizeComponentItem(item) {
     installed: Boolean(item?.installed),
     current: String(item?.current || ''),
     channel: String(item?.channel || ''),
+    core: item?.core === 'prizrak' ? 'prizrak' : 'mihomo',
     latest: String(item?.latest || ''),
     buildTimestamp: String(item?.buildTimestamp || ''),
     latestBuildTimestamp: String(item?.latestBuildTimestamp || ''),
@@ -2773,6 +2785,9 @@ async function loadComponents(options = {}) {
       state.components.xkeenChannelSelection = xkeenChannel;
     }
     state.components.xkeenChannelCurrent = xkeenChannel;
+    const core = state.components.items.mihomo.core;
+    if (state.components.mihomoCoreCurrent !== core) state.components.mihomoCoreSelection = core;
+    state.components.mihomoCoreCurrent = core;
     state.components.updateCount = Number(data.updateCount) || 0;
     state.components.mihuiServiceRepairRequired = data.mihuiService?.repairRequired === true;
     state.components.job = normalizeComponentJob(data.job);
@@ -2855,10 +2870,11 @@ function formatXkeenBuild(version, timestamp) {
 }
 
 function componentVersionKey(value) {
-  const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})/i);
+  const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})(?:-r(\d+))?/i);
   if (!match) return [];
   const parts = match[1].split('.').map(Number);
   while (parts.length < 4) parts.push(0);
+  parts.push(Number(match[2] || 0));
   return parts;
 }
 
@@ -3007,6 +3023,19 @@ function renderComponentManager() {
   els.restartMihuiButton.disabled = busy;
 
   const mihomo = state.components.items.mihomo;
+  const core = mihomo.core || 'mihomo';
+  const selectedCore = state.components.mihomoCoreSelection;
+  const coreLabel = getMihomoCoreLabel(core);
+  els.mihomoCoreLabels.forEach((element) => { element.textContent = coreLabel; });
+  els.mihomoCoreSelect.value = selectedCore;
+  els.mihomoCoreSelect.disabled = busy || !mihomo.installed;
+  els.switchMihomoCoreButton.disabled = busy || !mihomo.installed || selectedCore === core;
+  els.switchMihomoCoreButton.textContent = selectedCore !== core
+    ? `Переключить на ${getMihomoCoreLabel(selectedCore)}` : 'Ядро выбрано';
+  els.mihomoCoreHint.textContent = selectedCore !== core
+    ? `Будет установлено ${getMihomoCoreLabel(selectedCore)}. Конфигурация сохранится.`
+    : `Обновления из официальных релизов ${coreLabel}.`;
+  els.mihomoVersionSelect.setAttribute('aria-label', `Версия ${coreLabel}`);
   const selectedVersion = els.mihomoVersionSelect.value;
   els.mihomoVersionSelect.textContent = '';
   mihomo.versions.forEach((version) => {
@@ -3053,7 +3082,8 @@ function renderComponentJob() {
 
 function getComponentActionLabel(job) {
   if (job.component === 'all') return 'Обновление компонентов';
-  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  const component = job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  if (job.action === 'core') return 'Переключение ядра';
   if (job.action === 'restart') return `Перезапуск ${component}`;
   if (job.action === 'geo-update') return `Обновление GEO · ${component}`;
   if (job.action === 'channel') return `Переключение канала XKeen`;
@@ -3063,7 +3093,8 @@ function getComponentActionLabel(job) {
 
 function getComponentActionSuccessLabel(job) {
   if (job.component === 'all') return 'Компоненты обновлены';
-  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  const component = job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  if (job.action === 'core') return 'Ядро переключено';
   if (job.action === 'restart') return `${component} перезапущен`;
   if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
   if (job.action === 'channel') return 'Канал XKeen переключён';
@@ -3076,7 +3107,7 @@ function getComponentUpdateSummary() {
     .filter(([, item]) => item.updateAvailable)
     .map(([name, item]) => name === 'xkeen' && normalizeXkeenChannel(item.channel) === 'beta'
       ? `XKeen Beta → ${formatXkeenBuild(item.latest, item.latestBuildTimestamp)}`
-      : `${name === 'xkeen' ? 'XKeen' : 'Mihomo'} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
+      : `${name === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(item.core)} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
     .join(' · ');
 }
 
@@ -3127,6 +3158,17 @@ async function applyXkeenChannel() {
   await startComponentAction({ component: 'xkeen', action: 'channel', target });
   state.components.xkeenChannelSelection = target;
   els.xkeenChannelApplyButton.textContent = `Переключение на ${label}...`;
+}
+
+function getMihomoCoreLabel(core) {
+  return core === 'prizrak' ? 'Prizrak-Core' : 'Mihomo';
+}
+
+async function switchMihomoCore() {
+  const target = state.components.mihomoCoreSelection;
+  if (target === state.components.items.mihomo.core) return;
+  if (!window.confirm(`Установить ${getMihomoCoreLabel(target)} вместо текущего ядра? Конфигурация сохранится, соединения могут кратковременно прерваться.`)) return;
+  await startComponentAction({ component: 'mihomo', action: 'core', target });
 }
 
 async function startMaintenanceAction(component, action) {
@@ -3210,10 +3252,11 @@ async function installSelectedMihomoVersion() {
   const target = els.mihomoVersionSelect.value;
   if (!target) return;
   const current = state.components.items.mihomo.current;
+  const label = getMihomoCoreLabel(state.components.items.mihomo.core);
   if (compareComponentVersions(target, current) < 0) {
-    if (!window.confirm(`Понизить Mihomo ${formatComponentVersion(current)} → ${formatComponentVersion(target)}?`)) return;
+    if (!window.confirm(`Понизить ${label} ${formatComponentVersion(current)} → ${formatComponentVersion(target)}?`)) return;
   } else if (compareComponentVersions(target, current) === 0) {
-    if (!window.confirm(`Переустановить Mihomo ${formatComponentVersion(current)}?`)) return;
+    if (!window.confirm(`Переустановить ${label} ${formatComponentVersion(current)}?`)) return;
   }
   await startComponentAction({ component: 'mihomo', action: 'update', target });
 }
