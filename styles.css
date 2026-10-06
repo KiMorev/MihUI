@@ -4358,7 +4358,7 @@ body.component-manager-open {
 .resource-monitor-dialog-surface {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  max-height: calc(100vh - 30px);
+  max-height: min(798px, calc(100vh - 30px));
 }
 
 .resource-monitor-dialog-head,
@@ -4448,6 +4448,13 @@ body.component-manager-open {
 }
 
 .resource-monitor-source-head > strong {
+  font-size: 12px;
+}
+
+.resource-monitor-mode {
+  width: auto;
+  max-width: 65%;
+  min-height: 36px;
   font-size: 12px;
 }
 

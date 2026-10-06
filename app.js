@@ -341,7 +341,7 @@ const NODE_FLAG_PATTERNS = {
   ZA: { type: 'za' },
 };
 const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay']);
-const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
+const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay', 'smart'];
 const RULE_TYPE_OPTIONS = ['DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'GEOSITE', 'GEOIP', 'IP-CIDR', 'MATCH'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
 const RULE_OPTIONS = new Set(['no-resolve', 'src']);
@@ -756,7 +756,6 @@ const els = {
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
   resourceMonitorPanel: document.querySelector('#resourceMonitorPanel'),
   resourceMonitorSummary: document.querySelector('#resourceMonitorSummary'),
-  resourceMonitorEnabled: document.querySelector('#resourceMonitorEnabled'),
   resourceMonitorSettingsButton: document.querySelector('#resourceMonitorSettingsButton'),
   resourceMonitorHistory: document.querySelector('#resourceMonitorHistory'),
   resourceMonitorHistoryRows: document.querySelector('#resourceMonitorHistoryRows'),
@@ -981,7 +980,6 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
-els.resourceMonitorEnabled.addEventListener('change', toggleResourceMonitor);
 els.resourceMonitorSettingsButton.addEventListener('click', () => openResourceMonitorDialog());
 els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMonitorDialog({ journal: true }));
 els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
@@ -1089,6 +1087,10 @@ els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates)
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
 els.repairMihuiButton.addEventListener('click', repairMihui);
 els.restartMihuiButton.addEventListener('click', restartMihui);
+document.querySelector('#smartCoreReturnDialog').addEventListener('close', (event) => {
+  const mode = event.target.returnValue;
+  if (mode === 'mihui' || mode === 'off') prepareSmartCoreReturn(mode);
+});
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
 renderServiceHealth();
@@ -3167,8 +3169,44 @@ function getMihomoCoreLabel(core) {
 async function switchMihomoCore() {
   const target = state.components.mihomoCoreSelection;
   if (target === state.components.items.mihomo.core) return;
+  if (target === 'mihomo' && (hasUnsavedRouterChanges() || state.resourceMonitor.pendingSettings || state.resourceMonitor.saving)) {
+    showMessage('Сначала сохраните изменения режимов ресурсов и конфигурации, затем переключите ядро.', { severity: 'warning' });
+    return;
+  }
+  if (target === 'mihomo' && state.groups.some((group) => !group.deleted && group.type === 'smart')) {
+    const dialog = document.querySelector('#smartCoreReturnDialog');
+    dialog.returnValue = '';
+    dialog.showModal();
+    return;
+  }
   if (!window.confirm(`Установить ${getMihomoCoreLabel(target)} вместо текущего ядра? Конфигурация сохранится, соединения могут кратковременно прерваться.`)) return;
   await startComponentAction({ component: 'mihomo', action: 'core', target });
+}
+
+function prepareSmartCoreReturn(mode) {
+  const smartGroups = state.groups.filter((group) => !group.deleted && group.type === 'smart');
+  if (smartGroups.some((group) => !group.managedMonitoring)) {
+    showMessage('В конфиге есть пользовательские Smart-группы. Измените или удалите их перед переходом на Mihomo.', { severity: 'error' });
+    return;
+  }
+  const settings = structuredClone(state.resourceMonitor.config || defaultResourceMonitorClientSettings());
+  const sources = {};
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    sources[key] = getResourceMonitorGroupSourceNames(group);
+    if (group?.type === 'smart') settings.services[key] = { ...settings.services[key], mode, enabled: mode !== 'off' };
+  });
+  const issue = getResourceMonitorDialogIssue(sources, settings.services);
+  if (issue) {
+    showMessage(issue, { severity: 'error' });
+    return;
+  }
+  settings.enabled = Object.values(settings.services).some((item) => getResourceMonitorMode(item) !== 'off');
+  prepareResourceMonitorConfig(sources, settings.services);
+  state.resourceMonitor.pendingSettings = { ...settings, sources };
+  closeComponentManager();
+  setActiveSection('review');
+  showMessage('Сохраните подготовленный конфиг, затем повторите переключение на Mihomo.', { severity: 'warning' });
 }
 
 async function startMaintenanceAction(component, action) {
@@ -3310,7 +3348,7 @@ async function pollComponentJob() {
       loadComponents({ force: true, silent: true }),
     ];
     if (state.components.job.component === 'mihomo' && state.components.job.action === 'core') {
-      refreshTasks.push(loadProviderStatuses({ silent: true }), loadNodeInventory({ silent: true }));
+      refreshTasks.push(loadProviderStatuses({ silent: true }), loadNodeInventory({ silent: true }), loadResourceMonitor({ silent: true }));
     }
     await Promise.all(refreshTasks);
     renderXkeenNetworkFiles();
@@ -3432,6 +3470,7 @@ async function loadResourceMonitor(options = {}) {
     state.resourceMonitor.config = data.config || null;
     state.resourceMonitor.runtime = data.runtime || null;
     state.resourceMonitor.readiness = data.readiness || null;
+    state.resourceMonitor.smartSupport = data.smartSupport || null;
     state.resourceMonitor.events = Array.isArray(data.events) ? data.events : [];
     state.resourceMonitor.checking = Boolean(data.job?.running);
   } catch (error) {
@@ -3773,26 +3812,29 @@ function renderResourceMonitor() {
   if (!visible) return;
 
   const config = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  els.resourceMonitorSettingsButton.disabled = Boolean(state.resourceMonitor.saving);
   const runtime = state.resourceMonitor.runtime?.services || {};
-  const enabledEntries = getEnabledResourceMonitorEntries(config.services);
+  const enabledEntries = config.enabled ? getEnabledResourceMonitorEntries(config.services) : [];
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
-  const serviceStates = enabledEntries.map(([key]) => runtime[key] || {});
+  const mihuiEntries = enabledEntries.filter(([key]) => getResourceMonitorMode(config.services[key]) === 'mihui');
+  const smartCount = enabledEntries.length - mihuiEntries.length;
+  const serviceStates = mihuiEntries.map(([key]) => runtime[key] || {});
   const availableCount = serviceStates.filter((item) => item.state === 'available').length;
   const recentSwitches = serviceStates.filter((item) => {
     const switchedAt = Number(item.lastSwitch?.at || 0);
     return switchedAt > 0 && Date.now() / 1000 - switchedAt < 24 * 60 * 60;
   }).length;
-  const summaryParts = [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`];
+  const summaryParts = mihuiEntries.length ? [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`] : [];
+  if (smartCount) summaryParts.push(`${smartCount} под управлением Prizrak`);
   if (recentSwitches > 0) summaryParts.push(`${recentSwitches} ${recentSwitches === 1 ? 'нода недавно переключена' : 'ноды недавно переключены'}`);
   els.resourceMonitorSummary.textContent = state.resourceMonitor.loading && !state.resourceMonitor.loaded
     ? 'Получаем состояние проверок…'
-    : summaryParts.join(' · ');
-  els.resourceMonitorEnabled.checked = Boolean(config.enabled);
-  els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
-  renderResourceMonitorHistory(enabledEntries, runtime);
+    : summaryParts.join(' · ') || 'Все ресурсы выключены';
+  renderResourceMonitorHistory(mihuiEntries, runtime);
 
   els.resourceMonitorRows.textContent = '';
   enabledEntries.forEach(([key, definition]) => {
+    const smart = getResourceMonitorMode(config.services[key]) === 'prizrak';
     const item = runtime[key] || {};
     const row = document.createElement('tr');
     const resourceCell = document.createElement('td');
@@ -3813,18 +3855,18 @@ function renderResourceMonitor() {
 
     const statusCell = document.createElement('td');
     const status = document.createElement('span');
-    const normalizedState = item.state || 'idle';
+    const normalizedState = smart ? state.resourceMonitor.readiness?.services?.[key]?.ready ? 'idle' : 'needs_sync' : item.state || 'idle';
     status.className = `resource-monitor-status is-${normalizedState}`;
-    status.textContent = getResourceMonitorStateLabel(normalizedState);
+    status.textContent = smart && normalizedState === 'idle' ? 'Управляет Prizrak' : getResourceMonitorStateLabel(normalizedState);
     statusCell.append(status);
 
     const nodeCell = document.createElement('td');
     const node = document.createElement('div');
     const nodeName = document.createElement('strong');
     node.className = 'resource-monitor-node';
-    nodeName.textContent = item.currentNode || '—';
+    nodeName.textContent = smart ? 'Выбор по направлению' : item.currentNode || '—';
     node.append(nodeName);
-    const hasRecentSwitch = isRecentResourceMonitorSwitch(item);
+    const hasRecentSwitch = !smart && isRecentResourceMonitorSwitch(item);
     if (hasRecentSwitch) {
       const note = document.createElement('span');
       const fullNote = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
@@ -3836,17 +3878,18 @@ function renderResourceMonitor() {
     nodeCell.append(node);
 
     const checkedCell = document.createElement('td');
-    checkedCell.textContent = item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
+    checkedCell.textContent = !smart && item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
     const delayCell = document.createElement('td');
     delayCell.className = 'resource-monitor-delay';
-    delayCell.textContent = Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
+    delayCell.textContent = !smart && item.delay != null && Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
     const actionCell = document.createElement('td');
     const checkButton = document.createElement('button');
     checkButton.className = 'button ghost compact';
     if (hasRecentSwitch) checkButton.classList.add('is-visible');
     checkButton.type = 'button';
     checkButton.textContent = 'Проверить';
-    checkButton.disabled = state.resourceMonitor.checking;
+    checkButton.disabled = state.resourceMonitor.checking || Boolean(state.resourceMonitor.pendingSettings);
+    checkButton.hidden = smart;
     checkButton.addEventListener('click', () => checkResourceMonitor(key));
     actionCell.append(checkButton);
     const switchButton = document.createElement('button');
@@ -3855,7 +3898,8 @@ function renderResourceMonitor() {
     switchButton.textContent = 'Сменить ноду';
     switchButton.title = `Исключить текущую ноду на ${Math.ceil(config.quarantineSeconds / 60)} мин и выбрать следующую по рейтингу`;
     switchButton.setAttribute('aria-label', `Сменить ноду для ${definition.title}`);
-    switchButton.disabled = state.resourceMonitor.checking || !item.currentNode;
+    switchButton.disabled = state.resourceMonitor.checking || Boolean(state.resourceMonitor.pendingSettings) || !item.currentNode;
+    switchButton.hidden = smart;
     switchButton.addEventListener('click', () => checkResourceMonitor(key, true));
     actionCell.className = 'resource-monitor-actions';
     actionCell.append(switchButton);
@@ -3871,8 +3915,10 @@ function renderResourceMonitor() {
 
   const readiness = state.resourceMonitor.readiness;
   const needsConfig = readiness && !readiness.ready;
-  els.resourceMonitorNotice.hidden = !needsConfig;
-  els.resourceMonitorNotice.textContent = needsConfig
+  els.resourceMonitorNotice.hidden = !needsConfig && !state.resourceMonitor.pendingSettings;
+  els.resourceMonitorNotice.textContent = state.resourceMonitor.pendingSettings
+    ? 'Есть подготовленные изменения. До сохранения конфига действуют прежние режимы ресурсов.'
+    : needsConfig
     ? 'Группы мониторинга ещё не подготовлены. Откройте настройки, чтобы добавить их в конфиг через обычную проверку и сохранение.'
     : '';
 }
@@ -3949,51 +3995,17 @@ function defaultResourceMonitorClientSettings() {
   };
 }
 
+function getResourceMonitorMode(service) {
+  if (service?.enabled === false || service?.mode === 'off') return 'off';
+  return service?.mode === 'prizrak' ? 'prizrak' : 'mihui';
+}
+
 function getEnabledResourceMonitorEntries(services = null) {
   const currentServices = services
     || state.resourceMonitor.config?.services
     || defaultResourceMonitorClientSettings().services;
   return Object.entries(RESOURCE_MONITOR_DEFINITIONS)
-    .filter(([key]) => currentServices[key]?.enabled !== false);
-}
-
-async function toggleResourceMonitor() {
-  const enabled = els.resourceMonitorEnabled.checked;
-  if (enabled && (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges())) {
-    els.resourceMonitorEnabled.checked = false;
-    openResourceMonitorDialog();
-    return;
-  }
-  const settings = {
-    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
-    enabled,
-  };
-  if (!enabled) {
-    const disabledServices = Object.fromEntries(
-      Object.entries(settings.services || {}).map(([key, service]) => [
-        key,
-        { ...service, enabled: false },
-      ]),
-    );
-    if (resourceMonitorNeedsConfigChanges(null, disabledServices)) {
-      prepareResourceMonitorConfig(null, disabledServices);
-      state.resourceMonitor.pendingSettings = settings;
-      els.resourceMonitorEnabled.checked = true;
-      renderResourceMonitor();
-      setActiveSection('review');
-      showMessage('Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.', {
-        severity: 'warning',
-      });
-      return;
-    }
-  }
-  try {
-    await postResourceMonitorSettings(settings);
-    showMessage(enabled ? 'Мониторинг ресурсов включён.' : 'Мониторинг ресурсов выключен.', { severity: 'success' });
-  } catch (error) {
-    els.resourceMonitorEnabled.checked = !enabled;
-    showMessage(`Не удалось изменить мониторинг: ${error?.message || error}`, { severity: 'error' });
-  }
+    .filter(([key]) => getResourceMonitorMode(currentServices[key]) !== 'off');
 }
 
 function openResourceMonitorDialog(options = {}) {
@@ -4040,14 +4052,12 @@ function renderResourceMonitorDialog() {
 
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     const target = state.groups.find((group) => group.name === definition.group);
-    const enabled = settings.services?.[key]?.enabled !== false;
+    const mode = settings.enabled ? getResourceMonitorMode(settings.services?.[key]) : 'off';
+    const enabled = mode !== 'off';
     const field = document.createElement('article');
     const head = document.createElement('div');
     const title = document.createElement('strong');
-    const toggle = document.createElement('label');
-    const checkbox = document.createElement('input');
-    const track = document.createElement('span');
-    const toggleState = document.createElement('strong');
+    const checkbox = document.createElement('select');
     const sourceField = document.createElement('div');
     const sourceTitle = document.createElement('span');
     const sourcePicker = document.createElement('details');
@@ -4061,21 +4071,27 @@ function renderResourceMonitorDialog() {
     field.classList.toggle('is-disabled', !enabled);
     head.className = 'resource-monitor-source-head';
     title.textContent = definition.title;
-    toggle.className = 'resource-monitor-switch';
-    checkbox.type = 'checkbox';
-    checkbox.checked = enabled;
+    checkbox.className = 'resource-monitor-mode';
+    [['off', 'Выключено'], ['mihui', 'MihUI'], ['prizrak', 'Prizrak · LightGBM']].forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      option.disabled = value === 'prizrak' && !state.resourceMonitor.smartSupport?.supported && mode !== 'prizrak';
+      checkbox.append(option);
+    });
+    checkbox.value = mode;
+    checkbox.disabled = Boolean(state.resourceMonitor.saving);
     checkbox.dataset.resourceMonitorEnabled = key;
-    checkbox.setAttribute('aria-label', `Мониторинг ${definition.title}`);
-    toggleState.dataset.resourceMonitorEnabledState = key;
-    toggleState.textContent = enabled ? 'Включена' : 'Выключена';
-    toggle.append(checkbox, track, toggleState);
-    head.append(title, toggle);
+    checkbox.setAttribute('aria-label', `Режим ${definition.title}`);
+    checkbox.title = state.resourceMonitor.smartSupport?.message || '';
+    head.append(title, checkbox);
     sourceField.className = 'resource-monitor-source-select';
-    sourceTitle.textContent = 'Приоритетные группы-источники';
+    sourceTitle.textContent = mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
+    sourceTitle.dataset.resourceMonitorSourceTitle = key;
     const configuredSources = getResourceMonitorGroupSourceNames(target);
     const pendingSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.pendingSettings?.sources?.[key]);
     const savedSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.config?.services?.[key]?.sources);
-    const locked = Boolean(target && !target.managedMonitoring) || sources.length === 0;
+    const locked = Boolean(target && !target.managedMonitoring) || sources.length === 0 || Boolean(state.resourceMonitor.saving);
     const selectedSources = target && !target.managedMonitoring
       ? []
       : configuredSources.length > 0
@@ -4090,6 +4106,7 @@ function renderResourceMonitorDialog() {
     sourcePicker.className = 'resource-monitor-source-picker';
     sourcePicker.classList.toggle('is-disabled', !enabled || locked);
     sourcePicker.dataset.resourceMonitorLocked = String(locked);
+    sourcePicker.dataset.mode = mode;
     sourceSummary.setAttribute('aria-label', `Выбрать группы-источники ${definition.title}`);
     sourceSummary.setAttribute('aria-disabled', String(!enabled || locked));
     sourceSummary.tabIndex = !enabled || locked ? -1 : 0;
@@ -4101,7 +4118,7 @@ function renderResourceMonitorDialog() {
     sourceSummary.append(sourceSummaryText, sourceIcon);
     sourceMenu.className = 'resource-monitor-source-menu';
     sourceMenu.setAttribute('role', 'group');
-    sourceMenu.setAttribute('aria-label', `Приоритетные группы-источники ${definition.title}`);
+    sourceMenu.setAttribute('aria-label', `Группы-источники ${definition.title}`);
     sources.forEach((group) => {
       const option = document.createElement('label');
       const input = document.createElement('input');
@@ -4127,7 +4144,7 @@ function renderResourceMonitorDialog() {
       if (sourcePicker.classList.contains('is-disabled')) event.preventDefault();
     });
     updateResourceMonitorSourcePickerSummary(sourcePicker);
-    hint.textContent = getResourceMonitorSourceHint(definition, target, enabled);
+    hint.textContent = getResourceMonitorSourceHint(definition, target, mode);
     sourceField.append(sourceTitle, sourcePicker);
     field.append(head, sourceField, hint);
     els.resourceMonitorSources.append(field);
@@ -4140,12 +4157,13 @@ function renderResourceMonitorDialog() {
   );
 }
 
-function getResourceMonitorSourceHint(definition, target, enabled) {
-  if (!enabled) {
+function getResourceMonitorSourceHint(definition, target, mode) {
+  if (mode === 'off') {
     return target?.managedMonitoring
       ? `Группа ${definition.group} и её правила будут удалены из конфига`
-      : `Правила ${definition.group} будут удалены; трафик пойдёт по общим правилам`;
+      : target ? `Управление выключено; пользовательская группа ${definition.group} сохраняется` : 'Отдельная группа не создаётся; трафик идёт по общим правилам';
   }
+  if (mode === 'prizrak') return `Smart-группа ${definition.group}: общий набор нод, выбор выполняет Prizrak. Проверки MihUI отключены.`;
   return target && !target.managedMonitoring
     ? `Будет использована существующая группа ${definition.group}`
     : `В конфиге появится select-группа ${definition.group}`;
@@ -4157,7 +4175,7 @@ function updateResourceMonitorSourcePickerSummary(sourcePicker) {
   const selected = [...sourcePicker.querySelectorAll('[data-resource-monitor-source]:checked')]
     .map((input) => input.value);
   const text = selected.length > 0
-    ? selected.join(' → ')
+    ? selected.join(sourcePicker.dataset.mode === 'prizrak' ? ', ' : ' → ')
     : sourcePicker.dataset.resourceMonitorLocked === 'true'
       ? 'Выбор недоступен'
       : 'Выберите группы';
@@ -4169,6 +4187,8 @@ function handleResourceMonitorDialogChange(event) {
   const checkbox = event.target.closest?.('[data-resource-monitor-enabled]');
   if (checkbox) {
     const key = checkbox.dataset.resourceMonitorEnabled;
+    const mode = checkbox.value;
+    const enabled = mode !== 'off';
     const definition = RESOURCE_MONITOR_DEFINITIONS[key];
     const target = state.groups.find((group) => group.name === definition.group);
     const field = checkbox.closest('.resource-monitor-source');
@@ -4177,20 +4197,24 @@ function handleResourceMonitorDialogChange(event) {
     const sourceSummary = sourcePicker?.querySelector('summary');
     const locked = sourcePicker?.dataset.resourceMonitorLocked === 'true';
     const hint = field?.querySelector('small');
-    const toggleState = field?.querySelector('[data-resource-monitor-enabled-state]');
-    field?.classList.toggle('is-disabled', !checkbox.checked);
+    field?.classList.toggle('is-disabled', !enabled);
     sourceInputs.forEach((input) => {
-      input.disabled = !checkbox.checked || locked;
+      input.disabled = !enabled || locked;
     });
-    sourcePicker?.classList.toggle('is-disabled', !checkbox.checked || locked);
-    if (sourcePicker && !checkbox.checked) sourcePicker.open = false;
+    sourcePicker?.classList.toggle('is-disabled', !enabled || locked);
+    if (sourcePicker) {
+      sourcePicker.dataset.mode = mode;
+      if (!enabled) sourcePicker.open = false;
+      updateResourceMonitorSourcePickerSummary(sourcePicker);
+    }
     if (sourceSummary) {
-      const disabled = !checkbox.checked || locked;
+      const disabled = !enabled || locked;
       sourceSummary.setAttribute('aria-disabled', String(disabled));
       sourceSummary.tabIndex = disabled ? -1 : 0;
     }
-    if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, checkbox.checked);
-    if (toggleState) toggleState.textContent = checkbox.checked ? 'Включена' : 'Выключена';
+    if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, mode);
+    const sourceTitle = field?.querySelector('[data-resource-monitor-source-title]');
+    if (sourceTitle) sourceTitle.textContent = mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
   }
   const sourceCheckbox = event.target.closest?.('[data-resource-monitor-source]');
   if (sourceCheckbox) {
@@ -4203,7 +4227,8 @@ function collectResourceMonitorDialogServices() {
   return Object.fromEntries(
     Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => {
       const checkbox = els.resourceMonitorSources.querySelector(`[data-resource-monitor-enabled="${key}"]`);
-      return [key, { enabled: checkbox?.checked !== false, group: item.group }];
+      const mode = checkbox?.value || 'off';
+      return [key, { mode, enabled: mode !== 'off', group: item.group }];
     }),
   );
 }
@@ -4224,15 +4249,28 @@ function updateResourceMonitorDialogActions() {
   const issue = getResourceMonitorDialogIssue(sources, services);
   const needsConfig = resourceMonitorNeedsConfigChanges(sources, services);
   const removingAll = !Object.values(services).some((service) => service.enabled);
+  const hasMihui = Object.values(services).some((service) => getResourceMonitorMode(service) === 'mihui');
+  const { settings } = collectResourceMonitorDialogSettings();
+  const saved = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  const changedSettings = ['intervalSeconds', 'failureThreshold', 'latencyThresholdMs', 'proactiveSwitchEnabled',
+    'proactiveLatencyThresholdMs', 'minimumLatencyImprovementMs', 'quarantineSeconds'].some((key) => settings[key] !== saved[key])
+    || Object.keys(services).some((key) => getResourceMonitorMode(services[key]) !== (saved.enabled ? getResourceMonitorMode(saved.services[key]) : 'off')
+      || (services[key].enabled && !resourceMonitorSourceNamesEqual(sources[key], saved.services[key]?.sources)));
+  const policy = document.querySelector('#resourceMonitorPolicy');
+  if (policy) policy.hidden = !hasMihui;
   els.resourceMonitorDialogNotice.hidden = !issue;
   els.resourceMonitorDialogNotice.textContent = issue;
-  els.resourceMonitorSaveButton.disabled = Boolean(issue);
+  els.resourceMonitorSaveButton.disabled = Boolean(issue) || Boolean(state.resourceMonitor.saving);
   els.resourceMonitorSaveButton.textContent = needsConfig
     ? removingAll ? 'Убрать из конфига' : 'Подготовить конфиг'
     : 'Сохранить настройки';
   els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
+    || Boolean(state.resourceMonitor.saving)
+    || !hasMihui
+    || changedSettings
     || Boolean(state.resourceMonitor.pendingSettings)
     || needsConfig;
+  els.resourceMonitorCheckAllButton.hidden = !hasMihui;
 }
 
 function getResourceMonitorSourceGroups() {
@@ -4298,12 +4336,16 @@ function parseResourceMonitorGroupMarker(value) {
 }
 
 function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
     if (!enabledKeys.has(key)) return Boolean(group?.managedMonitoring);
-    if (!group || !['select', 'selector'].includes(String(group.type || '').toLowerCase())) return true;
+    const mode = getResourceMonitorMode(currentServices[key]);
+    const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    if (!group || !types.includes(String(group.type || '').toLowerCase())) return true;
+    if (mode === 'prizrak' && !group.useLightGBM) return true;
     if (
       group.proxies.length === 0
       && group.use.length === 0
@@ -4319,9 +4361,11 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
   });
   if (groupsNeedChanges) return true;
   if (
-    state.groups.some((group) => group.managedMonitoring && enabledKeys.has(group.monitorService))
+    state.groups.some((group) => group.managedMonitoring && group.type !== 'smart' && enabledKeys.has(group.monitorService))
     && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
   ) return true;
+  const lines = splitLines(state.outputText || state.originalText);
+  if (syncSmartModelSettings(lines).join('\n') !== lines.join('\n')) return true;
   if (resourceMonitorRulesNeedChanges(enabledKeys)) return true;
   return resourceMonitorRuleProvidersNeedChanges(
     enabledKeys,
@@ -4578,6 +4622,9 @@ function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGrou
 }
 
 function prepareResourceMonitorConfig(sources, services = null) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
+  const issue = getResourceMonitorDialogIssue(sources, currentServices);
+  if (issue) throw new Error(issue);
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
@@ -4589,18 +4636,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
       });
     const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
     if (!managedGroup) return;
-    const hasUserReferences = getActiveRules().some((rule) => rule.target === definition.group);
-    if (hasUserReferences) {
-      Object.assign(managedGroup, {
-        managedMonitoring: false,
-        monitorService: '',
-        monitorSourceGroup: '',
-        monitorSourceGroups: [],
-        requiresSelectionPersistence: false,
-      });
-    } else {
-      state.groups.splice(state.groups.indexOf(managedGroup), 1);
-    }
+    state.groups.splice(state.groups.indexOf(managedGroup), 1);
   });
 
   enabledEntries.forEach(([key]) => {
@@ -4619,14 +4655,17 @@ function prepareResourceMonitorConfig(sources, services = null) {
   const knownGroupNames = new Set(state.groups.map((group) => group.name));
   enabledEntries.forEach(([key, definition]) => {
     const existing = state.groups.find((group) => group.name === definition.group);
-    if (existing && !['select', 'selector'].includes(String(existing.type || '').toLowerCase())) {
-      throw new Error(`Группа ${definition.group} существует и не является select.`);
+    const mode = getResourceMonitorMode(currentServices[key]);
+    const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    if (existing && !existing.managedMonitoring && !types.includes(String(existing.type || '').toLowerCase())) {
+      throw new Error(`Группа ${definition.group} уже существует и имеет другой тип.`);
     }
     if (existing && !existing.managedMonitoring) return;
 
     const combined = combineResourceMonitorSourceGroups(sources[key], sourceGroups, knownGroupNames);
     const cloned = {
-      type: 'select',
+      type: mode === 'prizrak' ? 'smart' : 'select',
+      useLightGBM: mode === 'prizrak',
       proxies: combined.proxies,
       use: combined.use,
       includeAll: combined.includeAll,
@@ -4639,7 +4678,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
       monitorService: key,
       monitorSourceGroup: combined.names[0],
       monitorSourceGroups: combined.names,
-      requiresSelectionPersistence: true,
+      requiresSelectionPersistence: mode !== 'prizrak',
     };
 
     if (existing) {
@@ -4694,13 +4733,29 @@ function getResourceMonitorDialogIssue(
   sources = null,
   services = null,
 ) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledDefinitions = enabledEntries.map(([, definition]) => definition);
-  const conflict = enabledDefinitions.find((definition) => {
+  const smartEntry = enabledEntries.find(([key]) => getResourceMonitorMode(currentServices[key]) === 'prizrak');
+  if (smartEntry && !state.resourceMonitor.smartSupport?.supported) return 'Поддержка Smart установленным ядром не подтверждена. Установите Prizrak и обновите состояние ресурсов.';
+  const disabledModel = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return group && !['select', 'selector'].includes(String(group.type || '').toLowerCase());
+    return getResourceMonitorMode(currentServices[key]) === 'prizrak' && group && !group.managedMonitoring && !group.useLightGBM;
   });
-  if (conflict) return `Группа ${conflict.group} уже существует, но имеет тип не select. MihUI не будет перезаписывать её автоматически.`;
+  if (disabledModel) return `В пользовательской группе ${disabledModel[1].group} включите uselightgbm: true перед выбором режима Prizrak.`;
+  const referenced = Object.entries(RESOURCE_MONITOR_DEFINITIONS).find(([key, definition]) => {
+    if (getResourceMonitorMode(currentServices[key]) !== 'off') return false;
+    const group = state.groups.find((item) => item.name === definition.group && item.managedMonitoring);
+    return group && (getActiveRules().some((rule) => rule.target === definition.group && !isManagedResourceMonitorRule(rule, key))
+      || state.groups.some((item) => item !== group && !item.deleted && item.proxies.includes(group.name)));
+  });
+  if (referenced) return `На группу ${referenced[1].group} ссылаются пользовательские правила или группы. Уберите ссылки перед выключением ресурса.`;
+  const conflict = enabledEntries.find(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    const types = getResourceMonitorMode(currentServices[key]) === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    return group && !group.managedMonitoring && !types.includes(String(group.type || '').toLowerCase());
+  });
+  if (conflict) return `Группа ${conflict[1].group} уже существует, но имеет другой тип. MihUI не будет перезаписывать её автоматически.`;
   const empty = enabledDefinitions.find((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
     return group
@@ -4759,17 +4814,10 @@ function collectResourceMonitorDialogSettings() {
 }
 
 async function saveResourceMonitorDialog() {
+  if (state.resourceMonitor.saving) return;
   const { settings, sources } = collectResourceMonitorDialogSettings();
   const disabling = settings.enabled === false;
-  if (state.resourceMonitor.pendingSettings && hasUnsavedRouterChanges()) {
-    closeResourceMonitorDialog();
-    setActiveSection('review');
-    showMessage('Сначала сохраните подготовленный конфиг. Мониторинг включится только после подтверждения Mihomo.', {
-      severity: 'warning',
-    });
-    return;
-  }
-  if (resourceMonitorNeedsConfigChanges(sources, settings.services)) {
+  if (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges(sources, settings.services)) {
     try {
       prepareResourceMonitorConfig(sources, settings.services);
     } catch (error) {
@@ -4782,20 +4830,36 @@ async function saveResourceMonitorDialog() {
     setActiveSection('review');
     showMessage(disabling
       ? 'Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.'
-      : 'Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
+      : 'Режимы ресурсов подготовлены в черновике. Проверьте изменения и сохраните конфиг — до сохранения действуют прежние режимы.', {
       severity: 'warning',
     });
     return;
   }
 
+  const inputs = [...els.resourceMonitorDialog.querySelectorAll('input, select')].map((input) => [input, input.disabled]);
+  let saveError = '';
   try {
+    state.resourceMonitor.saving = true;
+    inputs.forEach(([input]) => { input.disabled = true; });
+    updateResourceMonitorDialogActions();
+    renderResourceMonitor();
     await postResourceMonitorSettings(settings);
     state.resourceMonitor.pendingSettings = null;
     closeResourceMonitorDialog();
-    showMessage('Настройки мониторинга сохранены.', { severity: 'success' });
+    showMessage('Настройки ресурсов сохранены.', { severity: 'success' });
   } catch (error) {
-    els.resourceMonitorDialogNotice.hidden = false;
-    els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+    saveError = error?.message || String(error);
+  } finally {
+    state.resourceMonitor.saving = false;
+    inputs.forEach(([input, disabled]) => { input.disabled = disabled; });
+    renderResourceMonitor();
+    if (els.resourceMonitorDialog.open) {
+      updateResourceMonitorDialogActions();
+      if (saveError) {
+        els.resourceMonitorDialogNotice.hidden = false;
+        els.resourceMonitorDialogNotice.textContent = saveError;
+      }
+    }
   }
 }
 
@@ -4812,6 +4876,7 @@ async function postResourceMonitorSettings(settings) {
   state.resourceMonitor.config = data.config || settings;
   state.resourceMonitor.runtime = data.runtime || state.resourceMonitor.runtime;
   state.resourceMonitor.readiness = data.readiness || state.resourceMonitor.readiness;
+  state.resourceMonitor.smartSupport = data.smartSupport || state.resourceMonitor.smartSupport;
   state.resourceMonitor.events = Array.isArray(data.events) ? data.events : state.resourceMonitor.events;
   renderResourceMonitor();
 }
@@ -8603,6 +8668,13 @@ function collectChanges(activeProviders) {
 
   const sections = [];
   const structuralChanges = [];
+  const modelChanges = [];
+  ['lgbm-auto-update', 'lgbm-update-interval'].forEach((key) => {
+    const before = splitLines(state.originalText).find((line) => parseTopLevelKeyValueLine(line)?.key === key);
+    const after = splitLines(state.outputText).find((line) => parseTopLevelKeyValueLine(line)?.key === key);
+    if (before === after) return;
+    modelChanges.push(after ? `Будет добавлен параметр ${after.trim()}.` : `Будет удалён параметр ${key}.`);
+  });
   const connectionSettingChanges = collectConnectionSettingChanges();
   const providerChanges = collectProviderChanges(activeProviders);
   const ruleChanges = collectRuleChanges();
@@ -8616,6 +8688,7 @@ function collectChanges(activeProviders) {
   }
 
   if (structuralChanges.length > 0) sections.push({ title: 'Структура конфигурации', items: structuralChanges });
+  if (modelChanges.length > 0) sections.push({ title: 'Модель LightGBM', items: modelChanges });
   if (connectionSettingChanges.length > 0) sections.push({ title: 'Параметры подключения', items: connectionSettingChanges });
   if (providerChanges.length > 0) sections.push({ title: 'Подписки', items: providerChanges });
   if (ruleChanges.length > 0) sections.push({ title: 'Правила', items: ruleChanges });
@@ -8767,6 +8840,9 @@ function collectGroupUseChanges() {
       changes.push(`Группа ${original.name}: переименована в ${group.name}.`);
     }
 
+    if (group.managedMonitoring && Boolean(group.useLightGBM) !== Boolean(original.useLightGBM)) {
+      changes.push(`Группа ${group.name}: LightGBM будет ${group.useLightGBM ? 'включён' : 'выключен'}.`);
+    }
     if (group.type !== original.type) {
       changes.push(`Группа ${group.name}: тип изменится с ${original.type || 'не задан'} на ${group.type || 'не задан'}.`);
     }
@@ -9033,6 +9109,7 @@ function snapshotGroup(group) {
     name: group.name || '',
     originalName: group.originalName || group.name || '',
     type: group.type || '',
+    useLightGBM: Boolean(group.useLightGBM),
     proxies: group.proxies.slice(),
     use: group.use.slice(),
     includeAll: Boolean(group.includeAll),
@@ -12702,9 +12779,12 @@ function createGroupEditorDetail(group, activeProviders) {
     const option = document.createElement('option');
     option.value = type;
     option.textContent = type;
+    option.disabled = type === 'smart' && group.type !== 'smart' && !state.resourceMonitor.smartSupport?.supported;
     typeSelect.append(option);
   });
   typeSelect.value = GROUP_TYPE_OPTIONS.includes(group.type) ? group.type : 'select';
+  typeSelect.disabled = Boolean(group.managedMonitoring);
+  if (group.managedMonitoring) typeSelect.title = 'Измените режим в настройках ресурсов';
   typeSelect.addEventListener('change', () => updateGroup(group, 'type', typeSelect.value));
   typeLabel.append(typeText, typeSelect);
   fields.append(nameLabel, typeLabel);
@@ -12812,6 +12892,7 @@ function describeGroupTypeForEditor(group) {
   if (type === 'fallback') return 'Резервирование: Mihomo идет по списку сверху вниз и берет первый доступный вариант.';
   if (type === 'url-test') return 'Автовыбор по скорости: Mihomo проверяет задержку и выбирает самый быстрый доступный вариант.';
   if (type === 'load-balance') return 'Балансировка: трафик распределяется между доступными вариантами группы.';
+  if (type === 'smart') return 'Smart: Prizrak выбирает ноды для направлений по истории соединений и оценке их качества.';
   if (type === 'relay') return 'Цепочка: трафик проходит через варианты по порядку, поэтому порядок особенно важен.';
   return 'Обычная группа Mihomo: поведение зависит от указанного type.';
 }
@@ -14038,8 +14119,26 @@ function generateOutput() {
     nextLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  setOutputText(syncResourceMonitorRuleProviders(nextLines).join('\n'));
+  setOutputText(syncSmartModelSettings(syncResourceMonitorRuleProviders(nextLines)).join('\n'));
   renderOutputOnly();
+}
+
+function syncSmartModelSettings(lines) {
+  const hasSmart = state.groups.some((group) => !group.deleted && String(group.type).toLowerCase() === 'smart');
+  const defaults = { 'lgbm-auto-update': 'true', 'lgbm-update-interval': '72' };
+  const present = new Set();
+  const next = lines.filter((line) => {
+    const item = parseTopLevelKeyValueLine(line);
+    if (!item || !(item.key in defaults)) return true;
+    present.add(item.key);
+    return hasSmart;
+  });
+  if (hasSmart) {
+    const missing = Object.entries(defaults).filter(([key]) => !present.has(key)).map(([key, value]) => `${key}: ${value}`);
+    const groups = findTopSection(next, 'proxy-groups');
+    next.splice(groups?.start ?? 0, 0, ...missing);
+  }
+  return next;
 }
 
 function setOutputText(text) {
@@ -14516,6 +14615,8 @@ function applyConfigurationEdit() {
   state.originalText = nextText;
   state.isEditingConfiguration = false;
   parseAndRender();
+  setOutputText(syncSmartModelSettings(splitLines(state.outputText)).join("\n"));
+  renderOutputOnly();
   els.outputPreview.scrollTop = 0;
   if (els.outputCodeView) els.outputCodeView.scrollTop = 0;
   return true;
@@ -14945,6 +15046,8 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     if (use.length > 0) insertGroupListBlock(block, 'use', use);
   }
   if (currentGroup.managedMonitoring) {
+    setOptionalGroupScalar(block, 'uselightgbm', currentGroup.type === 'smart' ? 'true' : '');
+    setOptionalGroupScalar(block, 'collectdata', currentGroup.type === 'smart' ? 'false' : '');
     setOptionalGroupScalar(block, 'include-all', currentGroup.includeAll ? 'true' : '');
     setOptionalGroupScalar(block, 'include-all-proxies', currentGroup.includeAllProxies ? 'true' : '');
     setOptionalGroupScalar(block, 'include-all-providers', currentGroup.includeAllProviders ? 'true' : '');
@@ -14961,6 +15064,7 @@ function createGroupBlock(group) {
     `  - name: ${formatScalar(group.name)}${formatResourceMonitorGroupMarker(group)}`,
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
+  if (group.managedMonitoring && group.type === 'smart') lines.push('    uselightgbm: true', '    collectdata: false');
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
   const use = getActiveGroupUse(group);
   if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
@@ -15356,6 +15460,7 @@ function parseGroups(lines, section) {
       name,
       originalName: name,
       type: readScalar(block, keyIndent, 'type') || '',
+      useLightGBM: readBoolScalar(block, keyIndent, 'uselightgbm'),
       proxies: proxiesMeta.items,
       use: useMeta.items,
       includeAll: readBoolScalar(block, keyIndent, 'include-all'),

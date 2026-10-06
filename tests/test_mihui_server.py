@@ -3035,6 +3035,9 @@ class ProviderAdapterTests(unittest.TestCase):
         for available in (True, False):
             with self.subTest(available=available), tempfile.TemporaryDirectory() as temp_dir:
                 app_dir = Path(temp_dir)
+                settings = mihui_server.default_resource_monitor_settings()
+                settings["enabled"] = True
+                mihui_server.save_resource_monitor_settings(app_dir, settings)
                 with mock.patch.object(mihui_server, "probe_resource_node", return_value={
                     "ok": available, "delay": 20 if available else None, "message": "",
                 }), mock.patch.object(mihui_server, "select_proxy_group", return_value={"ok": True}), \
@@ -3067,6 +3070,9 @@ class ProviderAdapterTests(unittest.TestCase):
     def test_resource_monitor_manual_switch_endpoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
+            settings = mihui_server.default_resource_monitor_settings()
+            settings["enabled"] = True
+            mihui_server.save_resource_monitor_settings(app_dir, settings)
             server, thread = self.start_mihui_server(app_dir)
             try:
                 with mock.patch.object(mihui_server, "start_resource_monitor_check", return_value={"ok": True}) as start:
@@ -3696,7 +3702,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertTrue(result["ok"])
-        select_fastest.assert_called_once_with(app_dir, settings, proxies)
+        select_fastest.assert_called_once_with(app_dir, mihui_server.validate_resource_monitor_settings(settings), proxies)
 
     def test_resource_monitor_startup_refreshes_ranking_before_selection(self):
         settings = mihui_server.default_resource_monitor_settings()

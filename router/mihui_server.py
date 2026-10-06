@@ -228,6 +228,7 @@ RESOURCE_MONITOR_GROUP_TYPES = {
     "loadbalance",
     "load-balance",
     "relay",
+    "smart",
 }
 RESOURCE_MONITOR_BUILTINS = {
     "DIRECT",
@@ -405,6 +406,8 @@ component_release_cache = {"checkedAt": 0, "catalog": {}}
 xkeen_files_lock = threading.Lock()
 xkeen_command_jobs_lock = threading.Lock()
 xkeen_command_jobs = {}
+resource_smart_support_cache = {}
+resource_smart_support_lock = threading.Lock()
 resource_monitor_lock = threading.Lock()
 resource_monitor_state_lock = threading.Lock()
 resource_monitor_log_prune_lock = threading.Lock()
@@ -1003,7 +1006,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Неизвестный ресурс"})
             return
 
-        if force_switch and not load_resource_monitor_settings(self.app_dir)["services"][service]["enabled"]:
+        if service and resource_monitor_mode(load_resource_monitor_settings(self.app_dir)["services"][service]) != "mihui":
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Мониторинг ресурса не настроен"})
             return
         result = start_resource_monitor_check(self.app_dir, [service] if service else None, force_switch=force_switch)
@@ -2764,6 +2767,8 @@ def validate_component_action(app_dir, payload):
             raise ValueError("Неподдерживаемое ядро")
         if target == get_mihomo_core(app_dir):
             raise ValueError("Выбранное ядро уже установлено")
+        if target == "mihomo" and has_config_smart_groups(read_config_text(get_config_path(app_dir))):
+            raise ValueError("Перед переходом на Mihomo переведите Smart-группы в MihUI или удалите их и сохраните конфиг")
         try:
             versions = fetch_component_releases(get_mihomo_core_repo(app_dir, target))
         except Exception as error:
@@ -3087,6 +3092,8 @@ def download_prizrak_binary(binary_path, target, directory):
 def run_mihomo_component_update(app_dir, target, core=None):
     current_core = get_mihomo_core(app_dir)
     core = core or current_core
+    if core == "mihomo" and has_config_smart_groups(read_config_text(get_config_path(app_dir))):
+        raise RuntimeError("Перед переходом на Mihomo переведите Smart-группы в MihUI или удалите их и сохраните конфиг")
     label = "Prizrak-Core" if core == "prizrak" else "Mihomo"
     xkeen_binary = find_xkeen_binary(app_dir)
     mihomo = read_mihomo_binary_version(app_dir)
@@ -4604,6 +4611,49 @@ def get_current_nodes(app_dir):
         return {"ok": False, "message": str(error), "nodes": [], "providers": [], "groups": [], "groupsError": ""}
 
 
+def resource_monitor_mode(item):
+    if not item.get("enabled", True) or item.get("mode") == "off":
+        return "off"
+    return item.get("mode", "mihui")
+
+
+def get_resource_smart_support(app_dir):
+    binary = find_mihomo_binary(app_dir)
+    if not binary:
+        return {"supported": False, "message": "Ядро не найдено"}
+    try:
+        stat = Path(binary).stat()
+        identity = (binary, stat.st_mtime_ns, stat.st_size)
+        with resource_smart_support_lock:
+            if resource_smart_support_cache.get("identity") != identity:
+                with tempfile.TemporaryDirectory(prefix="mihui-smart-") as directory:
+                    probe_path = Path(directory) / "config.yaml"
+                    probe_path.write_text("proxy-groups:\n  - name: MIHUI-SMART-CHECK\n    type: smart\n    uselightgbm: false\n    collectdata: false\n    proxies: [DIRECT]\nrules:\n  - MATCH,MIHUI-SMART-CHECK\n", encoding="utf-8")
+                    check = subprocess.run([binary, "-t", "-d", directory, "-f", str(probe_path)],
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15, check=False)
+                supported = check.returncode == 0
+                resource_smart_support_cache.update(identity=identity, result={
+                    "supported": supported,
+                    "message": "Поддержка Smart подтверждена" if supported else "Установленное ядро не подтвердило поддержку Smart",
+                })
+            return dict(resource_smart_support_cache["result"])
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"supported": False, "message": str(error)}
+
+
+def has_config_smart_groups(text):
+    in_groups = False
+    for line in text.splitlines():
+        clean = strip_yaml_comment(line)
+        if re.match(r"^proxy-groups\s*:", clean):
+            in_groups = True
+        elif re.match(r"^[\w-]+\s*:", clean):
+            in_groups = False
+        if in_groups and re.search(r"(?:^\s*(?:-\s*)?|[{,]\s*)['\"]?type['\"]?\s*:\s*['\"]?smart['\"]?\s*(?:[,}]|$)", clean, re.I):
+            return True
+    return False
+
+
 def default_resource_monitor_settings():
     return {
         "enabled": False,
@@ -4691,6 +4741,8 @@ def load_resource_monitor_settings(app_dir):
                     services[key]["group"] = item["group"]
                 if "sources" in item:
                     services[key]["sources"] = item["sources"]
+                if "mode" in item:
+                    services[key]["mode"] = item["mode"]
         merged["services"] = services
 
     try:
@@ -4734,6 +4786,7 @@ def validate_resource_monitor_settings(payload):
         raise ValueError("Неизвестные ресурсы: " + ", ".join(sorted(unknown)))
 
     normalized_services = {}
+    explicit_modes = any(isinstance(item, dict) and "mode" in item for item in services.values())
     for key, definition in RESOURCE_MONITOR_SERVICES.items():
         item = services.get(key)
         if not isinstance(item, dict):
@@ -4753,11 +4806,18 @@ def validate_resource_monitor_settings(payload):
                 raise ValueError(f"Имена групп-источников ресурса {key} не должны быть пустыми")
             if name not in normalized_sources:
                 normalized_sources.append(name)
+        mode = item.get("mode", "mihui")
+        if mode not in {"off", "mihui", "prizrak"}:
+            raise ValueError(f"Некорректный режим ресурса {key}")
+        enabled = bool(item.get("enabled", True)) and mode != "off" and (explicit_modes or result["enabled"])
         normalized_services[key] = {
-            "enabled": bool(item.get("enabled", True)),
+            "mode": mode if enabled else "off",
+            "enabled": enabled,
             "group": group,
             "sources": normalized_sources,
         }
+    if explicit_modes:
+        result["enabled"] = any(item["enabled"] for item in normalized_services.values())
     if result["enabled"] and not any(item["enabled"] for item in normalized_services.values()):
         raise ValueError("Необходимо включить хотя бы один ресурс")
     result["services"] = normalized_services
@@ -4936,9 +4996,10 @@ def get_resource_monitor_readiness(app_dir, settings=None):
         group = proxies.get(group_name)
         group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
         options = group.get("all") if isinstance(group, dict) else None
-        allowed = resource_monitor_source_nodes(item, proxies)
+        smart = resource_monitor_mode(item) == "prizrak"
+        allowed = None if smart else resource_monitor_source_nodes(item, proxies)
         item_ready = (
-            group_type in {"select", "selector"}
+            group_type in ({"smart"} if smart else {"select", "selector"})
             and isinstance(options, list)
             and any(
                 is_resource_monitor_node_candidate(option, proxies)
@@ -4951,7 +5012,7 @@ def get_resource_monitor_readiness(app_dir, settings=None):
         items[key] = {
             "ready": item_ready,
             "group": group_name,
-            "message": "" if item_ready else "Нужна непустая группа select",
+            "message": "" if item_ready else ("Нужна непустая группа smart" if smart else "Нужна непустая группа select"),
         }
     return {"ready": ready, "message": "" if ready else "Не все группы готовы", "services": items}
 
@@ -4961,6 +5022,7 @@ def get_resource_monitor_status(app_dir):
     return {
         "ok": True,
         "config": config,
+        "smartSupport": get_resource_smart_support(app_dir),
         "runtime": load_resource_monitor_runtime(app_dir),
         "events": read_resource_monitor_events(app_dir),
         "readiness": get_resource_monitor_readiness(app_dir, config),
@@ -5202,7 +5264,7 @@ def refresh_resource_monitor_reserve(app_dir, services=None, group=None):
         settings = load_resource_monitor_settings(app_dir)
         selected = [
             service for service, config in settings["services"].items()
-            if config["enabled"] and (services is None or service in services)
+            if resource_monitor_mode(config) == "mihui" and (services is None or service in services)
             and (group is None or config["group"] == group)
         ]
         if not selected:
@@ -5214,6 +5276,8 @@ def refresh_resource_monitor_reserve(app_dir, services=None, group=None):
                 config = settings["services"][service]
                 item = runtime["services"][service]
                 proxy_group = proxies.get(config["group"], {})
+                if str(proxy_group.get("type") or "").casefold() not in {"select", "selector"}:
+                    continue
                 current = str(proxy_group.get("now") or "")
                 tiers = resource_monitor_candidate_tiers(
                     proxy_group, proxies, current, item["quarantine"],
@@ -5246,11 +5310,13 @@ def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
     results = {}
     ok = True
     for service, service_settings in settings["services"].items():
-        if not service_settings["enabled"]:
+        if resource_monitor_mode(service_settings) != "mihui":
             continue
         group_name = service_settings["group"]
         group = proxies.get(group_name)
-        options = group.get("all") if isinstance(group, dict) else []
+        if not isinstance(group, dict) or str(group.get("type") or "").casefold() not in {"select", "selector"}:
+            continue
+        options = group.get("all")
         tiers = resource_monitor_source_tiers(service_settings, proxies)
         candidate_tiers = resource_monitor_candidate_tiers(
             group,
@@ -5296,10 +5362,12 @@ def refresh_resource_monitor_provider_delays(
     selected_services = set(services or settings["services"])
     monitored_nodes = set()
     for service, service_settings in settings["services"].items():
-        if service not in selected_services or not service_settings["enabled"]:
+        if service not in selected_services or resource_monitor_mode(service_settings) != "mihui":
             continue
         group = proxies.get(service_settings["group"])
-        options = group.get("all") if isinstance(group, dict) else None
+        if not isinstance(group, dict) or str(group.get("type") or "").casefold() not in {"select", "selector"}:
+            continue
+        options = group.get("all")
         allowed = resource_monitor_source_nodes(service_settings, proxies)
         if isinstance(options, list):
             monitored_nodes.update(
@@ -5342,7 +5410,7 @@ def refresh_resource_monitor_provider_delays(
 
 def run_resource_monitor_startup_cycle(app_dir):
     settings = load_resource_monitor_settings(app_dir)
-    if not settings["enabled"]:
+    if not settings["enabled"] or not any(resource_monitor_mode(item) == "mihui" for item in settings["services"].values()):
         return {"ok": True, "selection": {"ok": True, "services": {}}, "runtime": None}
 
     proxies, providers = load_resource_monitor_proxy_snapshot(app_dir)
@@ -5468,9 +5536,13 @@ def switch_resource_monitor_node(
 
 def run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=False):
     service_settings = settings["services"][service]
+    if resource_monitor_mode(service_settings) != "mihui":
+        return
     group_name = service_settings["group"]
     group = proxies.get(group_name)
     group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+    if group_type == "smart":
+        return
     options = group.get("all") if isinstance(group, dict) else None
     tiers = resource_monitor_source_tiers(service_settings, proxies)
     allowed = resource_monitor_source_nodes(service_settings, proxies)
@@ -5868,7 +5940,7 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switc
     with resource_monitor_lock:
         settings = load_resource_monitor_settings(app_dir)
         selected_services = services or [
-            key for key, item in settings["services"].items() if item["enabled"]
+            key for key, item in settings["services"].items() if resource_monitor_mode(item) == "mihui"
         ]
         runtime = load_resource_monitor_runtime(app_dir)
         previous_switches = {
@@ -5879,7 +5951,7 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switc
             if proxies is None:
                 proxies = load_resource_monitor_proxies(app_dir)
             for service in selected_services:
-                if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
+                if service in RESOURCE_MONITOR_SERVICES and resource_monitor_mode(settings["services"][service]) == "mihui":
                     run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=force_switch)
         except Exception as error:
             for service in selected_services:
@@ -5922,6 +5994,13 @@ def run_resource_monitor_job(app_dir, services=None, startup=False, force_switch
 
 
 def start_resource_monitor_check(app_dir, services=None, startup=False, force_switch=False):
+    settings = load_resource_monitor_settings(app_dir)
+    if not settings["enabled"]:
+        return {"ok": False, "message": "Управление ресурсами выключено"}
+    services = [key for key, item in settings["services"].items()
+                if resource_monitor_mode(item) == "mihui" and (services is None or key in services)]
+    if not services:
+        return {"ok": False, "message": "Нет ресурсов под управлением MihUI"}
     with resource_monitor_state_lock:
         if resource_monitor_job_state["running"]:
             return {"ok": False, "message": "Проверка ресурсов уже выполняется", "job": dict(resource_monitor_job_state)}
@@ -5948,7 +6027,9 @@ def resource_monitor_worker(app_dir):
     while True:
         time.sleep(5)
         settings = load_resource_monitor_settings(app_dir)
-        if not settings["enabled"] or snapshot_resource_monitor_job()["running"]:
+        if not settings["enabled"] or snapshot_resource_monitor_job()["running"] or not any(
+            resource_monitor_mode(item) == "mihui" for item in settings["services"].values()
+        ):
             continue
         if startup_pending:
             if time.monotonic() < startup_due_at:
@@ -5961,7 +6042,7 @@ def resource_monitor_worker(app_dir):
         now = int(time.time())
         due = []
         for service, item in settings["services"].items():
-            if not item["enabled"]:
+            if resource_monitor_mode(item) != "mihui":
                 continue
             checked_at = runtime["services"][service].get("checkedAt")
             if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:

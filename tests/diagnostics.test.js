@@ -72,6 +72,7 @@ function loadApp(source, initialStorage = {}, options = {}) {
   const context = {
     Blob,
     URL,
+    structuredClone,
     console,
     document: {
       body: createElement(),
@@ -180,9 +181,10 @@ globalThis.__app = {
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
+  prepareSmartCoreReturn,
+  getResourceMonitorMode,
   resourceMonitorNeedsConfigChanges,
   getResourceMonitorDialogIssue,
-  toggleResourceMonitor,
   getResourceMonitorSourceGroups,
   buildResourceMonitorTimeline,
   getResourceMonitorHistoryTooltipContent,
@@ -712,7 +714,7 @@ rules:
     assert.equal(app.resourceMonitorNeedsConfigChanges({}, disabledServices), false);
   });
 
-  test(`${source.name}: global resource monitor switch prepares full config cleanup`, async () => {
+  test(`${source.name}: off modes prepare full resource config cleanup`, () => {
     const app = loadApp(source);
     hydrate(app, `
 proxy-groups:
@@ -744,12 +746,8 @@ rules:
     );
     app.prepareResourceMonitorConfig(sources, services);
     app.state.resourceMonitor.config = { enabled: true, services };
-    app.els.resourceMonitorEnabled.checked = false;
-
-    await app.toggleResourceMonitor();
-
-    assert.equal(app.els.resourceMonitorEnabled.checked, true);
-    assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
+    const disabled = Object.fromEntries(Object.entries(services).map(([key, item]) => [key, { ...item, mode: 'off', enabled: false }]));
+    app.prepareResourceMonitorConfig({}, disabled);
     assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
     assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.match(app.state.outputText, /MATCH,PROXY/);
@@ -3327,5 +3325,142 @@ rules:
     assert.equal(provider.deleted, false);
     assert.equal(rule.deleted, false);
     assert.deepEqual([...app.state.groups[0].use], ['one']);
+  });
+}
+
+function resourceModeFixture(source) {
+  const app = loadApp(source);
+  hydrate(app, [
+    'proxy-providers:', '  main:', '    type: http', '    url: https://example.com/sub',
+    'proxy-groups:', '  - name: FASTEST', '    type: url-test', '    use: [main]',
+    '  - name: SECOND', '    type: fallback', '    proxies: [node-b]',
+    '  - name: PROXY', '    type: select', '    proxies: [FASTEST, SECOND]',
+    'rules:', '  - MATCH,PROXY', '',
+  ].join('\n'));
+  app.state.resourceMonitor.smartSupport = { supported: true };
+  const services = Object.fromEntries(['youtube', 'tiktok', 'telegram', 'whatsapp', 'instagram', 'twitter', 'ai']
+    .map((key) => [key, { enabled: false, mode: 'off', group: key.toUpperCase(), sources: [] }]));
+  return { app, services };
+}
+
+test('resource settings reject double submission and preserve inputs after a failed save', async () => {
+  const source = readSource(SOURCES[0]);
+  const script = source.slice(source.indexOf('async function saveResourceMonitorDialog()'), source.indexOf('async function postResourceMonitorSettings('));
+  const input = { value: '3600', disabled: false };
+  const locked = { disabled: true };
+  const dialog = { open: true, querySelectorAll: () => [input, locked] };
+  const state = { resourceMonitor: { pendingSettings: null } };
+  const notice = { hidden: true, textContent: '' };
+  let rejectRequest;
+  let requests = 0;
+  const context = vm.createContext({
+    state,
+    els: { resourceMonitorDialog: dialog, resourceMonitorDialogNotice: notice },
+    collectResourceMonitorDialogSettings: () => ({ settings: { enabled: true, services: {} }, sources: {} }),
+    resourceMonitorNeedsConfigChanges: () => false,
+    postResourceMonitorSettings: () => { requests += 1; return new Promise((resolve, reject) => { rejectRequest = reject; }); },
+    updateResourceMonitorDialogActions() { notice.hidden = true; },
+    renderResourceMonitor() {},
+    closeResourceMonitorDialog() { dialog.open = false; },
+    showMessage() {},
+  });
+  vm.runInContext(script + '\nglobalThis.save = saveResourceMonitorDialog;', context);
+  const first = context.save();
+  assert.equal(input.disabled, true);
+  await context.save();
+  assert.equal(requests, 1);
+  rejectRequest(new Error('Сервис недоступен'));
+  await first;
+  assert.equal(state.resourceMonitor.saving, false);
+  assert.equal(input.value, '3600');
+  assert.equal(input.disabled, false);
+  assert.equal(locked.disabled, true);
+  assert.equal(notice.hidden, false);
+  assert.equal(notice.textContent, 'Сервис недоступен');
+  assert.equal(dialog.open, true);
+  context.postResourceMonitorSettings = async () => { requests += 1; };
+  await context.save();
+  assert.equal(requests, 2);
+  assert.equal(dialog.open, false);
+});
+
+for (const source of SOURCES) {
+  test(source.name + ': mixes Smart and MihUI without duplicating groups or rules', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, enabled: true, mode: 'prizrak', sources: ['FASTEST', 'SECOND'] };
+    services.telegram = { ...services.telegram, enabled: true, mode: 'mihui', sources: ['FASTEST'] };
+    const sources = { youtube: ['FASTEST', 'SECOND'], telegram: ['FASTEST'] };
+    app.prepareResourceMonitorConfig(sources, services);
+    const youtube = app.state.groups.find((group) => group.name === 'YOUTUBE');
+    assert.equal(youtube.type, 'smart');
+    assert.deepEqual(Array.from(youtube.use), ['main']);
+    assert.deepEqual(Array.from(youtube.proxies), ['node-b']);
+    assert.equal(app.state.groups.find((group) => group.name === 'TELEGRAM').type, 'select');
+    assert.match(app.state.outputText, /uselightgbm: true/);
+    assert.match(app.state.outputText, /collectdata: false/);
+    assert.match(app.state.outputText, /^lgbm-auto-update: true$/m);
+    assert.match(app.state.outputText, /^lgbm-update-interval: 72$/m);
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal((app.state.outputText.match(/name: YOUTUBE /g) || []).length, 1);
+    assert.equal((app.state.outputText.match(/GEOSITE,youtube,YOUTUBE/g) || []).length, 1);
+  });
+
+  test(source.name + ': converts the last Smart resource to MihUI and removes model settings', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    hydrate(app, app.state.outputText);
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    assert.equal(app.state.groups.find((group) => group.name === 'YOUTUBE').type, 'select');
+    assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval|uselightgbm|collectdata/);
+    assert.match(app.state.outputText, /GEOSITE,youtube,YOUTUBE/);
+  });
+
+  test(source.name + ': keeps global model settings until every Smart group is removed', () => {
+    const { app, services } = resourceModeFixture(source);
+    hydrate(app, app.state.originalText.replace('proxy-groups:', [
+      'lgbm-auto-update: false', 'lgbm-update-interval: 24', 'proxy-groups:',
+      '  - name: CUSTOM', '    type: smart', '    uselightgbm: true', '    proxies: [node-a]',
+    ].join('\n')));
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    services.youtube = { ...services.youtube, mode: 'off', enabled: false };
+    app.prepareResourceMonitorConfig({}, services);
+    assert.match(app.state.outputText, /^lgbm-auto-update: false$/m);
+    assert.match(app.state.outputText, /^lgbm-update-interval: 24$/m);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|GEOSITE,youtube/);
+    app.state.groups = app.state.groups.filter((group) => group.name !== 'CUSTOM');
+    app.generateOutput();
+    assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval/);
+  });
+
+  test(source.name + ': blocks unsupported Smart and referenced cleanup without changing the draft', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.state.resourceMonitor.smartSupport.supported = false;
+    const original = app.state.outputText;
+    assert.throws(() => app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services), /не подтверждена/);
+    assert.equal(app.state.outputText, original);
+    app.state.resourceMonitor.smartSupport.supported = true;
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    hydrate(app, app.state.outputText.replace('  - MATCH,PROXY', '  - DOMAIN,example.org,YOUTUBE\n  - MATCH,PROXY'));
+    const active = app.state.originalText;
+    services.youtube = { ...services.youtube, mode: 'off', enabled: false };
+    assert.throws(() => app.prepareResourceMonitorConfig({}, services), /пользовательские правила/);
+    assert.equal(app.state.originalText, active);
+    assert.equal(app.state.rules.some((rule) => rule.deleted), false);
+  });
+
+  test(source.name + ': raw edits add and clean model parameters while preserving other YAML', () => {
+    const { app } = resourceModeFixture(source);
+    const original = app.state.originalText;
+    app.els.outputPreview.value = original.replace('type: fallback', 'type: smart');
+    assert.equal(app.applyConfigurationEdit(), true);
+    assert.match(app.state.outputText, /^lgbm-auto-update: true$/m);
+    app.els.outputPreview.value = app.state.outputText.replace('type: smart', 'type: fallback');
+    assert.equal(app.applyConfigurationEdit(), true);
+    assert.equal(app.state.outputText, original);
   });
 }

@@ -23,10 +23,11 @@ for (const outcome of ['running', 'success', 'rollback']) {
       loadComponents: async () => { calls.push('components'); },
       loadProviderStatuses: async () => { calls.push('providers'); },
       loadNodeInventory: async () => { calls.push('nodes'); },
+      loadResourceMonitor: async () => { calls.push('resources'); },
     });
     vm.runInContext(`${polling}\nglobalThis.poll = pollComponentJob;`, context);
     await context.poll();
     assert.equal(state.components.job.running, outcome === 'running');
-    assert.deepEqual(calls, outcome === 'running' ? ['poll'] : ['services', 'components', 'providers', 'nodes']);
+    assert.deepEqual(calls, outcome === 'running' ? ['poll'] : ['services', 'components', 'providers', 'nodes', 'resources']);
   });
 }
