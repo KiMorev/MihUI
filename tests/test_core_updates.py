@@ -99,6 +99,52 @@ class CoreUpdateTests(unittest.TestCase):
                 self.assertEqual(run.call_args.kwargs["env"]["XKEEN_FOREGROUND"], "1")
                 self.assertEqual(run.call_args.kwargs["timeout"], 180)
 
+    def test_xkeen_update_handles_confirmation_and_zero_exit_cancellation(self):
+        real_run = subprocess.run
+        script = (
+            "import sys; from pathlib import Path\n"
+            "flag, mode, directory = sys.argv[1:4]\n"
+            "folder = Path(directory)\n"
+            "if flag == '-uk':\n"
+            " if mode == 'cancelled' or (mode == 'legacy' and sys.stdin.readline().strip() != '1'):\n"
+            "  print('Проверка обновлений XKeen \\x1b[31mотменена\\x1b[0m'); sys.exit(0)\n"
+            " if mode == 'auto' and sys.argv[4:] != ['auto']: sys.exit(3)\n"
+            " (folder / 'updated').write_text('2.1.1')\n"
+            " print('Обновление XKeen выполнено')\n"
+            "elif flag == '-kbr' and sys.stdin.readline().strip() == '1':\n"
+            " (folder / 'restored').write_text('2.0.1')\n"
+        )
+        for mode in ("legacy", "auto", "cancelled"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+
+                def run(command, **kwargs):
+                    return real_run([sys.executable, "-X", "utf8", "-c", script,
+                                     command[1], mode, directory, *command[2:]], **kwargs)
+
+                def version_info(_):
+                    return {"version": "2.1.1" if (folder / "updated").exists() else "2.0.1", "channel": "Beta"}
+
+                with mock.patch.object(mihui_server, "find_xkeen_binary", return_value="xkeen"), \
+                        mock.patch.object(mihui_server, "get_xkeen_service_status", return_value={"state": "stopped"}), \
+                        mock.patch.object(mihui_server, "get_xkeen_version_info", side_effect=version_info), \
+                        mock.patch.object(mihui_server.subprocess, "run", side_effect=run):
+                    mihui_server.update_component_action_state(output="", running=True, ok=None)
+                    mihui_server.run_component_action(folder, {"component": "xkeen", "action": "update"})
+
+                job = mihui_server.snapshot_component_action_state()
+                self.assertFalse(job["running"])
+                if mode == "cancelled":
+                    self.assertFalse((folder / "updated").exists())
+                    self.assertTrue((folder / "restored").exists())
+                    self.assertFalse(job["ok"])
+                    self.assertEqual(job["phase"], "failed")
+                    self.assertEqual(job["message"], "Обновление XKeen отменено")
+                else:
+                    self.assertTrue((folder / "updated").exists())
+                    self.assertFalse((folder / "restored").exists())
+                    self.assertTrue(job["ok"])
+
     def test_xkeen_start_does_not_wait_for_daemon_output_to_close(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)

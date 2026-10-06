@@ -2920,7 +2920,7 @@ def run_xkeen_component_action(app_dir, action, target=""):
 
     if action == "rollback":
         update_component_action_state(phase="rollback", message="Восстанавливаем последнюю копию XKeen")
-        require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen")
+        require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen", input_text="1\n")
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if not get_xkeen_version_info(app_dir).get("version"):
@@ -2944,7 +2944,10 @@ def run_xkeen_component_action(app_dir, action, target=""):
                 timeout=180,
             )
         update_component_action_state(phase="install", message="Обновляем XKeen")
-        require_component_command([binary, "-uk"], "Не удалось обновить XKeen")
+        # Older XKeen builds still ask for confirmation even with the auto argument.
+        output = require_component_command([binary, "-uk", "auto"], "Не удалось обновить XKeen", input_text="1\n")
+        if re.search(r"Проверка обновлений XKeen\s+отменена", strip_ansi(output), re.IGNORECASE):
+            raise RuntimeError("Обновление XKeen отменено")
         update_component_action_state(phase="verify", message="Проверяем XKeen")
         version_info = get_xkeen_version_info(app_dir)
         if not version_info.get("version"):
@@ -2955,7 +2958,7 @@ def run_xkeen_component_action(app_dir, action, target=""):
             raise RuntimeError("XKeen не запустился после обновления")
     except Exception as error:
         update_component_action_state(phase="rollback", message="Обновление не удалось, восстанавливаем XKeen")
-        rollback_code, _ = run_component_command([binary, "-kbr"], timeout=180)
+        rollback_code, _ = run_component_command([binary, "-kbr"], input_text="1\n", timeout=180)
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if rollback_code != 0:

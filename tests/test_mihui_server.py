@@ -1594,7 +1594,7 @@ class ProviderAdapterTests(unittest.TestCase):
             [
                 mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
                 mock.call(["/opt/bin/xkeen", "-channel"], input_text="1\n", timeout=180),
-                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
+                mock.call(["/opt/bin/xkeen", "-uk", "auto"], input_text="1\n", timeout=600),
             ],
         )
 
@@ -1686,8 +1686,8 @@ class ProviderAdapterTests(unittest.TestCase):
             run.call_args_list,
             [
                 mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
-                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
-                mock.call(["/opt/bin/xkeen", "-kbr"], timeout=180),
+                mock.call(["/opt/bin/xkeen", "-uk", "auto"], input_text="1\n", timeout=600),
+                mock.call(["/opt/bin/xkeen", "-kbr"], input_text="1\n", timeout=180),
                 mock.call(["/opt/bin/xkeen", "-start"], timeout=180),
             ],
         )
