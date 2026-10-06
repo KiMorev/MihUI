@@ -93,6 +93,35 @@ class ResourceModeTests(unittest.TestCase):
             proxies["YOUTUBE"]["type"] = "Selector"
             self.assertFalse(mihui_server.get_resource_monitor_readiness(Path("."), settings)["ready"])
 
+    def test_status_detects_existing_smart_without_changing_settings_or_starting_monitor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            settings = self.settings()
+            settings["services"]["youtube"].update(mode="off", enabled=False)
+            settings["enabled"] = False
+            mihui_server.save_resource_monitor_settings(folder, settings)
+            before = mihui_server.resource_monitor_settings_path(folder).read_bytes()
+            proxies = {"YOUTUBE": {"type": "Smart", "all": ["a"]}, "a": {"type": "Vless"},
+                       "TELEGRAM": {"type": "Selector", "all": ["a"]}}
+            with mock.patch.object(mihui_server, "mihomo_api_request", return_value={"proxies": proxies}), \
+                    mock.patch.object(mihui_server, "get_resource_smart_support", return_value={"supported": True}), \
+                    mock.patch.object(mihui_server, "start_resource_monitor_check") as start:
+                status = mihui_server.get_resource_monitor_status(folder)
+            self.assertTrue(status["config"]["enabled"])
+            self.assertEqual(status["config"]["services"]["youtube"]["mode"], "prizrak")
+            self.assertTrue(status["readiness"]["services"]["youtube"]["ready"])
+            self.assertEqual(status["config"]["services"]["telegram"]["mode"], "off")
+            self.assertEqual(mihui_server.resource_monitor_settings_path(folder).read_bytes(), before)
+            start.assert_not_called()
+
+    def test_settings_validation_keeps_requested_mihui_mode_for_a_smart_group_unready(self):
+        settings = self.settings()
+        settings["services"]["youtube"]["mode"] = "mihui"
+        proxies = {"YOUTUBE": {"type": "Smart", "all": ["a"]}, "a": {"type": "Vless"}}
+        with mock.patch.object(mihui_server, "mihomo_api_request", return_value={"proxies": proxies}):
+            self.assertFalse(mihui_server.get_resource_monitor_readiness(Path("."), settings)["ready"])
+            self.assertEqual(settings["services"]["youtube"]["mode"], "mihui")
+
     def test_capability_probe_is_isolated_and_follows_binary_changes(self):
         mihui_server.resource_smart_support_cache.clear()
         with tempfile.TemporaryDirectory() as directory:

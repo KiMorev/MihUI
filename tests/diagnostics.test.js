@@ -183,6 +183,9 @@ globalThis.__app = {
   prepareResourceMonitorConfig,
   prepareSmartCoreReturn,
   getResourceMonitorMode,
+  getResourceMonitorConfigSettings,
+  getResourceMonitorConfiguredSourceText,
+  getResourceMonitorSourceHint,
   resourceMonitorNeedsConfigChanges,
   getResourceMonitorDialogIssue,
   getResourceMonitorSourceGroups,
@@ -3462,5 +3465,51 @@ for (const source of SOURCES) {
     app.els.outputPreview.value = app.state.outputText.replace('type: smart', 'type: fallback');
     assert.equal(app.applyConfigurationEdit(), true);
     assert.equal(app.state.outputText, original);
+  });
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': detects existing Smart resources from YAML despite old off settings', () => {
+    const { app, services } = resourceModeFixture(source);
+    const text = [
+      'lgbm-auto-update: true', 'lgbm-update-interval: 72', 'proxy-providers:',
+      '  main:', '    type: http', '    url: https://example.com/sub',
+      'proxy-groups:', '  - name: FASTEST', '    type: url-test', '    use: [main]',
+      ...['YOUTUBE', 'TELEGRAM', 'TWITTER', 'TIKTOK'].flatMap((name) => [
+        '  - name: ' + name, '    type: smart', '    uselightgbm: true', '    use: [main]',
+      ]),
+      'rules:', '  - GEOSITE,youtube,YOUTUBE', '  - MATCH,FASTEST', '',
+    ].join('\n');
+    hydrate(app, text);
+    const saved = { enabled: false, services };
+    const before = JSON.stringify(saved);
+    const actual = app.getResourceMonitorConfigSettings(saved);
+    assert.equal(actual.enabled, true);
+    for (const key of ['youtube', 'telegram', 'twitter', 'tiktok']) {
+      assert.equal(actual.services[key].mode, 'prizrak');
+      assert.equal(actual.services[key].enabled, true);
+    }
+    for (const key of ['whatsapp', 'instagram', 'ai']) assert.equal(actual.services[key].mode, 'off');
+    assert.equal(JSON.stringify(saved), before);
+    assert.equal(app.state.originalText, text);
+    assert.equal(app.state.groups.every((group) => !group.managedMonitoring), true);
+    assert.equal(app.getResourceMonitorConfiguredSourceText(app.state.groups[1]), 'main');
+    assert.match(app.getResourceMonitorSourceHint({ group: 'YOUTUBE' }, app.state.groups[1], 'prizrak'), /настроен в конфиге/);
+    app.state.resourceMonitor.smartSupport = null;
+    assert.equal(app.getResourceMonitorDialogIssue({}, actual.services), '');
+  });
+
+  test(source.name + ': does not infer active MihUI from select groups or keep stale Smart after YAML replacement', () => {
+    const { app, services } = resourceModeFixture(source);
+    const select = { name: 'YOUTUBE', type: 'select', managedMonitoring: false, proxies: ['node-a'], use: [] };
+    const settings = { enabled: false, services };
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'off');
+    settings.enabled = true;
+    settings.services.youtube = { mode: 'prizrak', enabled: true, group: 'YOUTUBE', sources: [] };
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'off');
+    assert.equal(app.getResourceMonitorConfigSettings(settings, []).services.youtube.mode, 'off');
+    settings.services.youtube.mode = 'mihui';
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'mihui');
+    assert.equal(app.getResourceMonitorConfigSettings({ enabled: false, services }, [select]).services.youtube.mode, 'off');
   });
 }

@@ -4969,7 +4969,7 @@ def snapshot_resource_monitor_job():
         return dict(resource_monitor_job_state)
 
 
-def get_resource_monitor_readiness(app_dir, settings=None):
+def get_resource_monitor_readiness(app_dir, settings=None, detect_smart=False):
     config = settings or load_resource_monitor_settings(app_dir)
     items = {}
     try:
@@ -4990,11 +4990,16 @@ def get_resource_monitor_readiness(app_dir, settings=None):
 
     ready = True
     for key, item in config["services"].items():
-        if not item["enabled"]:
+        if not item["enabled"] and not detect_smart:
             continue
         group_name = item["group"]
         group = proxies.get(group_name)
         group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+        if detect_smart and group_type == "smart":
+            item.update(mode="prizrak", enabled=True)
+            config["enabled"] = True
+        if not item["enabled"]:
+            continue
         options = group.get("all") if isinstance(group, dict) else None
         smart = resource_monitor_mode(item) == "prizrak"
         allowed = None if smart else resource_monitor_source_nodes(item, proxies)
@@ -5019,13 +5024,14 @@ def get_resource_monitor_readiness(app_dir, settings=None):
 
 def get_resource_monitor_status(app_dir):
     config = load_resource_monitor_settings(app_dir)
+    readiness = get_resource_monitor_readiness(app_dir, config, detect_smart=True)
     return {
         "ok": True,
         "config": config,
         "smartSupport": get_resource_smart_support(app_dir),
         "runtime": load_resource_monitor_runtime(app_dir),
         "events": read_resource_monitor_events(app_dir),
-        "readiness": get_resource_monitor_readiness(app_dir, config),
+        "readiness": readiness,
         "job": snapshot_resource_monitor_job(),
     }
 
