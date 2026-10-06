@@ -3185,11 +3185,12 @@ async function switchMihomoCore() {
 
 function prepareSmartCoreReturn(mode) {
   const smartGroups = state.groups.filter((group) => !group.deleted && group.type === 'smart');
-  if (smartGroups.some((group) => !group.managedMonitoring)) {
-    showMessage('В конфиге есть пользовательские Smart-группы. Измените или удалите их перед переходом на Mihomo.', { severity: 'error' });
+  const resourceNames = new Set(Object.values(RESOURCE_MONITOR_DEFINITIONS).map((item) => item.group));
+  if (smartGroups.some((group) => !group.managedMonitoring && !resourceNames.has(group.name))) {
+    showMessage('В конфиге есть Smart-группы вне списка ресурсов. Измените или удалите их перед переходом на Mihomo.', { severity: 'error' });
     return;
   }
-  const settings = structuredClone(state.resourceMonitor.config || defaultResourceMonitorClientSettings());
+  const settings = structuredClone(getResourceMonitorConfigSettings());
   const sources = {};
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
@@ -4027,6 +4028,24 @@ function getResourceMonitorConfiguredSourceText(group) {
   return names.join(', ') || 'Источники не заданы';
 }
 
+function resourceMonitorUsesConfiguredSources(group) {
+  return Boolean(group && (!group.managedMonitoring || group.monitorDirectSources));
+}
+
+function resourceMonitorCanChangeGroup(group) {
+  return Boolean(group && (group.managedMonitoring || String(group.type).toLowerCase() === 'smart'));
+}
+
+function resourceMonitorCanRemoveRule(rule, service, group) {
+  return isManagedResourceMonitorRule(rule, service)
+    || (resourceMonitorCanChangeGroup(group) && resourceMonitorUsesConfiguredSources(group)
+      && (RESOURCE_MONITOR_RULES[service] || []).some((parts) => resourceMonitorRuleMatches(rule, parts)));
+}
+
+function resourceMonitorRedundantCheckKeys(group, mode) {
+  return (group?.resourceCheckKeys || []).filter((key) => mode === 'prizrak' ? key !== 'interval' : true);
+}
+
 function getEnabledResourceMonitorEntries(services = null) {
   const currentServices = services
     || state.resourceMonitor.config?.services
@@ -4079,7 +4098,6 @@ function renderResourceMonitorDialog() {
 
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     const target = state.groups.find((group) => group.name === definition.group);
-    const configuredSmart = target && !target.managedMonitoring && String(target.type).toLowerCase() === 'smart';
     const mode = settings.enabled ? getResourceMonitorMode(settings.services?.[key]) : 'off';
     const enabled = mode !== 'off';
     const field = document.createElement('article');
@@ -4108,19 +4126,19 @@ function renderResourceMonitorDialog() {
       checkbox.append(option);
     });
     checkbox.value = mode;
-    checkbox.disabled = Boolean(state.resourceMonitor.saving) || Boolean(configuredSmart);
+    checkbox.disabled = Boolean(state.resourceMonitor.saving);
     checkbox.dataset.resourceMonitorEnabled = key;
     checkbox.setAttribute('aria-label', `Режим ${definition.title}`);
-    checkbox.title = configuredSmart ? 'Smart задан в конфиге. Измените группу в редакторе конфигурации.' : state.resourceMonitor.smartSupport?.message || '';
+    checkbox.title = state.resourceMonitor.smartSupport?.message || '';
     head.append(title, checkbox);
     sourceField.className = 'resource-monitor-source-select';
-    sourceTitle.textContent = target && !target.managedMonitoring ? 'Источники из конфига' : mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
+    sourceTitle.textContent = resourceMonitorUsesConfiguredSources(target) ? 'Источники из конфига' : mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
     sourceTitle.dataset.resourceMonitorSourceTitle = key;
     const configuredSources = getResourceMonitorGroupSourceNames(target);
     const pendingSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.pendingSettings?.sources?.[key]);
     const savedSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.config?.services?.[key]?.sources);
-    const locked = Boolean(target && !target.managedMonitoring) || sources.length === 0 || Boolean(state.resourceMonitor.saving);
-    const selectedSources = target && !target.managedMonitoring
+    const locked = resourceMonitorUsesConfiguredSources(target) || sources.length === 0 || Boolean(state.resourceMonitor.saving);
+    const selectedSources = resourceMonitorUsesConfiguredSources(target)
       ? []
       : configuredSources.length > 0
         ? configuredSources
@@ -4135,7 +4153,7 @@ function renderResourceMonitorDialog() {
     sourcePicker.classList.toggle('is-disabled', !enabled || locked);
     sourcePicker.dataset.resourceMonitorLocked = String(locked);
     sourcePicker.dataset.mode = mode;
-    if (target && !target.managedMonitoring) sourcePicker.dataset.configuredSources = getResourceMonitorConfiguredSourceText(target);
+    if (resourceMonitorUsesConfiguredSources(target)) sourcePicker.dataset.configuredSources = getResourceMonitorConfiguredSourceText(target);
     sourceSummary.setAttribute('aria-label', `Выбрать группы-источники ${definition.title}`);
     sourceSummary.setAttribute('aria-disabled', String(!enabled || locked));
     sourceSummary.tabIndex = !enabled || locked ? -1 : 0;
@@ -4187,8 +4205,13 @@ function renderResourceMonitorDialog() {
 }
 
 function getResourceMonitorSourceHint(definition, target, mode) {
+  if (resourceMonitorCanChangeGroup(target) && resourceMonitorUsesConfiguredSources(target)) {
+    if (mode === 'off') return `Группа ${definition.group} и её штатные правила будут удалены после сохранения конфига`;
+    if (mode === 'mihui') return `Нынешние источники нод сохраняются. После сохранения ресурсом управляет MihUI.`;
+    if (String(target.type).toLowerCase() !== 'smart') return `Нынешние источники сохраняются. После сохранения группа ${definition.group} станет Smart с LightGBM.`;
+  }
   if (target && !target.managedMonitoring && String(target.type).toLowerCase() === 'smart') {
-    return `Smart настроен в конфиге${target.useLightGBM ? ', LightGBM включён' : ', LightGBM выключен'}. Изменение группы — через редактор конфигурации. Проверки MihUI отключены.`;
+    return `Smart настроен в конфиге${target.useLightGBM ? ', LightGBM включён' : ', LightGBM выключен'}. Проверки MihUI отключены. Режим можно изменить здесь.`;
   }
   if (mode === 'off') {
     return target?.managedMonitoring
@@ -4246,7 +4269,7 @@ function handleResourceMonitorDialogChange(event) {
     }
     if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, mode);
     const sourceTitle = field?.querySelector('[data-resource-monitor-source-title]');
-    if (sourceTitle) sourceTitle.textContent = mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
+    if (sourceTitle) sourceTitle.textContent = resourceMonitorUsesConfiguredSources(target) ? 'Источники из конфига' : mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
   }
   const sourceCheckbox = event.target.closest?.('[data-resource-monitor-source]');
   if (sourceCheckbox) {
@@ -4340,6 +4363,7 @@ function resourceMonitorSourceNamesEqual(left, right) {
 
 function formatResourceMonitorGroupMarker(group) {
   if (!group.managedMonitoring) return '';
+  if (group.monitorDirectSources) return ` # webmihomo-monitor: group ${group.monitorService || ''} direct`;
   const sources = getResourceMonitorGroupSourceNames(group);
   const sourceMarker = sources.length <= 1
     ? `source=${sources[0] || ''}`
@@ -4348,6 +4372,8 @@ function formatResourceMonitorGroupMarker(group) {
 }
 
 function parseResourceMonitorGroupMarker(value) {
+  const direct = String(value || '').match(/#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+direct\s*$/i);
+  if (direct) return { service: direct[1], sources: [], directSources: true };
   const marker = String(value || '').match(
     /#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+(source|sources)=(.+?)\s*$/i,
   );
@@ -4373,8 +4399,9 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    if (!enabledKeys.has(key)) return Boolean(group?.managedMonitoring);
+    if (!enabledKeys.has(key)) return resourceMonitorCanChangeGroup(group);
     const mode = getResourceMonitorMode(currentServices[key]);
+    if (resourceMonitorRedundantCheckKeys(group, mode).length > 0) return true;
     const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
     if (!group || !types.includes(String(group.type || '').toLowerCase())) return true;
     if (mode === 'prizrak' && group.managedMonitoring && !group.useLightGBM) return true;
@@ -4388,6 +4415,7 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
     return Boolean(
       sources
       && group.managedMonitoring
+      && !group.monitorDirectSources
       && !resourceMonitorSourceNamesEqual(getResourceMonitorGroupSourceNames(group), sources[key]),
     );
   });
@@ -4661,12 +4689,12 @@ function prepareResourceMonitorConfig(sources, services = null) {
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     if (enabledKeys.has(key)) return;
+    const managedGroup = state.groups.find((group) => group.name === definition.group && resourceMonitorCanChangeGroup(group));
     getActiveRules()
-      .filter((rule) => isManagedResourceMonitorRule(rule, key))
+      .filter((rule) => resourceMonitorCanRemoveRule(rule, key, managedGroup))
       .forEach((rule) => {
         rule.deleted = true;
       });
-    const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
     if (!managedGroup) return;
     state.groups.splice(state.groups.indexOf(managedGroup), 1);
   });
@@ -4689,10 +4717,23 @@ function prepareResourceMonitorConfig(sources, services = null) {
     const existing = state.groups.find((group) => group.name === definition.group);
     const mode = getResourceMonitorMode(currentServices[key]);
     const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
-    if (existing && !existing.managedMonitoring && !types.includes(String(existing.type || '').toLowerCase())) {
+    if (existing && !resourceMonitorCanChangeGroup(existing) && !types.includes(String(existing.type || '').toLowerCase())) {
       throw new Error(`Группа ${definition.group} уже существует и имеет другой тип.`);
     }
-    if (existing && !existing.managedMonitoring) return;
+    if (existing) {
+      const removeKeys = resourceMonitorRedundantCheckKeys(existing, mode);
+      existing.removeResourceCheckKeys = [...new Set([...(existing.removeResourceCheckKeys || []), ...removeKeys])];
+      existing.resourceCheckKeys = (existing.resourceCheckKeys || []).filter((key) => !removeKeys.includes(key));
+    }
+    if (existing && !existing.managedMonitoring) {
+      if (String(existing.type).toLowerCase() !== 'smart' || mode === 'prizrak') return;
+      Object.assign(existing, { managedMonitoring: true, monitorDirectSources: true, monitorService: key });
+    }
+    if (existing?.monitorDirectSources) {
+      Object.assign(existing, { type: mode === 'prizrak' ? 'smart' : 'select', useLightGBM: mode === 'prizrak',
+        requiresSelectionPersistence: mode !== 'prizrak' });
+      return;
+    }
 
     const combined = combineResourceMonitorSourceGroups(sources[key], sourceGroups, knownGroupNames);
     const cloned = {
@@ -4773,15 +4814,15 @@ function getResourceMonitorDialogIssue(
   if (smartEntry && !state.resourceMonitor.smartSupport?.supported) return 'Поддержка Smart установленным ядром не подтверждена. Установите Prizrak и обновите состояние ресурсов.';
   const referenced = Object.entries(RESOURCE_MONITOR_DEFINITIONS).find(([key, definition]) => {
     if (getResourceMonitorMode(currentServices[key]) !== 'off') return false;
-    const group = state.groups.find((item) => item.name === definition.group && item.managedMonitoring);
-    return group && (getActiveRules().some((rule) => rule.target === definition.group && !isManagedResourceMonitorRule(rule, key))
+    const group = state.groups.find((item) => item.name === definition.group && resourceMonitorCanChangeGroup(item));
+    return group && (getActiveRules().some((rule) => rule.target === definition.group && !resourceMonitorCanRemoveRule(rule, key, group))
       || state.groups.some((item) => item !== group && !item.deleted && item.proxies.includes(group.name)));
   });
   if (referenced) return `На группу ${referenced[1].group} ссылаются пользовательские правила или группы. Уберите ссылки перед выключением ресурса.`;
   const conflict = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
     const types = getResourceMonitorMode(currentServices[key]) === 'prizrak' ? ['smart'] : ['select', 'selector'];
-    return group && !group.managedMonitoring && !types.includes(String(group.type || '').toLowerCase());
+    return group && !resourceMonitorCanChangeGroup(group) && !types.includes(String(group.type || '').toLowerCase());
   });
   if (conflict) return `Группа ${conflict[1].group} уже существует, но имеет другой тип. MihUI не будет перезаписывать её автоматически.`;
   const empty = enabledDefinitions.find((definition) => {
@@ -4797,20 +4838,20 @@ function getResourceMonitorDialogIssue(
   if (empty) return `Группа ${empty.group} существует, но не содержит нод или подписок. MihUI не будет перезаписывать её автоматически.`;
   const needsSource = enabledDefinitions.some((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return !group || group.managedMonitoring;
+    return !group || (group.managedMonitoring && !group.monitorDirectSources);
   });
   const sourceGroups = getResourceMonitorSourceGroups();
   if (needsSource && sourceGroups.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
   const sourceNames = new Set(sourceGroups.map((group) => group.name));
   const missingSource = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return (!group || group.managedMonitoring)
+    return (!group || (group.managedMonitoring && !group.monitorDirectSources))
       && normalizeResourceMonitorSourceNames(sources?.[key]).length === 0;
   });
   if (missingSource) return `Выберите хотя бы одну группу-источник для ${missingSource[1].title}.`;
   const unknownSource = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return (!group || group.managedMonitoring)
+    return (!group || (group.managedMonitoring && !group.monitorDirectSources))
       && normalizeResourceMonitorSourceNames(sources?.[key]).some((name) => !sourceNames.has(name));
   });
   if (unknownSource) return `Одна из групп-источников для ${unknownSource[1].title} больше не существует.`;
@@ -8874,6 +8915,9 @@ function collectGroupUseChanges() {
     if (group.type !== original.type) {
       changes.push(`Группа ${group.name}: тип изменится с ${original.type || 'не задан'} на ${group.type || 'не задан'}.`);
     }
+    if (group.removeResourceCheckKeys?.length) {
+      changes.push(`Группа ${group.name}: будут удалены дополнительные проверки ядра (${group.removeResourceCheckKeys.join(', ')}).`);
+    }
 
     collectListDiff(original.proxies, group.proxies).added.forEach((name) => {
       changes.push(`В группе ${group.name} добавлен вариант ${name} в proxies.`);
@@ -9147,6 +9191,7 @@ function snapshotGroup(group) {
     excludeFilter: group.excludeFilter || '',
     excludeType: group.excludeType || '',
     managedMonitoring: Boolean(group.managedMonitoring),
+    monitorDirectSources: Boolean(group.monitorDirectSources),
     monitorService: group.monitorService || '',
     monitorSourceGroup: getResourceMonitorGroupSourceNames(group)[0] || '',
     monitorSourceGroups: getResourceMonitorGroupSourceNames(group),
@@ -15064,6 +15109,7 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
 
   setGroupName(block, currentGroup);
   setGroupScalar(block, 'type', currentGroup.type || 'select');
+  (currentGroup.removeResourceCheckKeys || []).forEach((key) => setOptionalGroupScalar(block, key, ''));
 
   if (parsedGroup.proxiesStart === -1 && currentGroup.proxies.length > 0) {
     insertGroupListBlock(block, 'proxies', currentGroup.proxies);
@@ -15489,6 +15535,7 @@ function parseGroups(lines, section) {
       originalName: name,
       type: readScalar(block, keyIndent, 'type') || '',
       useLightGBM: readBoolScalar(block, keyIndent, 'uselightgbm'),
+      resourceCheckKeys: ['url', 'expected-status', 'interval'].filter((key) => block.some((item) => parseKeyValueLine(item, keyIndent)?.key === key)),
       proxies: proxiesMeta.items,
       use: useMeta.items,
       includeAll: readBoolScalar(block, keyIndent, 'include-all'),
@@ -15498,6 +15545,7 @@ function parseGroups(lines, section) {
       excludeFilter: readScalar(block, keyIndent, 'exclude-filter') || '',
       excludeType: readScalar(block, keyIndent, 'exclude-type') || '',
       managedMonitoring: Boolean(monitorMarker),
+      monitorDirectSources: Boolean(monitorMarker?.directSources),
       monitorService: monitorMarker?.service || '',
       monitorSourceGroup: monitorMarker?.sources?.[0] || '',
       monitorSourceGroups: monitorMarker?.sources || [],

@@ -3513,3 +3513,133 @@ for (const source of SOURCES) {
     assert.equal(app.getResourceMonitorConfigSettings({ enabled: false, services }, [select]).services.youtube.mode, 'off');
   });
 }
+
+function existingSmartFixture(source) {
+  const { app, services } = resourceModeFixture(source);
+  const text = app.state.originalText
+    .replace('proxy-groups:', 'lgbm-auto-update: true\nlgbm-update-interval: 72\nproxy-groups:')
+    .replace('  - name: PROXY', [
+      '  - name: YOUTUBE', '    type: smart', '    uselightgbm: true', '    collectdata: false',
+      '    use: [main]', '    proxies: [node-b]', '    filter: premium', '    exclude-filter: blocked',
+      '    url: https://www.youtube.com/generate_204', '    expected-status: "204"', '  - name: PROXY',
+    ].join('\n'))
+    .replace('  - MATCH,PROXY', '  - GEOSITE,youtube,YOUTUBE\n  - MATCH,PROXY');
+  hydrate(app, text);
+  services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: [] };
+  return { app, services, text };
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': Smart cleanup preserves provider checks, baseline groups and adaptive settings', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    const yaml = text
+      .replace('    type: url-test', '    type: url-test\n    url: https://www.gstatic.com/generate_204\n    expected-status: 204\n    interval: 30')
+      .replace('    url: https://example.com/sub', '    url: https://example.com/sub\n    health-check:\n      enable: true\n      url: https://www.gstatic.com/generate_204\n      expected-status: 204\n      interval: 300')
+      .replace('    type: smart', '    type: smart\n    interval: 90\n    max-failed-times: 2\n    tolerance: 75');
+    hydrate(app, yaml);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    app.prepareResourceMonitorConfig({}, services);
+    const lines = app.splitLines(app.state.outputText);
+    const groups = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups'));
+    const group = groups.find((item) => item.name === 'YOUTUBE');
+    const block = lines.slice(group.start, group.end).join('\n');
+    assert.doesNotMatch(block, /^\s+(url|expected-status):/m);
+    assert.match(block, /interval: 90/);
+    assert.match(block, /max-failed-times: 2/);
+    assert.match(block, /tolerance: 75/);
+    assert.deepEqual(Array.from(group.use), ['main']);
+    assert.deepEqual(Array.from(group.proxies), ['node-b']);
+    assert.equal(group.managedMonitoring, false);
+    const fastest = groups.find((item) => item.name === 'FASTEST');
+    assert.match(lines.slice(fastest.start, fastest.end).join('\n'), /url: https:\/\/www.gstatic.com\/generate_204/);
+    const providers = app.findTopSection(lines, 'proxy-providers');
+    assert.match(lines.slice(providers.start, providers.end).join('\n'), /health-check:[\s\S]+expected-status: 204/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    assert.match(flattenChanges(app.collectChanges(app.state.providers)).join('\n'), /удалены дополнительные проверки ядра/);
+  });
+
+  test(source.name + ': MihUI groups have no parallel group test or timer', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    hydrate(app, text.replace('    type: smart', '    type: smart\n    interval: 90\n    timeout: 4000\n    lazy: false'));
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({}, services);
+    const lines = app.splitLines(app.state.outputText);
+    const group = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups')).find((item) => item.name === 'YOUTUBE');
+    const block = lines.slice(group.start, group.end).join('\n');
+    assert.match(block, /type: select/);
+    assert.doesNotMatch(block, /^\s+(url|expected-status|interval):/m);
+    assert.match(block, /timeout: 4000/);
+    assert.match(block, /lazy: false/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': switches existing Smart to MihUI while preserving its actual node pool', () => {
+    const { app, services } = existingSmartFixture(source);
+    services.youtube.mode = 'mihui';
+    assert.equal(app.getResourceMonitorDialogIssue({}, services), '');
+    app.prepareResourceMonitorConfig({}, services);
+    const group = app.state.groups.find((item) => item.name === 'YOUTUBE');
+    assert.equal(group.type, 'select');
+    assert.equal(group.managedMonitoring, true);
+    assert.equal(group.monitorDirectSources, true);
+    assert.deepEqual(Array.from(group.use), ['main']);
+    assert.deepEqual(Array.from(group.proxies), ['node-b']);
+    assert.equal(group.filter, 'premium');
+    assert.equal(group.excludeFilter, 'blocked');
+    assert.doesNotMatch(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.doesNotMatch(app.state.outputText, /expected-status: "204"/);
+    assert.doesNotMatch(app.state.outputText, /uselightgbm|collectdata|lgbm-auto-update|lgbm-update-interval/);
+    assert.match(app.state.outputText, /GEOSITE,youtube,YOUTUBE/);
+    hydrate(app, app.state.outputText);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').monitorDirectSources, true);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    services.youtube.mode = 'prizrak';
+    app.prepareResourceMonitorConfig({}, services);
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').type, 'smart');
+    assert.deepEqual(Array.from(app.state.groups.find((item) => item.name === 'YOUTUBE').use), ['main']);
+    assert.match(app.state.outputText, /uselightgbm: true/);
+    assert.match(app.state.outputText, /lgbm-auto-update: true/);
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    app.prepareResourceMonitorConfig({}, services);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|lgbm-auto-update|lgbm-update-interval/);
+  });
+
+  test(source.name + ': disables an unmarked Smart group and its canonical rules without extra setup', () => {
+    const { app, services } = existingSmartFixture(source);
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    assert.equal(app.getResourceMonitorDialogIssue({}, services), '');
+    app.prepareResourceMonitorConfig({}, services);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|lgbm-auto-update|lgbm-update-interval/);
+    assert.match(app.state.outputText, /MATCH,PROXY/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+
+  test(source.name + ': blocks only extra references when disabling an existing Smart group', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    hydrate(app, text.replace('  - MATCH,PROXY', '  - DOMAIN,custom.example,YOUTUBE\n  - MATCH,PROXY'));
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    assert.throws(() => app.prepareResourceMonitorConfig({}, services), /пользовательские правила/);
+    assert.equal(app.state.rules.some((rule) => rule.deleted), false);
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').type, 'smart');
+  });
+
+  for (const mode of ['mihui', 'off']) {
+    test(source.name + ': core return handles known resource Smart groups from older YAML in ' + mode + ' mode', () => {
+      const { app } = existingSmartFixture(source);
+      app.els.componentManagerDialog.close = () => {};
+      app.prepareSmartCoreReturn(mode);
+      assert.equal(Boolean(app.state.resourceMonitor.pendingSettings), true);
+      assert.equal(app.state.resourceMonitor.pendingSettings.services.youtube.mode, mode);
+      assert.equal(app.state.groups.some((group) => group.type === 'smart'), false);
+      assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval/);
+    });
+  }
+}
