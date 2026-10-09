@@ -19,9 +19,11 @@ DOWNLOADED_ARCHIVE=""
 DOWNLOADED_CHECKSUM=""
 LOCK_DIR="${TMPDIR:-/tmp}/mihui-update.lock"
 PROGRESS_FILE="${MIHUI_PROGRESS_FILE:-}"
+SERVICE_NEW=""
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
+[ -n "${MIHUI_INIT_SCRIPT:-}" ] && INIT_SCRIPT="$MIHUI_INIT_SCRIPT"
 [ -n "${MIHUI_RELEASE_URL:-}" ] && RELEASE_URL="$MIHUI_RELEASE_URL"
 [ -n "${MIHUI_DOWNLOAD_URLS:-}" ] && DOWNLOAD_URLS="$MIHUI_DOWNLOAD_URLS"
 [ "$DOWNLOAD_URLS" = "$LEGACY_DOWNLOAD_URLS" ] && DOWNLOAD_URLS="$RELEASE_URL"
@@ -42,6 +44,7 @@ fail() {
 }
 
 cleanup() {
+  [ -n "$SERVICE_NEW" ] && rm -f "$SERVICE_NEW"
   if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
     rm -rf "$TMP_DIR"
   fi
@@ -327,6 +330,31 @@ select_package_dir() {
   return 1
 }
 
+prepare_service_update() {
+  service_template="$PACKAGE_DIR/cgi-bin/mihui-service"
+  [ -f "$INIT_SCRIPT" ] && [ ! -L "$INIT_SCRIPT" ] &&
+    grep -qx 'MIHUI_INIT_OWNER="KiMorev/MihUI"' "$INIT_SCRIPT" ||
+    fail "Скрипт запуска не принадлежит MihUI"
+  grep -qx 'MIHUI_INIT_OWNER="KiMorev/MihUI"' "$service_template" &&
+    grep -qx 'APP_DIR=__MIHUI_APP_DIR__' "$service_template" ||
+    fail "Некорректный шаблон скрипта запуска MihUI"
+
+  SERVICE_NEW="$INIT_SCRIPT.new.$$"
+  escaped_app_dir=$(printf '%s' "$APP_DIR" | sed "s/'/'\\\\''/g" | sed 's/[\\&|]/\\&/g')
+  sed "s|__MIHUI_APP_DIR__|'$escaped_app_dir'|g" "$service_template" > "$SERVICE_NEW" ||
+    fail "Не удалось подготовить скрипт запуска MihUI"
+  /bin/sh -n "$SERVICE_NEW" || fail "Некорректный скрипт запуска MihUI"
+  chmod +x "$SERVICE_NEW"
+}
+
+replace_service_script() {
+  mkdir -p "$APP_DIR/backups"
+  service_backup="$APP_DIR/backups/${INIT_SCRIPT##*/}-$(date +%Y%m%d-%H%M%S)-$$.bak"
+  cp -p "$INIT_SCRIPT" "$service_backup" || fail "Не удалось сохранить скрипт запуска MihUI"
+  mv "$SERVICE_NEW" "$INIT_SCRIPT" || fail "Не удалось заменить скрипт запуска MihUI"
+  SERVICE_NEW=""
+}
+
 if [ "${REQUEST_METHOD:-POST}" != "POST" ]; then
   respond_json "405 Method Not Allowed" '{"ok":false,"message":"Требуется запрос POST"}'
 fi
@@ -345,6 +373,7 @@ PACKAGE_DIR=$(select_package_dir "$TMP_DIR/package") || fail "Структура
 [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "В пакете отсутствует cgi-bin/mihui-update"
 [ -f "$PACKAGE_DIR/cgi-bin/mihui-service" ] || fail "В пакете отсутствует cgi-bin/mihui-service"
 [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "В пакете отсутствует mihui_server.py"
+prepare_service_update
 
 update_progress replace
 NEW_WWW="$APP_DIR/www.new.$$"
@@ -375,6 +404,7 @@ fi
 [ -d "$WWW_DIR" ] && mv "$WWW_DIR" "$OLD_WWW"
 mv "$NEW_WWW" "$WWW_DIR" || fail "Не удалось заменить файлы интерфейса"
 rm -rf "$OLD_WWW"
+replace_service_script
 
 if [ -x "$INIT_SCRIPT" ]; then
   ( sleep 2; "$INIT_SCRIPT" restart >/dev/null 2>&1 ) &

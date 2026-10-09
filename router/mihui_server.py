@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover - PTY is available on the target router
     pty = None
 
 
+MIHUI_INSTANCE_ID = uuid.uuid4().hex
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
 DEFAULT_MIHUI_INIT_SCRIPT = "/opt/etc/init.d/S99mihui"
 MIHUI_INIT_OWNER_MARKER = 'MIHUI_INIT_OWNER="KiMorev/MihUI"'
@@ -48,6 +49,7 @@ MIHUI_SERVICE_FIX_MARKERS = (
     'pid_file_matches() {',
     'pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"',
     'pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"',
+    'process_pids() {',
 )
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
@@ -2111,6 +2113,7 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
 def get_services_status(app_dir):
     return {
         "ok": True,
+        "instanceId": MIHUI_INSTANCE_ID,
         "checkedAt": int(time.time()),
         "services": {
             "xkeen": get_xkeen_service_status(app_dir),
@@ -2762,6 +2765,7 @@ def get_components_status(app_dir, force=False):
         "ok": True,
         "checkedAt": checked_at,
         "components": components,
+        "capabilities": {"mihomoCoreSwitch": True},
         "mihuiService": get_mihui_service_repair_status(app_dir),
         "updateCount": sum(1 for item in components.values() if item["updateAvailable"]),
         "job": snapshot_component_action_state(),

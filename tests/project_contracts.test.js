@@ -715,7 +715,7 @@ test('router service rejects stale or reused MihUI PID files', () => {
 
   assert.match(installer, /RUN_DIR="\$\{MIHUI_RUN_DIR:-\/var\/run\}"/);
   assert.match(uninstaller, /PID_FILE="\$\{MIHUI_PID_FILE:-\/var\/run\/mihui\.pid\}"/);
-  assert.match(installer, /pid_file_matches\(\) \{[\s\S]+?\/proc\/\\\$pid\/cmdline/);
+  assert.match(installer, /pid_matches\(\) \([\s\S]+?\/proc\/\\\$pid\/cmdline/);
   assert.match(installer, /pid_file_matches "\\\$PID_FILE" "\\\$SERVICE_SCRIPT supervise"/);
   assert.match(installer, /pid_file_matches "\\\$CHILD_PID_FILE" "\\\$SERVER_PY"/);
   assert.match(repairTemplate, /RUN_DIR="\$\{MIHUI_RUN_DIR:-\/var\/run\}"/);

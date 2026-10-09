@@ -535,6 +535,9 @@ const state = {
     checkedAt: 0,
     updateCount: 0,
     mihuiServiceRepairRequired: false,
+    mihomoCoreSwitchAvailable: false,
+    pendingAction: null,
+    actionError: '',
     items: {
       xkeen: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
@@ -2791,7 +2794,9 @@ async function loadComponents(options = {}) {
     if (state.components.mihomoCoreCurrent !== core) state.components.mihomoCoreSelection = core;
     state.components.mihomoCoreCurrent = core;
     state.components.updateCount = Number(data.updateCount) || 0;
-    state.components.mihuiServiceRepairRequired = data.mihuiService?.repairRequired === true;
+    state.components.mihomoCoreSwitchAvailable = data.capabilities?.mihomoCoreSwitch === true;
+    state.components.mihuiServiceRepairRequired = data.mihuiService?.repairRequired === true
+      || (data.mihuiService?.managed === true && !state.components.mihomoCoreSwitchAvailable);
     state.components.job = normalizeComponentJob(data.job);
     if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
@@ -2827,7 +2832,8 @@ function handleComponentManagerClosed() {
 }
 
 function dismissComponentJob() {
-  if (state.components.job.running) return;
+  if (state.components.job.running || state.components.pendingAction) return;
+  state.components.actionError = '';
   state.components.jobVisible = false;
   els.componentJobDetails.open = false;
   renderComponentJob();
@@ -2895,7 +2901,7 @@ function getComponentServiceState(name) {
 }
 
 function renderComponentManager() {
-  const busy = state.components.loading || state.components.job.running;
+  const busy = state.components.loading || state.components.job.running || Boolean(state.components.pendingAction);
   const updateCount = Number(state.components.updateCount) || 0;
   const errors = Object.values(state.components.items).filter((item) => item.error).length;
   const xkeen = state.components.items.xkeen || normalizeComponentItem(null);
@@ -3030,11 +3036,15 @@ function renderComponentManager() {
   const coreLabel = getMihomoCoreLabel(core);
   els.mihomoCoreLabels.forEach((element) => { element.textContent = coreLabel; });
   els.mihomoCoreSelect.value = selectedCore;
-  els.mihomoCoreSelect.disabled = busy || !mihomo.installed;
-  els.switchMihomoCoreButton.disabled = busy || !mihomo.installed || selectedCore === core;
+  els.mihomoCoreSelect.disabled = busy || !mihomo.installed || !state.components.mihomoCoreSwitchAvailable;
+  els.switchMihomoCoreButton.disabled = busy || !mihomo.installed || !state.components.mihomoCoreSwitchAvailable || selectedCore === core;
   els.switchMihomoCoreButton.textContent = selectedCore !== core
     ? `Переключить на ${getMihomoCoreLabel(selectedCore)}` : 'Ядро выбрано';
-  els.mihomoCoreHint.textContent = selectedCore !== core
+  els.mihomoCoreHint.textContent = state.components.loaded && !state.components.mihomoCoreSwitchAvailable
+    ? state.components.mihuiServiceRepairRequired
+      ? 'Запущенная версия MihUI не поддерживает смену ядра. Если MihUI уже обновлён, откройте «Обслуживание» → «Восстановить службу».'
+      : 'Запущенная версия MihUI не поддерживает смену ядра. Обновите MihUI, затем перезапустите его в «Обслуживании».'
+    : selectedCore !== core
     ? `Будет установлено ${getMihomoCoreLabel(selectedCore)}. Конфигурация сохранится.`
     : `Обновления из официальных релизов ${coreLabel}.`;
   els.mihomoVersionSelect.setAttribute('aria-label', `Версия ${coreLabel}`);
@@ -3064,7 +3074,11 @@ function renderComponentManager() {
 }
 
 function renderComponentJob() {
-  const job = state.components.job;
+  const job = state.components.pendingAction
+    ? { ...state.components.pendingAction, running: true, ok: null, message: 'Подготовка операции', output: '' }
+    : state.components.actionError && !state.components.job.running
+      ? { ...state.components.job, ok: false, message: state.components.actionError, output: '' }
+      : state.components.job;
   const visible = job.running || (state.components.jobVisible && job.ok !== null);
   els.componentJobPanel.hidden = !visible;
   if (!visible) return;
@@ -3167,6 +3181,7 @@ function getMihomoCoreLabel(core) {
 }
 
 async function switchMihomoCore() {
+  if (!state.components.mihomoCoreSwitchAvailable) return;
   const target = state.components.mihomoCoreSelection;
   if (target === state.components.items.mihomo.core) return;
   if (target === 'mihomo' && (hasUnsavedRouterChanges() || state.resourceMonitor.pendingSettings || state.resourceMonitor.saving)) {
@@ -3228,6 +3243,8 @@ async function restartMihui() {
   els.restartMihuiButton.disabled = true;
   els.restartMihuiButton.textContent = 'Перезапуск...';
   try {
+    const status = await apiJson('/api/services/status');
+    const previousInstanceId = String(status.instanceId || '').trim();
     await apiJson('/api/mihui/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-restart' },
@@ -3235,7 +3252,7 @@ async function restartMihui() {
     });
     closeComponentManager();
     showMessage('MiHUI перезапускается. Страница обновится после запуска сервиса.', { severity: 'warning' });
-    await waitForMihuiRestart();
+    await waitForMihuiRestart(previousInstanceId);
   } catch (error) {
     els.restartMihuiButton.disabled = false;
     els.restartMihuiButton.textContent = 'Перезапустить';
@@ -3249,6 +3266,8 @@ async function repairMihui() {
   els.repairMihuiButton.disabled = true;
   els.repairMihuiButton.textContent = 'Восстановление...';
   try {
+    const status = await apiJson('/api/services/status');
+    const previousInstanceId = String(status.instanceId || '').trim();
     await apiJson('/api/mihui/repair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-repair' },
@@ -3256,7 +3275,7 @@ async function repairMihui() {
     });
     closeComponentManager();
     showMessage('Служба MiHUI восстановлена. Страница обновится после перезапуска.', { severity: 'warning' });
-    await waitForMihuiRestart();
+    await waitForMihuiRestart(previousInstanceId);
   } catch (error) {
     els.repairMihuiButton.disabled = false;
     els.repairMihuiButton.textContent = 'Восстановить службу';
@@ -3264,21 +3283,25 @@ async function repairMihui() {
   }
 }
 
-async function waitForMihuiRestart() {
+async function waitForMihuiRestart(previousInstanceId) {
   await new Promise((resolve) => window.setTimeout(resolve, 2500));
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
       const response = await fetch('/api/services/status', { cache: 'no-store' });
       if (response.ok) {
-        window.location.reload();
-        return;
+        const status = await response.json();
+        const instanceId = String(status.instanceId || '').trim();
+        if (instanceId && instanceId !== previousInstanceId) {
+          window.location.reload();
+          return;
+        }
       }
     } catch (error) {
       // Краткая потеря связи ожидаема во время перезапуска сервиса.
     }
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
   }
-  throw new Error('сервис не ответил в течение минуты');
+  throw new Error('не удалось подтвердить запуск нового сервера в течение минуты');
 }
 
 async function rollbackComponent(component) {
@@ -3301,6 +3324,12 @@ async function installSelectedMihomoVersion() {
 }
 
 async function startComponentAction(payload) {
+  if (state.components.pendingAction || state.components.job.running) return false;
+  state.components.pendingAction = payload;
+  state.components.actionError = '';
+  state.components.jobVisible = true;
+  els.componentJobDetails.open = false;
+  renderComponentManager();
   try {
     const data = await apiJson('/api/components/action', {
       method: 'POST',
@@ -3315,8 +3344,16 @@ async function startComponentAction(payload) {
     pollComponentJob();
     return true;
   } catch (error) {
-    showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+    state.components.actionError = `Не удалось запустить операцию: ${error?.message || error}`;
+    if (error?.status === 409) {
+      await pollComponentJob();
+      if (state.components.job.running) state.components.actionError = '';
+    }
+    if (state.components.actionError) showMessage(state.components.actionError, { severity: 'warning' });
     return false;
+  } finally {
+    state.components.pendingAction = null;
+    renderComponentManager();
   }
 }
 

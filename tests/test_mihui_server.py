@@ -1227,6 +1227,21 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result, payload)
 
+    def test_services_status_reports_running_instance_after_version_file_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(mihui_server, "get_xkeen_service_status", return_value={}), \
+                mock.patch.object(mihui_server, "get_mihomo_service_status", return_value={}):
+            app_dir = Path(temp_dir)
+            version_file = app_dir / "VERSION"
+            version_file.write_text("v0.2.154\n", encoding="utf-8")
+            before = mihui_server.get_services_status(app_dir)
+            version_file.write_text("v0.2.155\n", encoding="utf-8")
+            after = mihui_server.get_services_status(app_dir)
+
+        self.assertRegex(before["instanceId"], r"^[0-9a-f]{32}$")
+        self.assertEqual(after["instanceId"], before["instanceId"])
+        self.assertEqual(after["instanceId"], mihui_server.MIHUI_INSTANCE_ID)
+
     def test_components_status_marks_newer_versions(self):
         catalog = {
             "xkeen": {"latest": "v2.1", "versions": ["v2.1", "v2.0"], "error": ""},
@@ -1413,7 +1428,8 @@ class ProviderAdapterTests(unittest.TestCase):
                 '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\n'
                 'pid_file_matches() { return 0; }\n'
                 'is_running() { pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"; }\n'
-                'server_is_running() { pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"; }\n',
+                'server_is_running() { pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"; }\n'
+                'process_pids() { return 0; }\n',
                 encoding="utf-8",
             )
             fixed_status = mihui_server.get_mihui_service_repair_status(app_dir)

@@ -78,6 +78,7 @@ class CoreUpdateTests(unittest.TestCase):
                         "installed": True, "version": "1.19.32-r1"}):
                 status = mihui_server.get_components_status(app_dir)
             self.assertEqual(status["components"]["mihomo"]["core"], "prizrak")
+            self.assertTrue(status["capabilities"]["mihomoCoreSwitch"])
             self.assertEqual(status["components"]["mihomo"]["repo"], mihui_server.PRIZRAK_GITHUB_REPO)
             self.assertEqual(status["updateCount"], 1)
 
