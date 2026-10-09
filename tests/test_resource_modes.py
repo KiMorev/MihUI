@@ -122,6 +122,94 @@ class ResourceModeTests(unittest.TestCase):
             self.assertFalse(mihui_server.get_resource_monitor_readiness(Path("."), settings)["ready"])
             self.assertEqual(settings["services"]["youtube"]["mode"], "mihui")
 
+    def apply_settings(self, folder, settings, reset_results=None):
+        handler = mock.Mock(app_dir=folder, headers={"X-Mihui-Action": "resource-monitor"})
+        handler.read_json_body.return_value = settings
+        operations = mock.Mock()
+        with mock.patch.object(mihui_server, "get_resource_monitor_readiness", return_value={"ready": True}), \
+                mock.patch.object(mihui_server, "load_resource_monitor_proxies", return_value={}) as proxies, \
+                mock.patch.object(mihui_server, "reset_smart_proxy_group", return_value={"ok": True},
+                                  side_effect=reset_results) as reset, \
+                mock.patch.object(mihui_server, "select_resource_monitor_fastest_nodes", return_value={"ok": True}) as select, \
+                mock.patch.object(mihui_server, "save_resource_monitor_settings",
+                                  wraps=mihui_server.save_resource_monitor_settings) as save, \
+                mock.patch.object(mihui_server, "get_resource_monitor_status", return_value={"ok": True}):
+            operations.attach_mock(reset, "reset")
+            operations.attach_mock(select, "select")
+            operations.attach_mock(save, "save")
+            mihui_server.MihuiHandler.handle_resource_monitor_settings(handler)
+        return handler.send_json.call_args.args, operations, proxies
+
+    def test_entering_prizrak_mode_clears_previous_selection_before_saving(self):
+        for previous_mode in ("mihui", "off"):
+            with self.subTest(previous_mode=previous_mode), tempfile.TemporaryDirectory() as directory:
+                folder = Path(directory)
+                previous = self.settings()
+                previous["services"]["youtube"].update(mode=previous_mode, enabled=previous_mode != "off")
+                mihui_server.save_resource_monitor_settings(folder, previous)
+                settings = self.settings()
+                (status, result), operations, proxies = self.apply_settings(folder, settings)
+                self.assertEqual(status, 200)
+                self.assertTrue(result["ok"])
+                operations.reset.assert_called_once_with(folder, "YOUTUBE")
+                operations.select.assert_called_once_with(folder, settings, proxies.return_value)
+                self.assertEqual([call[0] for call in operations.mock_calls], ["reset", "select", "save"])
+                self.assertEqual(mihui_server.load_resource_monitor_settings(folder)["services"]["youtube"]["mode"], "prizrak")
+
+    def test_saving_unchanged_prizrak_mode_preserves_manual_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            settings = self.settings()
+            mihui_server.save_resource_monitor_settings(folder, settings)
+            (status, _), operations, _ = self.apply_settings(folder, settings)
+            self.assertEqual(status, 200)
+            operations.reset.assert_not_called()
+            operations.save.assert_called_once()
+
+    def test_changing_prizrak_group_clears_only_the_new_group_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            mihui_server.save_resource_monitor_settings(folder, self.settings())
+            settings = self.settings()
+            settings["services"]["youtube"]["group"] = "NEW-YOUTUBE"
+            (status, _), operations, _ = self.apply_settings(folder, settings)
+            self.assertEqual(status, 200)
+            operations.reset.assert_called_once_with(folder, "NEW-YOUTUBE")
+
+    def test_leaving_prizrak_for_mihui_uses_fastest_selection_without_smart_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            mihui_server.save_resource_monitor_settings(folder, self.settings())
+            settings = self.settings()
+            settings["services"]["youtube"]["mode"] = "mihui"
+            (status, _), operations, proxies = self.apply_settings(folder, settings)
+            self.assertEqual(status, 200)
+            operations.reset.assert_not_called()
+            operations.select.assert_called_once_with(folder, settings, proxies.return_value)
+            self.assertEqual(mihui_server.load_resource_monitor_settings(folder)["services"]["youtube"]["mode"], "mihui")
+
+    def test_failed_reset_preserves_settings_and_skips_fastest_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            previous = self.settings()
+            previous["services"]["youtube"]["mode"] = "mihui"
+            previous["services"]["telegram"].update(mode="mihui", enabled=True)
+            mihui_server.save_resource_monitor_settings(folder, previous)
+            path = mihui_server.resource_monitor_settings_path(folder)
+            before = path.read_bytes()
+            settings = self.settings()
+            settings["services"]["telegram"].update(mode="prizrak", enabled=True)
+            failure = {"ok": False, "uncertain": True, "message": "Prizrak did not confirm auto-selection"}
+            (status, result), operations, _ = self.apply_settings(folder, settings, [{"ok": True}, failure])
+            self.assertEqual(status, 502)
+            self.assertFalse(result["ok"])
+            self.assertIn("TELEGRAM", result["message"])
+            self.assertEqual(result["reset"], failure)
+            self.assertEqual(operations.reset.call_args_list, [mock.call(folder, "YOUTUBE"), mock.call(folder, "TELEGRAM")])
+            operations.select.assert_not_called()
+            operations.save.assert_not_called()
+            self.assertEqual(path.read_bytes(), before)
+
     def test_capability_probe_is_isolated_and_follows_binary_changes(self):
         mihui_server.resource_smart_support_cache.clear()
         with tempfile.TemporaryDirectory() as directory:

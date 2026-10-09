@@ -1498,7 +1498,12 @@ async function saveRouterConfig() {
     }
 
     const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    if (monitorSettingsApplied && whitelistSettingsApplied) {
+    if (data.reload?.smartReset?.ok === false) {
+      showMessage('Конфиг сохранён, но автовыбор Smart ещё не включён.', {
+        severity: 'warning',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+      });
+    } else if (monitorSettingsApplied && whitelistSettingsApplied) {
       showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
     }
   } catch (error) {
@@ -1569,9 +1574,16 @@ async function restoreSelectedBackup() {
     });
     await loadRouterConfig({ silent: true });
     els.backupHistoryDialog.close();
-    showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
-      severity: data.reload?.ok ? 'success' : 'warning',
-    });
+    if (data.reload?.smartReset?.ok === false) {
+      showMessage('Версия восстановлена, но автовыбор Smart ещё не включён.', {
+        severity: 'warning',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+      });
+    } else {
+      showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
+        severity: data.reload?.ok ? 'success' : 'warning',
+      });
+    }
   } catch (error) {
     const result = error?.data || {};
     if (result.stage === 'conflict') {
@@ -10137,6 +10149,7 @@ function getNodeGroupSelectionItems(nodes) {
 
   return orderNodeGroupSelectionGroups(groups).map((group) => {
     const selection = selectionByName.get(normalizeLookupName(group.name));
+    const isSmart = String(selection?.type || '').trim().toLowerCase() === 'smart';
     const selectedName = String(selection?.now || '');
     const selectedNode = nodeByName.get(normalizeLookupName(selectedName));
     const selected = selection?.selected || {};
@@ -10147,8 +10160,13 @@ function getNodeGroupSelectionItems(nodes) {
     return {
       groupName: group.name,
       groupType: group.type || selection?.type || 'group',
+      smartFixed: isSmart && typeof selection?.fixed === 'string'
+        ? selection.fixed
+        : '',
       selectedName,
-      selectedDisplayName: selectedNode?.displayName || stripNodeFlagEmoji(selectedName) || 'не выбрано',
+      selectedDisplayName: isSmart && selection?.fixed === '' && selectedName === 'Smart - Select'
+        ? 'Автоматический выбор'
+        : selectedNode?.displayName || stripNodeFlagEmoji(selectedName) || 'не выбрано',
       selectedType,
       statusKey: getNodeStatusKey(selectedStatusSource),
       statusText: formatNodeStatus(selectedStatusSource),
@@ -10200,7 +10218,7 @@ function createNodeGroupSelectionCard(item) {
   meta.textContent = formatNodeGroupSelectionMeta(item);
   current.className = 'node-group-selection-current';
   label.className = 'node-group-selection-label';
-  label.textContent = 'Сейчас';
+  label.textContent = item.smartFixed ? 'Закреплено' : 'Сейчас';
   name.className = 'node-group-selection-name';
   name.textContent = item.isKnown ? item.selectedDisplayName : 'нет данных Mihomo';
   badges.className = 'node-badges';
@@ -10216,7 +10234,19 @@ function createNodeGroupSelectionCard(item) {
   titleRow.append(title, meta);
   current.append(label, name);
   card.append(titleRow, current, badges);
-  if (isSelectableNodeGroup(item)) {
+  if (item.smartFixed) {
+    const actions = document.createElement('div');
+    const button = document.createElement('button');
+    const isBusy = state.nodeGroupSelectingName === item.groupName;
+    actions.className = 'node-group-selection-actions';
+    button.className = 'button compact';
+    button.type = 'button';
+    button.textContent = isBusy ? 'Включение…' : 'Включить автовыбор';
+    button.disabled = Boolean(state.nodeGroupSelectingName);
+    button.addEventListener('click', () => enableSmartGroupAuto(item.groupName));
+    actions.append(button);
+    card.append(actions);
+  } else if (isSelectableNodeGroup(item)) {
     const actions = document.createElement('div');
     const choiceLabel = document.createElement('label');
     const choiceText = document.createElement('span');
@@ -10277,6 +10307,30 @@ async function selectNodeGroup(groupName, proxyName) {
         : `Не удалось переключить группу ${groupName}.`,
       { severity: 'error', details: error?.message || String(error) },
     );
+  } finally {
+    state.nodeGroupSelectingName = '';
+    renderNodeInventory();
+  }
+}
+
+async function enableSmartGroupAuto(groupName) {
+  if (!groupName || state.nodeGroupSelectingName) return;
+  state.nodeGroupSelectingName = groupName;
+  renderNodeInventory();
+  try {
+    await apiJson('/api/groups/auto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: groupName }),
+    });
+    await loadNodeInventory({ silent: true });
+    showMessage(`Группа ${groupName}: автовыбор Smart включён.`, { severity: 'success' });
+  } catch (error) {
+    await loadNodeInventory({ silent: true });
+    showMessage(`Не удалось включить автовыбор группы ${groupName}.`, {
+      severity: 'error',
+      details: error?.message || String(error),
+    });
   } finally {
     state.nodeGroupSelectingName = '';
     renderNodeInventory();

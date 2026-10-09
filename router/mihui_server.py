@@ -605,6 +605,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/groups/select":
             self.handle_group_select()
             return
+        if route == "/api/groups/auto":
+            self.handle_group_auto()
+            return
         if route == "/api/resource-monitor/settings":
             self.handle_resource_monitor_settings()
             return
@@ -901,6 +904,20 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             status = HTTPStatus.UNPROCESSABLE_ENTITY
         self.send_json(status, result)
 
+    def handle_group_auto(self):
+        payload = self.read_json_body()
+        group = payload.get("group")
+        if not isinstance(group, str) or not group:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя группы"})
+            return
+        with config_write_lock:
+            result = reset_smart_proxy_group(self.app_dir, group)
+        status = HTTPStatus.OK if result["ok"] else (
+            HTTPStatus.BAD_GATEWAY if result.get("unavailable") or result.get("uncertain")
+            else HTTPStatus.UNPROCESSABLE_ENTITY
+        )
+        self.send_json(status, result)
+
     def handle_xkeen_commands_get(self):
         self.send_json(
             HTTPStatus.OK,
@@ -979,29 +996,46 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
             return
 
-        if settings["enabled"]:
-            readiness = get_resource_monitor_readiness(self.app_dir, settings)
-            if not readiness["ready"]:
-                self.send_json(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    {"ok": False, "message": "Группы ресурсов не готовы", "readiness": readiness},
-                )
-                return
+        with config_write_lock, resource_monitor_lock:
+            previous = load_resource_monitor_settings(self.app_dir)
+            if settings["enabled"]:
+                readiness = get_resource_monitor_readiness(self.app_dir, settings)
+                if not readiness["ready"]:
+                    self.send_json(
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                        {"ok": False, "message": "Группы ресурсов не готовы", "readiness": readiness},
+                    )
+                    return
 
-            proxies = load_resource_monitor_proxies(self.app_dir)
-            selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
-            if not selection["ok"]:
-                self.send_json(
-                    HTTPStatus.BAD_GATEWAY,
-                    {
-                        "ok": False,
-                        "message": "Mihomo не применил выбор самых быстрых нод для ресурсов",
-                        "selection": selection,
-                    },
-                )
-                return
+                for service, item in settings["services"].items():
+                    old = previous["services"][service]
+                    if resource_monitor_mode(item) != "prizrak" or (
+                        previous["enabled"] and resource_monitor_mode(old) == "prizrak" and old["group"] == item["group"]
+                    ):
+                        continue
+                    reset = reset_smart_proxy_group(self.app_dir, item["group"])
+                    if not reset["ok"]:
+                        self.send_json(HTTPStatus.BAD_GATEWAY, {
+                            "ok": False,
+                            "message": f"Не удалось включить автовыбор Smart для {item['group']}: {reset['message']}",
+                            "reset": reset,
+                        })
+                        return
 
-        save_resource_monitor_settings(self.app_dir, settings)
+                proxies = load_resource_monitor_proxies(self.app_dir)
+                selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
+                if not selection["ok"]:
+                    self.send_json(
+                        HTTPStatus.BAD_GATEWAY,
+                        {
+                            "ok": False,
+                            "message": "Mihomo не применил выбор самых быстрых нод для ресурсов",
+                            "selection": selection,
+                        },
+                    )
+                    return
+
+            save_resource_monitor_settings(self.app_dir, settings)
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
 
     def handle_resource_monitor_check(self, force_switch=False):
@@ -4575,6 +4609,35 @@ def update_proxy_provider(app_dir, name):
             "message": str(error),
             "adapter": get_xray_provider_adapter_status(name),
         }
+
+
+def load_proxy_groups(app_dir):
+    data = mihomo_api_request(app_dir, "/proxies", timeout=5)
+    proxies = data.get("proxies", data) if isinstance(data, dict) else None
+    if not isinstance(proxies, dict):
+        raise RuntimeError("Ядро вернуло некорректный список групп")
+    return proxies
+
+
+def reset_smart_proxy_group(app_dir, group):
+    path = f"/proxies/{urllib.parse.quote(group, safe='')}"
+    try:
+        current = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "unavailable": True, "message": str(error)}
+    if not isinstance(current, dict) or str(current.get("type") or "").casefold() != "smart":
+        return {"ok": False, "message": "Автовыбор поддерживается только в группе Smart"}
+    if not isinstance(current.get("fixed"), str):
+        return {"ok": False, "message": "Ядро не сообщает состояние фиксации Smart"}
+    # DELETE also clears a cached choice whose node is currently absent.
+    try:
+        mihomo_api_request(app_dir, path, method="DELETE")
+        confirmed = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+    if not isinstance(confirmed, dict) or str(confirmed.get("type") or "").casefold() != "smart" or confirmed.get("fixed") != "":
+        return {"ok": False, "uncertain": True, "message": "Prizrak не подтвердил автовыбор Smart"}
+    return {"ok": True, "changed": bool(current["fixed"]), "group": group, "now": confirmed.get("now", ""), "fixed": ""}
 
 
 def select_proxy_group(app_dir, group, name):
@@ -10469,6 +10532,8 @@ def normalize_current_group_selections(proxies):
                 "now": now,
                 "all": [str(option) for option in options] if isinstance(options, list) else [],
                 "selected": normalize_selected_group_proxy(selected),
+                **({"fixed": item["fixed"]} if str(item.get("type") or "").casefold() == "smart"
+                   and isinstance(item.get("fixed"), str) else {}),
             }
         )
 
@@ -10621,6 +10686,18 @@ def reload_mihomo(app_dir, config_path):
             "message": f"Mihomo использует другой путь конфигурации: {current_path}",
         }
 
+    previous_select_groups = set()
+    if has_config_smart_groups(read_config_text(config_path)):
+        try:
+            previous = load_proxy_groups(app_dir)
+            previous_select_groups = {
+                name for name, proxy in previous.items()
+                if isinstance(proxy, dict) and str(proxy.get("type") or "").casefold() in {"select", "selector"}
+            }
+        except Exception as error:
+            return {"ok": False, "method": "mihomo-api", "stage": "prepare", "uncertain": False,
+                    "message": f"Не удалось проверить группы перед применением: {error}"}
+
     try:
         mihomo_api_request(
             app_dir,
@@ -10669,7 +10746,7 @@ def reload_mihomo(app_dir, config_path):
             "message": "Mihomo не подтвердил путь применённой конфигурации",
         }
 
-    return {
+    result = {
         "ok": True,
         "verified": True,
         "method": "mihomo-api",
@@ -10677,6 +10754,26 @@ def reload_mihomo(app_dir, config_path):
         "pathConfirmed": bool(confirmed_path),
         "version": str(version.get("version") or "") if isinstance(version, dict) else "",
     }
+    if previous_select_groups:
+        cleared = []
+        errors = []
+        try:
+            proxies = load_proxy_groups(app_dir)
+            for group in sorted(previous_select_groups):
+                proxy = proxies.get(group)
+                if not isinstance(proxy, dict) or str(proxy.get("type") or "").casefold() != "smart":
+                    continue
+                reset = reset_smart_proxy_group(app_dir, group)
+                if reset["ok"]:
+                    cleared.append(group)
+                else:
+                    errors.append(f"{group}: {reset['message']}")
+        except Exception as error:
+            errors.append(str(error))
+        result["smartReset"] = {"ok": not errors, "groups": cleared}
+        if errors:
+            result["smartReset"]["message"] = "Не удалось включить автовыбор Smart. В разделе «Ноды» нажмите «Включить автовыбор». " + "; ".join(errors)
+    return result
 
 
 def same_config_path(left, right):
