@@ -118,3 +118,27 @@ test('a definite HTTP refusal does not start recovery polling', async () => {
   assert.deepEqual(calls, ['/api/dns/action']);
   assert.equal(state.protectedDns.error, 'Нет безопасного прокси-пути');
 });
+
+for (const action of ['test', 'activate']) {
+  for (const tcpRecovered of [true, false]) {
+    test(`${action} replaces old preview with fresh checks and warnings, TCP recovered: ${tcpRecovered}`, async () => {
+      const warnings = [{ code: 'local-resolver-tcp', message: 'TCP/41100 не ответил' },
+        { code: 'system-fallback-tcp', message: 'TCP/53 не ответил' }];
+      const result = { ok: true, mode: action === 'activate' ? 'active' : 'test',
+        capabilities: { localResolver: { ok: true, tcpDiagnosticOk: tcpRecovered },
+          systemFallback: { ok: true, tcpDiagnosticOk: tcpRecovered } },
+        warnings: tcpRecovered ? [] : warnings,
+        plan: { upstreamRoute: 'FASTEST' }, configCheck: { ok: true }, canTest: true, canActivate: true };
+      const { app, state } = load(async () => result);
+      state.protectedDns.preview = { warnings: tcpRecovered ? warnings : [],
+        capabilities: { localResolver: { tcpDiagnosticOk: !tcpRecovered } },
+        plan: { upstreamRoute: 'PROXY' }, canActivate: false };
+      await app.runProtectedDnsAction(action);
+      assert.equal(state.protectedDns.preview, result);
+      assert.deepEqual(state.protectedDns.preview.warnings, result.warnings);
+      assert.equal(state.protectedDns.preview.capabilities.localResolver.tcpDiagnosticOk, tcpRecovered);
+      assert.equal(state.protectedDns.preview.plan.upstreamRoute, 'FASTEST');
+      assert.equal(state.protectedDns.preview.canActivate, true);
+    });
+  }
+}

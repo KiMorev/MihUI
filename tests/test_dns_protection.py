@@ -157,7 +157,7 @@ class DnsProtectionTests(unittest.TestCase):
                     self.assertNotRegex(warning["message"], r"\b(?:fallback|lease|firewall)\b")
         self.assertEqual(seen_codes, {
             "fail-open", "partial-capture", "firewall-unknown", "firewall-missing", "topology-changed",
-            "fallback-pending", "managed-config-changed", "system-fallback-tcp", "ipv6-unprotected",
+            "fallback-pending", "managed-config-changed", "local-resolver-tcp", "system-fallback-tcp", "ipv6-unprotected",
         })
 
     def test_strict_action_requires_confirmations_and_never_mutates(self):
@@ -405,6 +405,8 @@ ip name-server 1.1.1.1
                 "proxyGroup": "PROXY",
                 "capabilities": capabilities,
                 "fallback": {"preserved": True},
+                "warnings": [], "plan": {}, "configCheck": {"ok": True},
+                "canTest": True, "canActivate": True,
             }
             calls = []
 
@@ -604,6 +606,69 @@ ip name-server 1.1.1.1
         self.assertFalse(preview["canActivate"])
         self.assertFalse(preview["fallback"]["preserved"])
         self.assertIn("system-fallback", {item["code"] for item in preview["warnings"]})
+
+    def test_successful_actions_and_status_use_current_tcp_diagnostics(self):
+        tcp_warnings = {"local-resolver-tcp", "system-fallback-tcp"}
+        for action in ("test", "activate"):
+            for tcp_ready in (False, True):
+                with self.subTest(action=action, tcp_ready=tcp_ready), tempfile.TemporaryDirectory() as temp_dir:
+                    app_dir, config_path = self.make_app(temp_dir)
+                    request = mihui_server.validate_dns_protection_request({
+                        "action": action, "proxyGroup": "PROXY",
+                        "expectedRevision": mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
+                    }, require_action=True)
+                    old_capabilities = self.ready_capabilities()
+                    current_capabilities = self.ready_capabilities()
+                    for capabilities, ready in ((old_capabilities, not tcp_ready), (current_capabilities, tcp_ready)):
+                        capabilities.update({"ipv6ClientDns": False, "addresses": {"ipv4": ["192.168.1.1"], "ipv6": []}})
+                        capabilities["localResolver"]["tcpDiagnosticOk"] = ready
+                        capabilities["systemFallback"]["tcpDiagnosticOk"] = ready
+
+                    def save_config(_app_dir, text, expected_revision=None):
+                        config_path.write_text(text, encoding="utf-8")
+                        return {"ok": True, "applied": True, "revision": mihui_server.config_revision(text)}
+
+                    config_check = {"ok": True, "available": True, "message": "OK"}
+                    with mock.patch.object(
+                        mihui_server, "collect_dns_protection_capabilities",
+                        side_effect=[old_capabilities, current_capabilities, current_capabilities],
+                    ), mock.patch.object(mihui_server, "find_mihomo_binary", return_value="mihomo"), mock.patch.object(
+                        mihui_server, "check_mihomo_config", return_value=config_check
+                    ), mock.patch.object(mihui_server, "save_checked_config", side_effect=save_config), mock.patch.object(
+                        mihui_server, "wait_for_mihomo_dns", return_value={"ok": True}
+                    ), mock.patch.object(mihui_server, "ensure_dns_firewall", return_value={"ok": True}), mock.patch.object(
+                        mihui_server, "refresh_dns_firewall_lease", return_value={"ok": True}
+                    ), mock.patch.object(mihui_server, "dns_firewall_installed", return_value={"ok": True}), mock.patch.object(
+                        mihui_server, "dns_capture_lease_state", return_value={"known": True, "active": True, "complete": True}
+                    ):
+                        old_preview = mihui_server.preview_dns_protection(app_dir, request, record_event=False)
+                        result = mihui_server.apply_dns_protection_action(app_dir, request)
+                        status = mihui_server.get_dns_protection_status(app_dir)
+
+                    self.assertEqual({item["code"] for item in old_preview["warnings"]}, tcp_warnings if tcp_ready else set())
+                    self.assertTrue(result["ok"])
+                    self.assertEqual(result["mode"], action if action == "test" else "active")
+                    self.assertEqual(status["mode"], result["mode"])
+                    self.assertTrue(result["canTest"])
+                    self.assertTrue(result["canActivate"])
+                    self.assertEqual(result["configCheck"], config_check)
+                    self.assertEqual(result["plan"]["upstreamRoute"], "PROXY")
+                    self.assertEqual({item["code"] for item in result["warnings"]}, set() if tcp_ready else tcp_warnings)
+                    self.assertEqual(status["warnings"], result["warnings"])
+
+    def test_status_reports_udp_failures_instead_of_tcp_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir, _ = self.make_app(temp_dir)
+            capabilities = self.ready_capabilities()
+            capabilities["ipv6ClientDns"] = False
+            capabilities["localResolver"] = {"ok": False, "tcpDiagnosticOk": False}
+            capabilities["systemFallback"] = {
+                "ok": False, "state": "failed", "tcpDiagnosticOk": False,
+                "message": "Системный DNS не ответил по UDP",
+            }
+            with mock.patch.object(mihui_server, "collect_dns_protection_capabilities", return_value=capabilities):
+                status = mihui_server.get_dns_protection_status(app_dir)
+        self.assertEqual({item["code"] for item in status["warnings"]}, {"local-resolver", "system-fallback"})
 
     def test_preview_returns_config_error_and_records_only_safe_diagnostics(self):
         error = "list private not found in GeoSite.dat; password: secret-value; https://subscription.example/token"
@@ -1110,6 +1175,8 @@ ip name-server 1.1.1.1
                 "proxyGroup": "PROXY",
                 "capabilities": capabilities,
                 "fallback": {"preserved": True},
+                "warnings": [], "plan": {}, "configCheck": {"ok": True},
+                "canTest": True, "canActivate": True,
             }
             contender_acquired = threading.Event()
             contender = []

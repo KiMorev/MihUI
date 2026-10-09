@@ -8366,6 +8366,22 @@ def dns_config_check_log_summary(config_check):
     return summary
 
 
+def dns_resolver_warnings(capabilities):
+    warnings = []
+    if not capabilities["localResolver"]["ok"]:
+        warnings.append({"code": "local-resolver", "message": "Локальный UDP-резолвер 127.0.0.1:41100 не прошёл DNS-проверку; его доступность не подтверждена."})
+    elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "local-resolver-tcp", "message": "Локальный резолвер доступен по UDP. DNS-проверка TCP/41100 не пройдена; она диагностическая и не блокирует включение."})
+    if not capabilities["systemFallback"]["ok"]:
+        warnings.append({
+            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
+            "message": capabilities["systemFallback"]["message"],
+        })
+    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. DNS-проверка TCP/53 не пройдена; она диагностическая и не блокирует включение."})
+    return warnings
+
+
 def preview_dns_protection(app_dir, request_data, record_event=True):
     app_dir = Path(app_dir)
     capabilities = collect_dns_protection_capabilities(
@@ -8409,17 +8425,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
         (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
     ):
         warnings.append({"code": "ipv6-unprotected", "message": "DNS по IPv6 обнаружен, но перехват IPv6 недоступен."})
-    if not capabilities["localResolver"]["ok"]:
-        warnings.append({"code": "local-resolver", "message": "Запросы локальных доменов не будут передаваться локальному резолверу: UDP 127.0.0.1:41100 не ответил."})
-    elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "local-resolver-tcp", "message": "Локальный резолвер доступен по UDP. TCP/41100 не ответил; это только диагностическая проверка."})
-    if not capabilities["systemFallback"]["ok"]:
-        warnings.append({
-            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
-            "message": capabilities["systemFallback"]["message"],
-        })
-    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. TCP/53 не ответил; это только диагностическая проверка."})
+    warnings.extend(dns_resolver_warnings(capabilities))
 
     config_ready = bool(proposed_text is not None and config_check.get("ok"))
     result = {
@@ -8869,13 +8875,7 @@ def get_dns_protection_status(app_dir):
         warnings.append({"code": "fallback-pending", "message": "Отключение перехвата DNS ещё не завершено или не подтверждено. DNS-служба Mihomo под управлением MihUI сохранена."})
     if runtime["requestedMode"] == "active" and not managed_matches:
         warnings.append({"code": "managed-config-changed", "message": "DNS-блок, управляемый MihUI, изменён. Разрешение на его перехват больше не продлевается."})
-    if not capabilities["systemFallback"]["ok"]:
-        warnings.append({
-            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
-            "message": capabilities["systemFallback"]["message"],
-        })
-    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
-        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. TCP/53 не ответил; это только диагностическая проверка."})
+    warnings.extend(dns_resolver_warnings(capabilities))
     if capabilities["ipv6ClientDns"] and not next(
         (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
     ):
@@ -9253,6 +9253,11 @@ def apply_dns_protection_action(app_dir, request_data):
             "proxyGroup": preview["proxyGroup"],
             "revision": saved["revision"],
             "capabilities": capabilities,
+            "warnings": preview["warnings"],
+            "plan": preview["plan"],
+            "configCheck": preview["configCheck"],
+            "canTest": preview["canTest"],
+            "canActivate": preview["canActivate"],
             "runtime": next_runtime,
             "probe": probe,
             "fallback": preview["fallback"],

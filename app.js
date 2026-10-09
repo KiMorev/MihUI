@@ -5997,7 +5997,7 @@ async function runProtectedDnsAction(action) {
     }
     const data = await requestProtectedDnsOperation(payload);
     mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true });
-    state.protectedDns.preview = action === 'system' ? null : state.protectedDns.preview;
+    state.protectedDns.preview = action === 'system' ? null : data;
     state.protectedDns.notice = data.message || {
       test: 'Тестовый режим подтверждён роутером. Клиенты ещё используют системный DNS.',
       activate: 'Роутер подтвердил включение защищённого DNS.',
