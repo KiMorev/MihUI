@@ -62,20 +62,34 @@ class MihuiUpdaterServiceTests(unittest.TestCase):
         source = UPDATER.read_text(encoding="utf-8")
         before, main = source.split('if [ "${REQUEST_METHOD:-POST}" != "POST" ]; then', 1)
         runner = directory / "update.sh"
+        shell_bin = directory / "bin"
         runner.write_text(
-            before
+            f"PATH={shlex.quote(shell_path(shell_bin))}:$PATH\n"
+            + before
             + '\ndownload_package_archive() { DOWNLOADED_ARCHIVE="$MIHUI_FIXTURE_ARCHIVE"; }\n'
             + 'if [ "${REQUEST_METHOD:-POST}" != "POST" ]; then'
             + main,
             encoding="utf-8",
             newline="\n",
         )
+        shell_bin.mkdir()
+        shell_shim = shell_bin / "sh"
+        shell_shim.write_text(
+            '#!/bin/sh\n'
+            'printf "%s\\n" "$@" >> "$MIHUI_TEST_SHELL_LOG"\n'
+            'exec "$MIHUI_TEST_SHELL" "$@"\n',
+            encoding="utf-8",
+            newline="\n",
+        )
+        shell_shim.chmod(0o755)
         env = os.environ.copy()
         env.update(
             MIHUI_DIR=shell_path(app_dir),
             MIHUI_INIT_SCRIPT=shell_path(initial_init),
             MIHUI_FIXTURE_ARCHIVE=shell_path(archive),
             TMPDIR=shell_path(directory),
+            MIHUI_TEST_SHELL=shell_path(Path(SH)),
+            MIHUI_TEST_SHELL_LOG=shell_path(directory / "shell-calls.log"),
         )
         result = subprocess.run(
             [SH, shell_path(runner)],
@@ -114,6 +128,10 @@ class MihuiUpdaterServiceTests(unittest.TestCase):
             while not restart_log.is_file() and time.monotonic() < deadline:
                 time.sleep(0.05)
             self.assertEqual(restart_log.read_text(encoding="utf-8"), "restart:9893\n")
+            shell_calls = (Path(temp_dir) / "shell-calls.log").read_text().splitlines()
+            self.assertEqual(shell_calls[0], "-n")
+            self.assertTrue(shell_calls[1].startswith(shell_path(init_script) + ".new."))
+            self.assertEqual(shell_calls[2:], [shell_path(init_script), "restart"])
             self.assertEqual((app_dir / "www" / "index.html").read_text(), "new interface")
 
     def test_update_refuses_to_replace_unrelated_service(self):

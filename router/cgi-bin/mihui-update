@@ -343,7 +343,7 @@ prepare_service_update() {
   escaped_app_dir=$(printf '%s' "$APP_DIR" | sed "s/'/'\\\\''/g" | sed 's/[\\&|]/\\&/g')
   sed "s|__MIHUI_APP_DIR__|'$escaped_app_dir'|g" "$service_template" > "$SERVICE_NEW" ||
     fail "Не удалось подготовить скрипт запуска MihUI"
-  /bin/sh -n "$SERVICE_NEW" || fail "Некорректный скрипт запуска MihUI"
+  sh -n "$SERVICE_NEW" || fail "Некорректный скрипт запуска MihUI"
   chmod +x "$SERVICE_NEW"
 }
 
@@ -407,7 +407,7 @@ rm -rf "$OLD_WWW"
 replace_service_script
 
 if [ -x "$INIT_SCRIPT" ]; then
-  ( sleep 2; "$INIT_SCRIPT" restart >/dev/null 2>&1 ) &
+  ( sleep 2; sh "$INIT_SCRIPT" restart >/dev/null 2>&1 ) &
 fi
 
 respond_json "200 OK" '{"ok":true,"message":"MihUI обновлён"}'
