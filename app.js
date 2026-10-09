@@ -5468,6 +5468,7 @@ function getProtectedDnsCapabilityLabel(id) {
     'mihomo-binary': 'Исполняемый файл Mihomo',
     'mihomo-api': 'API Mihomo',
     'proxy-group': 'Выбранная прокси-группа',
+    'proxy-route': 'Прокси-путь DNS без DIRECT',
     'config-ownership': 'DNS-блок конфигурации',
     'dns-override': 'Конфликт XKeen dns-override',
     'lan-ipv4': 'LAN-адрес IPv4',
@@ -5895,7 +5896,8 @@ function renderProtectedDns() {
   els.dnsActionNotice.hidden = !(state.protectedDns.error || state.protectedDns.notice || state.protectedDns.action);
   els.dnsActionNotice.className = state.protectedDns.error ? 'is-error' : state.protectedDns.noticeTone === 'success' ? 'is-success' : '';
   els.dnsActionNotice.textContent = state.protectedDns.error
-    || (state.protectedDns.action ? 'Операция выполняется. Текущее состояние изменится только после ответа роутера.' : state.protectedDns.notice);
+    || state.protectedDns.notice
+    || (state.protectedDns.action ? 'Операция выполняется. Текущее состояние изменится только после ответа роутера.' : '');
 }
 
 async function previewProtectedDns() {
@@ -5930,6 +5932,51 @@ async function previewProtectedDns() {
   }
 }
 
+async function requestProtectedDnsOperation(payload) {
+  payload.operationId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('');
+  const deadline = Date.now() + 150000;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    const result = await apiJson('/api/dns/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!result.pending) return result;
+  } catch (error) {
+    if (error?.data) throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+  state.protectedDns.notice = 'Ответ роутера задерживается. Операция может продолжаться — проверяем её итог…';
+  state.protectedDns.noticeTone = 'warning';
+  renderProtectedDns();
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 3000));
+    const pollController = new AbortController();
+    const pollTimer = window.setTimeout(() => pollController.abort(), 5000);
+    let operation;
+    try {
+      const data = await apiJson(`/api/dns/operation?id=${encodeURIComponent(payload.operationId)}`, { signal: pollController.signal });
+      operation = data.operation;
+    } catch (error) {
+      // A lost connection does not say whether the router applied the change.
+    } finally {
+      window.clearTimeout(pollTimer);
+    }
+    if (!operation || operation.id !== payload.operationId || operation.running || !operation.body) continue;
+    if (operation.body.ok === true) return operation.body;
+    const error = new Error(operation.body.message || 'Операция DNS не выполнена');
+    error.data = operation.body;
+    throw error;
+  }
+  const error = new Error('Итог операции DNS неизвестен. Обновите состояние после восстановления связи с роутером.');
+  error.uncertain = true;
+  throw error;
+}
+
 async function runProtectedDnsAction(action) {
   if (state.protectedDns.action || !state.routerApiAvailable) return;
   const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
@@ -5948,11 +5995,7 @@ async function runProtectedDnsAction(action) {
       payload.profile = state.protectedDns.data?.profile || 'resilient';
       payload.confirmations = { providerDns: false, transitDns: false, wanReconnect: false };
     }
-    const data = await apiJson('/api/dns/action', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
-      body: JSON.stringify(payload),
-    });
+    const data = await requestProtectedDnsOperation(payload);
     mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true });
     state.protectedDns.preview = action === 'system' ? null : state.protectedDns.preview;
     state.protectedDns.notice = data.message || {
@@ -5967,8 +6010,9 @@ async function runProtectedDnsAction(action) {
       if (error.data.preview && typeof error.data.preview === 'object') mergeProtectedDnsErrorResponse(error.data);
       else mergeProtectedDnsResponse(error.data);
     }
-    state.protectedDns.error = getProtectedDnsErrorMessage(error, action);
-    showMessage(`DNS не переключён: ${state.protectedDns.error}`, { severity: 'error' });
+    state.protectedDns.error = error.uncertain ? error.message : getProtectedDnsErrorMessage(error, action);
+    state.protectedDns.notice = '';
+    showMessage(state.protectedDns.error, { severity: error.uncertain || error?.data?.uncertain ? 'warning' : 'error' });
   } finally {
     state.protectedDns.action = '';
     renderProtectedDns();

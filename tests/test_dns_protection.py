@@ -13,6 +13,15 @@ import mihui_server  # noqa: E402
 
 
 class DnsProtectionTests(unittest.TestCase):
+    def setUp(self):
+        groups = {"ok": True, "groups": ["PROXY"], "proxies": {
+            "PROXY": {"type": "Selector", "all": ["node"], "now": "node"},
+            "node": {"type": "Vless"},
+        }}
+        patcher = mock.patch.object(mihui_server, "get_dns_proxy_groups", return_value=groups)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def make_app(self, directory, text="mixed-port: 7890\n"):
         app_dir = Path(directory)
         config_path = app_dir / "config.yaml"
@@ -853,7 +862,7 @@ ip name-server 1.1.1.1
 
         self.assertFalse(saved["fallbackPending"])
         self.assertEqual(events[0]["type"], "fallback_ready")
-        self.assertEqual(events[0]["message"], "Срок действия перехвата DNS истёк; перехват отключён. Доступность системного DNS проверяется отдельно")
+        self.assertEqual(events[0]["message"], "Подтверждено отключение перехвата DNS. Доступность системного DNS проверяется отдельно")
 
     def test_worker_health_and_recovery_events_are_russian(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1029,7 +1038,8 @@ ip name-server 1.1.1.1
             with mock.patch.object(mihui_server, "find_dns_tool", return_value="tool"), mock.patch.object(
                 mihui_server, "run_dns_tool", side_effect=command
             ), mock.patch.object(mihui_server.os, "geteuid", return_value=0, create=True), mock.patch.object(
-                mihui_server, "get_dns_proxy_groups", return_value={"ok": True, "groups": ["PROXY"]}
+                mihui_server, "get_dns_proxy_groups", return_value={"ok": True, "groups": ["PROXY"], "proxies": {
+                    "PROXY": {"type": "Selector", "all": ["node"], "now": "node"}, "node": {"type": "Vless"}}}
             ), mock.patch.object(mihui_server, "get_port_listeners", side_effect=listeners), mock.patch.object(
                 mihui_server, "find_mihomo_binary", return_value="mihomo"
             ), mock.patch.object(mihui_server, "probe_dns_local_resolver", return_value={"ok": False}), mock.patch.object(
@@ -1176,6 +1186,7 @@ ip name-server 1.1.1.1
 
 
 class WhitelistDnsTests(unittest.TestCase):
+    setUp = DnsProtectionTests.setUp
     make_app = DnsProtectionTests.make_app
     ready_capabilities = DnsProtectionTests.ready_capabilities
 

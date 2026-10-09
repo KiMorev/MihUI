@@ -29,6 +29,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, ExitStack
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -441,6 +442,8 @@ dns_lab_job_state = {
     "error": "",
 }
 dns_protection_lock = threading.Lock()
+dns_operation_lock = threading.Lock()
+atomic_write_lock = threading.Lock()
 dns_protection_health_lock = threading.Lock()
 dns_protection_health = {
     "firewallReady": False,
@@ -542,6 +545,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/dns":
             self.handle_dns_get()
+            return
+        if route == "/api/dns/operation":
+            operation_id = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
+            self.send_json(HTTPStatus.OK, {"ok": True, "operation": get_dns_operation(self.app_dir, operation_id)})
             return
         if route in {"/api/dns-lab", "/api/dns/observation"}:
             self.handle_dns_lab_get()
@@ -1136,7 +1143,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         except (TypeError, ValueError) as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
             return
-        result = apply_dns_protection_action(self.app_dir, request_data)
+        result = run_dns_protection_operation(self.app_dir, request_data)
         if result.get("ok"):
             status = HTTPStatus.OK
         elif result.get("stage") == "conflict":
@@ -1467,9 +1474,26 @@ def backup_path_by_name(app_dir, name):
 
 
 def write_text_atomic(path, text):
-    tmp = path.with_name(f".{path.name}.mihui.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(str(tmp), str(path))
+    path = Path(path)
+    with atomic_write_lock:
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(text)
+                stream.flush()
+                os.chmod(temporary, path.stat().st_mode & 0o777 if path.exists() else 0o644)
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            try:
+                directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            except OSError:
+                pass  # Some filesystems and Windows do not support syncing directories.
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 XKEEN_NETWORK_FILE_DEFS = {
@@ -1703,13 +1727,14 @@ def validate_xkeen_network_files(contents):
 
 def run_xkeen_restart(app_dir, binary):
     try:
-        result = subprocess.run(
-            [binary, "-restart"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=180,
-            check=False,
-        )
+        with suspend_dns_capture(app_dir):
+            result = subprocess.run(
+                [binary, "-restart"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                check=False,
+            )
         output = result.stdout.decode("utf-8", "replace").strip()
     except subprocess.TimeoutExpired:
         return {"ok": False, "message": "Перезапуск XKeen превысил время ожидания", "output": ""}
@@ -2221,6 +2246,7 @@ def _terminate_xkeen_command_process(process):
 
 
 def _run_xkeen_command_job(app_dir, job_id):
+    lifecycle = ExitStack()
     master_fd = None
     slave_fd = None
     process = None
@@ -2233,6 +2259,9 @@ def _run_xkeen_command_job(app_dir, job_id):
         binary = find_xkeen_binary(app_dir)
         if not binary:
             raise RuntimeError("XKeen не найден")
+        flag = xkeen_command_jobs[job_id]["flag"]
+        if flag in {"-stop", "-restart", "-um", "-uk", "-kbr", "-xray", "-mihomo"}:
+            lifecycle.enter_context(suspend_dns_capture(app_dir, resume=flag != "-stop"))
         master_fd, slave_fd = pty.openpty()
         process = subprocess.Popen(
             [binary, xkeen_command_jobs[job_id]["flag"]],
@@ -2315,6 +2344,7 @@ def _run_xkeen_command_job(app_dir, job_id):
                 os.close(master_fd)
             except OSError:
                 pass
+        lifecycle.close()
         with xkeen_command_jobs_lock:
             job = xkeen_command_jobs.get(job_id)
             if job:
@@ -2866,9 +2896,12 @@ def require_component_command(command, message, input_text=None, timeout=COMPONE
 
 def run_component_action(app_dir, request_data):
     with component_action_lock:
+        lifecycle = ExitStack()
         try:
             component = request_data["component"]
             action = request_data["action"]
+            if action != "geo-update":
+                lifecycle.enter_context(suspend_dns_capture(app_dir))
             if component == "all":
                 run_all_component_updates(app_dir, request_data["updates"])
             elif component == "xkeen" and action in {"update", "rollback", "channel"}:
@@ -2898,6 +2931,7 @@ def run_component_action(app_dir, request_data):
                 finishedAt=int(time.time()),
             )
         finally:
+            lifecycle.close()
             invalidate_component_release_cache()
 
 
@@ -4699,12 +4733,7 @@ def read_json_file(path, fallback):
 def write_json_atomic(path, payload):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(str(temporary), str(target))
+    write_text_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def load_resource_monitor_settings(app_dir):
@@ -7393,6 +7422,42 @@ def dns_protection_runtime_path(app_dir):
     return Path(env.get("MIHUI_DNS_RUNTIME_PATH", str(Path(app_dir) / "dns-protection.json")))
 
 
+def dns_operation_path(app_dir):
+    return Path(app_dir) / "dns-operation.json"
+
+
+def get_dns_operation(app_dir, operation_id=""):
+    operation = read_json_file(dns_operation_path(app_dir), {})
+    return operation if operation.get("id") and (not operation_id or operation.get("id") == operation_id) else None
+
+
+def run_dns_protection_operation(app_dir, request_data):
+    operation_id = request_data.get("operationId", "")
+    if not operation_id:
+        return apply_dns_protection_action(app_dir, request_data)
+    fingerprint = config_revision(json.dumps(request_data, sort_keys=True))
+    with dns_operation_lock:
+        previous = get_dns_operation(app_dir)
+        if previous and previous["id"] == operation_id:
+            if previous.get("fingerprint") != fingerprint:
+                return {"ok": False, "stage": "conflict", "message": "Этот идентификатор уже использован для другой операции DNS"}
+            return previous.get("body") or {"ok": True, "pending": True, "operationId": operation_id}
+        if previous and previous.get("running"):
+            return {"ok": False, "stage": "conflict", "message": "Предыдущая операция DNS ещё выполняется"}
+        operation = {"id": operation_id, "fingerprint": fingerprint, "action": request_data["action"],
+                     "running": True, "startedAt": int(time.time())}
+        write_json_atomic(dns_operation_path(app_dir), operation)
+    try:
+        result = apply_dns_protection_action(app_dir, request_data)
+    except Exception as error:
+        result = {"ok": False, "stage": "apply", "uncertain": True,
+                  "message": f"Операция DNS прервана; проверьте текущее состояние: {str(error)[:300]}"}
+    with dns_operation_lock:
+        write_json_atomic(dns_operation_path(app_dir),
+                          {**operation, "running": False, "finishedAt": int(time.time()), "body": result})
+    return result
+
+
 def dns_protection_log_path(app_dir):
     env = get_env(app_dir)
     return Path(env.get("MIHUI_DNS_LOG_PATH", str(Path(app_dir) / "dns-protection.jsonl")))
@@ -7496,6 +7561,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "confirmations",
         "expectedRevision",
         "revision",
+        "operationId",
     }
     if set(payload) - allowed:
         raise ValueError("Неизвестное поле в запросе настройки DNS")
@@ -7505,6 +7571,9 @@ def validate_dns_protection_request(payload, require_action=False):
         raise ValueError("Поле action должно иметь значение test, activate или system")
     if not require_action and action:
         raise ValueError("Предварительная проверка не принимает поле action")
+    operation_id = payload.get("operationId", "")
+    if not isinstance(operation_id, str) or (operation_id and not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", operation_id)):
+        raise ValueError("Некорректный идентификатор операции DNS")
 
     profile = str(payload.get("profile") or "resilient").strip().casefold()
     if profile not in {"resilient", "strict"}:
@@ -7555,6 +7624,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "lanInterfaces": lan_interfaces,
         "expectedRevision": expected_revision,
         "confirmations": normalized_confirmations,
+        "operationId": operation_id,
     }
 
 
@@ -7901,7 +7971,38 @@ def get_dns_proxy_groups(app_dir):
         normalized = str(item.get("name") or name or "").strip()
         if normalized and len(normalized) <= 128 and not any(char in normalized for char in "\r\n#&"):
             groups.append(normalized)
-    return {"ok": True, "groups": list(dict.fromkeys(groups)), "message": ""}
+    return {"ok": True, "groups": list(dict.fromkeys(groups)), "proxies": proxies, "message": ""}
+
+
+def check_dns_proxy_route(proxies, group):
+    def check(name, visiting):
+        if not isinstance(name, str) or name in visiting or len(visiting) >= 32:
+            return False
+        item = proxies.get(name)
+        if not isinstance(item, dict):
+            return False
+        kind = str(item.get("type") or "").casefold().replace("-", "")
+        if not kind or kind in {"direct", "compatible", "pass", "reject", "rejectdrop", "dns"}:
+            return False
+        members = item.get("all")
+        if members is None:
+            return True
+        if not isinstance(members, list):
+            return False
+        if not members:
+            members = [item.get("emptyFallback")]
+        elif kind == "selector":
+            selected = item.get("now")
+            if selected not in members:
+                return False
+            members = [selected]
+        elif kind not in {"urltest", "fallback", "loadbalance", "smart"}:
+            return False
+        return all(check(member, visiting | {name}) for member in members)
+
+    ok = isinstance(proxies, dict) and check(group, set())
+    return {"ok": ok, "message": "Выбранная DNS-группа ведёт в прокси" if ok else
+            "DNS-группа ведёт в DIRECT либо её прокси-путь не подтверждён. Выберите группу с прокси без прямого выхода"}
 
 
 def probe_dns_endpoint(
@@ -8131,6 +8232,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     selected_group = proxy_group or runtime.get("proxyGroup") or "PROXY"
     if not proxy_group and selected_group not in groups.get("groups", []):
         selected_group = "PROXY" if "PROXY" in groups.get("groups", []) else next(iter(groups.get("groups", [])), "")
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), selected_group)
 
     ndmc = run_dns_tool(tools["ndmc"], ["-c", "show running-config"])
     running_config = ndmc.get("output", "") if ndmc["ok"] else ""
@@ -8192,6 +8294,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     add_check("mihomo-binary", bool(find_mihomo_binary(app_dir)), "Доступность исполняемого файла Mihomo")
     add_check("mihomo-api", groups["ok"], "API Mihomo доступен" if groups["ok"] else "API Mihomo недоступен")
     add_check("proxy-group", bool(selected_group and selected_group in groups.get("groups", [])), "Наличие выбранной прокси-группы")
+    add_check("proxy-route", proxy_route["ok"], proxy_route["message"])
     add_check("config-ownership", markers_ok and not unmanaged_dns, "Отсутствие конфликтов с DNS-блоком, управляемым MihUI")
     add_check("ndmc", ndmc["ok"], "Чтение настроек роутера через ndmc")
     add_check("dns-override", not dns_override, "Отключение dns-override в XKeen")
@@ -8208,7 +8311,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     add_check("local-resolver", local_resolver["ok"], "Локальный UDP-резолвер 127.0.0.1:41100 доступен" if local_resolver["ok"] else "Локальный UDP-резолвер 127.0.0.1:41100 недоступен", required=False)
 
     activation_ready = all(item["ok"] for item in checks if item["required"])
-    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "config-ownership", "port-1053", "lan-selection"}
+    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "proxy-route", "config-ownership", "port-1053", "lan-selection"}
     test_ready = all(item["ok"] for item in checks if item["id"] in test_ids)
     return {
         "ready": activation_ready,
@@ -8225,6 +8328,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
         "ipv6ClientDns": ipv6_client_dns,
         "proxyGroups": groups.get("groups", []),
         "selectedProxyGroup": selected_group,
+        "proxyRoute": proxy_route,
         "localResolver": local_resolver,
         "dnsOverride": dns_override,
         "ndnproxy": {"ready": ndnproxy_ready, "protocols": sorted(ndnproxy_protocols)},
@@ -8701,6 +8805,7 @@ def get_dns_protection_mode(
     firewall_state=None,
     topology_matches=True,
     managed_matches=None,
+    proxy_route_ok=True,
 ):
     runtime = runtime or load_dns_protection_runtime(app_dir)
     config_text = read_config_text(get_config_path(app_dir))
@@ -8717,7 +8822,7 @@ def get_dns_protection_mode(
             )
         lease_state = lease_state or dns_capture_lease_state(app_dir, runtime)
         firewall_state = firewall_state or dns_firewall_installed(app_dir, runtime)
-        return "active" if lease_state["complete"] and firewall_state["ok"] and topology_matches and managed_matches else "fallback"
+        return "active" if lease_state["complete"] and firewall_state["ok"] and topology_matches and managed_matches and proxy_route_ok else "fallback"
     if runtime["requestedMode"] == "test" and managed:
         return "test"
     return "system"
@@ -8746,8 +8851,12 @@ def get_dns_protection_status(app_dir):
         firewall_state,
         topology_matches,
         managed_matches,
+        capabilities.get("proxyRoute", {"ok": True})["ok"],
     )
     warnings = []
+    if capabilities.get("proxyRoute", {}).get("ok") is False:
+        warnings.append({"code": "proxy-route", "message": capabilities["proxyRoute"]["message"] +
+                         ". Продление перехвата прекращается; оставшийся срок — не более 30 секунд."})
     if mode == "fallback":
         warnings.append({"code": "fail-open", "message": "Защищённый режим не подтверждён полностью. Системный DNS сохранён как резерв; его доступность проверяется отдельно."})
     elif lease_state and not lease_state["complete"]:
@@ -8857,6 +8966,24 @@ def cleanup_dns_capture_before_config_rollback(app_dir, runtime):
 def dns_runtime_has_capture_scope(runtime):
     addresses = runtime.get("addresses", {})
     return bool(addresses.get("ipv4") or addresses.get("ipv6"))
+
+
+@contextmanager
+def suspend_dns_capture(app_dir, resume=True):
+    with dns_protection_lock:
+        runtime = load_dns_protection_runtime(app_dir)
+        if runtime["requestedMode"] == "active" or runtime.get("fallbackPending"):
+            lan = discover_dns_lan_addresses(app_dir, lan_interfaces=runtime["lanInterfaces"])
+            if not lan["ok"] or not probe_system_dns_fallback(lan.get("bindings", []))["ok"]:
+                raise RuntimeError("Остановка ядра отменена: системный резерв DNS не подтверждён")
+            save_dns_protection_runtime(app_dir, {**runtime, "fallbackPending": True,
+                                       "requestedMode": runtime["requestedMode"] if resume else "test",
+                                       "updatedAt": int(time.time())})
+            remove_dns_firewall(app_dir, runtime)
+            lease = dns_capture_lease_state(app_dir, runtime)
+            if not lease["known"] or lease["active"] is not False:
+                raise RuntimeError("Остановка ядра отменена: отключение перехвата DNS не подтверждено")
+        yield
 
 
 def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
@@ -9148,7 +9275,7 @@ def run_dns_protection_lease_cycle(app_dir):
             append_dns_protection_event(
                 app_dir,
                 "fallback_ready",
-                "Срок действия перехвата DNS истёк; перехват отключён. Доступность системного DNS проверяется отдельно",
+                "Подтверждено отключение перехвата DNS. Доступность системного DNS проверяется отдельно",
             )
         return
     if runtime["requestedMode"] != "active":
@@ -9177,8 +9304,12 @@ def run_dns_protection_lease_cycle(app_dir):
             "ipv6": list(runtime["addresses"].get("ipv6", [])),
         },
     }
-    probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800)
-    if not probe["ok"]:
+    groups = get_dns_proxy_groups(app_dir)
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), runtime["proxyGroup"])
+    probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800) if proxy_route["ok"] else {"ok": False}
+    if not proxy_route["ok"]:
+        lease = {"ok": False, "message": proxy_route["message"]}
+    elif not probe["ok"]:
         lease = {"ok": False, "message": "Проверка DNS не пройдена"}
     else:
         firewall_state = dns_firewall_installed(app_dir, runtime)
@@ -9241,6 +9372,11 @@ def dns_protection_worker(app_dir):
 
 
 def initialize_dns_protection(app_dir):
+    operation = get_dns_operation(app_dir)
+    if operation and operation.get("running"):
+        write_json_atomic(dns_operation_path(app_dir), {**operation, "running": False,
+            "finishedAt": int(time.time()), "body": {"ok": False, "uncertain": True,
+            "message": "Панель перезапущена во время операции DNS; проверьте текущее состояние"}})
     thread = threading.Thread(
         target=dns_protection_worker,
         args=(Path(app_dir),),
