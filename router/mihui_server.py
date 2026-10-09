@@ -7958,10 +7958,7 @@ def discover_dns_lan_addresses(app_dir, ip_binary=None, lan_interfaces=None):
 
 def get_dns_proxy_groups(app_dir):
     try:
-        data = mihomo_api_request(app_dir, "/proxies", timeout=4)
-        proxies = data.get("proxies", data) if isinstance(data, dict) else {}
-        if not isinstance(proxies, dict):
-            raise ValueError("Некорректный список прокси")
+        proxies, _ = load_resource_monitor_proxy_snapshot(app_dir)
     except Exception as error:
         return {"ok": False, "groups": [], "message": str(error)[:300]}
     groups = []

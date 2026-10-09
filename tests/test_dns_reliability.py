@@ -181,6 +181,30 @@ class DnsReliabilityTests(unittest.TestCase):
         self.assertFalse(server.check_dns_proxy_route(cycle, "PROXY")["ok"])
         self.assertFalse(server.check_dns_proxy_route({}, "PROXY")["ok"])
 
+    def test_proxy_route_resolves_provider_nodes_missing_from_proxies(self):
+        for node_type, expected in [("Vless", True), ("Direct", False), (None, False)]:
+            with self.subTest(node_type=node_type):
+                def request(_app_dir, path, **_kwargs):
+                    if path == "/proxies":
+                        return {"proxies": {"PROXY": {
+                            "type": "Selector", "all": ["provider-node"], "now": "provider-node",
+                        }}}
+                    if path == "/providers/proxies":
+                        if node_type is None:
+                            raise RuntimeError("providers unavailable")
+                        return {"providers": {"main": {"proxies": [
+                            {"name": "provider-node", "type": node_type},
+                        ]}}}
+                    raise AssertionError(path)
+
+                with mock.patch.object(server, "mihomo_api_request", side_effect=request) as api:
+                    groups = server.get_dns_proxy_groups(Path("."))
+                self.assertTrue(groups["ok"])
+                self.assertEqual(groups["groups"], ["PROXY"])
+                self.assertEqual(server.check_dns_proxy_route(groups["proxies"], "PROXY")["ok"], expected)
+                self.assertEqual([call.args[1] for call in api.call_args_list],
+                                 ["/proxies", "/providers/proxies"])
+
     def test_direct_route_stops_lease_renewal_without_rewriting_config(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
