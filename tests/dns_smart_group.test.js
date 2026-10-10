@@ -52,16 +52,38 @@ test('Smart creation is unavailable without confirmed Prizrak support and does n
   assert.equal(calls.length, 0);
 });
 
-test('creation requires system DNS, a clean editor and an unused group name', async () => {
-  for (const reason of ['active', 'draft', 'exists']) {
+test('creation requires a stable DNS mode, a clean editor and an unused group name', async () => {
+  for (const reason of ['test', 'fallback', 'draft', 'exists']) {
     const { app, state, calls } = load();
-    if (reason === 'active') state.protectedDns.data.mode = 'active';
+    if (reason === 'test' || reason === 'fallback') state.protectedDns.data.mode = reason;
     if (reason === 'draft') state.outputText = 'unsaved config';
     if (reason === 'exists') state.protectedDns.data.smartGroup.exists = true;
     assert.equal(app.getProtectedDnsSmartGroupState().disabled, true);
     await app.createProtectedDnsSmartGroup();
     assert.equal(calls.length, 0);
   }
+});
+
+test('Smart creation during active DNS keeps the old route until explicit application', async () => {
+  const { app, state, els } = load();
+  state.protectedDns.data.mode = 'active';
+  state.protectedDns.data.runtime = { requestedMode: 'active', proxyGroup: 'FASTEST' };
+  await app.createProtectedDnsSmartGroup();
+  assert.equal(state.protectedDns.data.mode, 'active');
+  assert.equal(state.protectedDns.data.runtime.proxyGroup, 'FASTEST');
+  assert.equal(els.dnsProxyGroup.value, 'DNS-SMART');
+  assert.equal(app.getProtectedDnsGroupChangeState().disabled, false);
+  assert.match(state.protectedDns.notice, /Применить смену группы/);
+});
+
+test('lost response during active Smart creation marks the protection state unknown', async () => {
+  const { app, state } = load(async () => { throw new Error('offline'); });
+  state.protectedDns.data.mode = 'active';
+  state.protectedDns.data.runtime = { requestedMode: 'active', proxyGroup: 'FASTEST' };
+  await app.createProtectedDnsSmartGroup();
+  assert.equal(state.protectedDns.data.mode, 'unknown');
+  assert.match(state.protectedDns.error, /состояние защиты неизвестны/);
+  assert.equal(state.protectedDns.proxyGroupDraft, '');
 });
 
 test('creation uses the editor revision, adopts checked config and retains DNS selection across status refresh', async () => {

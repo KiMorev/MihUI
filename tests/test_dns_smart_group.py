@@ -205,7 +205,7 @@ class DnsSmartGroupTests(unittest.TestCase):
         self.support.assert_not_called()
         self.check.assert_not_called()
 
-    def test_active_test_or_pending_fallback_must_return_to_system_first(self):
+    def test_invalid_active_test_or_pending_fallback_does_not_mutate_config(self):
         for mode, pending in (("active", False), ("test", False), ("system", True)):
             with self.subTest(mode=mode, pending=pending), tempfile.TemporaryDirectory() as directory:
                 folder, path = self.make_app(directory)

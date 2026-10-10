@@ -7655,10 +7655,12 @@ def validate_dns_protection_request(payload, require_action=False):
         raise ValueError("Неизвестное поле в запросе настройки DNS")
 
     action = str(payload.get("action") or "").strip().casefold()
-    if require_action and action not in {"test", "activate", "system"}:
-        raise ValueError("Поле action должно иметь значение test, activate или system")
+    if require_action and action not in {"test", "activate", "system", "switch"}:
+        raise ValueError("Поле action должно иметь значение test, activate, system или switch")
     if not require_action and action:
         raise ValueError("Предварительная проверка не принимает поле action")
+    if action == "switch" and set(payload) - {"action", "proxyGroup", "expectedRevision", "operationId"}:
+        raise ValueError("Смена DNS-группы принимает только proxyGroup, expectedRevision и operationId")
     operation_id = payload.get("operationId", "")
     if not isinstance(operation_id, str) or (operation_id and not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", operation_id)):
         raise ValueError("Некорректный идентификатор операции DNS")
@@ -7670,6 +7672,8 @@ def validate_dns_protection_request(payload, require_action=False):
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
         raise ValueError("Некорректное имя прокси-группы в поле proxyGroup")
+    if action == "switch" and not proxy_group:
+        raise ValueError("Выберите новую прокси-группу для DNS")
     if not isinstance(payload.get("whitelistDns", False), bool):
         raise ValueError("Поле whitelistDns должно быть логическим значением")
 
@@ -8179,8 +8183,9 @@ def create_dns_smart_group(app_dir, request_data):
         if request_data["expectedRevision"] != revision:
             return {"ok": False, "stage": "conflict", "currentRevision": revision, "message": "Конфигурация изменилась после загрузки настроек"}
         runtime = load_dns_protection_runtime(app_dir)
-        if runtime["requestedMode"] != "system" or runtime.get("fallbackPending"):
-            return {"ok": False, "stage": "preflight", "message": "Перед созданием DNS-SMART вернитесь к системному DNS"}
+        active = runtime["requestedMode"] == "active"
+        if runtime["requestedMode"] not in {"system", "active"} or runtime.get("fallbackPending"):
+            return {"ok": False, "stage": "preflight", "message": "Создание DNS-SMART доступно в системном режиме или при работающем защищённом DNS"}
         if get_mihomo_core(app_dir) != "prizrak":
             return {"ok": False, "stage": "unsupported", "message": "Для DNS-SMART установите Prizrak-Core"}
         support = get_resource_smart_support(app_dir)
@@ -8200,9 +8205,35 @@ def create_dns_smart_group(app_dir, request_data):
         block = [f"{item_indent}- name: {DNS_SMART_GROUP}", f"{field_indent}type: smart", f"{field_indent}uselightgbm: true", f"{field_indent}collectdata: false", *[field_indent + line if line else "" for line in pool]]
         lines[end:end] = block
         proposed = join_whitelist_config_lines(lines, newline, trailing)
-        result = save_checked_config(app_dir, proposed, expected_revision=revision)
+        if active:
+            if not runtime.get("managedBlockRevision") or dns_managed_block_revision(text) != runtime["managedBlockRevision"]:
+                return {"ok": False, "stage": "preflight", "message": "Активный DNS-блок изменён или его владение не подтверждено"}
+            try:
+                check = check_mihomo_config(app_dir, proposed)
+                if not check["ok"]:
+                    return {"ok": False, "stage": "check", "check": check, "message": check.get("message", "Конфигурация DNS-SMART не прошла проверку")}
+                paused = pause_active_dns_for_change(app_dir, text, runtime)
+            except Exception as error:
+                paused = {"ok": False, "stage": "preflight", "message": str(error)[:300]}
+            if not paused["ok"]:
+                return dns_change_failure(paused, restore_active_dns_after_change(app_dir, text, runtime, revision)) if paused.get("suspended") else paused
+        try:
+            result = save_checked_config(app_dir, proposed, expected_revision=revision)
+        except Exception as error:
+            result = {"ok": False, "stage": "apply", "message": f"Создание DNS-SMART прервано: {str(error)[:300]}"}
         if result.get("ok") and result.get("applied"):
+            if active:
+                restored = restore_active_dns_after_change(app_dir, proposed, runtime, result["revision"], config_applied=True)
+                if not restored["ok"]:
+                    recovered = restore_active_dns_after_change(app_dir, text, runtime, config_revision(proposed))
+                    return dns_change_failure({"ok": False, "stage": "restore", "message": "После создания DNS-SMART прежний активный DNS не был подтверждён", "creation": result}, recovered)
+                return {**result, **{key: restored[key] for key in ("mode", "runtime", "proxyGroup", "revision", "text")},
+                        "group": DNS_SMART_GROUP, "restoration": restored,
+                        "message": "DNS-SMART создана. Текущая DNS-группа сохранена; новую группу можно применить отдельно"}
             return {**result, "group": DNS_SMART_GROUP, "text": proposed, "message": "DNS-SMART создана. Выберите её для DNS и выполните обычную проверку настроек"}
+        if active:
+            expected = result.get("revision", config_revision(proposed))
+            return dns_change_failure(result, restore_active_dns_after_change(app_dir, text, runtime, expected))
         return {**result, "ok": False}
 
 
@@ -8617,7 +8648,7 @@ def dns_resolver_warnings(capabilities):
     return warnings
 
 
-def preview_dns_protection(app_dir, request_data, record_event=True):
+def preview_dns_protection(app_dir, request_data, record_event=True, proposed_text_override=None):
     app_dir = Path(app_dir)
     capabilities = collect_dns_protection_capabilities(
         app_dir, request_data["proxyGroup"], lan_interfaces=request_data.get("lanInterfaces")
@@ -8634,7 +8665,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True):
             raise ValueError("Совместимая прокси-группа Mihomo не обнаружена")
         if request_data.get("whitelistDns"):
             whitelist_domains = get_dns_whitelist_domains(app_dir, config_text)
-        proposed_text = prepare_dns_protection_text(
+        proposed_text = proposed_text_override if proposed_text_override is not None else prepare_dns_protection_text(
             config_text,
             proxy_group,
             capabilities["ipv6ClientDns"],
@@ -9201,6 +9232,170 @@ def dns_runtime_has_capture_scope(runtime):
     return bool(addresses.get("ipv4") or addresses.get("ipv6"))
 
 
+def pause_active_dns_for_change(app_dir, text, runtime):
+    if (runtime["requestedMode"] != "active" or runtime.get("fallbackPending")
+            or not runtime.get("managedBlockRevision")
+            or dns_managed_block_revision(text) != runtime["managedBlockRevision"]):
+        return {"ok": False, "stage": "preflight", "message": "Активный DNS-блок изменён или его владение не подтверждено"}
+    capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"], lan_interfaces=runtime["lanInterfaces"])
+    lease = dns_capture_lease_state(app_dir, runtime)
+    firewall = dns_firewall_installed(app_dir, runtime)
+    if (not capabilities["activationReady"] or capabilities["ipv6ClientDns"] != runtime["ipv6"]
+            or not dns_runtime_topology_matches(runtime, capabilities["lanInterfaces"], capabilities["addresses"])
+            or not lease["known"] or not lease["complete"] or not firewall["ok"]):
+        return {"ok": False, "stage": "preflight", "message": "Действующий DNS-перехват, его LAN-сегменты или системный резерв не подтверждены"}
+    if runtime["whitelistDns"]:
+        metadata = dns_whitelist_metadata(get_dns_whitelist_domains(app_dir, text))
+        if metadata != {"count": runtime["whitelistDnsCount"], "hash": runtime["whitelistDnsHash"]}:
+            return {"ok": False, "stage": "preflight", "message": "Список DNS белых доменов изменился. Сначала обновите настройки DNS"}
+    if not probe_mihomo_dns_listener(runtime["ipv6"])["ok"]:
+        return {"ok": False, "stage": "preflight", "message": "Текущий активный DNS не прошёл проверку. Вернитесь к системному DNS"}
+    stopped = {**runtime, "requestedMode": "system", "fallbackPending": True, "updatedAt": int(time.time())}
+    try:
+        save_dns_protection_runtime(app_dir, stopped)
+        removed = remove_dns_firewall(app_dir, runtime)
+        lease = dns_capture_lease_state(app_dir, runtime)
+        if not lease["known"] or lease["active"] is not False:
+            return {"ok": False, "stage": "firewall", "mode": "fallback", "suspended": True,
+                    "runtime": stopped, "message": "Отключение действующего DNS-перехвата не подтверждено", "firewall": removed}
+        save_dns_protection_runtime(app_dir, {**stopped, "fallbackPending": False})
+    except Exception as error:
+        return {"ok": False, "stage": "firewall", "suspended": True, "message": f"Отключение DNS-перехвата прервано: {str(error)[:300]}"}
+    return {"ok": True, "suspended": True}
+
+
+def restore_active_dns_after_change(app_dir, text, runtime, expected_revision, config_applied=False):
+    outcome = {"ok": False, "mode": "system", "proxyGroup": runtime["proxyGroup"]}
+    try:
+        cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+        stopped = {**runtime, "requestedMode": "system", "fallbackPending": not cleanup["safeForRollback"], "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, stopped)
+        outcome.update(runtime=stopped, mode="fallback" if stopped["fallbackPending"] else "system", cleanup=cleanup)
+        if not cleanup["safeForRollback"]:
+            outcome["message"] = "Не удалось подтвердить отключение перехвата; системный резерв ещё не подтверждён"
+            return outcome
+        current_text = read_config_text(get_config_path(app_dir))
+        current_revision = config_revision(current_text)
+        outcome["revision"] = current_revision
+        if current_revision not in {expected_revision, config_revision(text)}:
+            outcome["message"] = "Конфигурация изменилась во время операции; автоматическое восстановление остановлено"
+            return outcome
+        if current_text != text or not config_applied:
+            saved = save_checked_config(app_dir, text, expected_revision=current_revision)
+            outcome["config"] = saved
+            if not saved.get("ok") or not saved.get("applied"):
+                outcome["message"] = "Не удалось подтвердить применение прежней DNS-конфигурации"
+                outcome["revision"] = saved.get("revision", current_revision)
+                return outcome
+        outcome.update(text=text, revision=config_revision(text))
+        capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"], lan_interfaces=runtime["lanInterfaces"])
+        if (not capabilities["activationReady"] or capabilities["ipv6ClientDns"] != runtime["ipv6"]
+                or not dns_runtime_topology_matches(runtime, capabilities["lanInterfaces"], capabilities["addresses"])
+                or dns_managed_block_revision(text) != runtime["managedBlockRevision"]):
+            outcome["message"] = "Прежний DNS-маршрут или его LAN-сегменты не прошли проверку"
+            return outcome
+        probe = wait_for_mihomo_dns(runtime["ipv6"])
+        outcome["probe"] = probe
+        if not probe["ok"]:
+            outcome["message"] = "Прежний DNS не ответил после восстановления; действует системный DNS"
+            return outcome
+        firewall = ensure_dns_firewall(app_dir, capabilities)
+        lease = refresh_dns_firewall_lease(app_dir, capabilities) if firewall["ok"] else {"ok": False}
+        outcome.update(firewall=firewall, lease=lease)
+        confirmed = dns_capture_lease_state(app_dir, runtime) if firewall["ok"] and lease["ok"] else {"known": False}
+        if not firewall["ok"] or not lease["ok"] or not confirmed["known"] or not confirmed.get("complete") or not dns_firewall_installed(app_dir, runtime)["ok"]:
+            cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+            stopped.update(fallbackPending=not cleanup["safeForRollback"])
+            save_dns_protection_runtime(app_dir, stopped)
+            outcome.update(runtime=stopped, mode="fallback" if stopped["fallbackPending"] else "system", cleanup=cleanup,
+                           message="Не удалось восстановить прежний DNS-перехват")
+            return outcome
+        restored = {**runtime, "requestedMode": "active", "fallbackPending": False,
+                    "managedRevision": outcome["revision"], "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, restored)
+        with dns_protection_health_lock:
+            dns_protection_health.update(leaseHealthy=True, firewallReady=True, lastProbeAt=int(time.time()), consecutiveFailures=0,
+                                         message="Прежний защищённый DNS восстановлен")
+        outcome.update(ok=True, mode="active", runtime=restored, message="Прежний защищённый DNS восстановлен")
+    except Exception as error:
+        outcome["message"] = f"Восстановление прежнего DNS не подтверждено: {str(error)[:300]}"
+        try:
+            cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+            pending = not cleanup["safeForRollback"]
+            outcome["cleanup"] = cleanup
+        except Exception:
+            pending = True
+        stopped = {**runtime, "requestedMode": "system", "fallbackPending": pending, "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, stopped)
+        outcome.update(mode="fallback" if pending else "system", runtime=stopped)
+    finally:
+        if not outcome["ok"]:
+            with dns_protection_health_lock:
+                dns_protection_health.update(leaseHealthy=False, firewallReady=False, message=outcome.get("message", "Действует системный DNS"))
+    return outcome
+
+
+def dns_change_failure(result, restoration):
+    return {**result, **{key: restoration[key] for key in ("mode", "runtime", "proxyGroup", "revision", "text") if key in restoration},
+            "ok": False, "restoration": restoration,
+            "message": str(result.get("message") or "Изменение DNS не выполнено") + ". " + restoration["message"]}
+
+
+def prepare_dns_group_switch_text(text, old_group, new_group):
+    lines, managed_range = dns_protection_managed_range(text)
+    if not managed_range:
+        raise ValueError("DNS-блок MihUI не найден")
+    changed = 0
+    for index in range(*managed_range):
+        for url in DNS_PROTECTION_UPSTREAMS:
+            old = yaml_single_quote(f"{url}#{old_group}")
+            if lines[index].strip() == f"- {old}":
+                lines[index] = lines[index].replace(old, yaml_single_quote(f"{url}#{new_group}"), 1)
+                changed += 1
+    if changed != len(DNS_PROTECTION_UPSTREAMS):
+        raise ValueError("Маршрут основных DNS-серверов не совпадает с сохранённой группой")
+    return "".join(lines)
+
+
+def switch_dns_proxy_group(app_dir, request_data):
+    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+        text = read_config_text(get_config_path(app_dir))
+        revision = config_revision(text)
+        runtime = load_dns_protection_runtime(app_dir)
+        if request_data["expectedRevision"] != revision:
+            return {"ok": False, "stage": "conflict", "currentRevision": revision, "message": "Конфигурация изменилась после загрузки настроек DNS"}
+        if runtime["requestedMode"] != "active" or runtime.get("fallbackPending"):
+            return {"ok": False, "stage": "preflight", "message": "Смена группы доступна только при работающем защищённом DNS"}
+        retained = {**request_data, "action": "activate", "profile": runtime["profile"], "whitelistDns": runtime["whitelistDns"],
+                    "lanInterfaces": runtime["lanInterfaces"], "confirmations": {}}
+        try:
+            proposed = prepare_dns_group_switch_text(text, runtime["proxyGroup"], request_data["proxyGroup"])
+            preview = preview_dns_protection(app_dir, retained, record_event=False, proposed_text_override=proposed)
+            if not preview["canActivate"]:
+                return {"ok": False, "stage": "preflight", "message": "Новая DNS-группа не прошла предварительную проверку", "preview": preview}
+            paused = pause_active_dns_for_change(app_dir, text, runtime)
+        except Exception as error:
+            paused = {"ok": False, "stage": "preflight", "message": str(error)[:300]}
+        if not paused["ok"]:
+            if paused.get("suspended"):
+                return dns_change_failure(paused, restore_active_dns_after_change(app_dir, text, runtime, revision))
+            return paused
+        try:
+            result = apply_dns_protection_action(app_dir, retained, _locks_held=True, _proposed_text=proposed, _retained_runtime=runtime)
+            if result.get("ok"):
+                lease = dns_capture_lease_state(app_dir, result["runtime"])
+                if not lease["known"] or not lease["complete"] or not dns_firewall_installed(app_dir, result["runtime"])["ok"]:
+                    raise RuntimeError("Новый DNS-перехват не подтверждён после применения")
+                next_runtime = {**runtime, "proxyGroup": request_data["proxyGroup"], "managedRevision": result["revision"],
+                                "managedBlockRevision": dns_managed_block_revision(proposed), "updatedAt": int(time.time())}
+                save_dns_protection_runtime(app_dir, next_runtime)
+                return {**result, "mode": "active", "runtime": next_runtime, "text": proposed}
+        except Exception as error:
+            result = {"ok": False, "stage": "apply", "message": f"Смена DNS-группы прервана: {str(error)[:300]}"}
+        expected = result.get("revision", config_revision(proposed))
+        return dns_change_failure(result, restore_active_dns_after_change(app_dir, text, runtime, expected))
+
+
 @contextmanager
 def suspend_dns_capture(app_dir, resume=True):
     with dns_protection_lock:
@@ -9281,9 +9476,14 @@ def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
     return {"ok": True, "mode": "system", "revision": revision, "firewall": firewall, "event": event}
 
 
-def apply_dns_protection_action(app_dir, request_data):
+def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _proposed_text=None, _retained_runtime=None):
     app_dir = Path(app_dir)
-    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+    if request_data["action"] == "switch":
+        return switch_dns_proxy_group(app_dir, request_data)
+    with ExitStack() as locks:
+        if not _locks_held:
+            for lock in (dns_protection_lock, whitelist_monitor_lock, config_write_lock):
+                locks.enter_context(lock)
         config_path = get_config_path(app_dir)
         current_text = read_config_text(config_path)
         current_revision = config_revision(current_text)
@@ -9328,8 +9528,16 @@ def apply_dns_protection_action(app_dir, request_data):
                 "message": "Строгий режим пока не включается автоматически. Настройки DNS провайдера и транзитных запросов не изменены",
             }
 
-        preview = preview_dns_protection(app_dir, request_data, record_event=False)
+        preview = preview_dns_protection(app_dir, request_data, record_event=False, proposed_text_override=_proposed_text) if _proposed_text is not None else preview_dns_protection(app_dir, request_data, record_event=False)
         capabilities = preview["capabilities"]
+        if _retained_runtime is not None and (
+                capabilities["ipv6ClientDns"] != _retained_runtime["ipv6"]
+                or not dns_runtime_topology_matches(_retained_runtime, capabilities["lanInterfaces"], capabilities["addresses"])):
+            return {"ok": False, "stage": "preflight", "message": "LAN-сегменты или IPv6 изменились во время смены DNS-группы"}
+        if _retained_runtime is not None and _retained_runtime["whitelistDns"] and (
+                {key: preview["plan"]["whitelistDns"][key] for key in ("count", "hash")}
+                != {"count": _retained_runtime["whitelistDnsCount"], "hash": _retained_runtime["whitelistDnsHash"]}):
+            return {"ok": False, "stage": "preflight", "message": "Список DNS белых доменов изменился во время смены группы"}
         readiness_key = "testReady" if request_data["action"] == "test" else "activationReady"
         if not preview["ok"] or not capabilities[readiness_key]:
             event = append_dns_protection_event(
@@ -9382,7 +9590,7 @@ def apply_dns_protection_action(app_dir, request_data):
             runtime = {**stopped_runtime, "fallbackPending": False}
             save_dns_protection_runtime(app_dir, runtime)
 
-        proposed_text = prepare_dns_protection_text(
+        proposed_text = _proposed_text if _proposed_text is not None else prepare_dns_protection_text(
             current_text,
             preview["proxyGroup"],
             capabilities["ipv6ClientDns"],
