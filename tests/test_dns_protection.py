@@ -931,29 +931,51 @@ ip name-server 1.1.1.1
 
     def test_worker_health_and_recovery_events_are_russian(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            protected = mihui_server.prepare_dns_protection_text("mixed-port: 7890\n", "PROXY", False)
+            protected = mihui_server.prepare_dns_protection_text("mixed-port: 7890\n", "PROXY", True)
             app_dir, _ = self.make_app(temp_dir, protected)
             runtime = mihui_server.default_dns_protection_runtime()
             runtime.update({
                 "requestedMode": "active",
                 "managedBlockRevision": mihui_server.dns_managed_block_revision(protected),
+                "ipv6": True,
                 "lanInterfaces": ["br0"],
-                "addresses": {"ipv4": ["192.168.1.1"], "ipv6": []},
+                "addresses": {"ipv4": ["192.168.1.1"], "ipv6": ["fe80::1"]},
             })
             mihui_server.save_dns_protection_runtime(app_dir, runtime)
             health = {**mihui_server.dns_protection_health, "leaseHealthy": True, "consecutiveFailures": 0}
-            lan = {"ok": True, "interfaces": ["br0"], "ipv4": ["192.168.1.1"], "ipv6": []}
+            lan = {"ok": True, "interfaces": ["br0"], **runtime["addresses"]}
+            recovered_probe = {
+                "ok": True,
+                "queryName": "mihui-recovered.example.com",
+                "probes": [
+                    {"address": address, "port": 1053, "transport": protocol, "ok": True,
+                     "latencyMs": 20, "rcode": 3, "answerCount": 0, "questionCount": 1, "truncated": False}
+                    for address in ("127.0.0.1", "::1") for protocol in ("udp", "tcp")
+                ],
+            }
+            failed_probe = {
+                "ok": False,
+                "queryName": "mihui-failed.example.com",
+                "probes": [*recovered_probe["probes"][:3], {
+                    "address": "::1", "port": 1053, "transport": "tcp", "ok": False,
+                    "latencyMs": 1800, "error": {"category": "timeout", "detail": "timed out"},
+                }],
+            }
+            firewall = {"ok": True, "state": "installed", "families": {"inet": "installed", "inet6": "installed"}}
             with mock.patch.object(
                 mihui_server, "discover_dns_lan_addresses", return_value=lan
             ), mock.patch.object(
-                mihui_server, "probe_mihomo_dns_listener", side_effect=[{"ok": False}, {"ok": True}]
+                mihui_server, "probe_mihomo_dns_listener", side_effect=[failed_probe, failed_probe, recovered_probe]
             ), mock.patch.object(
-                mihui_server, "dns_firewall_installed", return_value={"ok": True}
+                mihui_server, "dns_firewall_installed", return_value=firewall
             ), mock.patch.object(
                 mihui_server, "refresh_dns_firewall_lease", return_value={"ok": True}
             ), mock.patch.object(mihui_server, "dns_protection_health", health):
                 mihui_server.run_dns_protection_lease_cycle(app_dir)
                 self.assertEqual(health["message"], "Проверка DNS не пройдена")
+                mihui_server.run_dns_protection_lease_cycle(app_dir)
+                self.assertEqual(health["consecutiveFailures"], 2)
+                self.assertEqual(len(mihui_server.read_dns_protection_events(app_dir)), 1)
                 mihui_server.run_dns_protection_lease_cycle(app_dir)
                 self.assertEqual(health["message"], "DNS-служба Mihomo работает")
             events = mihui_server.read_dns_protection_events(app_dir)
@@ -961,7 +983,84 @@ ip name-server 1.1.1.1
         for event in events:
             self.assertRegex(event["message"], "[А-Яа-яЁё]")
             self.assertNotRegex(event["message"], r"\b(?:fallback|lease|firewall)\b")
+            self.assertEqual(event["proxyGroup"], "PROXY")
+            self.assertEqual(event["diagnostics"]["proxyApi"], {"ok": True, "message": ""})
+            self.assertEqual(event["diagnostics"]["proxyRoute"], {
+                "ok": True, "message": "Выбранная DNS-группа ведёт в прокси",
+            })
         self.assertIn("доступность резерва проверяется отдельно", events[0]["message"])
+        for event, ok, failures, reason, probe, lease, checked_firewall in (
+            (events[0], False, 1, "Проверка DNS не пройдена", failed_probe,
+             {"ok": False, "message": "Проверка DNS не пройдена"}, None),
+            (events[1], True, 0, "DNS-служба Mihomo работает", recovered_probe, {"ok": True}, firewall),
+        ):
+            self.assertEqual(event["ok"], ok)
+            self.assertEqual(event["consecutiveFailures"], failures)
+            self.assertEqual(event["diagnostics"]["reason"], reason)
+            self.assertEqual(event["diagnostics"]["dnsProbe"], probe)
+            self.assertEqual(event["diagnostics"]["lease"], lease)
+            self.assertEqual(event["diagnostics"]["firewall"], checked_firewall)
+
+    def test_worker_events_preserve_api_lease_and_preflight_errors(self):
+        for failure, message in (("api", "Mihomo /proxies: HTTP 503"),
+                                 ("lease", "ipset: Kernel error received: Resource busy"),
+                                 ("preflight", "Предварительная проверка DNS больше не проходит")):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp_dir:
+                protected = mihui_server.prepare_dns_protection_text("mixed-port: 7890\n", "PROXY", False)
+                app_dir, _ = self.make_app(temp_dir, protected)
+                runtime = mihui_server.default_dns_protection_runtime()
+                runtime.update({
+                    "requestedMode": "active", "managedBlockRevision": mihui_server.dns_managed_block_revision(protected),
+                    "lanInterfaces": ["br0"], "addresses": {"ipv4": ["192.168.1.1"], "ipv6": []},
+                })
+                mihui_server.save_dns_protection_runtime(app_dir, runtime)
+                groups = {"ok": True, "message": "", "proxies": {
+                    "PROXY": {"type": "Selector", "all": ["node"], "now": "node"}, "node": {"type": "Vless"},
+                }} if failure != "api" else {"ok": False, "groups": [], "message": message}
+                probe_result = {"ok": True, "queryName": "mihui-probe.example.com", "probes": []}
+                firewall = {"ok": False, "state": "missing", "families": {"inet": "missing"}} if failure == "preflight" else {
+                    "ok": True, "state": "installed", "families": {"inet": "installed"},
+                }
+                failed_check = {"id": "system-fallback", "required": True, "ok": False,
+                                "message": "Системный DNS: UDP 192.168.1.1:53 не ответил за 1200 мс"}
+                capabilities = {"activationReady": False, "checks": [
+                    failed_check, {"id": "optional", "required": False, "ok": False},
+                ]}
+                health = {**mihui_server.dns_protection_health, "leaseHealthy": True, "consecutiveFailures": 0}
+                with mock.patch.object(mihui_server, "get_dns_proxy_groups", return_value=groups), mock.patch.object(
+                    mihui_server, "discover_dns_lan_addresses", return_value={"ok": True, "interfaces": ["br0"], **runtime["addresses"]}
+                ), mock.patch.object(mihui_server, "probe_mihomo_dns_listener", return_value=probe_result) as probe, mock.patch.object(
+                    mihui_server, "dns_firewall_installed", return_value=firewall
+                ), mock.patch.object(
+                    mihui_server, "refresh_dns_firewall_lease", return_value={"ok": False, "message": message}
+                ) as renew, mock.patch.object(
+                    mihui_server, "collect_dns_protection_capabilities", return_value=capabilities
+                ), mock.patch.object(mihui_server, "dns_protection_health", health):
+                    mihui_server.run_dns_protection_lease_cycle(app_dir)
+                event = mihui_server.read_dns_protection_events(app_dir)[0]
+                self.assertEqual(event["type"], "lease_degraded")
+                self.assertFalse(event["ok"])
+                self.assertEqual(event["diagnostics"]["reason"], message)
+                self.assertEqual(event["diagnostics"]["lease"], {"ok": False, "message": message})
+                self.assertEqual(health["message"], message)
+                if failure == "api":
+                    probe.assert_not_called()
+                    renew.assert_not_called()
+                    self.assertEqual(event["diagnostics"]["proxyApi"], {"ok": False, "message": message})
+                    self.assertFalse(event["diagnostics"]["proxyRoute"]["ok"])
+                    self.assertIsNone(event["diagnostics"]["dnsProbe"])
+                    self.assertIsNone(event["diagnostics"]["firewall"])
+                else:
+                    probe.assert_called_once()
+                    self.assertEqual(event["diagnostics"]["dnsProbe"], probe_result)
+                    self.assertEqual(event["diagnostics"]["firewall"], firewall)
+                    if failure == "preflight":
+                        renew.assert_not_called()
+                        self.assertEqual(event["diagnostics"]["failedChecks"], [failed_check])
+                    else:
+                        renew.assert_called_once()
+                if failure != "preflight":
+                    self.assertEqual(event["diagnostics"]["failedChecks"], [])
 
     def test_multiple_unconfigured_lan_bridges_block_auto_selection(self):
         output = "\n".join((

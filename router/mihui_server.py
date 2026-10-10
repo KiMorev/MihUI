@@ -9376,8 +9376,10 @@ def run_dns_protection_lease_cycle(app_dir):
     groups = get_dns_proxy_groups(app_dir)
     proxy_route = check_dns_proxy_route(groups.get("proxies", {}), runtime["proxyGroup"])
     probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800) if proxy_route["ok"] else {"ok": False}
+    firewall_state = None
+    failed_checks = []
     if not proxy_route["ok"]:
-        lease = {"ok": False, "message": proxy_route["message"]}
+        lease = {"ok": False, "message": groups.get("message") or proxy_route["message"]}
     elif not probe["ok"]:
         lease = {"ok": False, "message": "Проверка DNS не пройдена"}
     else:
@@ -9390,6 +9392,7 @@ def run_dns_protection_lease_cycle(app_dir):
         capabilities = runtime_capabilities
         if not firewall_state["ok"]:
             capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"])
+            failed_checks = [check for check in capabilities.get("checks", []) if check.get("required") and not check.get("ok")]
         with config_write_lock:
             current_block_revision = dns_managed_block_revision(
                 read_config_text(get_config_path(app_dir))
@@ -9412,6 +9415,7 @@ def run_dns_protection_lease_cycle(app_dir):
                 dns_protection_health["firewallReady"] = False
 
     now = int(time.time())
+    message = "DNS-служба Mihomo работает" if lease["ok"] else lease.get("message", "Не удалось продлить разрешение на перехват DNS")
     with dns_protection_health_lock:
         previous_healthy = dns_protection_health["leaseHealthy"]
         failures = 0 if lease["ok"] else int(dns_protection_health["consecutiveFailures"] or 0) + 1
@@ -9419,13 +9423,25 @@ def run_dns_protection_lease_cycle(app_dir):
             "leaseHealthy": lease["ok"],
             "lastProbeAt": now,
             "consecutiveFailures": failures,
-            "message": "DNS-служба Mihomo работает" if lease["ok"] else lease.get("message", "Не удалось продлить разрешение на перехват DNS"),
+            "message": message,
         })
     if previous_healthy != lease["ok"]:
         append_dns_protection_event(
             app_dir,
             "lease_recovered" if lease["ok"] else "lease_degraded",
             "Разрешение на перехват DNS восстановлено" if lease["ok"] else "Разрешение на перехват DNS больше не продлевается. После истечения его срока новые запросы пойдут к системному DNS; доступность резерва проверяется отдельно",
+            ok=lease["ok"],
+            proxyGroup=runtime["proxyGroup"],
+            consecutiveFailures=failures,
+            diagnostics={
+                "reason": message,
+                "proxyApi": {"ok": groups["ok"], "message": groups.get("message", "")},
+                "proxyRoute": proxy_route,
+                "dnsProbe": probe if proxy_route["ok"] else None,
+                "firewall": firewall_state,
+                "failedChecks": failed_checks,
+                "lease": lease,
+            },
         )
 
 
