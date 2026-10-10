@@ -608,7 +608,7 @@ test('primary UI files expose protected DNS with explicit fail-open and strict s
   assert.match(script, /const candidates = Array\.isArray\(capabilities\.lanCandidates\)/);
   assert.match(script, /state\.protectedDns\.preview = null/);
   assert.match(script, /loadProtectedDns\(\{ resetPreview: true \}\)/);
-  assert.match(script, /const data = await apiJson\('\/api\/dns'\);[\s\S]+?state\.protectedDns\.preview = null;[\s\S]+?mergeProtectedDnsResponse\(data, \{ syncProfile: true \}\)/);
+  assert.match(script, /const data = await apiJson\('\/api\/dns'\);[\s\S]+?state\.protectedDns\.preview = null;[\s\S]+?mergeProtectedDnsResponse\(data, \{ syncProfile: options\.preserveDraft !== true \}\)/);
   assert.match(script, /selection\.missing\.forEach/);
   assert.match(script, /lanSelection\.state !== 'ready'/);
   assert.match(script, /data\.preview && typeof data\.preview === 'object'/);

@@ -464,6 +464,7 @@ const state = {
     data: null,
     preview: null,
     events: [],
+    proxyGroupDraft: '',
     lanInterfaces: [],
     lanSelectionInitialized: false,
   },
@@ -857,6 +858,9 @@ const els = {
   dnsProfileResilient: document.querySelector('#dnsProfileResilient'),
   dnsProfileStrict: document.querySelector('#dnsProfileStrict'),
   dnsProxyGroup: document.querySelector('#dnsProxyGroup'),
+  dnsSmartGroupSource: document.querySelector('#dnsSmartGroupSource'),
+  dnsSmartGroupCreate: document.querySelector('#dnsSmartGroupCreate'),
+  dnsSmartGroupStatus: document.querySelector('#dnsSmartGroupStatus'),
   dnsWhitelistDns: document.querySelector('#dnsWhitelistDns'),
   dnsWhitelistDnsStatus: document.querySelector('#dnsWhitelistDnsStatus'),
   dnsUpstreams: document.querySelector('#dnsUpstreams'),
@@ -1012,6 +1016,8 @@ els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns({ resetPr
 [els.dnsProxyGroup, els.dnsWhitelistDns, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
   .forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
 els.dnsLanInterfaces?.addEventListener('change', handleProtectedDnsLanChange);
+els.dnsSmartGroupSource?.addEventListener('change', renderProtectedDnsSmartGroup);
+els.dnsSmartGroupCreate?.addEventListener('click', createProtectedDnsSmartGroup);
 els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
 els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('system'));
 els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
@@ -5228,6 +5234,7 @@ function mergeProtectedDnsResponse(data, options = {}) {
   if (data.event && !events.some((event) => JSON.stringify(event) === JSON.stringify(data.event))) events.push(data.event);
   state.protectedDns.events = events;
   if (options.preview) state.protectedDns.preview = data;
+  if (options.syncProxyGroup) state.protectedDns.proxyGroupDraft = '';
   if (options.syncProfile && ['resilient', 'strict'].includes(data.profile)) {
     els.dnsProfileResilient.checked = data.profile === 'resilient';
     els.dnsProfileStrict.checked = data.profile === 'strict';
@@ -5256,7 +5263,7 @@ async function loadProtectedDns(options = {}) {
     const data = await apiJson('/api/dns');
     state.protectedDns.loaded = true;
     state.protectedDns.preview = null;
-    mergeProtectedDnsResponse(data, { syncProfile: true });
+    mergeProtectedDnsResponse(data, { syncProfile: options.preserveDraft !== true });
   } catch (error) {
     state.protectedDns.error = error?.message || String(error);
     if (!options.silent) {
@@ -5269,6 +5276,7 @@ async function loadProtectedDns(options = {}) {
 }
 
 function handleProtectedDnsDraftChange() {
+  state.protectedDns.proxyGroupDraft = els.dnsProxyGroup?.value || '';
   state.protectedDns.preview = null;
   state.protectedDns.error = '';
   state.protectedDns.notice = '';
@@ -5292,7 +5300,7 @@ function renderProtectedDnsProxyGroups(data = {}) {
   const groups = Array.isArray(source)
     ? source.map((item) => typeof item === 'string' ? item : item?.name).filter(Boolean)
     : [];
-  const preferred = String(data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
+  const preferred = String(state.protectedDns.proxyGroupDraft || data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
   const names = [...new Set(groups.length ? groups : [preferred, 'PROXY'])];
   els.dnsProxyGroup.textContent = '';
   names.forEach((name) => {
@@ -5302,6 +5310,103 @@ function renderProtectedDnsProxyGroups(data = {}) {
     els.dnsProxyGroup.append(option);
   });
   els.dnsProxyGroup.value = names.includes(preferred) ? preferred : names[0];
+  if (state.protectedDns.proxyGroupDraft && !names.includes(state.protectedDns.proxyGroupDraft)) state.protectedDns.proxyGroupDraft = '';
+}
+
+function hasProtectedDnsConfigDraft() {
+  return hasUnsavedWorkspaceChanges() || state.isEditingConfiguration || state.groupInspectorEditing
+    || Boolean(state.providerEditDraft || state.providerCreateDraft || state.resourceMonitor.pendingSettings || state.whitelistMonitor.pendingSettings);
+}
+
+function getProtectedDnsSmartGroupState() {
+  const data = state.protectedDns.data || {};
+  const smart = data.smartGroup || {};
+  const sources = Array.isArray(smart.sources) ? smart.sources : [];
+  let message = '';
+  if (!state.routerMode || !state.routerApiAvailable) message = 'Откройте конфиг роутера, чтобы создать DNS Smart.';
+  else if (smart.available !== true) message = smart.message || 'Создание доступно только с установленным Prizrak-Core.';
+  else if (smart.exists) message = 'Группа DNS-SMART уже есть в конфиге. Повторное создание недоступно.';
+  else if (data.mode !== 'system' || data.fallback?.pending === true) message = 'Для создания сначала вернитесь к системному DNS.';
+  else if (hasProtectedDnsConfigDraft()) message = 'Сначала завершите редактирование и сохраните изменения конфигурации.';
+  else if (!state.routerConfigRevision) message = 'Перезагрузите конфиг с роутера перед созданием группы.';
+  else if (!sources.length) message = 'Нет подходящей группы-источника с прокси без прямого выхода.';
+  const busy = state.routerBusy || state.protectedDns.loading || Boolean(state.protectedDns.action);
+  return { sources, disabled: Boolean(message || busy), message: message || 'Создаст DNS-SMART из нод и подписок выбранной группы. После создания проверьте и включите DNS обычным способом.' };
+}
+
+function renderProtectedDnsSmartGroup() {
+  if (!els.dnsSmartGroupSource || !els.dnsSmartGroupCreate || !els.dnsSmartGroupStatus) return;
+  const view = getProtectedDnsSmartGroupState();
+  const preferred = els.dnsSmartGroupSource.value || els.dnsProxyGroup?.value;
+  els.dnsSmartGroupSource.textContent = '';
+  view.sources.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    els.dnsSmartGroupSource.append(option);
+  });
+  if (view.sources.includes(preferred)) els.dnsSmartGroupSource.value = preferred;
+  els.dnsSmartGroupSource.disabled = view.disabled;
+  els.dnsSmartGroupCreate.disabled = view.disabled;
+  els.dnsSmartGroupCreate.textContent = state.protectedDns.action === 'smart-group' ? 'Создаём…' : 'Создать DNS Smart';
+  els.dnsSmartGroupStatus.textContent = view.message;
+}
+
+async function createProtectedDnsSmartGroup() {
+  const view = getProtectedDnsSmartGroupState();
+  const sourceGroup = els.dnsSmartGroupSource?.value;
+  if (view.disabled || !view.sources.includes(sourceGroup)) return;
+  const previousRevision = state.routerConfigRevision;
+  state.protectedDns.action = 'smart-group';
+  state.protectedDns.preview = null;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  setRouterBusy(true, 'Создание DNS Smart…');
+  renderProtectedDns();
+  try {
+    const data = await apiJson('/api/dns/smart-group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify({ sourceGroup, expectedRevision: previousRevision }),
+    });
+    if (data.applied !== true || typeof data.text !== 'string') {
+      const error = new Error(data.message || 'Применение DNS Smart не подтверждено. Обновите состояние роутера.');
+      error.data = data;
+      throw error;
+    }
+    const draftChanged = hasProtectedDnsConfigDraft() || state.routerConfigRevision !== previousRevision;
+    if (!draftChanged) {
+      state.originalText = data.text;
+      state.routerSavedText = data.text;
+      state.routerConfigRevision = data.revision;
+      state.configLoadedAt = Date.now();
+      state.lastConfigCheckText = data.text;
+      state.lastConfigCheckOk = true;
+      parseAndRender();
+    }
+    await loadProtectedDns({ silent: true, preserveDraft: true });
+    const dnsData = state.protectedDns.data || {};
+    mergeProtectedDnsResponse({
+      revision: data.revision,
+      proxyGroups: [...new Set([...(dnsData.proxyGroups || []), data.group])],
+      smartGroup: { ...dnsData.smartGroup, exists: true },
+    });
+    state.protectedDns.proxyGroupDraft = data.group;
+    renderProtectedDnsProxyGroups(state.protectedDns.data);
+    state.protectedDns.notice = draftChanged
+      ? 'DNS-SMART создана на роутере. Ваш черновик сохранён; перезагрузите конфиг после завершения редактирования.'
+      : 'DNS-SMART создана и выбрана для DNS. Проверьте настройки, запустите тест и включите защиту.';
+    state.protectedDns.noticeTone = 'success';
+    showMessage(state.protectedDns.notice, { severity: 'success' });
+  } catch (error) {
+    if (error?.data?.saved || error?.data?.rolledBack) await loadProtectedDns({ silent: true, preserveDraft: true });
+    state.protectedDns.error = error?.data?.message || error?.message || String(error);
+    showMessage(state.protectedDns.error, { severity: 'error' });
+  } finally {
+    state.protectedDns.action = '';
+    setRouterBusy(false, 'Перезагрузить с роутера');
+    renderProtectedDns();
+  }
 }
 
 function renderProtectedDnsLanSelector(capabilities = {}, busy = false) {
@@ -5888,6 +5993,7 @@ function renderProtectedDns() {
   els.dnsProfileResilient.disabled = settingsLocked;
   els.dnsProfileStrict.disabled = settingsLocked;
   els.dnsProxyGroup.disabled = !apiAvailable || settingsLocked;
+  renderProtectedDnsSmartGroup();
   if (els.dnsWhitelistDns) {
     els.dnsWhitelistDns.disabled = !apiAvailable || busy || runtime.requestedMode === 'active';
     const enabled = els.dnsWhitelistDns.checked;
@@ -6045,7 +6151,7 @@ async function runProtectedDnsAction(action) {
       payload.confirmations = { providerDns: false, transitDns: false, wanReconnect: false };
     }
     const data = await requestProtectedDnsOperation(payload);
-    mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true });
+    mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true, syncProxyGroup: true });
     state.protectedDns.preview = action === 'system' ? null : data;
     state.protectedDns.notice = data.message || {
       test: 'Тестовый режим подтверждён роутером. Клиенты ещё используют системный DNS.',

@@ -908,6 +908,21 @@
             </div>
           </div>
 
+          <section class="dns-protection-lan-selector dns-smart-group" aria-labelledby="dnsSmartGroupTitle">
+            <div>
+              <strong id="dnsSmartGroupTitle">Отдельная Smart-группа для DNS</strong>
+              <span>Prizrak будет выбирать прокси для Cloudflare и Google независимо от остальных групп.</span>
+            </div>
+            <div class="dns-smart-group-controls">
+              <label>
+                <span>Источник нод</span>
+                <select id="dnsSmartGroupSource" aria-describedby="dnsSmartGroupStatus"></select>
+              </label>
+              <button id="dnsSmartGroupCreate" class="button compact" type="button" disabled>Создать DNS Smart</button>
+            </div>
+            <p id="dnsSmartGroupStatus" role="status">Создание доступно только с установленным Prizrak-Core.</p>
+          </section>
+
           <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
             <div>
               <strong id="dnsLanTitle">Домашние сети</strong>

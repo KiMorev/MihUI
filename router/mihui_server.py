@@ -369,6 +369,7 @@ DNS_PROTECTION_UPSTREAMS = (
 )
 DNS_PROTECTION_BOOTSTRAP = ("1.1.1.1", "8.8.8.8")
 DNS_PROTECTION_PROXY_RESOLVER = "udp://127.0.0.1:53"
+DNS_SMART_GROUP = "DNS-SMART"
 DNS_PROTECTION_LOCAL_NAMES = ("*", "+.lan", "+.localdomain", "+.home.arpa")
 DNS_WHITELIST_BEGIN = "    # mihui-whitelist-dns: begin"
 DNS_WHITELIST_END = "    # mihui-whitelist-dns: end"
@@ -631,6 +632,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/dns/action":
             self.handle_dns_action()
+            return
+        if route == "/api/dns/smart-group":
+            self.handle_dns_smart_group()
             return
         if route in {"/api/dns-lab/settings", "/api/dns/observation/settings"}:
             self.handle_dns_lab_settings()
@@ -1157,6 +1161,23 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_dns_get(self):
         self.send_json(HTTPStatus.OK, get_dns_protection_status(self.app_dir))
+
+    def handle_dns_smart_group(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            request_data = validate_dns_smart_group_request(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = create_dns_smart_group(self.app_dir, request_data)
+        status = HTTPStatus.OK if result.get("ok") else (
+            HTTPStatus.CONFLICT if result.get("stage") == "conflict" else
+            HTTPStatus.UNPROCESSABLE_ENTITY if result.get("stage") in {"unsupported", "preflight", "check"} else
+            HTTPStatus.BAD_GATEWAY
+        )
+        self.send_json(status, result)
 
     def handle_dns_preview(self):
         if self.headers.get("X-Mihui-Action") != "dns":
@@ -8038,6 +8059,153 @@ def get_dns_proxy_groups(app_dir):
     return {"ok": True, "groups": list(dict.fromkeys(groups)), "proxies": proxies, "message": ""}
 
 
+def validate_dns_smart_group_request(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("Запрос должен быть объектом")
+    if set(payload) != {"sourceGroup", "expectedRevision"}:
+        raise ValueError("Укажите sourceGroup и expectedRevision")
+    source = payload["sourceGroup"]
+    revision = payload["expectedRevision"]
+    if not isinstance(source, str) or not source.strip() or len(source) > 128 or any(char in source for char in "\r\n#&"):
+        raise ValueError("Некорректное имя группы-источника")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{64}", revision):
+        raise ValueError("Требуется ревизия конфигурации")
+    return {"sourceGroup": source.strip(), "expectedRevision": revision}
+
+
+def dns_smart_config_groups(text):
+    lines, newline, trailing = split_whitelist_config_lines(text)
+    start = next((i for i, line in enumerate(lines) if re.fullmatch(r"proxy-groups\s*:\s*", strip_yaml_comment(line))), None)
+    if start is None:
+        raise ValueError("Раздел proxy-groups должен быть записан обычным YAML-списком")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() and not lines[i].startswith((" ", "#"))), len(lines))
+    headers = [(i, re.match(r"^( +)-\s+(.+)$", strip_yaml_comment(lines[i]))) for i in range(start + 1, end)]
+    headers = [(i, match) for i, match in headers if match]
+    if headers:
+        headers = [(i, match) for i, match in headers if len(match.group(1)) == len(headers[0][1].group(1))]
+    groups = {}
+    for index, (position, match) in enumerate(headers):
+        stop = headers[index + 1][0] if index + 1 < len(headers) else end
+        indent = len(match.group(1)) + 2
+        fields = {}
+        current = None
+        for line in [" " * indent + match.group(2), *lines[position + 1:stop]]:
+            field = re.match(rf"^ {{{indent}}}([\w-]+|<<)\s*:", line)
+            if field:
+                current = field.group(1)
+                fields[current] = []
+            if current:
+                fields[current].append(line)
+        name_line = fields.get("name", [""])[0]
+        name_match = re.match(r"^\s*name\s*:\s*(.+)$", strip_yaml_comment(name_line))
+        if not name_match:
+            raise ValueError("Группы proxy-groups должны быть записаны обычными YAML-блоками с name")
+        name = clean_yaml_key(name_match.group(1))
+        if name in groups:
+            raise ValueError("В конфигурации повторяется имя прокси-группы")
+        groups[name] = {"fields": fields, "indent": indent}
+    return lines, newline, trailing, end, groups
+
+
+def dns_smart_source_pool(source, groups, proxies, visiting=None):
+    visiting = set(visiting or ())
+    item = proxies.get(source, {})
+    configured = groups.get(source)
+    members = item.get("all")
+    if source in visiting or len(visiting) >= 32 or not configured or not isinstance(members, list) or not members:
+        raise ValueError("Выберите группу с собственными нодами или подписками")
+    fields = configured["fields"]
+    declared = dns_config_list_values(fields.get("proxies", []), "proxies")
+    if "proxies" in fields and not declared and not re.fullmatch(r"\s*proxies\s*:\s*\[\s*\]\s*", strip_yaml_comment(fields["proxies"][0])):
+        raise ValueError("Список proxies группы-источника не удалось прочитать")
+    members = list(dict.fromkeys([*members, *declared]))
+    if not check_dns_proxy_route({**proxies, "__mihui_dns_pool__": {"type": "Smart", "all": members}}, "__mihui_dns_pool__")["ok"]:
+        raise ValueError("В группе-источнике есть DIRECT либо неподтверждённый прокси-путь")
+    if "<<" in fields:
+        raise ValueError("Для создания DNS-SMART выберите группу без YAML merge")
+    keys = {"proxies", "use", "include-all", "include-all-proxies", "include-all-providers", "filter", "exclude-filter", "exclude-type"}
+    pool = [line[configured["indent"]:] for key, block in fields.items() if key in keys for line in block]
+    pool = [line.rstrip() for line in pool]
+    while pool and (not pool[-1] or pool[-1].lstrip().startswith("#")):
+        pool.pop()
+    children = [member for member in members if isinstance(proxies.get(member, {}).get("all"), list)]
+    if not children:
+        if not any(key in fields for key in ("proxies", "use", "include-all", "include-all-proxies", "include-all-providers")):
+            raise ValueError("Источники нод группы не удалось прочитать из конфигурации")
+        return pool
+    if len(children) != len(members) or set(fields).intersection(keys) != {"proxies"}:
+        raise ValueError("Выберите вложенную группу с собственными нодами или подписками, например FASTEST")
+    child_pools = [dns_smart_source_pool(child, groups, proxies, visiting | {source}) for child in children]
+    if any(child != child_pools[0] for child in child_pools[1:]):
+        raise ValueError("Вложенные группы имеют разные источники или фильтры; выберите одну из них")
+    return child_pools[0]
+
+
+def get_dns_smart_group_status(app_dir, config_text=None):
+    text = config_text if config_text is not None else read_config_text(get_config_path(app_dir))
+    status = {"name": DNS_SMART_GROUP, "available": False, "exists": False, "sources": [], "message": "Для DNS-SMART установите Prizrak-Core"}
+    if get_mihomo_core(app_dir) != "prizrak":
+        return status
+    support = get_resource_smart_support(app_dir)
+    status.update(available=support["supported"], message=support["message"])
+    if not status["available"]:
+        return status
+    try:
+        _, _, _, _, groups = dns_smart_config_groups(text)
+        snapshot = get_dns_proxy_groups(app_dir)
+        proxies = snapshot.get("proxies", {})
+        status["exists"] = DNS_SMART_GROUP in groups or DNS_SMART_GROUP in proxies
+        for name in snapshot.get("groups", []):
+            if name == DNS_SMART_GROUP:
+                continue
+            try:
+                dns_smart_source_pool(name, groups, proxies)
+                status["sources"].append(name)
+            except ValueError:
+                pass
+        status["message"] = "DNS-SMART уже существует" if status["exists"] else (
+            "Prizrak выберет ноды для DNS из выбранного источника" if status["sources"] else
+            snapshot.get("message") or "Не найдена безопасная группа с собственными нодами или подписками"
+        )
+    except ValueError as error:
+        status["message"] = str(error)
+    return status
+
+
+def create_dns_smart_group(app_dir, request_data):
+    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+        text = read_config_text(get_config_path(app_dir))
+        revision = config_revision(text)
+        if request_data["expectedRevision"] != revision:
+            return {"ok": False, "stage": "conflict", "currentRevision": revision, "message": "Конфигурация изменилась после загрузки настроек"}
+        runtime = load_dns_protection_runtime(app_dir)
+        if runtime["requestedMode"] != "system" or runtime.get("fallbackPending"):
+            return {"ok": False, "stage": "preflight", "message": "Перед созданием DNS-SMART вернитесь к системному DNS"}
+        if get_mihomo_core(app_dir) != "prizrak":
+            return {"ok": False, "stage": "unsupported", "message": "Для DNS-SMART установите Prizrak-Core"}
+        support = get_resource_smart_support(app_dir)
+        if not support["supported"]:
+            return {"ok": False, "stage": "unsupported", "message": support["message"]}
+        try:
+            lines, newline, trailing, end, groups = dns_smart_config_groups(text)
+            snapshot = get_dns_proxy_groups(app_dir)
+            proxies = snapshot.get("proxies", {})
+            if DNS_SMART_GROUP in groups or DNS_SMART_GROUP in proxies:
+                return {"ok": False, "stage": "conflict", "message": "Группа DNS-SMART уже существует; существующая группа не изменена"}
+            pool = dns_smart_source_pool(request_data["sourceGroup"], groups, proxies)
+        except ValueError as error:
+            return {"ok": False, "stage": "preflight", "message": str(error)}
+        item_indent = " " * (next(iter(groups.values()))["indent"] - 2)
+        field_indent = item_indent + "  "
+        block = [f"{item_indent}- name: {DNS_SMART_GROUP}", f"{field_indent}type: smart", f"{field_indent}uselightgbm: true", f"{field_indent}collectdata: false", *[field_indent + line if line else "" for line in pool]]
+        lines[end:end] = block
+        proposed = join_whitelist_config_lines(lines, newline, trailing)
+        result = save_checked_config(app_dir, proposed, expected_revision=revision)
+        if result.get("ok") and result.get("applied"):
+            return {**result, "group": DNS_SMART_GROUP, "text": proposed, "message": "DNS-SMART создана. Выберите её для DNS и выполните обычную проверку настроек"}
+        return {**result, "ok": False}
+
+
 def check_dns_proxy_route(proxies, group):
     def check(name, visiting):
         if not isinstance(name, str) or name in visiting or len(visiting) >= 32:
@@ -8963,6 +9131,7 @@ def get_dns_protection_status(app_dir):
         "whitelistDns": runtime["whitelistDns"],
         "proxyGroup": capabilities["selectedProxyGroup"],
         "proxyGroups": capabilities["proxyGroups"],
+        "smartGroup": get_dns_smart_group_status(app_dir, config_text),
         "revision": config_revision(config_text),
         "runtime": runtime,
         "health": health,
