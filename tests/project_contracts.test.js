@@ -65,7 +65,7 @@ test('primary UI files expose labels for audited controls', () => {
     assert.match(html, /data-component-update="mihomo"/);
     assert.match(html, /data-xkeen-channel="stable"/);
     assert.match(html, /data-xkeen-channel="beta"/);
-    assert.equal((html.match(/data-maintenance-component=/g) || []).length, 4);
+    assert.equal((html.match(/data-maintenance-component=/g) || []).length, 5);
     assert.match(html, /id="restartMihuiButton"[\s\S]+?>Перезапустить<\/button>/);
     assert.match(html, /id="repairMihuiButton"[^>]*\bhidden[^>]*>Восстановить службу<\/button>/);
     assert.equal((html.match(/<button[^>]+data-component-advanced-toggle/g) || []).length, 2);

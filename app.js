@@ -656,6 +656,7 @@ const els = {
   xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
   reinstallXkeenButton: document.querySelector('#reinstallXkeenButton'),
   componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
+  xkeenUiMaintenanceRow: document.querySelector('#xkeenUiMaintenanceRow'),
   repairMihuiButton: document.querySelector('#repairMihuiButton'),
   restartMihuiButton: document.querySelector('#restartMihuiButton'),
   componentMaintenance: document.querySelector('#componentMaintenance'),
@@ -2804,6 +2805,7 @@ async function loadComponents(options = {}) {
     state.components.items = {
       xkeen: normalizeComponentItem(data.components?.xkeen),
       mihomo: normalizeComponentItem(data.components?.mihomo),
+      'xkeen-ui': normalizeComponentItem(data.components?.['xkeen-ui']),
     };
     const xkeenChannel = normalizeXkeenChannel(state.components.items.xkeen.channel);
     if (!state.components.xkeenChannelSelection || state.components.xkeenChannelCurrent !== xkeenChannel) {
@@ -3046,6 +3048,7 @@ function renderComponentManager() {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
+  els.xkeenUiMaintenanceRow.hidden = !state.components.items['xkeen-ui']?.installed;
   els.repairMihuiButton.hidden = !state.components.mihuiServiceRepairRequired;
   els.repairMihuiButton.disabled = busy;
   els.restartMihuiButton.disabled = busy;
@@ -3118,7 +3121,7 @@ function renderComponentJob() {
 
 function getComponentActionLabel(job) {
   if (job.component === 'all') return 'Обновление компонентов';
-  const component = job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  const component = job.component === 'xkeen-ui' ? 'Xkeen-UI' : job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
   if (job.action === 'core') return 'Переключение ядра';
   if (job.action === 'restart') return `Перезапуск ${component}`;
   if (job.action === 'geo-update') return `Обновление GEO · ${component}`;
@@ -3129,7 +3132,7 @@ function getComponentActionLabel(job) {
 
 function getComponentActionSuccessLabel(job) {
   if (job.component === 'all') return 'Компоненты обновлены';
-  const component = job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  const component = job.component === 'xkeen-ui' ? 'Xkeen-UI' : job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
   if (job.action === 'core') return 'Ядро переключено';
   if (job.action === 'restart') return `${component} перезапущен`;
   if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
@@ -3246,10 +3249,14 @@ function prepareSmartCoreReturn(mode) {
 }
 
 async function startMaintenanceAction(component, action) {
-  if (!['xkeen', 'mihomo'].includes(component) || !['restart', 'geo-update'].includes(action)) return;
+  if (!['xkeen', 'mihomo', 'xkeen-ui'].includes(component) || !['restart', 'geo-update'].includes(action)) return;
+  if (component === 'xkeen-ui' && (action !== 'restart' || !state.components.items['xkeen-ui']?.installed)) return;
   if (action === 'restart') {
     const label = component === 'xkeen' ? 'XKeen и активное прокси-ядро' : 'ядро Mihomo';
-    if (!window.confirm(`Перезапустить ${label}? Соединения могут кратковременно прерваться.`)) return;
+    const warning = component === 'xkeen-ui'
+      ? 'Перезапустить Xkeen-UI? Его веб-интерфейс будет недоступен несколько секунд.'
+      : `Перезапустить ${label}? Соединения могут кратковременно прерваться.`;
+    if (!window.confirm(warning)) return;
   } else {
     const label = component === 'xkeen' ? 'XKeen' : 'Mihomo';
     if (!window.confirm(`Обновить геоданные ${label}?`)) return;

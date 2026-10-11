@@ -56,6 +56,10 @@ DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
 PRIZRAK_GITHUB_REPO = "legiz-ru/Prizrak-Core"
 DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
+XKEEN_UI_INIT_SCRIPTS = (
+    "/opt/etc/init.d/S99xkeen-ui-umarcheh001",
+    "/opt/etc/init.d/S99xkeen-ui",
+)
 XKEEN_STATUS_TIMEOUT = 8
 XKEEN_FILES_MAX_BYTES = 512 * 1024
 XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
@@ -2765,6 +2769,10 @@ def invalidate_component_release_cache():
         component_release_cache.update({"checkedAt": 0, "catalog": {}})
 
 
+def find_xkeen_ui_init_script():
+    return next((path for path in XKEEN_UI_INIT_SCRIPTS if Path(path).is_file()), "")
+
+
 def get_components_status(app_dir, force=False):
     catalog, checked_at = get_component_release_catalog(app_dir, force=force)
     xkeen = get_xkeen_version_info(app_dir)
@@ -2815,6 +2823,10 @@ def get_components_status(app_dir, force=False):
             "updateAvailable": mihomo_update,
             "error": mihomo_release.get("error") or "",
         },
+        "xkeen-ui": {
+            "installed": bool(find_xkeen_ui_init_script()),
+            "updateAvailable": False,
+        },
     }
     return {
         "ok": True,
@@ -2831,6 +2843,12 @@ def validate_component_action(app_dir, payload):
     component = str((payload or {}).get("component") or "").strip().lower()
     action = str((payload or {}).get("action") or "").strip().lower()
     target = str((payload or {}).get("target") or "").strip()
+    if component == "xkeen-ui":
+        if action != "restart" or target:
+            raise ValueError("Неподдерживаемая операция Xkeen-UI")
+        if not find_xkeen_ui_init_script():
+            raise ValueError("Служба Xkeen-UI не найдена")
+        return {"component": component, "action": action, "target": ""}
     if component == "all":
         if action != "update" or target:
             raise ValueError("Эта операция не поддерживается для всех компонентов сразу")
@@ -2909,6 +2927,8 @@ def append_component_action_output(output):
 
 
 def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    if len(command) > 1 and command[0] in XKEEN_UI_INIT_SCRIPTS and command[1] == "restart":
+        return _run_component_command(command, input_text, timeout, capture_output=False)
     if len(command) > 1 and command[1] in {"-start", "-stop", "-restart"}:
         env = _xkeen_command_environment()
         env["XKEEN_FOREGROUND"] = "1"
@@ -2959,10 +2979,12 @@ def run_component_action(app_dir, request_data):
         try:
             component = request_data["component"]
             action = request_data["action"]
-            if action != "geo-update":
+            if action != "geo-update" and component != "xkeen-ui":
                 lifecycle.enter_context(suspend_dns_capture(app_dir))
             if component == "all":
                 run_all_component_updates(app_dir, request_data["updates"])
+            elif component == "xkeen-ui":
+                run_xkeen_ui_restart()
             elif component == "xkeen" and action in {"update", "rollback", "channel"}:
                 run_xkeen_component_action(app_dir, action, request_data.get("target", ""))
             elif component == "xkeen":
@@ -3062,6 +3084,18 @@ def run_xkeen_component_action(app_dir, action, target=""):
         if rollback_code != 0:
             raise RuntimeError(f"{error}; автоматическое восстановление XKeen не удалось") from error
         raise
+
+
+def run_xkeen_ui_restart():
+    init_script = find_xkeen_ui_init_script()
+    if not init_script:
+        raise RuntimeError("Служба Xkeen-UI не найдена")
+    update_component_action_state(phase="restart", message="Перезапускаем Xkeen-UI")
+    require_component_command([init_script, "restart"], "Не удалось перезапустить Xkeen-UI", timeout=180)
+    update_component_action_state(phase="verify", message="Проверяем запуск Xkeen-UI")
+    output = require_component_command([init_script, "status"], "Не удалось проверить Xkeen-UI", timeout=10)
+    if not re.search(r"Xkeen Web UI запущен, PID [1-9]\d*\.", strip_ansi(output)):
+        raise RuntimeError("Xkeen-UI не подтвердил запуск после перезапуска")
 
 
 def run_xkeen_maintenance_action(app_dir, action):
