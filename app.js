@@ -25,13 +25,13 @@ const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
 const RESOURCE_MONITOR_DEFINITIONS = {
-  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
-  tiktok: { title: 'TikTok', group: 'TIKTOK', icon: 'tiktok' },
-  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
-  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
-  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
-  twitter: { title: 'X (Twitter)', group: 'TWITTER', icon: 'twitter' },
-  ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
+  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube', testUrl: 'https://www.youtube.com/generate_204', expectedStatus: '204' },
+  tiktok: { title: 'TikTok', group: 'TIKTOK', icon: 'tiktok', testUrl: 'https://www.tiktok.com/robots.txt', expectedStatus: '200' },
+  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram', testUrl: 'https://telegram.org/', expectedStatus: '200' },
+  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp', testUrl: 'https://www.whatsapp.com/', expectedStatus: '200' },
+  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram', testUrl: 'https://www.instagram.com/robots.txt', expectedStatus: '200' },
+  twitter: { title: 'X (Twitter)', group: 'TWITTER', icon: 'twitter', testUrl: 'https://x.com/robots.txt', expectedStatus: '200' },
+  ai: { title: 'AI', group: 'AI', icon: 'sparkles', testUrl: 'https://chatgpt.com/cdn-cgi/trace', expectedStatus: '200' },
 };
 let resourceMonitorHistoryTooltipTarget = null;
 let resourceMonitorHistoryTooltipPinned = false;
@@ -4107,7 +4107,7 @@ function resourceMonitorCanRemoveRule(rule, service, group) {
 }
 
 function resourceMonitorRedundantCheckKeys(group, mode) {
-  return (group?.resourceCheckKeys || []).filter((key) => mode === 'prizrak' ? key !== 'interval' : true);
+  return mode === 'prizrak' ? [] : group?.resourceCheckKeys || [];
 }
 
 function getEnabledResourceMonitorEntries(services = null) {
@@ -4466,6 +4466,7 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
     if (!enabledKeys.has(key)) return resourceMonitorCanChangeGroup(group);
     const mode = getResourceMonitorMode(currentServices[key]);
     if (resourceMonitorRedundantCheckKeys(group, mode).length > 0) return true;
+    if (mode === 'prizrak' && (group?.testUrl !== definition.testUrl || group?.expectedStatus !== definition.expectedStatus)) return true;
     const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
     if (!group || !types.includes(String(group.type || '').toLowerCase())) return true;
     if (mode === 'prizrak' && group.managedMonitoring && !group.useLightGBM) return true;
@@ -4780,14 +4781,19 @@ function prepareResourceMonitorConfig(sources, services = null) {
   enabledEntries.forEach(([key, definition]) => {
     const existing = state.groups.find((group) => group.name === definition.group);
     const mode = getResourceMonitorMode(currentServices[key]);
+    const resourceCheck = {
+      testUrl: mode === 'prizrak' ? definition.testUrl : '',
+      expectedStatus: mode === 'prizrak' ? definition.expectedStatus : '',
+    };
     const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
     if (existing && !resourceMonitorCanChangeGroup(existing) && !types.includes(String(existing.type || '').toLowerCase())) {
       throw new Error(`Группа ${definition.group} уже существует и имеет другой тип.`);
     }
     if (existing) {
       const removeKeys = resourceMonitorRedundantCheckKeys(existing, mode);
-      existing.removeResourceCheckKeys = [...new Set([...(existing.removeResourceCheckKeys || []), ...removeKeys])];
+      existing.removeResourceCheckKeys = mode === 'prizrak' ? [] : [...new Set([...(existing.removeResourceCheckKeys || []), ...removeKeys])];
       existing.resourceCheckKeys = (existing.resourceCheckKeys || []).filter((key) => !removeKeys.includes(key));
+      Object.assign(existing, resourceCheck);
     }
     if (existing && !existing.managedMonitoring) {
       if (String(existing.type).toLowerCase() !== 'smart' || mode === 'prizrak') return;
@@ -4803,6 +4809,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
     const cloned = {
       type: mode === 'prizrak' ? 'smart' : 'select',
       useLightGBM: mode === 'prizrak',
+      ...resourceCheck,
       proxies: combined.proxies,
       use: combined.use,
       includeAll: combined.includeAll,
@@ -9194,6 +9201,9 @@ function collectGroupUseChanges() {
     if (group.removeResourceCheckKeys?.length) {
       changes.push(`Группа ${group.name}: будут удалены дополнительные проверки ядра (${group.removeResourceCheckKeys.join(', ')}).`);
     }
+    if (group.type === 'smart' && (group.testUrl !== original.testUrl || group.expectedStatus !== original.expectedStatus)) {
+      changes.push(`Группа ${group.name}: проверка Smart — ${group.testUrl}, HTTP ${group.expectedStatus}.`);
+    }
 
     collectListDiff(original.proxies, group.proxies).added.forEach((name) => {
       changes.push(`В группе ${group.name} добавлен вариант ${name} в proxies.`);
@@ -9458,6 +9468,8 @@ function snapshotGroup(group) {
     originalName: group.originalName || group.name || '',
     type: group.type || '',
     useLightGBM: Boolean(group.useLightGBM),
+    testUrl: group.testUrl || '',
+    expectedStatus: group.expectedStatus || '',
     proxies: group.proxies.slice(),
     use: group.use.slice(),
     includeAll: Boolean(group.includeAll),
@@ -15428,6 +15440,8 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
   setGroupName(block, currentGroup);
   setGroupScalar(block, 'type', currentGroup.type || 'select');
   (currentGroup.removeResourceCheckKeys || []).forEach((key) => setOptionalGroupScalar(block, key, ''));
+  if (currentGroup.testUrl !== parsedGroup.testUrl) setOptionalGroupScalar(block, 'url', currentGroup.testUrl);
+  if (currentGroup.expectedStatus !== parsedGroup.expectedStatus) setOptionalGroupScalar(block, 'expected-status', currentGroup.expectedStatus);
 
   if (parsedGroup.proxiesStart === -1 && currentGroup.proxies.length > 0) {
     insertGroupListBlock(block, 'proxies', currentGroup.proxies);
@@ -15457,6 +15471,8 @@ function createGroupBlock(group) {
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
   if (group.managedMonitoring && group.type === 'smart') lines.push('    uselightgbm: true', '    collectdata: false');
+  if (group.testUrl) lines.push(`    url: ${formatScalar(group.testUrl)}`);
+  if (group.expectedStatus) lines.push(`    expected-status: ${formatScalar(group.expectedStatus)}`);
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
   const use = getActiveGroupUse(group);
   if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
@@ -15853,6 +15869,8 @@ function parseGroups(lines, section) {
       originalName: name,
       type: readScalar(block, keyIndent, 'type') || '',
       useLightGBM: readBoolScalar(block, keyIndent, 'uselightgbm'),
+      testUrl: readScalar(block, keyIndent, 'url'),
+      expectedStatus: readScalar(block, keyIndent, 'expected-status'),
       resourceCheckKeys: ['url', 'expected-status', 'interval'].filter((key) => block.some((item) => parseKeyValueLine(item, keyIndent)?.key === key)),
       proxies: proxiesMeta.items,
       use: useMeta.items,

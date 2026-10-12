@@ -3401,6 +3401,8 @@ for (const source of SOURCES) {
     assert.equal(app.state.groups.find((group) => group.name === 'TELEGRAM').type, 'select');
     assert.match(app.state.outputText, /uselightgbm: true/);
     assert.match(app.state.outputText, /collectdata: false/);
+    assert.equal(youtube.testUrl, 'https://www.youtube.com/generate_204');
+    assert.equal(youtube.expectedStatus, '204');
     assert.match(app.state.outputText, /^lgbm-auto-update: true$/m);
     assert.match(app.state.outputText, /^lgbm-update-interval: 72$/m);
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
@@ -3530,9 +3532,64 @@ function existingSmartFixture(source) {
 }
 
 for (const source of SOURCES) {
-  test(source.name + ': Smart cleanup preserves provider checks, baseline groups and adaptive settings', () => {
+  test(source.name + ': all Smart resources use their first MihUI endpoint and keep it after reload', () => {
+    const { app, services } = resourceModeFixture(source);
+    const monitorSource = fs.readFileSync('router/mihui_server.py', 'utf8');
+    const endpoints = [...monitorSource.matchAll(/"(youtube|tiktok|telegram|whatsapp|instagram|twitter|ai)": \{\s*"title": "[^"]+",\s*"group": "([^"]+)",\s*"endpoints": \[\s*\{"url": "([^"]+)", "expected": (\d+)\}/g)];
+    assert.equal(endpoints.length, 7);
+    const sources = {};
+    for (const [, key] of endpoints) {
+      services[key] = { ...services[key], mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+      sources[key] = ['FASTEST'];
+    }
+    app.prepareResourceMonitorConfig(sources, services);
+    const prepared = app.state.outputText;
+    const lines = app.splitLines(prepared);
+    const groups = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups'));
+    for (const [, , name, url, expected] of endpoints) {
+      const group = groups.find((item) => item.name === name);
+      const block = lines.slice(group.start, group.end);
+      assert.equal(group.type, 'smart');
+      assert.equal(group.testUrl, url);
+      assert.equal(group.expectedStatus, expected);
+      assert.equal(block.filter((line) => /^\s+url:/.test(line)).length, 1);
+      assert.equal(block.filter((line) => /^\s+expected-status:/.test(line)).length, 1);
+    }
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal(app.state.outputText.split('\n').filter((line) => line.trim()).join('\n'), prepared.split('\n').filter((line) => line.trim()).join('\n'));
+    hydrate(app, prepared);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal(app.state.outputText.split('\n').filter((line) => line.trim()).join('\n'), prepared.split('\n').filter((line) => line.trim()).join('\n'));
+  });
+
+  test(source.name + ': existing Smart resources gain missing checks without changing custom Smart groups', () => {
     const { app, services, text } = existingSmartFixture(source);
     const yaml = text
+      .replace('    url: https://www.youtube.com/generate_204\n    expected-status: "204"\n', '')
+      .replace('  - name: PROXY', '  - name: CUSTOM\n    type: smart\n    proxies: [node-a]\n    url: "https://example.com/custom"\n    expected-status: "201"\n  - name: PROXY');
+    hydrate(app, yaml);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    app.prepareResourceMonitorConfig({}, services);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.match(app.state.outputText, /url: "https:\/\/example.com\/custom"\n    expected-status: "201"/);
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({}, services);
+    services.youtube.mode = 'prizrak';
+    app.prepareResourceMonitorConfig({}, services);
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+
+  test(source.name + ': Smart resource checks preserve provider checks, baseline groups and adaptive settings', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    const yaml = text
+      .replace('    url: https://www.youtube.com/generate_204', '    url: https://example.com/old-check')
+      .replace('    expected-status: "204"', '    expected-status: "200"')
       .replace('    type: url-test', '    type: url-test\n    url: https://www.gstatic.com/generate_204\n    expected-status: 204\n    interval: 30')
       .replace('    url: https://example.com/sub', '    url: https://example.com/sub\n    health-check:\n      enable: true\n      url: https://www.gstatic.com/generate_204\n      expected-status: 204\n      interval: 300')
       .replace('    type: smart', '    type: smart\n    interval: 90\n    max-failed-times: 2\n    tolerance: 75');
@@ -3544,7 +3601,8 @@ for (const source of SOURCES) {
     const groups = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups'));
     const group = groups.find((item) => item.name === 'YOUTUBE');
     const block = lines.slice(group.start, group.end).join('\n');
-    assert.doesNotMatch(block, /^\s+(url|expected-status):/m);
+    assert.equal(group.testUrl, 'https://www.youtube.com/generate_204');
+    assert.equal(group.expectedStatus, '204');
     assert.match(block, /interval: 90/);
     assert.match(block, /max-failed-times: 2/);
     assert.match(block, /tolerance: 75/);
@@ -3556,7 +3614,7 @@ for (const source of SOURCES) {
     const providers = app.findTopSection(lines, 'proxy-providers');
     assert.match(lines.slice(providers.start, providers.end).join('\n'), /health-check:[\s\S]+expected-status: 204/);
     assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
-    assert.match(flattenChanges(app.collectChanges(app.state.providers)).join('\n'), /удалены дополнительные проверки ядра/);
+    assert.match(flattenChanges(app.collectChanges(app.state.providers)).join('\n'), /проверка Smart — https:\/\/www.youtube.com\/generate_204, HTTP 204/);
   });
 
   test(source.name + ': MihUI groups have no parallel group test or timer', () => {
@@ -3600,6 +3658,9 @@ for (const source of SOURCES) {
     services.youtube.mode = 'prizrak';
     app.prepareResourceMonitorConfig({}, services);
     assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').type, 'smart');
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').testUrl, 'https://www.youtube.com/generate_204');
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.match(app.state.outputText, /expected-status: "?204"?/);
     assert.deepEqual(Array.from(app.state.groups.find((item) => item.name === 'YOUTUBE').use), ['main']);
     assert.match(app.state.outputText, /uselightgbm: true/);
     assert.match(app.state.outputText, /lgbm-auto-update: true/);
