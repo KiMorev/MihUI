@@ -1172,7 +1172,8 @@ async function loadSimpleGroups() {
   try {
     const data = await apiJson('/api/groups');
     view.items = Array.isArray(data.groups)
-      ? data.groups.filter((group) => group?.name && ['smart', 'select', 'selector'].includes(String(group.type).toLowerCase()))
+      ? data.groups.filter((group) => group?.name && group.name !== 'GLOBAL' && ['smart', 'select', 'selector'].includes(String(group.type).toLowerCase()))
+        .sort((left, right) => Number(/^DNS(?:$|-)/i.test(left.name)) - Number(/^DNS(?:$|-)/i.test(right.name)))
       : [];
     view.error = '';
   } catch {
