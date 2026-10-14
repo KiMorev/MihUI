@@ -417,6 +417,7 @@ xkeen_command_jobs = {}
 resource_smart_support_cache = {}
 resource_smart_support_lock = threading.Lock()
 resource_monitor_lock = threading.Lock()
+group_replace_lock = threading.Lock()
 resource_monitor_state_lock = threading.Lock()
 resource_monitor_log_prune_lock = threading.Lock()
 resource_monitor_log_pruned_at = {}
@@ -541,6 +542,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/nodes":
             self.handle_nodes_get()
             return
+        if route == "/api/groups":
+            result = get_runtime_groups(self.app_dir)
+            self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+            return
         if route == "/api/resource-monitor":
             self.handle_resource_monitor_get()
             return
@@ -612,6 +617,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/groups/auto":
             self.handle_group_auto()
+            return
+        if route == "/api/groups/replace":
+            self.handle_group_replace()
             return
         if route == "/api/resource-monitor/settings":
             self.handle_resource_monitor_settings()
@@ -920,6 +928,28 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         with config_write_lock:
             result = reset_smart_proxy_group(self.app_dir, group)
+        status = HTTPStatus.OK if result["ok"] else (
+            HTTPStatus.BAD_GATEWAY if result.get("unavailable") or result.get("uncertain")
+            else HTTPStatus.UNPROCESSABLE_ENTITY
+        )
+        self.send_json(status, result)
+
+    def handle_group_replace(self):
+        if self.headers.get("X-Mihui-Action") != "group-replace":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        payload = self.read_json_body()
+        group = payload.get("group") if isinstance(payload, dict) else None
+        if not isinstance(group, str) or not group.strip():
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя группы"})
+            return
+        if not group_replace_lock.acquire(blocking=False):
+            self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "Смена сервера уже выполняется"})
+            return
+        try:
+            result = replace_runtime_group(self.app_dir, group)
+        finally:
+            group_replace_lock.release()
         status = HTTPStatus.OK if result["ok"] else (
             HTTPStatus.BAD_GATEWAY if result.get("unavailable") or result.get("uncertain")
             else HTTPStatus.UNPROCESSABLE_ENTITY
@@ -4695,7 +4725,7 @@ def reset_smart_proxy_group(app_dir, group):
     return {"ok": True, "changed": bool(current["fixed"]), "group": group, "now": confirmed.get("now", ""), "fixed": ""}
 
 
-def select_proxy_group(app_dir, group, name):
+def select_proxy_group(app_dir, group, name, expected_snapshot=None):
     encoded_group = urllib.parse.quote(group, safe="")
     path = f"/proxies/{encoded_group}"
     try:
@@ -4704,6 +4734,13 @@ def select_proxy_group(app_dir, group, name):
         return {"ok": False, "unavailable": True, "message": str(error)}
 
     group_type = str(current.get("type") or "").strip().casefold() if isinstance(current, dict) else ""
+    if expected_snapshot is not None and (
+        not isinstance(current, dict)
+        or group_type != str(expected_snapshot.get("type") or "").strip().casefold()
+        or current.get("now") != expected_snapshot.get("now")
+        or current.get("all") != expected_snapshot.get("all")
+    ):
+        return {"ok": False, "drift": True, "message": "Состояние группы изменилось. Обновите список и попробуйте снова"}
     if group_type not in {"select", "selector"}:
         return {"ok": False, "message": "Группа не поддерживает ручной выбор ноды"}
 
@@ -4765,6 +4802,164 @@ def get_current_nodes(app_dir):
         return {"ok": True, "nodes": nodes, "providers": provider_items, "groups": groups, "groupsError": groups_error}
     except Exception as error:
         return {"ok": False, "message": str(error), "nodes": [], "providers": [], "groups": [], "groupsError": ""}
+
+
+def get_runtime_groups(app_dir):
+    try:
+        proxies = load_proxy_groups(app_dir)
+        groups = [item for item in normalize_current_group_selections(proxies)
+                  if item["type"].casefold() in {"smart", "selector", "select"}]
+        return {"ok": True, "groups": groups}
+    except Exception:
+        return {"ok": False, "groups": [], "message": "Не удалось загрузить группы. Проверьте подключение и попробуйте снова"}
+
+
+def load_group_connections(app_dir):
+    data = mihomo_api_request(app_dir, "/connections", timeout=5)
+    connections = data.get("connections") if isinstance(data, dict) else None
+    if not isinstance(connections, list):
+        raise RuntimeError("Не удалось получить текущие подключения")
+    return connections
+
+
+def smart_group_routes(group, proxies, connections):
+    routes = {}
+    for connection in connections:
+        if not isinstance(connection, dict):
+            continue
+        chains = connection.get("chains")
+        metadata = connection.get("metadata")
+        if not isinstance(chains, list) or group not in chains or not isinstance(metadata, dict):
+            continue
+        # A shared complaint flag would affect every Smart callback in a nested chain.
+        smart_groups = [name for name in chains if isinstance(proxies.get(name), dict)
+                        and str(proxies[name].get("type") or "").casefold() == "smart"]
+        if smart_groups != [group]:
+            raise ValueError("В этой группе смена сервера пока недоступна из-за вложенных групп")
+        if metadata.get("smartBlock") != "normal":
+            continue
+        position = chains.index(group)
+        if not position or not isinstance(connection.get("id"), str):
+            continue
+        node = chains[position - 1]
+        if node not in proxies[group].get("all", []):
+            continue
+        target = str(metadata.get("smartTarget") or "")
+        destination = str(metadata.get("wildcardTarget") or metadata.get("host") or metadata.get("destinationIP") or "")
+        if not target or not destination or not connection["id"]:
+            continue
+        routes.setdefault((destination, target, node), connection["id"])
+    return routes
+
+
+def replace_smart_group(app_dir, group, proxies):
+    current = proxies[group]
+    if not isinstance(current.get("fixed"), str):
+        return {"ok": False, "message": "В этой группе смена сервера пока недоступна"}
+    routes = smart_group_routes(group, proxies, load_group_connections(app_dir))
+    if not routes:
+        return {"ok": False, "message": "Нет активных подключений. Откройте сервис и повторите смену сервера"}
+    if current["fixed"]:
+        reset = reset_smart_proxy_group(app_dir, group)
+        if not reset["ok"]:
+            return {"ok": False, "uncertain": bool(reset.get("uncertain")), "unavailable": bool(reset.get("unavailable")),
+                    "message": "Не удалось подготовить смену сервера. Попробуйте снова"}
+    accepted = 0
+    for route in routes:
+        try:
+            live_proxies = load_proxy_groups(app_dir)
+            live_group = live_proxies.get(group)
+            if not isinstance(live_group, dict) or str(live_group.get("type") or "").casefold() != "smart" or live_group.get("fixed") != "":
+                return {"ok": False, "uncertain": bool(accepted or current["fixed"]), "message": "Состояние группы изменилось. Попробуйте снова"}
+            live_routes = smart_group_routes(group, live_proxies, load_group_connections(app_dir))
+        except Exception:
+            return {"ok": False, "uncertain": bool(accepted or current["fixed"]),
+                    "message": "Не удалось подтвердить состояние группы. Попробуйте снова"}
+        connection_id = live_routes.get(route)
+        if not connection_id:
+            continue
+        try:
+            mihomo_api_request(app_dir, f"/connections/smart/{urllib.parse.quote(connection_id, safe='')}", method="DELETE")
+            remaining = load_group_connections(app_dir)
+        except Exception:
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Проверьте работу сервиса"}
+        if any(item.get("id") == connection_id and isinstance(item.get("metadata"), dict) and item["metadata"].get("smartBlock") == "normal"
+               for item in remaining if isinstance(item, dict)):
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Проверьте работу сервиса"}
+        accepted += 1
+    if not accepted:
+        return {"ok": False, "message": "Подключения уже завершились. Откройте сервис и повторите смену сервера"}
+    return {"ok": True, "group": group, "changed": False, "requestAccepted": True, "routeCount": accepted,
+            "message": "Готово. Попробуйте открыть сервис снова"}
+
+
+def replace_selector_group(app_dir, group, current, proxies):
+    settings = load_resource_monitor_settings(app_dir)
+    managed = [service for service, item in settings["services"].items()
+               if settings["enabled"] and item["group"] == group and resource_monitor_mode(item) == "mihui"]
+    if managed:
+        if snapshot_resource_monitor_job()["running"]:
+            return {"ok": False, "message": "Смена сервера временно занята проверкой. Попробуйте немного позже"}
+        service = managed[0]
+        previous_switch = load_resource_monitor_runtime(app_dir)["services"][service].get("lastSwitch")
+        runtime = run_resource_monitor_cycle(app_dir, [service], force_switch=True, expected_group=group)
+        confirmed = load_proxy_groups(app_dir).get(group, {})
+        now = str(confirmed.get("now") or "")
+        if str(confirmed.get("type") or "").casefold() not in {"select", "selector"} or not now:
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Попробуйте снова"}
+        last_switch = runtime["services"][service].get("lastSwitch")
+        if last_switch and last_switch != previous_switch and last_switch.get("to") == now:
+            return {"ok": True, "changed": True, "group": group, "now": now, "message": "Сервер сменён"}
+        if now != str(current.get("now") or ""):
+            return {"ok": False, "uncertain": True, "message": "Состояние сервера изменилось. Проверьте работу сервиса"}
+        return {"ok": False, "message": "Подходящий сервер для замены не найден. Попробуйте позже"}
+    options = current.get("all")
+    if not isinstance(options, list) or len(options) < 2:
+        return {"ok": False, "message": "В группе нет другого сервера для замены"}
+    expected_snapshot = {"type": current.get("type"), "now": current.get("now"), "all": list(options)}
+    endpoint = {"url": current.get("testUrl") or "https://www.gstatic.com/generate_204", "expected": "200-299"}
+    names = list(dict.fromkeys(name for name in options if isinstance(name, str)
+                              and name != current.get("now") and name.upper() not in RESOURCE_MONITOR_BUILTINS
+                              and str(proxies.get(name, {}).get("type") or "").casefold().replace("-", "")
+                              not in {"direct", "reject", "rejectdrop", "pass", "compatible", "dns"}))
+    candidates = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {name: executor.submit(resource_monitor_delay, app_dir, name, endpoint, 5000) for name in names}
+        for name, future in futures.items():
+            try:
+                delay = future.result()
+                if 0 < delay < 65535:
+                    candidates.append((delay, name))
+            except Exception:
+                pass
+    if not candidates:
+        return {"ok": False, "message": "Подходящий сервер для замены не найден. Попробуйте позже"}
+    _, selected = min(candidates)
+    result = select_proxy_group(app_dir, group, selected, expected_snapshot=expected_snapshot)
+    if not result["ok"]:
+        if result.get("drift"):
+            return result
+        return {"ok": False, "uncertain": bool(result.get("uncertain")), "unavailable": bool(result.get("unavailable")),
+                "message": "Не удалось подтвердить смену сервера. Попробуйте снова"}
+    if not result.get("changed"):
+        return {"ok": False, "message": "Состояние группы изменилось. Обновите список и попробуйте снова"}
+    return {**result, "message": "Сервер сменён"}
+
+
+def replace_runtime_group(app_dir, group):
+    try:
+        proxies = load_proxy_groups(app_dir)
+        current = proxies.get(group)
+        kind = str(current.get("type") or "").casefold() if isinstance(current, dict) else ""
+        if kind == "smart":
+            return replace_smart_group(app_dir, group, proxies)
+        if kind in {"select", "selector"}:
+            return replace_selector_group(app_dir, group, current, proxies)
+        return {"ok": False, "message": "Группа недоступна для смены сервера. Обновите список групп"}
+    except ValueError as error:
+        return {"ok": False, "message": str(error)}
+    except Exception:
+        return {"ok": False, "unavailable": True, "message": "Не удалось связаться с сервером. Попробуйте снова"}
 
 
 def resource_monitor_mode(item):
@@ -6093,12 +6288,18 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies, f
         item["consecutiveSlowChecks"] = 0
 
 
-def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switch=False):
+def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switch=False, expected_group=None):
     with resource_monitor_lock:
         settings = load_resource_monitor_settings(app_dir)
         selected_services = services or [
             key for key, item in settings["services"].items() if resource_monitor_mode(item) == "mihui"
         ]
+        if expected_group is not None and (not settings["enabled"] or any(
+            settings["services"].get(service, {}).get("group") != expected_group
+            or resource_monitor_mode(settings["services"].get(service, {})) != "mihui"
+            for service in selected_services
+        )):
+            raise ValueError("Состояние группы изменилось. Обновите список и попробуйте снова")
         runtime = load_resource_monitor_runtime(app_dir)
         previous_switches = {
             service: dict(item.get("lastSwitch") or {})

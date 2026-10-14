@@ -11027,3 +11027,247 @@ button.review-check-card:focus-visible {
   }
 
 }
+
+.interface-mode-switch {
+  order: 3;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.interface-mode-switch button {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.interface-mode-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.interface-mode-switch button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.simple-mode-brand {
+  display: none;
+}
+
+.is-simple-mode .app-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.is-simple-mode .app-main {
+  width: 100%;
+  max-width: 1488px;
+  margin: 0 auto;
+  padding: 0 56px 40px;
+}
+
+.is-simple-mode .app-sidebar,
+.is-simple-mode .app-section,
+.is-simple-mode #mobileFlowActions,
+.is-simple-mode #messageBox,
+.is-simple-mode .topbar > :not(.simple-mode-brand):not(.interface-mode-switch) {
+  display: none !important;
+}
+
+.is-simple-mode .topbar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-height: 80px;
+  margin: 0;
+  padding: 12px 0;
+}
+
+.is-simple-mode .simple-mode-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--text);
+  font-size: 32px;
+  font-weight: 750;
+}
+
+.simple-mode-panel {
+  padding-top: 32px;
+}
+
+.simple-mode-panel h1 {
+  margin: 0;
+  font-size: 48px;
+  line-height: 1.2;
+}
+
+.simple-mode-description {
+  margin: 8px 0 24px;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+.simple-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.simple-group-card {
+  min-width: 0;
+  padding: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.simple-group-head {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  min-width: 0;
+}
+
+.simple-group-head h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.simple-group-icon {
+  display: grid;
+  flex: 0 0 84px;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  background: #eaf5f5;
+  color: var(--accent);
+}
+
+.simple-group-icon svg,
+.simple-group-replace svg {
+  width: 72px;
+  height: 72px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.simple-group-icon.is-twitter { background: #080808; color: #fff; }
+.simple-group-icon.is-youtube { background: #ff0033; color: #fff; }
+.simple-group-icon.is-telegram { background: #08a6e0; color: #fff; }
+.simple-group-icon.is-ai { background: #fff; color: #111; border: 1px solid var(--line); }
+
+.simple-group-replace {
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  margin-top: 32px;
+  box-shadow: none;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.simple-group-replace svg {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+}
+
+.is-simple-mode .interface-mode-switch button {
+  min-height: 44px;
+  padding: 8px 20px;
+  font-size: 16px;
+}
+
+.simple-group-feedback,
+.simple-groups-status {
+  margin: 16px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.simple-group-feedback.is-error,
+.simple-groups-status.is-error {
+  color: var(--danger);
+}
+
+@media (min-width: 561px) and (max-width: 980px) {
+  .is-simple-mode .app-main { padding-inline: 24px; }
+  .simple-group-card { padding: 24px; }
+  .simple-group-head { gap: 18px; }
+  .simple-group-head h2 { font-size: 24px; }
+  .simple-group-icon { flex-basis: 56px; width: 56px; height: 56px; }
+  .simple-group-icon svg { width: 36px; height: 36px; }
+  .simple-group-replace { min-height: 52px; margin-top: 24px; font-size: 16px; }
+}
+
+@media (max-width: 560px) {
+  .interface-mode-switch {
+    width: max-content;
+    max-width: 100%;
+    margin-block: 8px;
+  }
+
+  .interface-mode-switch button {
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .is-simple-mode .interface-mode-switch button {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .is-simple-mode .app-main {
+    padding: 0 20px 28px;
+  }
+
+  .is-simple-mode .topbar {
+    gap: 8px;
+    flex-wrap: wrap;
+    min-height: 68px;
+    padding: 8px 0;
+  }
+
+  .is-simple-mode .simple-mode-brand {
+    gap: 8px;
+    font-size: 22px;
+  }
+
+  .is-simple-mode .app-brand-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .simple-mode-panel { padding-top: 24px; }
+  .simple-mode-panel h1 { font-size: 30px; }
+  .simple-mode-description { margin-bottom: 24px; font-size: 15px; }
+  .simple-groups-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .simple-group-card { padding: 24px; }
+  .simple-group-head { gap: 18px; }
+  .simple-group-head h2 { font-size: 24px; }
+  .simple-group-icon { flex-basis: 56px; width: 56px; height: 56px; }
+  .simple-group-icon svg { width: 36px; height: 36px; }
+  .simple-group-replace { min-height: 52px; margin-top: 24px; font-size: 16px; }
+}

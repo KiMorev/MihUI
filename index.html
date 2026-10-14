@@ -61,6 +61,14 @@
       <symbol id="icon-instagram" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" /><circle cx="12" cy="12" r="3" /><path d="M16.5 7.5v.01" /></symbol>
       <symbol id="icon-twitter" viewBox="0 0 24 24"><path d="M4 4h4l12 16h-4zM20 4l-6.5 7M4 20l6.5-7" /></symbol>
       <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.6 4.4l4.4 1.6l-4.4 1.6l-1.6 4.4l-1.6 -4.4l-4.4 -1.6l4.4 -1.6z" /><path d="M19 15l.9 2.1l2.1 .9l-2.1 .9l-.9 2.1l-.9 -2.1l-2.1 -.9l2.1 -.9z" /><path d="M5 15l.7 1.3l1.3 .7l-1.3 .7l-.7 1.3l-.7 -1.3l-1.3 -.7l1.3 -.7z" /></symbol>
+      <symbol id="icon-openai" viewBox="0 0 24 24">
+        <path d="M11.217 19.384a3.501 3.501 0 0 0 6.783 -1.217v-5.167l-6 -3.35" />
+        <path d="M5.214 15.014a3.501 3.501 0 0 0 4.446 5.266l4.34 -2.534v-6.946" />
+        <path d="M6 7.63c-1.391 -.236 -2.787 .395 -3.534 1.689a3.474 3.474 0 0 0 1.271 4.745l4.263 2.514l6 -3.348" />
+        <path d="M12.783 4.616a3.501 3.501 0 0 0 -6.783 1.217v5.067l6 3.45" />
+        <path d="M18.786 8.986a3.501 3.501 0 0 0 -4.446 -5.266l-4.34 2.534v6.946" />
+        <path d="M18 16.302c1.391 .236 2.787 -.395 3.534 -1.689a3.474 3.474 0 0 0 -1.271 -4.745l-4.308 -2.514l-5.955 3.42" />
+      </symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -110,6 +118,11 @@
 
       <div class="app-main">
       <header class="topbar">
+        <div class="simple-mode-brand"><svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg><span>MihUI</span></div>
+        <div class="interface-mode-switch" role="group" aria-label="Режим интерфейса">
+          <button type="button" data-interface-mode="simple" aria-pressed="false" aria-controls="simpleModePanel">Простой</button>
+          <button type="button" data-interface-mode="advanced" aria-pressed="true">Расширенный</button>
+        </div>
         <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
@@ -189,6 +202,13 @@
       </nav>
 
       <section id="messageBox" class="message hidden" aria-live="polite"></section>
+
+      <section id="simpleModePanel" class="simple-mode-panel" aria-labelledby="simpleModeTitle" hidden>
+        <h1 id="simpleModeTitle">Группы</h1>
+        <p class="simple-mode-description">Смените сервер, если что-то не работает</p>
+        <p id="simpleGroupsStatus" class="simple-groups-status" role="status" hidden></p>
+        <div id="simpleGroupsGrid" class="simple-groups-grid"></div>
+      </section>
 
       <section class="app-section is-active" data-section-panel="overview">
         <section class="overview-health panel" aria-live="polite">

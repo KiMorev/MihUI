@@ -376,6 +376,8 @@ const PROVIDER_DIFF_FIELDS = [
 ];
 
 const state = {
+  interfaceMode: 'advanced',
+  simpleGroups: { items: [], loading: false, error: '', replacing: '', feedback: Object.create(null), pollTimer: 0 },
   fileName: '',
   configLoadedAt: 0,
   originalText: '',
@@ -560,6 +562,10 @@ const state = {
 let happBrowserDecryptorPromise = null;
 
 const els = {
+  interfaceModeButtons: document.querySelectorAll('[data-interface-mode]'),
+  simpleModePanel: document.querySelector('#simpleModePanel'),
+  simpleGroupsStatus: document.querySelector('#simpleGroupsStatus'),
+  simpleGroupsGrid: document.querySelector('#simpleGroupsGrid'),
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
   fileTools: document.querySelector('#fileTools'),
@@ -919,6 +925,7 @@ const els = {
 };
 
 els.routerLoadButton.addEventListener('click', reloadRouterConfig);
+els.interfaceModeButtons.forEach((button) => button.addEventListener('click', () => setInterfaceMode(button.dataset.interfaceMode)));
 els.routerSaveButton.addEventListener('click', handleTopbarSaveAction);
 els.backupHistoryButton.addEventListener('click', openBackupHistoryDialog);
 els.backupHistoryList.addEventListener('change', handleBackupSelection);
@@ -1105,6 +1112,7 @@ document.querySelector('#smartCoreReturnDialog').addEventListener('close', (even
 });
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
+setInterfaceMode('advanced');
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
@@ -1133,6 +1141,143 @@ function setProviderUrlMasking(enabled) {
     // Настройка работает и без доступного localStorage.
   }
   render();
+}
+
+function setInterfaceMode(mode) {
+  if (!['simple', 'advanced'].includes(mode)) return;
+  const returningToAdvanced = mode === 'advanced' && state.interfaceMode === 'simple';
+  state.interfaceMode = mode;
+  const simple = mode === 'simple';
+  document.body.classList.toggle('is-simple-mode', simple);
+  els.simpleModePanel.hidden = !simple;
+  els.interfaceModeButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.interfaceMode === mode)));
+  if (state.simpleGroups.pollTimer) window.clearInterval(state.simpleGroups.pollTimer);
+  state.simpleGroups.pollTimer = 0;
+  if (simple) {
+    loadSimpleGroups();
+    state.simpleGroups.pollTimer = window.setInterval(loadSimpleGroups, 30000);
+  }
+  updateMobileSectionTabsVisibility();
+  if (returningToAdvanced && state.routerApiAvailable) {
+    loadNodeInventory({ silent: true });
+    loadResourceMonitor({ silent: true });
+  }
+}
+
+async function loadSimpleGroups() {
+  const view = state.simpleGroups;
+  if (state.interfaceMode !== 'simple' || view.loading || view.replacing) return;
+  view.loading = true;
+  renderSimpleGroups();
+  try {
+    const data = await apiJson('/api/groups');
+    view.items = Array.isArray(data.groups)
+      ? data.groups.filter((group) => group?.name && ['smart', 'select', 'selector'].includes(String(group.type).toLowerCase()))
+      : [];
+    view.error = '';
+  } catch {
+    view.items = [];
+    view.error = 'Не удалось получить группы. Проверьте подключение к роутеру.';
+  } finally {
+    view.loading = false;
+    renderSimpleGroups();
+  }
+}
+
+function renderSimpleGroups() {
+  const view = state.simpleGroups;
+  const active = document.activeElement;
+  const focusedGroup = els.simpleGroupsGrid.contains(active) ? active.dataset.groupReplace : '';
+  els.simpleGroupsGrid.replaceChildren(...view.items.map(createSimpleGroupCard));
+  const message = view.error || (view.loading && !view.items.length ? 'Загрузка групп…' : !view.items.length ? 'Существующих групп пока нет.' : '');
+  els.simpleGroupsStatus.textContent = message;
+  els.simpleGroupsStatus.hidden = !message;
+  els.simpleGroupsStatus.classList.toggle('is-error', Boolean(view.error));
+  els.simpleGroupsGrid.setAttribute('aria-busy', String(view.loading));
+  if (focusedGroup && state.interfaceMode === 'simple') {
+    [...els.simpleGroupsGrid.querySelectorAll('[data-group-replace]')].find((button) => button.dataset.groupReplace === focusedGroup)?.focus({ preventScroll: true });
+  }
+}
+
+function getSimpleGroupIcon(name) {
+  const key = stripNodeFlagEmoji(String(name)).trim().toLowerCase();
+  const service = Object.keys(RESOURCE_MONITOR_DEFINITIONS).find((item) => {
+    const definition = RESOURCE_MONITOR_DEFINITIONS[item];
+    return [item, definition.group.toLowerCase(), definition.title.toLowerCase()].includes(key);
+  }) || ({ x: 'twitter', chatgpt: 'ai', openai: 'ai' })[key];
+  return { service: service || 'group', icon: service === 'ai' ? 'openai' : RESOURCE_MONITOR_DEFINITIONS[service]?.icon || 'groups' };
+}
+
+function createSimpleGroupCard(group) {
+  const view = state.simpleGroups;
+  const card = document.createElement('article');
+  const head = document.createElement('div');
+  const icon = document.createElement('span');
+  const title = document.createElement('h2');
+  const button = document.createElement('button');
+  const feedback = document.createElement('p');
+  const groupIcon = getSimpleGroupIcon(group.name);
+  const appendIcon = (container, name) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    svg.setAttribute('aria-hidden', 'true');
+    use.setAttribute('href', `#icon-${name}`);
+    svg.append(use);
+    container.append(svg);
+  };
+  card.className = 'simple-group-card';
+  head.className = 'simple-group-head';
+  icon.className = `simple-group-icon is-${groupIcon.service}`;
+  appendIcon(icon, groupIcon.icon);
+  title.textContent = group.name;
+  button.className = 'button primary simple-group-replace';
+  button.type = 'button';
+  button.dataset.groupReplace = group.name;
+  button.setAttribute('aria-label', `Сменить сервер в группе ${group.name}`);
+  button.disabled = Boolean(view.replacing || view.error);
+  appendIcon(button, 'refresh');
+  const label = document.createElement('span');
+  label.textContent = view.replacing === group.name ? 'Подбираем…' : 'Сменить сервер';
+  button.append(label);
+  button.addEventListener('click', () => replaceSimpleGroupServer(group.name));
+  feedback.className = 'simple-group-feedback';
+  feedback.setAttribute('role', 'status');
+  const result = view.feedback[group.name];
+  feedback.textContent = result?.message || '';
+  feedback.hidden = !result?.message;
+  feedback.classList.toggle('is-error', Boolean(result?.error));
+  head.append(icon, title);
+  card.append(head, button, feedback);
+  return card;
+}
+
+async function replaceSimpleGroupServer(groupName) {
+  const view = state.simpleGroups;
+  if (!groupName || view.replacing || view.error) return;
+  const restoreFocus = document.activeElement?.dataset.groupReplace === groupName;
+  view.replacing = groupName;
+  delete view.feedback[groupName];
+  renderSimpleGroups();
+  try {
+    const data = await apiJson('/api/groups/replace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'group-replace' },
+      body: JSON.stringify({ group: groupName }),
+    });
+    view.feedback[groupName] = { message: data.message || (data.changed ? 'Сервер сменён.' : 'Готово. Попробуйте открыть сервис снова.') };
+  } catch (error) {
+    view.feedback[groupName] = {
+      message: error?.data?.uncertain || !error?.status ? 'Результат смены неизвестен. Проверьте работу сервиса.' : error?.data?.message || 'Не удалось сменить сервер. Попробуйте снова.',
+      error: true,
+    };
+  } finally {
+    view.replacing = '';
+    renderSimpleGroups();
+    await loadSimpleGroups();
+    if (restoreFocus && state.interfaceMode === 'simple' && document.activeElement === document.body) {
+      [...els.simpleGroupsGrid.querySelectorAll('[data-group-replace]')].find((button) => button.dataset.groupReplace === groupName)?.focus({ preventScroll: true });
+    }
+  }
 }
 
 function getMobileSectionTabsHeight() {
@@ -1197,6 +1342,11 @@ function setActiveSection(section, options = {}) {
 
 function updateMobileSectionTabsVisibility() {
   if (!els.mobileSectionTabs || !els.appSidebar) return;
+  if (state.interfaceMode === 'simple') {
+    els.mobileSectionTabs.hidden = true;
+    els.mobileSectionTabs.setAttribute('aria-hidden', 'true');
+    return;
+  }
   const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
   const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
   const shouldShow = isMobile && sidebarBottom <= 0;
