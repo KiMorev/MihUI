@@ -4858,6 +4858,63 @@ body.component-manager-open {
   padding: 18px;
 }
 
+.whitelist-domain-list-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 18px;
+}
+
+.whitelist-domain-list-copy {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.whitelist-domain-list-copy h3,
+.whitelist-domain-list-copy p {
+  margin: 0;
+}
+
+.whitelist-domain-list-copy h3 {
+  font-size: 14px;
+}
+
+.whitelist-domain-list-copy p,
+.whitelist-domain-list-copy a {
+  font-size: 11px;
+}
+
+.whitelist-domain-list-copy p {
+  color: var(--muted);
+}
+
+.whitelist-domain-list-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.whitelist-domain-list-metrics div {
+  display: grid;
+  gap: 2px;
+}
+
+.whitelist-domain-list-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.whitelist-domain-list-metrics dd {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
 .whitelist-monitor-state-copy {
   display: grid;
   justify-items: start;
@@ -10024,8 +10081,13 @@ button.review-check-card:focus-visible {
   }
 
   .whitelist-monitor-status-card,
+  .whitelist-domain-list-card,
   .whitelist-monitor-policy-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-domain-list-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .whitelist-monitor-metrics {
@@ -10771,7 +10833,7 @@ button.review-check-card:focus-visible {
         <header class="whitelist-monitor-page-head">
           <div>
             <h2>Белые списки оператора</h2>
-            <p>Наблюдение с безопасной подготовкой изменений только после ручного подтверждения</p>
+            <p>Наблюдение с подтверждением состояния и обратимым переключением маршрутизации</p>
           </div>
           <label class="resource-monitor-switch whitelist-monitor-main-switch">
             <input id="whitelistMonitorEnabled" type="checkbox" />
@@ -10805,7 +10867,7 @@ button.review-check-card:focus-visible {
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
           <div>
             <h3>Мониторинг выключен</h3>
-            <p>После включения можно только наблюдать либо получать предложение подготовить обратимый черновик YAML. Автоматического применения нет.</p>
+            <p>После включения можно наблюдать, получать предложение черновика либо автоматически применять и восстанавливать временную маршрутизацию.</p>
           </div>
         </article>
 
@@ -10824,6 +10886,20 @@ button.review-check-card:focus-visible {
               <div><dt>Работают через Яндекс</dt><dd id="whitelistMonitorYandexRecoveries">0</dd></div>
             </dl>
             <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
+          </section>
+
+          <section class="panel whitelist-domain-list-card" aria-live="polite">
+            <div class="whitelist-domain-list-copy">
+              <span id="whitelistDomainListBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+              <h3 id="whitelistDomainListTitle">Локальный список разрешённых доменов</h3>
+              <p id="whitelistDomainListMessage">MihUI загрузит и проверит список независимо от переключения режима.</p>
+              <a id="whitelistDomainListSource" href="https://github.com/hxehex/russia-mobile-internet-whitelist" target="_blank" rel="noreferrer">hxehex/russia-mobile-internet-whitelist</a>
+            </div>
+            <dl class="whitelist-domain-list-metrics">
+              <div><dt>Доменов</dt><dd id="whitelistDomainListCount">0</dd></div>
+              <div><dt>Обновлён</dt><dd id="whitelistDomainListUpdatedAt">—</dd></div>
+              <div><dt>Следующая попытка</dt><dd id="whitelistDomainListNextAt">—</dd></div>
+            </dl>
           </section>
 
           <section id="whitelistMonitorProposal" class="panel whitelist-monitor-proposal" hidden>
@@ -10862,6 +10938,15 @@ button.review-check-card:focus-visible {
                 </select>
               </label>
               <label>
+                <span>Восстановить после</span>
+                <select id="whitelistMonitorRecoveryConfirmations">
+                  <option value="2">2 цикла нормы</option>
+                  <option value="3">3 цикла нормы</option>
+                  <option value="4">4 цикла нормы</option>
+                  <option value="5">5 циклов нормы</option>
+                </select>
+              </label>
+              <label>
                 <span>Тайм-аут адреса</span>
                 <select id="whitelistMonitorTimeout">
                   <option value="3000">3 секунды</option>
@@ -10879,6 +10964,7 @@ button.review-check-card:focus-visible {
                 <select id="whitelistMonitorActionMode">
                   <option value="observe">Только сообщить</option>
                   <option value="suggest">Предложить черновик YAML</option>
+                  <option value="automatic">Автоматически заменить конфиг</option>
                 </select>
               </label>
               <label>
@@ -11925,10 +12011,12 @@ const state = {
     error: '',
     config: null,
     runtime: null,
+    domainList: null,
     events: [],
     draft: null,
     dirty: false,
     pendingSettings: null,
+    proposalSnapshot: null,
     pollTimer: 0,
     proxyCheckingId: '',
     manualProxyResults: {},
@@ -12252,6 +12340,13 @@ const els = {
   whitelistMonitorProxyRecoveries: document.querySelector('#whitelistMonitorProxyRecoveries'),
   whitelistMonitorYandexRecoveries: document.querySelector('#whitelistMonitorYandexRecoveries'),
   whitelistMonitorCheckButton: document.querySelector('#whitelistMonitorCheckButton'),
+  whitelistDomainListBadge: document.querySelector('#whitelistDomainListBadge'),
+  whitelistDomainListTitle: document.querySelector('#whitelistDomainListTitle'),
+  whitelistDomainListMessage: document.querySelector('#whitelistDomainListMessage'),
+  whitelistDomainListSource: document.querySelector('#whitelistDomainListSource'),
+  whitelistDomainListCount: document.querySelector('#whitelistDomainListCount'),
+  whitelistDomainListUpdatedAt: document.querySelector('#whitelistDomainListUpdatedAt'),
+  whitelistDomainListNextAt: document.querySelector('#whitelistDomainListNextAt'),
   whitelistMonitorProposal: document.querySelector('#whitelistMonitorProposal'),
   whitelistMonitorProposalBadge: document.querySelector('#whitelistMonitorProposalBadge'),
   whitelistMonitorProposalTitle: document.querySelector('#whitelistMonitorProposalTitle'),
@@ -12259,6 +12354,7 @@ const els = {
   whitelistMonitorProposalButton: document.querySelector('#whitelistMonitorProposalButton'),
   whitelistMonitorInterval: document.querySelector('#whitelistMonitorInterval'),
   whitelistMonitorConfirmations: document.querySelector('#whitelistMonitorConfirmations'),
+  whitelistMonitorRecoveryConfirmations: document.querySelector('#whitelistMonitorRecoveryConfirmations'),
   whitelistMonitorTimeout: document.querySelector('#whitelistMonitorTimeout'),
   whitelistMonitorProxyGroup: document.querySelector('#whitelistMonitorProxyGroup'),
   whitelistMonitorActionMode: document.querySelector('#whitelistMonitorActionMode'),
@@ -12380,7 +12476,7 @@ els.whitelistMonitorProposalButton.addEventListener('click', handleWhitelistMoni
 els.whitelistMonitorSaveButton.addEventListener('click', saveWhitelistMonitorSettings);
 els.whitelistMonitorRestoreButton.addEventListener('click', restoreWhitelistMonitorDefaults);
 els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('click', addWhitelistMonitorEndpoint));
-[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
+[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorRecoveryConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
   .forEach((control) => {
     control.addEventListener('input', handleWhitelistMonitorPolicyInput);
     control.addEventListener('change', handleWhitelistMonitorPolicyInput);
@@ -12662,6 +12758,7 @@ function handleFileSelect(event) {
     state.nodeGroupSelectionsError = '';
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -12714,6 +12811,7 @@ async function loadRouterConfig(options = {}) {
     state.lastConfigCheckOk = false;
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
@@ -12782,6 +12880,8 @@ async function saveRouterConfig() {
     return;
   }
 
+  if (!await validateWhitelistProposalSnapshot()) return;
+
   if (!isCurrentConfigKernelChecked()) {
     const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
     if (check === false) {
@@ -12810,6 +12910,7 @@ async function saveRouterConfig() {
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
     state.routerSavedText = state.outputText;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
     persistSuccessfulConfigCheck(state.outputText);
@@ -16032,6 +16133,7 @@ function defaultWhitelistMonitorClientSettings() {
     actionMode: 'observe',
     intervalSeconds: 300,
     confirmationThreshold: 3,
+    recoveryThreshold: 3,
     controlFailureThreshold: 2,
     timeoutMs: 5000,
     proxyGroup: 'PROXY',
@@ -16084,6 +16186,7 @@ async function loadWhitelistMonitor(options = {}) {
     state.whitelistMonitor.loaded = true;
     state.whitelistMonitor.config = data.config || defaultWhitelistMonitorClientSettings();
     state.whitelistMonitor.runtime = data.runtime || null;
+    state.whitelistMonitor.domainList = data.domainList || null;
     state.whitelistMonitor.events = Array.isArray(data.events) ? data.events : [];
     state.whitelistMonitor.checking = Boolean(data.job?.running);
     state.whitelistMonitor.error = '';
@@ -16279,6 +16382,7 @@ function renderWhitelistMonitor() {
   renderWhitelistMonitorHistory(runtime);
   els.whitelistMonitorIntro.hidden = enabled;
   els.whitelistMonitorDetails.hidden = !enabled;
+  renderWhitelistDomainList();
   if (!enabled) return;
 
   els.whitelistMonitorStateBadge.className = `whitelist-monitor-state is-${runtimeState}`;
@@ -16310,6 +16414,62 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorSaveButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
 }
 
+function renderWhitelistDomainList() {
+  if (!els.whitelistDomainListBadge) return;
+  const status = state.whitelistMonitor.domainList || {};
+  const running = Boolean(status.job?.running);
+  const ready = Boolean(status.ready);
+  const failed = Boolean(status.lastError);
+  const stale = Boolean(status.stale);
+  let badge = 'Нет данных';
+  let tone = 'idle';
+  let title = 'Локальный список разрешённых доменов';
+  let message = 'MihUI загрузит и проверит список независимо от переключения режима.';
+  if (running) {
+    badge = 'Обновляется';
+    tone = 'suspected';
+    message = ready
+      ? 'Текущий проверенный снимок остаётся доступен до завершения обновления.'
+      : 'MihUI получает первый снимок. Переключение не будет обращаться к GitHub.';
+  } else if (!ready) {
+    badge = 'Не готов';
+    tone = 'error';
+    message = failed
+      ? `Первый снимок не получен: ${status.lastError}`
+      : 'Первый проверенный снимок ещё не получен. Автопереключение пока заблокировано.';
+  } else if (stale) {
+    badge = 'Устарел';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = failed
+      ? `Обновление не удалось: ${status.lastError}`
+      : 'Снимок старше двух суток; MihUI продолжит использовать его и повторит обновление.';
+  } else if (failed) {
+    badge = 'Сохранённая копия';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = `Последнее обновление не удалось: ${status.lastError}`;
+  } else {
+    badge = 'Актуален';
+    tone = 'normal';
+    title = 'Список готов к переключению';
+    message = 'Снимок проверен и будет использован локально без запроса к GitHub в момент переключения.';
+  }
+  els.whitelistDomainListBadge.className = `whitelist-monitor-state is-${tone}`;
+  els.whitelistDomainListBadge.textContent = badge;
+  els.whitelistDomainListTitle.textContent = title;
+  els.whitelistDomainListMessage.textContent = message;
+  els.whitelistDomainListSource.textContent = status.source || 'hxehex/russia-mobile-internet-whitelist';
+  if (status.sourceUrl) els.whitelistDomainListSource.href = status.sourceUrl;
+  els.whitelistDomainListCount.textContent = String(status.count || 0);
+  els.whitelistDomainListUpdatedAt.textContent = status.updatedAt
+    ? formatResourceMonitorTime(status.updatedAt)
+    : '—';
+  els.whitelistDomainListNextAt.textContent = status.nextUpdateAt
+    ? formatResourceMonitorTime(status.nextUpdateAt)
+    : '—';
+}
+
 function getWhitelistFallbackRules() {
   return getActiveRules().filter((rule) => (
     String(rule.comment || '').toLowerCase().includes(WHITELIST_FALLBACK_MARKER)
@@ -16325,11 +16485,45 @@ function renderWhitelistMonitorProposal(config, runtime) {
     els.whitelistMonitorProposal.hidden = true;
     return;
   }
-  const fallbackActive = isWhitelistFallbackConfigActive();
+  const automatic = config.actionMode === 'automatic';
+  const fallbackActive = automatic
+    ? Boolean(runtime.fallbackActive)
+    : isWhitelistFallbackConfigActive();
   const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
   const shouldSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !fallbackActive;
   const cannotSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
   const shouldRestore = fallbackActive && runtime.state === 'normal';
+  if (automatic) {
+    const pending = runtime.automaticActionPending || '';
+    const failed = runtime.lastConfigActionOk === false && Boolean(pending);
+    const cannotActivate = runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
+    els.whitelistMonitorProposal.hidden = !fallbackActive && !pending && !failed && !cannotActivate;
+    if (els.whitelistMonitorProposal.hidden) return;
+    els.whitelistMonitorProposal.classList.toggle('is-active', fallbackActive);
+    els.whitelistMonitorProposalButton.hidden = true;
+    if (failed) {
+      els.whitelistMonitorProposalBadge.textContent = 'Ошибка автозамены';
+      els.whitelistMonitorProposalTitle.textContent = 'Конфиг не переключён';
+      els.whitelistMonitorProposalMessage.textContent = runtime.lastConfigActionMessage || 'MihUI повторит попытку после защитной паузы.';
+    } else if (pending === 'restore') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает восстановления';
+      els.whitelistMonitorProposalTitle.textContent = 'Нормальный доступ подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'Исходная маршрутизация будет восстановлена после 15-минутной защитной паузы между заменами.';
+    } else if (pending === 'activate') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает замены';
+      els.whitelistMonitorProposalTitle.textContent = 'Режим белых списков подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'MihUI применит временную маршрутизацию после 15-минутной защитной паузы между заменами.';
+    } else if (cannotActivate) {
+      els.whitelistMonitorProposalBadge.textContent = 'PROXY не подтверждён';
+      els.whitelistMonitorProposalTitle.textContent = 'Автозамена приостановлена';
+      els.whitelistMonitorProposalMessage.textContent = 'Выбранная PROXY-группа не восстановила достаточно контрольных ресурсов.';
+    } else {
+      els.whitelistMonitorProposalBadge.textContent = 'Применено автоматически';
+      els.whitelistMonitorProposalTitle.textContent = 'Временная маршрутизация активна';
+      els.whitelistMonitorProposalMessage.textContent = `Остальной трафик направляется в ${config.proxyGroup}. Исходные правила вернутся после устойчивого восстановления DIRECT.`;
+    }
+    return;
+  }
   els.whitelistMonitorProposal.hidden = !shouldSuggest && !cannotSuggest && !shouldRestore && !fallbackActive;
   if (els.whitelistMonitorProposal.hidden) return;
 
@@ -16406,9 +16600,12 @@ function createWhitelistFallbackRule(type, value, target, comment, insertBeforeR
   };
 }
 
-function prepareWhitelistFallbackConfig(settings) {
+function prepareWhitelistFallbackConfig(settings, domainList) {
   if (isWhitelistFallbackConfigActive()) return;
-  const hosts = getWhitelistAllowedHosts(settings);
+  const hosts = [...new Set([
+    ...(Array.isArray(domainList) ? domainList : []),
+    ...getWhitelistAllowedHosts(settings),
+  ])];
   if (!hosts.length) throw new Error('Не найдены включённые разрешённые адреса.');
   if (!state.groups.some((group) => group.name === settings.proxyGroup)) {
     throw new Error(`Прокси-группа ${settings.proxyGroup} отсутствует в конфигурации.`);
@@ -16442,6 +16639,7 @@ function removeWhitelistFallbackConfig() {
 }
 
 function prepareWhitelistMonitorDisable(settings) {
+  state.whitelistMonitor.proposalSnapshot = null;
   state.whitelistMonitor.pendingSettings = {
     ...cloneWhitelistMonitorSettings(settings),
     enabled: false,
@@ -16449,7 +16647,7 @@ function prepareWhitelistMonitorDisable(settings) {
   removeWhitelistFallbackConfig();
 }
 
-function handleWhitelistMonitorProposal() {
+async function handleWhitelistMonitorProposal() {
   if (hasUnsavedRouterChanges()) {
     state.whitelistMonitor.error = 'Сначала сохраните или отмените текущие изменения конфигурации.';
     renderWhitelistMonitor();
@@ -16464,11 +16662,15 @@ function handleWhitelistMonitorProposal() {
         severity: 'warning',
       });
     } else {
-      prepareWhitelistFallbackConfig(config);
+      const domainList = await loadWhitelistDomainListDomains();
+      prepareWhitelistFallbackConfig(config, domainList);
       showMessage('Временные правила добавлены в черновик. Проверьте их перед сохранением.', {
         severity: 'warning',
       });
     }
+    state.whitelistMonitor.proposalSnapshot = {
+      action: fallbackActive ? 'restore' : 'activate',
+    };
     state.whitelistMonitor.error = '';
     render();
     setActiveSection('review');
@@ -16482,6 +16684,7 @@ function renderWhitelistMonitorForm() {
   const settings = getWhitelistMonitorDraft();
   els.whitelistMonitorInterval.value = String(settings.intervalSeconds);
   els.whitelistMonitorConfirmations.value = String(settings.confirmationThreshold);
+  els.whitelistMonitorRecoveryConfirmations.value = String(settings.recoveryThreshold || 3);
   els.whitelistMonitorTimeout.value = String(settings.timeoutMs);
   els.whitelistMonitorProxyGroup.value = settings.proxyGroup || 'PROXY';
   els.whitelistMonitorActionMode.value = settings.actionMode || 'observe';
@@ -16633,7 +16836,7 @@ function renderWhitelistMonitorEvents() {
     const title = document.createElement('strong');
     const details = document.createElement('span');
     const date = document.createElement('time');
-    const tone = event.type === 'confirmed'
+    const tone = ['confirmed', 'config_failed'].includes(event.type)
       ? 'error'
       : ['suspected', 'unknown'].includes(event.type)
         ? 'warning'
@@ -16657,10 +16860,45 @@ function formatWhitelistMonitorEventDetails(event) {
   return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено · Яндекс: ${Number(event.controlYandexRecoveries || 0)} восстановлено`;
 }
 
+async function validateWhitelistProposalSnapshot() {
+  const snapshot = state.whitelistMonitor.proposalSnapshot;
+  if (!snapshot) return true;
+  try {
+    const data = await apiJson('/api/whitelist-monitor');
+    const config = data.config || defaultWhitelistMonitorClientSettings();
+    const runtime = data.runtime || {};
+    const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
+    const stillValid = snapshot.action === 'activate'
+      ? config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !runtime.fallbackActive
+      : runtime.state === 'normal' && Boolean(runtime.fallbackActive);
+    if (stillValid) return true;
+    showMessage('Состояние сети изменилось после подготовки черновика. Конфиг не сохранён — подготовьте переключение заново.', {
+      severity: 'warning',
+    });
+    return false;
+  } catch (error) {
+    showMessage(`Не удалось повторно проверить режим белых списков: ${error?.message || error}`, {
+      severity: 'error',
+    });
+    return false;
+  }
+}
+
+async function loadWhitelistDomainListDomains() {
+  const data = await apiJson('/api/whitelist-monitor/domain-list');
+  state.whitelistMonitor.domainList = data;
+  renderWhitelistDomainList();
+  if (!data.ready || !Array.isArray(data.domains) || !data.domains.length) {
+    throw new Error(data.lastError || 'Локальный список разрешённых доменов ещё не готов.');
+  }
+  return data.domains;
+}
+
 function handleWhitelistMonitorPolicyInput(event) {
   const draft = getWhitelistMonitorDraft();
   draft.intervalSeconds = Number(els.whitelistMonitorInterval.value);
   draft.confirmationThreshold = Number(els.whitelistMonitorConfirmations.value);
+  draft.recoveryThreshold = Number(els.whitelistMonitorRecoveryConfirmations.value);
   draft.timeoutMs = Number(els.whitelistMonitorTimeout.value);
   draft.proxyGroup = els.whitelistMonitorProxyGroup.value;
   draft.actionMode = els.whitelistMonitorActionMode.value;
@@ -16775,7 +17013,7 @@ function restoreWhitelistMonitorDefaults() {
 
 function validateWhitelistMonitorDraft(settings) {
   if (!settings.proxyGroup.trim()) return 'Укажите прокси-группу.';
-  if (!['observe', 'suggest'].includes(settings.actionMode || 'observe')) {
+  if (!['observe', 'suggest', 'automatic'].includes(settings.actionMode || 'observe')) {
     return 'Выберите действие после подтверждения.';
   }
   if (!settings.positiveEndpoints.some((item) => item.enabled)) {

@@ -55,10 +55,20 @@
       <symbol id="icon-copy" viewBox="0 0 24 24"><path d="M8 8m-2 0a2 2 0 0 1 2 -2h9a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-9a2 2 0 0 1 -2 -2z" /><path d="M16 6v-1a2 2 0 0 0 -2 -2h-9a2 2 0 0 0 -2 2v9a2 2 0 0 0 2 2h1" /></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="M5 12l5 5l10 -10" /></symbol>
       <symbol id="icon-youtube" viewBox="0 0 24 24"><path d="M3 8a4 4 0 0 1 4 -4h10a4 4 0 0 1 4 4v8a4 4 0 0 1 -4 4h-10a4 4 0 0 1 -4 -4z" /><path d="M10 9l5 3l-5 3z" /></symbol>
+      <symbol id="icon-tiktok" viewBox="0 0 24 24"><path d="M14 3v12a5 5 0 1 1 -5 -5M14 3c0 4 3 6 7 6" /></symbol>
       <symbol id="icon-telegram" viewBox="0 0 24 24"><path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4" /></symbol>
       <symbol id="icon-whatsapp" viewBox="0 0 24 24"><path d="M3 21l1.65 -3.8a9 9 0 1 1 3.4 2.9l-5.05 .9" /><path d="M9 10a.5 .5 0 0 0 1 0v-1a.5 .5 0 0 0 -1 0v1a5 5 0 0 0 5 5h1a.5 .5 0 0 0 0 -1h-1a.5 .5 0 0 0 0 1" /></symbol>
       <symbol id="icon-instagram" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4" /><circle cx="12" cy="12" r="3" /><path d="M16.5 7.5v.01" /></symbol>
+      <symbol id="icon-twitter" viewBox="0 0 24 24"><path d="M4 4h4l12 16h-4zM20 4l-6.5 7M4 20l6.5-7" /></symbol>
       <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.6 4.4l4.4 1.6l-4.4 1.6l-1.6 4.4l-1.6 -4.4l-4.4 -1.6l4.4 -1.6z" /><path d="M19 15l.9 2.1l2.1 .9l-2.1 .9l-.9 2.1l-.9 -2.1l-2.1 -.9l2.1 -.9z" /><path d="M5 15l.7 1.3l1.3 .7l-1.3 .7l-.7 1.3l-.7 -1.3l-1.3 -.7l1.3 -.7z" /></symbol>
+      <symbol id="icon-openai" viewBox="0 0 24 24">
+        <path d="M11.217 19.384a3.501 3.501 0 0 0 6.783 -1.217v-5.167l-6 -3.35" />
+        <path d="M5.214 15.014a3.501 3.501 0 0 0 4.446 5.266l4.34 -2.534v-6.946" />
+        <path d="M6 7.63c-1.391 -.236 -2.787 .395 -3.534 1.689a3.474 3.474 0 0 0 1.271 4.745l4.263 2.514l6 -3.348" />
+        <path d="M12.783 4.616a3.501 3.501 0 0 0 -6.783 1.217v5.067l6 3.45" />
+        <path d="M18.786 8.986a3.501 3.501 0 0 0 -4.446 -5.266l-4.34 2.534v6.946" />
+        <path d="M18 16.302c1.391 .236 2.787 -.395 3.534 -1.689a3.474 3.474 0 0 0 -1.271 -4.745l-4.308 -2.514l-5.955 3.42" />
+      </symbol>
     </svg>
     <main class="app-shell">
       <aside class="app-sidebar">
@@ -79,6 +89,7 @@
           <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
+          <button class="section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Защищённый DNS</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -97,7 +108,7 @@
               </span>
               <span class="service-health-item is-loading" data-service-health="mihomo">
                 <span class="service-health-dot" aria-hidden="true"></span>
-                <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+                <span class="service-health-name"><span data-mihomo-core-label>Mihomo</span> <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
                 <strong class="service-health-status">Проверка...</strong>
               </span>
             </span>
@@ -107,6 +118,11 @@
 
       <div class="app-main">
       <header class="topbar">
+        <div class="simple-mode-brand"><svg class="app-brand-icon" aria-hidden="true"><use href="#icon-brand"></use></svg><span>MihUI</span></div>
+        <div class="interface-mode-switch" role="group" aria-label="Режим интерфейса">
+          <button type="button" data-interface-mode="simple" aria-pressed="false" aria-controls="simpleModePanel">Простой</button>
+          <button type="button" data-interface-mode="advanced" aria-pressed="true">Расширенный</button>
+        </div>
         <nav id="mobileSectionTabs" class="mobile-section-tabs" aria-label="Разделы редактора" aria-hidden="true" hidden>
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
@@ -114,6 +130,7 @@
           <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
           <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>DNS</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
           <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
         </nav>
@@ -131,7 +148,7 @@
             </span>
             <span class="service-health-item is-loading" data-service-health="mihomo">
               <span class="service-health-dot" aria-hidden="true"></span>
-              <span class="service-health-name">Mihomo <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
+              <span class="service-health-name"><span data-mihomo-core-label>Mihomo</span> <span class="service-update-marker" data-service-update-marker hidden aria-label="Доступно обновление" title="Доступно обновление">↑</span></span>
               <strong class="service-health-status">Проверка...</strong>
             </span>
           </button>
@@ -163,7 +180,7 @@
             </div>
           </details>
           <button id="mihomoUiUpdateButton" class="button" type="button" title="Обновить MihUI через локальный сервис" hidden>
-            <span class="button-label">Обновить UI</span>
+            <span class="button-label">Обновить MihUI</span>
           </button>
           <button id="changesJumpButton" class="link-button" type="button" disabled hidden>
             <span>Изменения</span>
@@ -185,6 +202,13 @@
       </nav>
 
       <section id="messageBox" class="message hidden" aria-live="polite"></section>
+
+      <section id="simpleModePanel" class="simple-mode-panel" aria-labelledby="simpleModeTitle" hidden>
+        <h1 id="simpleModeTitle">Группы</h1>
+        <p class="simple-mode-description">Смените сервер, если что-то не работает</p>
+        <p id="simpleGroupsStatus" class="simple-groups-status" role="status" hidden></p>
+        <div id="simpleGroupsGrid" class="simple-groups-grid"></div>
+      </section>
 
       <section class="app-section is-active" data-section-panel="overview">
         <section class="overview-health panel" aria-live="polite">
@@ -539,15 +563,10 @@
             <section id="resourceMonitorPanel" class="resource-monitor" hidden aria-labelledby="resourceMonitorTitle">
               <header class="resource-monitor-head">
                 <div>
-                  <h3 id="resourceMonitorTitle">Мониторинг ресурсов</h3>
+                  <h3 id="resourceMonitorTitle">Управление ресурсами</h3>
                   <p id="resourceMonitorSummary">Получаем состояние проверок…</p>
                 </div>
                 <div class="resource-monitor-head-actions">
-                  <label class="resource-monitor-switch">
-                    <input id="resourceMonitorEnabled" type="checkbox" />
-                    <span aria-hidden="true"></span>
-                    <strong>Включён</strong>
-                  </label>
                   <button id="resourceMonitorSettingsButton" class="button compact" type="button">
                     <svg class="button-icon" aria-hidden="true"><use href="#icon-settings"></use></svg>
                     <span>Настройки</span>
@@ -655,7 +674,7 @@
         <header class="whitelist-monitor-page-head">
           <div>
             <h2>Белые списки оператора</h2>
-            <p>Наблюдение с безопасной подготовкой изменений только после ручного подтверждения</p>
+            <p>Наблюдение с подтверждением состояния и обратимым переключением маршрутизации</p>
           </div>
           <label class="resource-monitor-switch whitelist-monitor-main-switch">
             <input id="whitelistMonitorEnabled" type="checkbox" />
@@ -689,7 +708,7 @@
           <svg aria-hidden="true"><use href="#icon-shield-lock"></use></svg>
           <div>
             <h3>Мониторинг выключен</h3>
-            <p>После включения можно только наблюдать либо получать предложение подготовить обратимый черновик YAML. Автоматического применения нет.</p>
+            <p>После включения можно наблюдать, получать предложение черновика либо автоматически применять и восстанавливать временную маршрутизацию.</p>
           </div>
         </article>
 
@@ -708,6 +727,20 @@
               <div><dt>Работают через Яндекс</dt><dd id="whitelistMonitorYandexRecoveries">0</dd></div>
             </dl>
             <button id="whitelistMonitorCheckButton" class="button primary compact" type="button">Проверить сейчас</button>
+          </section>
+
+          <section class="panel whitelist-domain-list-card" aria-live="polite">
+            <div class="whitelist-domain-list-copy">
+              <span id="whitelistDomainListBadge" class="whitelist-monitor-state is-idle">Нет данных</span>
+              <h3 id="whitelistDomainListTitle">Локальный список разрешённых доменов</h3>
+              <p id="whitelistDomainListMessage">MihUI загрузит и проверит список независимо от переключения режима.</p>
+              <a id="whitelistDomainListSource" href="https://github.com/hxehex/russia-mobile-internet-whitelist" target="_blank" rel="noreferrer">hxehex/russia-mobile-internet-whitelist</a>
+            </div>
+            <dl class="whitelist-domain-list-metrics">
+              <div><dt>Доменов</dt><dd id="whitelistDomainListCount">0</dd></div>
+              <div><dt>Обновлён</dt><dd id="whitelistDomainListUpdatedAt">—</dd></div>
+              <div><dt>Следующая попытка</dt><dd id="whitelistDomainListNextAt">—</dd></div>
+            </dl>
           </section>
 
           <section id="whitelistMonitorProposal" class="panel whitelist-monitor-proposal" hidden>
@@ -746,6 +779,15 @@
                 </select>
               </label>
               <label>
+                <span>Восстановить после</span>
+                <select id="whitelistMonitorRecoveryConfirmations">
+                  <option value="2">2 цикла нормы</option>
+                  <option value="3">3 цикла нормы</option>
+                  <option value="4">4 цикла нормы</option>
+                  <option value="5">5 циклов нормы</option>
+                </select>
+              </label>
+              <label>
                 <span>Тайм-аут адреса</span>
                 <select id="whitelistMonitorTimeout">
                   <option value="3000">3 секунды</option>
@@ -763,6 +805,7 @@
                 <select id="whitelistMonitorActionMode">
                   <option value="observe">Только сообщить</option>
                   <option value="suggest">Предложить черновик YAML</option>
+                  <option value="automatic">Автоматически заменить конфиг</option>
                 </select>
               </label>
               <label>
@@ -818,6 +861,267 @@
         </div>
       </section>
 
+      <section class="app-section dns-protection-section" data-section-panel="dns" hidden>
+        <header class="dns-protection-page-head">
+          <div>
+            <h2>Защищённый DNS</h2>
+            <p>DNS-запросы через прокси. При сбое — автоматический возврат к DNS роутера.</p>
+          </div>
+          <button id="dnsRefreshButton" class="button compact" type="button">Обновить состояние</button>
+        </header>
+
+        <section class="panel dns-protection-status-card" aria-live="polite">
+          <div class="dns-protection-state-copy">
+            <div class="dns-protection-badges">
+              <span id="dnsStateBadge" class="dns-protection-state is-idle">Нет данных</span>
+              <span id="dnsFallbackBadge" class="dns-protection-context is-idle">Резерв не проверен</span>
+            </div>
+            <h3 id="dnsStateTitle">Состояние ещё не загружено</h3>
+            <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
+          </div>
+
+          <details class="dns-disclosure dns-status-details">
+            <summary>Маршрут и состояние подключения</summary>
+          <div class="dns-protection-route" aria-label="Текущий маршрут DNS клиентов">
+            <div class="dns-protection-route-main">
+              <span>Устройства</span>
+              <b aria-hidden="true">→</b>
+              <span id="dnsProtectedPath">Маршрут не подтверждён</span>
+              <b aria-hidden="true">→</b>
+              <span id="dnsRouteDestination">Ожидается проверка</span>
+            </div>
+            <div class="dns-protection-route-fallback">
+              <strong id="dnsRouteNoteLabel">Состояние</strong>
+              <span id="dnsFallbackPath">Нет подтверждённых данных роутера</span>
+            </div>
+          </div>
+
+          <dl class="dns-protection-metrics">
+            <div><dt>Текущий режим</dt><dd id="dnsModeValue">—</dd></div>
+            <div><dt>Профиль</dt><dd id="dnsProfileValue">—</dd></div>
+            <div><dt>Слушатель Mihomo</dt><dd id="dnsListenerValue">—</dd></div>
+            <div><dt>IPv4</dt><dd id="dnsIpv4Value">—</dd></div>
+            <div><dt>IPv6</dt><dd id="dnsIpv6Value">—</dd></div>
+            <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
+          </dl>
+          </details>
+        </section>
+
+        <section class="panel dns-protection-profile-card">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3>Настройка защиты</h3>
+              <p>Выберите прокси и домашние сети, для которых нужно включить защиту.</p>
+            </div>
+          </header>
+
+          <div class="dns-protection-settings-grid">
+            <label>
+              <span>Прокси для DNS</span>
+              <select id="dnsProxyGroup">
+                <option value="PROXY">PROXY</option>
+              </select>
+            </label>
+            <div>
+              <span>Основные DNS-серверы</span>
+              <strong id="dnsUpstreams">Cloudflare и Google · через PROXY</strong>
+            </div>
+          </div>
+
+          <label class="dns-upstream-editor">
+            <span>Защищённые DNS-серверы</span>
+            <textarea id="dnsUpstreamServers" rows="3" spellcheck="false" aria-describedby="dnsUpstreamHelp dnsUpstreamStatus" placeholder="https://1.1.1.1/dns-query&#10;tls://dns.example"></textarea>
+          </label>
+          <p id="dnsUpstreamHelp">От одного до четырёх адресов DoH (https://) или DoT (tls://), каждый с новой строки. Прокси выбирается выше. Домашние зоны и DNS белых списков сохраняют свои настройки.</p>
+          <p id="dnsUpstreamStatus" role="status"></p>
+
+          <section class="dns-protection-lan-selector dns-smart-group" aria-labelledby="dnsSmartGroupTitle">
+            <div>
+              <strong id="dnsSmartGroupTitle">Отдельная Smart-группа для DNS</strong>
+              <span>Prizrak будет выбирать прокси для защищённых DNS-серверов независимо от остальных групп.</span>
+            </div>
+            <div class="dns-smart-group-controls">
+              <label>
+                <span>Источник нод</span>
+                <select id="dnsSmartGroupSource" aria-describedby="dnsSmartGroupStatus"></select>
+              </label>
+              <button id="dnsSmartGroupCreate" class="button compact" type="button" disabled>Создать DNS Smart</button>
+            </div>
+            <p id="dnsSmartGroupStatus" role="status">Создание доступно только с установленным Prizrak-Core.</p>
+          </section>
+
+          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
+            <div>
+              <strong id="dnsLanTitle">Домашние сети</strong>
+              <span>Отметьте сети с вашими устройствами. Защита будет работать только для них.</span>
+            </div>
+            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
+            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
+          </section>
+
+          <details class="dns-disclosure">
+            <summary>Дополнительные настройки · белые списки и профиль</summary>
+          <div class="dns-protection-lan-selector">
+            <label class="dns-whitelist-toggle">
+              <input id="dnsWhitelistDns" type="checkbox" aria-describedby="dnsWhitelistDnsHelp dnsWhitelistDnsStatus" />
+              <strong>DNS белых списков через Яндекс DoT</strong>
+            </label>
+            <p id="dnsWhitelistDnsHelp">Разрешённые домены и их поддомены — через Яндекс Safe DoT напрямую (TCP/853), остальные — через выбранную прокси-группу. Домашние имена не меняются. Используется наш список из раздела «Белые списки», а не список Yota. Переключатель меняет только DNS, не правила трафика сайтов.</p>
+            <p>При автоматическом включении временных правил белых списков DNS обновляется тем же изменением конфигурации. Возврат обычной маршрутизации сохраняет эту опцию. При отключении защиты DNS действует системный резерв роутера, не обязательно Яндекс DoT.</p>
+            <p id="dnsWhitelistDnsStatus" role="status">Выключено по умолчанию. Применяется после проверки и тестового режима.</p>
+          </div>
+
+          <div class="dns-protection-profile-grid" role="radiogroup" aria-label="Профиль защищённого DNS">
+            <label class="dns-protection-profile is-recommended">
+              <input id="dnsProfileResilient" type="radio" name="dnsProfile" value="resilient" checked />
+              <span>
+                <strong>Отказоустойчивый <small>Рекомендуется</small></strong>
+                <em>DNS провайдера и транзитные настройки не меняются. При отказе Mihomo запросы возвращаются в ndnproxy.</em>
+              </span>
+            </label>
+            <label class="dns-protection-profile">
+              <input id="dnsProfileStrict" type="radio" name="dnsProfile" value="strict" />
+              <span>
+                <strong>Строгий <small>Только план</small></strong>
+                <em>Показывает план исключения DNS провайдера и перехвата обычных запросов к стороннему DNS. Активация пока недоступна.</em>
+              </span>
+            </label>
+          </div>
+
+          <fieldset id="dnsStrictOptions" class="dns-protection-strict-options" disabled hidden>
+            <legend>Подтвердите каждое изменение строгого режима</legend>
+            <label><input id="dnsStrictIgnoreProvider" type="checkbox" /> <span>Игнорировать DNS провайдера только после проверки альтернативного системного резолвера.</span></label>
+            <label><input id="dnsStrictInterceptTransit" type="checkbox" /> <span>Перехватывать обычные DNS-запросы клиентов к сторонним адресам.</span></label>
+            <label><input id="dnsStrictWanConfirm" type="checkbox" /> <span>Понимаю, что изменение DNS-профиля может кратковременно переподключить WAN.</span></label>
+            <p>DoH в браузерах, Private DNS/DoT на устройствах и DNS Tailscale этим режимом не перехватываются.</p>
+          </fieldset>
+          </details>
+        </section>
+
+        <footer class="panel dns-protection-actions">
+          <ol class="dns-flow-steps" aria-label="Этапы включения">
+            <li data-dns-step="preview">1. Проверка</li>
+            <li data-dns-step="test">2. Тест</li>
+            <li data-dns-step="activate">3. Включение</li>
+          </ol>
+          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
+          <p id="dnsActionNotice" aria-live="polite" hidden></p>
+          <div>
+            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
+            <button id="dnsSwitchButton" class="button primary" type="button" hidden>Применить смену группы</button>
+            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
+            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
+            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
+          </div>
+        </footer>
+
+        <section class="panel dns-protection-preflight-card">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3>Проверка готовности</h3>
+              <p>Предварительная проверка только читает настройки и показывает план. Клиенты ещё не переключаются.</p>
+            </div>
+
+          </header>
+          <details class="dns-disclosure">
+            <summary>Результаты проверки и план изменений</summary>
+          <div id="dnsCapabilities" class="dns-protection-capability-list empty-state">Проверка ещё не выполнялась.</div>
+          <details id="dnsConfigCheck" class="dns-protection-config-check" hidden>
+            <summary>
+              <span>Проверка конфигурации Mihomo</span>
+              <strong id="dnsConfigCheckSummary">Не выполнялась</strong>
+            </summary>
+            <pre id="dnsConfigCheckOutput"></pre>
+          </details>
+          <div id="dnsPlan" class="dns-protection-plan" hidden></div>
+          </details>
+          <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
+        </section>
+
+        <details class="panel dns-disclosure dns-protection-router-card">
+          <summary>Системный резерв роутера</summary>
+          <dl class="dns-protection-router-grid">
+            <div><dt>Системный резолвер</dt><dd id="dnsSystemResolver">—</dd></div>
+            <div><dt>Локальные имена</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
+            <div><dt>DNS провайдера (DHCP)</dt><dd id="dnsProviderServers">—</dd></div>
+            <div><dt>Игнорировать DNSv4 провайдера</dt><dd id="dnsIgnoreProviderV4">—</dd></div>
+            <div><dt>Игнорировать DNSv6 провайдера</dt><dd id="dnsIgnoreProviderV6">—</dd></div>
+            <div><dt>Транзитные DNS-запросы</dt><dd id="dnsTransitState">—</dd></div>
+            <div><dt>Автоматический возврат к системному DNS</dt><dd id="dnsFallbackState">—</dd></div>
+          </dl>
+        </details>
+
+        <details class="panel dns-disclosure dns-protection-exclusions-card">
+          <summary>Что останется вне защиты</summary>
+          <div id="dnsExclusions" class="dns-protection-exclusion-list empty-state">Данные появятся после проверки.</div>
+        </details>
+
+
+
+        <details class="panel dns-disclosure dns-diagnostics">
+          <summary>Диагностика и журналы</summary>
+        <section class="panel dns-protection-journal" aria-labelledby="dnsObservationTitle">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3 id="dnsObservationTitle">Наблюдение за DNS и домашними именами</h3>
+              <p>Только диагностические запросы. Не меняет защиту, конфигурацию Mihomo, маршруты и фильтры роутера.</p>
+            </div>
+            <button id="dnsObservationRefresh" class="button compact" type="button">Обновить журнал</button>
+          </header>
+          <div class="dns-protection-settings-grid">
+            <div>
+              <label class="dns-observation-toggle"><input id="dnsObservationEnabled" type="checkbox" /><span>Периодическое наблюдение</span></label>
+              <label for="dnsObservationInterval">Интервал замеров</label>
+              <select id="dnsObservationInterval">
+                <option value="300">5 минут</option>
+                <option value="600">10 минут</option>
+                <option value="1800">30 минут</option>
+              </select>
+              <label for="dnsObservationTimeout">Тайм-аут одного запроса</label>
+              <select id="dnsObservationTimeout">
+                <option value="2000">2 секунды</option>
+                <option value="4000" selected>4 секунды</option>
+                <option value="8000">8 секунд</option>
+              </select>
+            </div>
+            <label>
+              <span>Домашние имена — до четырёх, каждое с новой строки</span>
+              <textarea id="dnsObservationNames" rows="4" spellcheck="false" placeholder="nas.lan 192.168.1.10&#10;server.home.arpa" aria-describedby="dnsObservationNamesHelp"></textarea>
+              <span id="dnsObservationNamesHelp">После имени можно указать ожидаемые IP через запятую. Без IP ответы сравниваются с системным DNS. Примеры не запускаются автоматически.</span>
+            </label>
+          </div>
+          <p>Проверяются A/AAAA по UDP и TCP с самого роутера. Введённые имена могут уйти к внешним DNS согласно действующим правилам. PTR, mDNS и доступность NAS/Plex как сервисов не проверяются.</p>
+          <p id="dnsObservationNotice" role="status">Настройки наблюдения ещё не загружены.</p>
+          <div class="dns-protection-journal-tools dns-observation-actions">
+            <button id="dnsObservationSave" class="button" type="button" disabled>Сохранить наблюдение</button>
+            <button id="dnsObservationCheck" class="button primary" type="button" disabled>Снять один замер</button>
+            <button id="dnsObservationDownload" class="button" type="button" disabled>Скачать журнал наблюдения</button>
+          </div>
+          <p id="dnsObservationSummary">Замеров ещё нет.</p>
+          <details>
+            <summary>Ответы локальных DNS в последнем замере</summary>
+            <div id="dnsObservationResults" class="dns-observation-results"></div>
+          </details>
+          <div id="dnsObservationEvents" class="dns-observation-results"></div>
+          <p>После перезагрузки отдельно проверьте имя с обычного LAN-устройства: успешный запрос самого роутера не доказывает правильный путь клиентов. Журнал хранит до 576 замеров, но не более 4 МиБ; старые записи удаляются. Экспорт содержит внутренние имена и адреса.</p>
+        </section>
+
+        <section class="panel dns-protection-journal">
+          <header class="dns-protection-block-head">
+            <div>
+              <h3>Журнал DNS</h3>
+              <p>Проверки и переключения сохраняются вместе с диагностическими данными.</p>
+            </div>
+            <div class="dns-protection-journal-tools">
+              <span id="dnsEventsCount">0 событий</span>
+              <button id="dnsDownloadButton" class="button compact" type="button">Скачать JSON</button>
+            </div>
+          </header>
+          <div id="dnsEvents" class="dns-protection-event-list"></div>
+        </section>
+        </details>
+      </section>
+
       <section class="app-section review-section" data-section-panel="review" hidden>
         <header class="review-page-head">
           <h2>Проверка</h2>
@@ -868,9 +1172,13 @@
                 </button>
               </div>
             </div>
+            <div id="configurationError" class="configuration-error" role="alert" hidden>
+              <p id="configurationErrorMessage"></p>
+              <button id="configurationErrorJump" class="button compact" type="button" hidden>Перейти к ошибке</button>
+            </div>
             <div id="outputViewer" class="output-viewer">
               <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
-              <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" placeholder="Здесь появится обновленная конфигурация"></textarea>
+              <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" aria-describedby="configurationErrorMessage" placeholder="Здесь появится обновленная конфигурация"></textarea>
             </div>
             <footer class="review-yaml-footer">
               <span id="reviewYamlStatus">YAML ещё не проверен в Mihomo</span>
@@ -928,7 +1236,7 @@
               <option value="direct">Обычная — напрямую в Mihomo</option>
               <option value="xray-json">Xray JSON — преобразовать локально</option>
             </select>
-            <small id="providerCreateFormatHint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+            <small id="providerCreateFormatHint">Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.</small>
           </label>
 
           <label class="provider-create-field">
@@ -1083,7 +1391,7 @@
 
             <article class="component-manager-item" data-component-card="mihomo">
               <header>
-                <div><strong>Mihomo</strong></div>
+                <div><strong data-mihomo-core-label>Mihomo</strong></div>
                 <span class="component-manager-state" data-component-state="mihomo">Проверка...</span>
               </header>
               <dl class="component-version-grid">
@@ -1094,6 +1402,15 @@
                 <button class="button compact" type="button" data-component-update="mihomo">Обновить</button>
                 <button class="button compact component-advanced-toggle" type="button" data-component-advanced-toggle aria-expanded="false" aria-controls="mihomoAdvancedPanel">Параметры</button>
                 <div id="mihomoAdvancedPanel" class="component-advanced-body" hidden>
+                  <label for="mihomoCoreSelect" class="component-advanced-hint">Ядро</label>
+                  <div class="component-version-picker-controls">
+                    <select id="mihomoCoreSelect" aria-label="Ядро прокси">
+                      <option value="mihomo">Mihomo</option>
+                      <option value="prizrak">Prizrak-Core</option>
+                    </select>
+                    <button id="switchMihomoCoreButton" class="button compact" type="button">Переключить ядро</button>
+                  </div>
+                  <span id="mihomoCoreHint" class="component-advanced-hint"></span>
                   <span class="component-advanced-hint">Установка другой версии или возврат к предыдущей.</span>
                   <div class="component-version-picker-controls">
                     <select id="mihomoVersionSelect" aria-label="Версия Mihomo"></select>
@@ -1117,10 +1434,23 @@
                 </div>
               </section>
               <section class="component-maintenance-row">
-                <div><strong>Mihomo</strong><span>Ядро · встроенные GEO-базы</span></div>
+                <div><strong data-mihomo-core-label>Mihomo</strong><span>Ядро · встроенные GEO-базы</span></div>
                 <div class="component-maintenance-actions">
                   <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="restart">Перезапустить</button>
                   <button class="button compact" type="button" data-maintenance-component="mihomo" data-maintenance-action="geo-update">Обновить геоданные</button>
+                </div>
+              </section>
+              <section id="xkeenUiMaintenanceRow" class="component-maintenance-row" hidden>
+                <div><strong>Xkeen-UI</strong><span>Веб-интерфейс · панель umarcheh001</span></div>
+                <div class="component-maintenance-actions">
+                  <button class="button compact" type="button" data-maintenance-component="xkeen-ui" data-maintenance-action="restart">Перезапустить</button>
+                </div>
+              </section>
+              <section class="component-maintenance-row">
+                <div><strong>MiHUI</strong><span>Веб-интерфейс · локальный сервис</span></div>
+                <div class="component-maintenance-actions">
+                  <button id="repairMihuiButton" class="button compact" type="button" hidden>Восстановить службу</button>
+                  <button id="restartMihuiButton" class="button compact" type="button">Перезапустить</button>
                 </div>
               </section>
             </div>
@@ -1131,7 +1461,8 @@
           <button id="backToComponentUpdatesButton" class="button compact" type="button" hidden>Назад к обновлениям</button>
           <div id="componentUpdateFooter" class="component-update-footer">
             <span id="componentVersionsChecked"></span>
-            <button id="checkComponentUpdatesButton" class="button primary compact" type="button">Проверить обновления</button>
+            <button id="checkComponentUpdatesButton" class="button compact" type="button">Проверить обновления</button>
+            <button id="updateAllComponentsButton" class="button primary compact" type="button" hidden>Обновить всё</button>
           </div>
         </footer>
       </section>
@@ -1141,8 +1472,8 @@
       <section class="resource-monitor-dialog-surface">
         <header class="resource-monitor-dialog-head">
           <div>
-            <h2 id="resourceMonitorDialogTitle">Мониторинг ресурсов</h2>
-            <p>Выберите источники по приоритету. Вложенные группы проверяются в порядке, указанном в конфиге.</p>
+            <h2 id="resourceMonitorDialogTitle">Управление ресурсами</h2>
+            <p>Для каждого ресурса выберите режим. MihUI учитывает приоритет источников; Prizrak выбирает из общего набора нод.</p>
           </div>
           <button id="resourceMonitorDialogClose" class="button compact" type="button">Закрыть</button>
         </header>
@@ -1151,7 +1482,7 @@
             <h3>Ресурсы и группы</h3>
             <div id="resourceMonitorSources" class="resource-monitor-sources"></div>
           </section>
-          <section class="resource-monitor-policy">
+          <section id="resourceMonitorPolicy" class="resource-monitor-policy">
             <h3>Политика переключения</h3>
             <div class="resource-monitor-proactive-toggle">
               <div>
@@ -1234,6 +1565,23 @@
       </section>
     </dialog>
 
+    <dialog id="smartCoreReturnDialog" class="backup-history-dialog" aria-labelledby="smartCoreReturnTitle">
+      <form method="dialog" class="backup-history-surface">
+        <header class="backup-history-head">
+          <div>
+            <h2 id="smartCoreReturnTitle">Переход на Mihomo</h2>
+            <p>Перед переключением выберите, что делать с ресурсами под управлением Prizrak.</p>
+          </div>
+        </header>
+        <div class="backup-history-body">
+          <p>Изменения будут подготовлены для просмотра и сохранения. После сохранения повторите переключение ядра.</p>
+          <button class="button primary" type="submit" value="mihui">Перевести в MihUI</button>
+          <button class="button danger" type="submit" value="off">Удалить</button>
+          <button class="button" type="submit" value="cancel">Отмена</button>
+        </div>
+      </form>
+    </dialog>
+
     <template id="providerTemplate">
       <article class="provider-row">
         <div class="provider-toolbar">
@@ -1285,7 +1633,7 @@
               <option value="direct">Обычная — напрямую в Mihomo</option>
               <option value="xray-json">Xray JSON — преобразовать локально</option>
             </select>
-            <small class="provider-source-format-hint">Для Xray JSON поддерживаются VLESS / TCP / Reality.</small>
+            <small class="provider-source-format-hint">Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.</small>
           </label>
         </div>
 
@@ -1342,8 +1690,8 @@
                 <span>Перегенерировать UA/HWID</span>
               </button>
             </div>
-            <label class="provider-custom-headers-field" title="Дополнительные header.* в формате Header-Name: value, по одному на строку.">
-              <span>Дополнительные headers</span>
+            <label class="provider-custom-headers-field" title="Дополнительные HTTP-заголовки (header.*) в формате Имя-Заголовка: значение, по одному на строку.">
+              <span>Дополнительные заголовки</span>
               <textarea class="provider-custom-headers" rows="3" spellcheck="false" placeholder="X-Token: value"></textarea>
             </label>
           </div>

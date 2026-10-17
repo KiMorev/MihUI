@@ -6,13 +6,14 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'dns', 'review', 'settings']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
 const PROVIDER_URL_MASKING_STORAGE_KEY = 'webmihomo.hideProviderUrls';
 const YAML_HTTP_URL_PATTERN = /https?:\/\/[^\s"'<>[\]{},]+/gi;
 const CONFIG_CHECK_STORAGE_KEY = 'webmihomo.lastSuccessfulConfigCheck';
+const MIHUI_UPDATE_CHECK_RETRY_DELAYS_MS = [3000, 10000, 30000];
 const SERVICE_HEALTH_REFRESH_MS = 30000;
 const PROVIDER_STATUS_REFRESH_MS = 5 * 60 * 1000;
 const RESOURCE_MONITOR_REFRESH_MS = 30000;
@@ -24,15 +25,29 @@ const PROVIDER_STALE_GRACE_MS = 15 * 60 * 1000;
 const SUBSCRIPTION_EXPIRY_WARNING_MS = 3 * 24 * 60 * 60 * 1000;
 const SUBSCRIPTION_TRAFFIC_WARNING_RATIO = 0.9;
 const RESOURCE_MONITOR_DEFINITIONS = {
-  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube' },
-  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram' },
-  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp' },
-  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram' },
-  ai: { title: 'AI', group: 'AI', icon: 'sparkles' },
+  youtube: { title: 'YouTube', group: 'YOUTUBE', icon: 'youtube', testUrl: 'https://www.youtube.com/generate_204', expectedStatus: '204' },
+  tiktok: { title: 'TikTok', group: 'TIKTOK', icon: 'tiktok', testUrl: 'https://www.tiktok.com/robots.txt', expectedStatus: '200' },
+  telegram: { title: 'Telegram', group: 'TELEGRAM', icon: 'telegram', testUrl: 'https://telegram.org/', expectedStatus: '200' },
+  whatsapp: { title: 'WhatsApp', group: 'WHATSAPP', icon: 'whatsapp', testUrl: 'https://www.whatsapp.com/', expectedStatus: '200' },
+  instagram: { title: 'Instagram', group: 'INSTAGRAM', icon: 'instagram', testUrl: 'https://www.instagram.com/robots.txt', expectedStatus: '200' },
+  twitter: { title: 'X (Twitter)', group: 'TWITTER', icon: 'twitter', testUrl: 'https://x.com/robots.txt', expectedStatus: '200' },
+  ai: { title: 'AI', group: 'AI', icon: 'sparkles', testUrl: 'https://chatgpt.com/cdn-cgi/trace', expectedStatus: '200' },
 };
 let resourceMonitorHistoryTooltipTarget = null;
 let resourceMonitorHistoryTooltipPinned = false;
 const RESOURCE_MONITOR_RULE_PROVIDERS = {
+  tiktok: [
+    {
+      name: 'tiktok@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/tiktok.mrs',
+    },
+  ],
+  twitter: [
+    {
+      name: 'twitter@domain',
+      url: 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/twitter.mrs',
+    },
+  ],
   instagram: [
     {
       name: 'instagram@domain',
@@ -51,6 +66,12 @@ const RESOURCE_MONITOR_RULE_PROVIDERS = {
   ],
 };
 const RESOURCE_MONITOR_RULES = {
+  tiktok: [
+    ['RULE-SET', 'tiktok@domain', 'TIKTOK'],
+  ],
+  twitter: [
+    ['RULE-SET', 'twitter@domain', 'TWITTER'],
+  ],
   youtube: [
     ['GEOSITE', 'youtube', 'YOUTUBE'],
   ],
@@ -320,7 +341,7 @@ const NODE_FLAG_PATTERNS = {
   ZA: { type: 'za' },
 };
 const PROXY_MODE_TYPES = new Set(['fallback', 'url-test', 'load-balance', 'relay']);
-const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay'];
+const GROUP_TYPE_OPTIONS = ['select', 'url-test', 'fallback', 'load-balance', 'relay', 'smart'];
 const RULE_TYPE_OPTIONS = ['DOMAIN-SUFFIX', 'DOMAIN-KEYWORD', 'GEOSITE', 'GEOIP', 'IP-CIDR', 'MATCH'];
 const BUILT_IN_OUTBOUNDS = new Set(['DIRECT', 'PASS', 'PASS-RULE', 'REJECT', 'REJECT-DROP', 'GLOBAL', 'COMPATIBLE']);
 const RULE_OPTIONS = new Set(['no-resolve', 'src']);
@@ -339,7 +360,7 @@ const PROVIDER_DIFF_FIELDS = [
   { key: 'userAgent', label: 'User-Agent' },
   { key: 'hasXHwid', label: 'x-hwid' },
   { key: 'xHwid', label: 'x-hwid' },
-  { key: 'customHeaders', label: 'headers' },
+  { key: 'customHeaders', label: 'заголовки' },
   { key: 'hasUdp', label: 'UDP' },
   { key: 'udp', label: 'UDP' },
   { key: 'hasTfo', label: 'быстрое открытие TCP (TFO)' },
@@ -355,6 +376,8 @@ const PROVIDER_DIFF_FIELDS = [
 ];
 
 const state = {
+  interfaceMode: 'advanced',
+  simpleGroups: { items: [], loading: false, error: '', replacing: '', feedback: Object.create(null), pollTimer: 0 },
   fileName: '',
   configLoadedAt: 0,
   originalText: '',
@@ -422,16 +445,35 @@ const state = {
     error: '',
     config: null,
     runtime: null,
+    domainList: null,
     events: [],
     draft: null,
     dirty: false,
     pendingSettings: null,
+    proposalSnapshot: null,
     pollTimer: 0,
     proxyCheckingId: '',
     manualProxyResults: {},
   },
+  dnsObservation: { data: null, loading: false, busy: false, dirty: false, error: '' },
+  protectedDns: {
+    loaded: false,
+    loading: false,
+    action: '',
+    error: '',
+    notice: '',
+    noticeTone: '',
+    data: null,
+    preview: null,
+    events: [],
+    proxyGroupDraft: '',
+    upstreamsDraft: null,
+    lanInterfaces: [],
+    lanSelectionInitialized: false,
+  },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
+  configurationError: null,
   kernelCheckBusy: false,
   routerMode: false,
   routerApiAvailable: false,
@@ -466,6 +508,8 @@ const state = {
   backups: [],
   selectedBackupName: '',
   updatePollTimer: 0,
+  mihuiUpdateCheckTimer: 0,
+  mihuiUpdateCheckFailed: false,
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
@@ -495,6 +539,10 @@ const state = {
     loaded: false,
     checkedAt: 0,
     updateCount: 0,
+    mihuiServiceRepairRequired: false,
+    mihomoCoreSwitchAvailable: false,
+    pendingAction: null,
+    actionError: '',
     items: {
       xkeen: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
       mihomo: { installed: false, current: '', channel: '', latest: '', versions: [], updateAvailable: false, error: '' },
@@ -504,6 +552,8 @@ const state = {
     pollTimer: 0,
     xkeenChannelCurrent: '',
     xkeenChannelSelection: '',
+    mihomoCoreCurrent: 'mihomo',
+    mihomoCoreSelection: 'mihomo',
     view: 'updates',
   },
   overviewDiagnostics: [],
@@ -514,6 +564,10 @@ const state = {
 let happBrowserDecryptorPromise = null;
 
 const els = {
+  interfaceModeButtons: document.querySelectorAll('[data-interface-mode]'),
+  simpleModePanel: document.querySelector('#simpleModePanel'),
+  simpleGroupsStatus: document.querySelector('#simpleGroupsStatus'),
+  simpleGroupsGrid: document.querySelector('#simpleGroupsGrid'),
   routerLoadButton: document.querySelector('#routerLoadButton'),
   routerSaveButton: document.querySelector('#routerSaveButton'),
   fileTools: document.querySelector('#fileTools'),
@@ -610,13 +664,21 @@ const els = {
   xkeenChannelHint: document.querySelector('#xkeenChannelHint'),
   reinstallXkeenButton: document.querySelector('#reinstallXkeenButton'),
   componentMaintenanceButtons: document.querySelectorAll('[data-maintenance-component][data-maintenance-action]'),
+  xkeenUiMaintenanceRow: document.querySelector('#xkeenUiMaintenanceRow'),
+  repairMihuiButton: document.querySelector('#repairMihuiButton'),
+  restartMihuiButton: document.querySelector('#restartMihuiButton'),
   componentMaintenance: document.querySelector('#componentMaintenance'),
   openComponentMaintenanceButton: document.querySelector('#openComponentMaintenanceButton'),
   backToComponentUpdatesButton: document.querySelector('#backToComponentUpdatesButton'),
   componentUpdateFooter: document.querySelector('#componentUpdateFooter'),
   mihomoVersionSelect: document.querySelector('#mihomoVersionSelect'),
+  mihomoCoreSelect: document.querySelector('#mihomoCoreSelect'),
+  switchMihomoCoreButton: document.querySelector('#switchMihomoCoreButton'),
+  mihomoCoreHint: document.querySelector('#mihomoCoreHint'),
+  mihomoCoreLabels: document.querySelectorAll('[data-mihomo-core-label]'),
   installMihomoVersionButton: document.querySelector('#installMihomoVersionButton'),
   checkComponentUpdatesButton: document.querySelector('#checkComponentUpdatesButton'),
+  updateAllComponentsButton: document.querySelector('#updateAllComponentsButton'),
   componentVersionsChecked: document.querySelector('#componentVersionsChecked'),
   componentJobPanel: document.querySelector('#componentJobPanel'),
   componentJobTitle: document.querySelector('#componentJobTitle'),
@@ -707,7 +769,6 @@ const els = {
   nodeStatusFilter: document.querySelector('#nodeStatusFilter'),
   resourceMonitorPanel: document.querySelector('#resourceMonitorPanel'),
   resourceMonitorSummary: document.querySelector('#resourceMonitorSummary'),
-  resourceMonitorEnabled: document.querySelector('#resourceMonitorEnabled'),
   resourceMonitorSettingsButton: document.querySelector('#resourceMonitorSettingsButton'),
   resourceMonitorHistory: document.querySelector('#resourceMonitorHistory'),
   resourceMonitorHistoryRows: document.querySelector('#resourceMonitorHistoryRows'),
@@ -749,6 +810,13 @@ const els = {
   whitelistMonitorProxyRecoveries: document.querySelector('#whitelistMonitorProxyRecoveries'),
   whitelistMonitorYandexRecoveries: document.querySelector('#whitelistMonitorYandexRecoveries'),
   whitelistMonitorCheckButton: document.querySelector('#whitelistMonitorCheckButton'),
+  whitelistDomainListBadge: document.querySelector('#whitelistDomainListBadge'),
+  whitelistDomainListTitle: document.querySelector('#whitelistDomainListTitle'),
+  whitelistDomainListMessage: document.querySelector('#whitelistDomainListMessage'),
+  whitelistDomainListSource: document.querySelector('#whitelistDomainListSource'),
+  whitelistDomainListCount: document.querySelector('#whitelistDomainListCount'),
+  whitelistDomainListUpdatedAt: document.querySelector('#whitelistDomainListUpdatedAt'),
+  whitelistDomainListNextAt: document.querySelector('#whitelistDomainListNextAt'),
   whitelistMonitorProposal: document.querySelector('#whitelistMonitorProposal'),
   whitelistMonitorProposalBadge: document.querySelector('#whitelistMonitorProposalBadge'),
   whitelistMonitorProposalTitle: document.querySelector('#whitelistMonitorProposalTitle'),
@@ -756,6 +824,7 @@ const els = {
   whitelistMonitorProposalButton: document.querySelector('#whitelistMonitorProposalButton'),
   whitelistMonitorInterval: document.querySelector('#whitelistMonitorInterval'),
   whitelistMonitorConfirmations: document.querySelector('#whitelistMonitorConfirmations'),
+  whitelistMonitorRecoveryConfirmations: document.querySelector('#whitelistMonitorRecoveryConfirmations'),
   whitelistMonitorTimeout: document.querySelector('#whitelistMonitorTimeout'),
   whitelistMonitorProxyGroup: document.querySelector('#whitelistMonitorProxyGroup'),
   whitelistMonitorActionMode: document.querySelector('#whitelistMonitorActionMode'),
@@ -768,6 +837,74 @@ const els = {
   whitelistMonitorNotice: document.querySelector('#whitelistMonitorNotice'),
   whitelistMonitorRestoreButton: document.querySelector('#whitelistMonitorRestoreButton'),
   whitelistMonitorSaveButton: document.querySelector('#whitelistMonitorSaveButton'),
+  dnsRefreshButton: document.querySelector('#dnsRefreshButton'),
+  dnsObservationEnabled: document.querySelector('#dnsObservationEnabled'),
+  dnsObservationInterval: document.querySelector('#dnsObservationInterval'),
+  dnsObservationTimeout: document.querySelector('#dnsObservationTimeout'),
+  dnsObservationNames: document.querySelector('#dnsObservationNames'),
+  dnsObservationNotice: document.querySelector('#dnsObservationNotice'),
+  dnsObservationSummary: document.querySelector('#dnsObservationSummary'),
+  dnsObservationResults: document.querySelector('#dnsObservationResults'),
+  dnsObservationEvents: document.querySelector('#dnsObservationEvents'),
+  dnsObservationSave: document.querySelector('#dnsObservationSave'),
+  dnsObservationCheck: document.querySelector('#dnsObservationCheck'),
+  dnsObservationRefresh: document.querySelector('#dnsObservationRefresh'),
+  dnsObservationDownload: document.querySelector('#dnsObservationDownload'),
+  dnsStateBadge: document.querySelector('#dnsStateBadge'),
+  dnsFallbackBadge: document.querySelector('#dnsFallbackBadge'),
+  dnsStateTitle: document.querySelector('#dnsStateTitle'),
+  dnsStateMessage: document.querySelector('#dnsStateMessage'),
+  dnsProtectedPath: document.querySelector('#dnsProtectedPath'),
+  dnsRouteDestination: document.querySelector('#dnsRouteDestination'),
+  dnsRouteNoteLabel: document.querySelector('#dnsRouteNoteLabel'),
+  dnsFallbackPath: document.querySelector('#dnsFallbackPath'),
+  dnsModeValue: document.querySelector('#dnsModeValue'),
+  dnsProfileValue: document.querySelector('#dnsProfileValue'),
+  dnsListenerValue: document.querySelector('#dnsListenerValue'),
+  dnsIpv4Value: document.querySelector('#dnsIpv4Value'),
+  dnsIpv6Value: document.querySelector('#dnsIpv6Value'),
+  dnsCheckedAt: document.querySelector('#dnsCheckedAt'),
+  dnsProfileResilient: document.querySelector('#dnsProfileResilient'),
+  dnsProfileStrict: document.querySelector('#dnsProfileStrict'),
+  dnsProxyGroup: document.querySelector('#dnsProxyGroup'),
+  dnsSmartGroupSource: document.querySelector('#dnsSmartGroupSource'),
+  dnsSmartGroupCreate: document.querySelector('#dnsSmartGroupCreate'),
+  dnsSmartGroupStatus: document.querySelector('#dnsSmartGroupStatus'),
+  dnsWhitelistDns: document.querySelector('#dnsWhitelistDns'),
+  dnsWhitelistDnsStatus: document.querySelector('#dnsWhitelistDnsStatus'),
+  dnsUpstreams: document.querySelector('#dnsUpstreams'),
+  dnsUpstreamServers: document.querySelector('#dnsUpstreamServers'),
+  dnsUpstreamStatus: document.querySelector('#dnsUpstreamStatus'),
+  dnsLanInterfaces: document.querySelector('#dnsLanInterfaces'),
+  dnsLanSelectionMessage: document.querySelector('#dnsLanSelectionMessage'),
+  dnsStrictOptions: document.querySelector('#dnsStrictOptions'),
+  dnsStrictIgnoreProvider: document.querySelector('#dnsStrictIgnoreProvider'),
+  dnsStrictInterceptTransit: document.querySelector('#dnsStrictInterceptTransit'),
+  dnsStrictWanConfirm: document.querySelector('#dnsStrictWanConfirm'),
+  dnsPreviewButton: document.querySelector('#dnsPreviewButton'),
+  dnsSwitchButton: document.querySelector('#dnsSwitchButton'),
+  dnsFlowHint: document.querySelector('#dnsFlowHint'),
+  dnsCapabilities: document.querySelector('#dnsCapabilities'),
+  dnsConfigCheck: document.querySelector('#dnsConfigCheck'),
+  dnsConfigCheckSummary: document.querySelector('#dnsConfigCheckSummary'),
+  dnsConfigCheckOutput: document.querySelector('#dnsConfigCheckOutput'),
+  dnsPlan: document.querySelector('#dnsPlan'),
+  dnsWarnings: document.querySelector('#dnsWarnings'),
+  dnsSystemResolver: document.querySelector('#dnsSystemResolver'),
+  dnsLocalResolver: document.querySelector('#dnsLocalResolver'),
+  dnsProviderServers: document.querySelector('#dnsProviderServers'),
+  dnsIgnoreProviderV4: document.querySelector('#dnsIgnoreProviderV4'),
+  dnsIgnoreProviderV6: document.querySelector('#dnsIgnoreProviderV6'),
+  dnsTransitState: document.querySelector('#dnsTransitState'),
+  dnsFallbackState: document.querySelector('#dnsFallbackState'),
+  dnsExclusions: document.querySelector('#dnsExclusions'),
+  dnsActionNotice: document.querySelector('#dnsActionNotice'),
+  dnsSystemButton: document.querySelector('#dnsSystemButton'),
+  dnsTestButton: document.querySelector('#dnsTestButton'),
+  dnsActivateButton: document.querySelector('#dnsActivateButton'),
+  dnsEventsCount: document.querySelector('#dnsEventsCount'),
+  dnsDownloadButton: document.querySelector('#dnsDownloadButton'),
+  dnsEvents: document.querySelector('#dnsEvents'),
   hideProviderUrlsSetting: document.querySelector('#hideProviderUrlsSetting'),
   providersList: document.querySelector('#providersList'),
   providerViewTabs: document.querySelectorAll('[data-provider-view]'),
@@ -788,10 +925,14 @@ const els = {
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
   outputPreview: document.querySelector('#outputPreview'),
+  configurationError: document.querySelector('#configurationError'),
+  configurationErrorMessage: document.querySelector('#configurationErrorMessage'),
+  configurationErrorJump: document.querySelector('#configurationErrorJump'),
   providerTemplate: document.querySelector('#providerTemplate'),
 };
 
 els.routerLoadButton.addEventListener('click', reloadRouterConfig);
+els.interfaceModeButtons.forEach((button) => button.addEventListener('click', () => setInterfaceMode(button.dataset.interfaceMode)));
 els.routerSaveButton.addEventListener('click', handleTopbarSaveAction);
 els.backupHistoryButton.addEventListener('click', openBackupHistoryDialog);
 els.backupHistoryList.addEventListener('change', handleBackupSelection);
@@ -840,6 +981,7 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
+els.configurationErrorJump.addEventListener('click', jumpToConfigurationError);
 els.outputPreview.addEventListener('input', handleConfigurationDraftInput);
 els.outputPreview.addEventListener('scroll', syncConfigurationEditorScroll, { passive: true });
 els.outputPreview.addEventListener('click', handleConfigurationUrlClick);
@@ -848,7 +990,7 @@ els.outputCodeView.addEventListener('auxclick', handleYamlUrlPreviewClick);
 els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent: false }));
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
-els.updateHint.addEventListener('click', updateMihui);
+els.updateHint.addEventListener('click', handleMihuiUpdateHintClick);
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.mobileChangesButton.addEventListener('click', focusChangesPanel);
@@ -862,7 +1004,6 @@ els.nodeProviderFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeGroupFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeProtocolFilter.addEventListener('change', handleNodeFilterChange);
 els.nodeStatusFilter.addEventListener('change', handleNodeFilterChange);
-els.resourceMonitorEnabled.addEventListener('change', toggleResourceMonitor);
 els.resourceMonitorSettingsButton.addEventListener('click', () => openResourceMonitorDialog());
 els.resourceMonitorJournalButton.addEventListener('click', () => openResourceMonitorDialog({ journal: true }));
 els.resourceMonitorDialogClose.addEventListener('click', closeResourceMonitorDialog);
@@ -877,7 +1018,7 @@ els.whitelistMonitorProposalButton.addEventListener('click', handleWhitelistMoni
 els.whitelistMonitorSaveButton.addEventListener('click', saveWhitelistMonitorSettings);
 els.whitelistMonitorRestoreButton.addEventListener('click', restoreWhitelistMonitorDefaults);
 els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('click', addWhitelistMonitorEndpoint));
-[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
+[els.whitelistMonitorInterval, els.whitelistMonitorConfirmations, els.whitelistMonitorRecoveryConfirmations, els.whitelistMonitorTimeout, els.whitelistMonitorProxyGroup, els.whitelistMonitorActionMode, els.whitelistMonitorYandexRelayEnabled]
   .forEach((control) => {
     control.addEventListener('input', handleWhitelistMonitorPolicyInput);
     control.addEventListener('change', handleWhitelistMonitorPolicyInput);
@@ -887,6 +1028,29 @@ els.whitelistMonitorAddButtons.forEach((button) => button.addEventListener('clic
   container.addEventListener('change', handleWhitelistMonitorEndpointInput);
   container.addEventListener('click', handleWhitelistMonitorEndpointClick);
 });
+els.dnsRefreshButton?.addEventListener('click', () => loadProtectedDns({ resetPreview: true }));
+els.dnsUpstreamServers?.addEventListener('input', handleProtectedDnsUpstreamsInput);
+[els.dnsProfileResilient, els.dnsProfileStrict].forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
+[els.dnsProxyGroup, els.dnsWhitelistDns, els.dnsStrictIgnoreProvider, els.dnsStrictInterceptTransit, els.dnsStrictWanConfirm]
+  .forEach((control) => control?.addEventListener('change', handleProtectedDnsDraftChange));
+els.dnsLanInterfaces?.addEventListener('change', handleProtectedDnsLanChange);
+els.dnsSmartGroupSource?.addEventListener('change', renderProtectedDnsSmartGroup);
+els.dnsSmartGroupCreate?.addEventListener('click', createProtectedDnsSmartGroup);
+els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
+els.dnsSwitchButton?.addEventListener('click', () => runProtectedDnsAction('switch'));
+els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('system'));
+els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
+els.dnsActivateButton?.addEventListener('click', () => runProtectedDnsAction('activate'));
+els.dnsDownloadButton?.addEventListener('click', downloadProtectedDnsLog);
+[els.dnsObservationEnabled, els.dnsObservationInterval, els.dnsObservationTimeout, els.dnsObservationNames]
+  .forEach((control) => control?.addEventListener('input', () => {
+    state.dnsObservation.dirty = true;
+    renderDnsObservation();
+  }));
+els.dnsObservationRefresh?.addEventListener('click', loadDnsObservation);
+els.dnsObservationSave?.addEventListener('click', () => runDnsObservationAction('settings'));
+els.dnsObservationCheck?.addEventListener('click', () => runDnsObservationAction('check'));
+els.dnsObservationDownload?.addEventListener('click', downloadDnsObservation);
 els.rulesMetric.addEventListener('click', openOverviewCheck);
 els.overviewHealthAction.addEventListener('click', openOverviewHealthTarget);
 els.downloadWarning.addEventListener('click', focusDiagnosticsPanel);
@@ -928,7 +1092,8 @@ els.componentOpenButtons.forEach((button) => button.addEventListener('click', op
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
 els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
-els.checkComponentUpdatesButton.addEventListener('click', handleComponentPrimaryAction);
+els.checkComponentUpdatesButton.addEventListener('click', checkComponentVersions);
+els.updateAllComponentsButton.addEventListener('click', handleComponentPrimaryAction);
 els.componentUpdateButtons.forEach((button) => button.addEventListener('click', () => updateComponent(button.dataset.componentUpdate)));
 els.componentAdvancedButtons.forEach((button) => button.addEventListener('click', () => {
   const panel = document.getElementById(button.getAttribute('aria-controls'));
@@ -939,12 +1104,24 @@ els.componentAdvancedButtons.forEach((button) => button.addEventListener('click'
 els.componentRollbackButtons.forEach((button) => button.addEventListener('click', () => rollbackComponent(button.dataset.componentRollback)));
 els.xkeenChannelOptions.forEach((button) => button.addEventListener('click', () => selectXkeenChannel(button.dataset.xkeenChannel)));
 els.xkeenChannelApplyButton.addEventListener('click', applyXkeenChannel);
+els.mihomoCoreSelect.addEventListener('change', () => {
+  state.components.mihomoCoreSelection = els.mihomoCoreSelect.value;
+  renderComponentManager();
+});
+els.switchMihomoCoreButton.addEventListener('click', switchMihomoCore);
 els.reinstallXkeenButton.addEventListener('click', reinstallXkeen);
 els.openComponentMaintenanceButton.addEventListener('click', openComponentMaintenance);
 els.backToComponentUpdatesButton.addEventListener('click', openComponentUpdates);
 els.componentMaintenanceButtons.forEach((button) => button.addEventListener('click', () => startMaintenanceAction(button.dataset.maintenanceComponent, button.dataset.maintenanceAction)));
+els.repairMihuiButton.addEventListener('click', repairMihui);
+els.restartMihuiButton.addEventListener('click', restartMihui);
+document.querySelector('#smartCoreReturnDialog').addEventListener('close', (event) => {
+  const mode = event.target.returnValue;
+  if (mode === 'mihui' || mode === 'off') prepareSmartCoreReturn(mode);
+});
 els.installMihomoVersionButton.addEventListener('click', installSelectedMihomoVersion);
 renderInterfaceSettings();
+setInterfaceMode('advanced');
 renderServiceHealth();
 renderComponentManager();
 renderXkeenNetworkFiles();
@@ -975,6 +1152,144 @@ function setProviderUrlMasking(enabled) {
   render();
 }
 
+function setInterfaceMode(mode) {
+  if (!['simple', 'advanced'].includes(mode)) return;
+  const returningToAdvanced = mode === 'advanced' && state.interfaceMode === 'simple';
+  state.interfaceMode = mode;
+  const simple = mode === 'simple';
+  document.body.classList.toggle('is-simple-mode', simple);
+  els.simpleModePanel.hidden = !simple;
+  els.interfaceModeButtons.forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.interfaceMode === mode)));
+  if (state.simpleGroups.pollTimer) window.clearInterval(state.simpleGroups.pollTimer);
+  state.simpleGroups.pollTimer = 0;
+  if (simple) {
+    loadSimpleGroups();
+    state.simpleGroups.pollTimer = window.setInterval(loadSimpleGroups, 30000);
+  }
+  updateMobileSectionTabsVisibility();
+  if (returningToAdvanced && state.routerApiAvailable) {
+    loadNodeInventory({ silent: true });
+    loadResourceMonitor({ silent: true });
+  }
+}
+
+async function loadSimpleGroups() {
+  const view = state.simpleGroups;
+  if (state.interfaceMode !== 'simple' || view.loading || view.replacing) return;
+  view.loading = true;
+  renderSimpleGroups();
+  try {
+    const data = await apiJson('/api/groups');
+    view.items = Array.isArray(data.groups)
+      ? data.groups.filter((group) => group?.name && group.name !== 'GLOBAL' && ['smart', 'select', 'selector'].includes(String(group.type).toLowerCase()))
+        .sort((left, right) => Number(/^DNS(?:$|-)/i.test(left.name)) - Number(/^DNS(?:$|-)/i.test(right.name)))
+      : [];
+    view.error = '';
+  } catch {
+    view.items = [];
+    view.error = 'Не удалось получить группы. Проверьте подключение к роутеру.';
+  } finally {
+    view.loading = false;
+    renderSimpleGroups();
+  }
+}
+
+function renderSimpleGroups() {
+  const view = state.simpleGroups;
+  const active = document.activeElement;
+  const focusedGroup = els.simpleGroupsGrid.contains(active) ? active.dataset.groupReplace : '';
+  els.simpleGroupsGrid.replaceChildren(...view.items.map(createSimpleGroupCard));
+  const message = view.error || (view.loading && !view.items.length ? 'Загрузка групп…' : !view.items.length ? 'Существующих групп пока нет.' : '');
+  els.simpleGroupsStatus.textContent = message;
+  els.simpleGroupsStatus.hidden = !message;
+  els.simpleGroupsStatus.classList.toggle('is-error', Boolean(view.error));
+  els.simpleGroupsGrid.setAttribute('aria-busy', String(view.loading));
+  if (focusedGroup && state.interfaceMode === 'simple') {
+    [...els.simpleGroupsGrid.querySelectorAll('[data-group-replace]')].find((button) => button.dataset.groupReplace === focusedGroup)?.focus({ preventScroll: true });
+  }
+}
+
+function getSimpleGroupIcon(name) {
+  const key = stripNodeFlagEmoji(String(name)).trim().toLowerCase();
+  const service = Object.keys(RESOURCE_MONITOR_DEFINITIONS).find((item) => {
+    const definition = RESOURCE_MONITOR_DEFINITIONS[item];
+    return [item, definition.group.toLowerCase(), definition.title.toLowerCase()].includes(key);
+  }) || ({ x: 'twitter', chatgpt: 'ai', openai: 'ai' })[key];
+  return { service: service || 'group', icon: service === 'ai' ? 'openai' : RESOURCE_MONITOR_DEFINITIONS[service]?.icon || 'groups' };
+}
+
+function createSimpleGroupCard(group) {
+  const view = state.simpleGroups;
+  const card = document.createElement('article');
+  const head = document.createElement('div');
+  const icon = document.createElement('span');
+  const title = document.createElement('h2');
+  const button = document.createElement('button');
+  const feedback = document.createElement('p');
+  const groupIcon = getSimpleGroupIcon(group.name);
+  const appendIcon = (container, name) => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    svg.setAttribute('aria-hidden', 'true');
+    use.setAttribute('href', `#icon-${name}`);
+    svg.append(use);
+    container.append(svg);
+  };
+  card.className = 'simple-group-card';
+  head.className = 'simple-group-head';
+  icon.className = `simple-group-icon is-${groupIcon.service}`;
+  appendIcon(icon, groupIcon.icon);
+  title.textContent = group.name;
+  button.className = 'button primary simple-group-replace';
+  button.type = 'button';
+  button.dataset.groupReplace = group.name;
+  button.setAttribute('aria-label', `Сменить сервер в группе ${group.name}`);
+  button.disabled = Boolean(view.replacing || view.error);
+  appendIcon(button, 'refresh');
+  const label = document.createElement('span');
+  label.textContent = view.replacing === group.name ? 'Подбираем…' : 'Сменить сервер';
+  button.append(label);
+  button.addEventListener('click', () => replaceSimpleGroupServer(group.name));
+  feedback.className = 'simple-group-feedback';
+  feedback.setAttribute('role', 'status');
+  const result = view.feedback[group.name];
+  feedback.textContent = result?.message || '';
+  feedback.hidden = !result?.message;
+  feedback.classList.toggle('is-error', Boolean(result?.error));
+  head.append(icon, title);
+  card.append(head, button, feedback);
+  return card;
+}
+
+async function replaceSimpleGroupServer(groupName) {
+  const view = state.simpleGroups;
+  if (!groupName || view.replacing || view.error) return;
+  const restoreFocus = document.activeElement?.dataset.groupReplace === groupName;
+  view.replacing = groupName;
+  delete view.feedback[groupName];
+  renderSimpleGroups();
+  try {
+    const data = await apiJson('/api/groups/replace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'group-replace' },
+      body: JSON.stringify({ group: groupName }),
+    });
+    view.feedback[groupName] = { message: data.message || (data.changed ? 'Сервер сменён.' : 'Готово. Попробуйте открыть сервис снова.') };
+  } catch (error) {
+    view.feedback[groupName] = {
+      message: error?.data?.uncertain || !error?.status ? 'Результат смены неизвестен. Проверьте работу сервиса.' : error?.data?.message || 'Не удалось сменить сервер. Попробуйте снова.',
+      error: true,
+    };
+  } finally {
+    view.replacing = '';
+    renderSimpleGroups();
+    await loadSimpleGroups();
+    if (restoreFocus && state.interfaceMode === 'simple' && document.activeElement === document.body) {
+      [...els.simpleGroupsGrid.querySelectorAll('[data-group-replace]')].find((button) => button.dataset.groupReplace === groupName)?.focus({ preventScroll: true });
+    }
+  }
+}
+
 function getMobileSectionTabsHeight() {
   if (typeof window.getComputedStyle !== 'function') return 44;
   return Number.parseFloat(window.getComputedStyle(document.documentElement).getPropertyValue('--mobile-section-tabs-height')) || 44;
@@ -995,6 +1310,10 @@ function setActiveSection(section, options = {}) {
     renderSectionTabs();
     if (section === 'whitelist' && state.routerApiAvailable) {
       loadWhitelistMonitor({ silent: true });
+    }
+    if (section === 'dns' && state.routerApiAvailable) {
+      loadProtectedDns({ silent: true });
+      loadDnsObservation();
     }
     if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
       loadXkeenCommands({ silent: true });
@@ -1033,6 +1352,11 @@ function setActiveSection(section, options = {}) {
 
 function updateMobileSectionTabsVisibility() {
   if (!els.mobileSectionTabs || !els.appSidebar) return;
+  if (state.interfaceMode === 'simple') {
+    els.mobileSectionTabs.hidden = true;
+    els.mobileSectionTabs.setAttribute('aria-hidden', 'true');
+    return;
+  }
   const isMobile = Boolean(window.matchMedia?.(MOBILE_SECTION_TABS_MEDIA).matches);
   const sidebarBottom = els.appSidebar.getBoundingClientRect?.().bottom ?? Number.POSITIVE_INFINITY;
   const shouldShow = isMobile && sidebarBottom <= 0;
@@ -1159,6 +1483,7 @@ function handleFileSelect(event) {
     state.nodeGroupSelectionsError = '';
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
     resetWorkspaceViewState();
@@ -1184,11 +1509,12 @@ function initRouterMode() {
   loadComponents({ silent: true });
   loadResourceMonitor({ silent: true });
   loadWhitelistMonitor({ silent: true });
+  loadProtectedDns({ silent: true });
   startServiceHealthPolling();
   startProviderStatusPolling();
   startResourceMonitorPolling();
   startWhitelistMonitorPolling();
-  checkMihuiUpdate();
+  initializeMihuiUpdate();
 }
 
 async function loadRouterConfig(options = {}) {
@@ -1211,6 +1537,7 @@ async function loadRouterConfig(options = {}) {
     state.lastConfigCheckOk = false;
     state.resourceMonitor.pendingSettings = null;
     state.whitelistMonitor.pendingSettings = null;
+    state.whitelistMonitor.proposalSnapshot = null;
     resetWorkspaceViewState();
     parseAndRender();
     await loadBackups();
@@ -1218,6 +1545,7 @@ async function loadRouterConfig(options = {}) {
     await loadNodeInventory({ silent: true });
     await loadResourceMonitor({ silent: true });
     await loadWhitelistMonitor({ silent: true });
+    await loadProtectedDns({ silent: true });
     if (!options.silent) showMessage(`Открыт конфиг: ${getDisplayFileName(state.routerConfigPath)}`, { severity: 'success' });
   } catch (error) {
     if (!options.silent) {
@@ -1279,6 +1607,8 @@ async function saveRouterConfig() {
     return;
   }
 
+  if (!await validateWhitelistProposalSnapshot()) return;
+
   if (!isCurrentConfigKernelChecked()) {
     const check = await checkRouterConfig({ silent: true, allowUnavailable: true });
     if (check === false) {
@@ -1307,6 +1637,7 @@ async function saveRouterConfig() {
     state.configLoadedAt = Date.now();
     state.originalText = state.outputText;
     state.routerSavedText = state.outputText;
+    state.whitelistMonitor.proposalSnapshot = null;
     state.lastConfigCheckText = state.outputText;
     state.lastConfigCheckOk = true;
     persistSuccessfulConfigCheck(state.outputText);
@@ -1336,7 +1667,12 @@ async function saveRouterConfig() {
     }
 
     const appliedAt = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    if (monitorSettingsApplied && whitelistSettingsApplied) {
+    if (data.reload?.smartReset?.ok === false) {
+      showMessage('Конфиг сохранён, но автовыбор Smart ещё не включён.', {
+        severity: 'warning',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+      });
+    } else if (monitorSettingsApplied && whitelistSettingsApplied) {
       showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
     }
   } catch (error) {
@@ -1407,9 +1743,16 @@ async function restoreSelectedBackup() {
     });
     await loadRouterConfig({ silent: true });
     els.backupHistoryDialog.close();
-    showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
-      severity: data.reload?.ok ? 'success' : 'warning',
-    });
+    if (data.reload?.smartReset?.ok === false) {
+      showMessage('Версия восстановлена, но автовыбор Smart ещё не включён.', {
+        severity: 'warning',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+      });
+    } else {
+      showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
+        severity: data.reload?.ok ? 'success' : 'warning',
+      });
+    }
   } catch (error) {
     const result = error?.data || {};
     if (result.stage === 'conflict') {
@@ -1502,9 +1845,24 @@ async function loadRouterMetadata() {
   }
 }
 
-async function checkMihuiUpdate() {
+function handleMihuiUpdateHintClick() {
+  if (state.mihuiUpdateCheckFailed) {
+    state.mihuiUpdateCheckFailed = false;
+    setMihuiUpdateHint(true, 'Проверка обновления...');
+    checkMihuiUpdate();
+    return;
+  }
+  updateMihui();
+}
+
+async function checkMihuiUpdate(attempt = 0) {
   try {
     const data = await fetchMihuiUpdateCheck();
+    if (state.mihuiUpdateCheckTimer) {
+      window.clearTimeout(state.mihuiUpdateCheckTimer);
+      state.mihuiUpdateCheckTimer = 0;
+    }
+    state.mihuiUpdateCheckFailed = false;
     state.routerApiAvailable = true;
     const currentVersion = data.version ? `MihUI ${data.version}` : 'MihUI';
     if (data.updateAvailable) {
@@ -1516,8 +1874,50 @@ async function checkMihuiUpdate() {
       setMihuiUpdateHint(true, '');
     }
   } catch (error) {
-    setMihuiUpdateHint(true, els.updateHint.textContent || 'MihUI');
+    const currentVersion = error?.data?.version
+      ? `MihUI ${error.data.version}`
+      : String(els.updateHint.textContent || 'MihUI').split(' · ')[0].split(' -> ')[0];
+    const delay = MIHUI_UPDATE_CHECK_RETRY_DELAYS_MS[attempt];
+    const errorMessage = error?.message || String(error);
+    if (delay !== undefined) {
+      const delaySeconds = Math.ceil(delay / 1000);
+      setMihuiUpdateHint(true, `${currentVersion} · ошибка проверки, повтор через ${delaySeconds} с`);
+      els.updateHint.title = errorMessage;
+      state.mihuiUpdateCheckTimer = window.setTimeout(() => {
+        state.mihuiUpdateCheckTimer = 0;
+        checkMihuiUpdate(attempt + 1);
+      }, delay);
+      return;
+    }
+    state.mihuiUpdateCheckFailed = true;
+    setMihuiUpdateHint(false, `${currentVersion} · проверить снова`);
+    els.updateHint.title = `Проверка обновления не удалась: ${errorMessage}`;
   }
+}
+
+async function initializeMihuiUpdate() {
+  try {
+    const status = await apiJson('/api/update/status');
+    if (status.running) {
+      resumeMihuiUpdatePolling(status);
+      return;
+    }
+  } catch (error) {
+    // The regular version check below remains available if status recovery fails.
+  }
+  checkMihuiUpdate();
+}
+
+function resumeMihuiUpdatePolling(status) {
+  state.mihuiUpdateAccepted = true;
+  state.mihuiUpdateStartedAt = Number(status?.startedAt) > 0
+    ? Number(status.startedAt) * 1000
+    : Date.now();
+  state.mihuiUpdateReconnects = 0;
+  setMihuiUpdateHint(true, 'Обновление...');
+  showMihuiUpdateProgress(status);
+  if (state.updatePollTimer) window.clearTimeout(state.updatePollTimer);
+  state.updatePollTimer = window.setTimeout(pollMihuiUpdateStatus, 1000);
 }
 
 async function fetchMihuiUpdateCheck() {
@@ -1531,8 +1931,11 @@ async function fetchMihuiUpdateCheck() {
       throw new Error(text);
     }
   }
-  if (!response.ok) {
-    throw new Error(data.message || `HTTP ${response.status}`);
+  if (!response.ok || data.ok === false) {
+    const error = new Error(data.message || `HTTP ${response.status}`);
+    error.data = data;
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
@@ -1664,19 +2067,19 @@ async function handleTopbarSaveAction() {
 }
 
 function getReviewPrimaryActionState() {
-  if (state.isEditingConfiguration) return { disabled: true, label: 'Завершите редактирование' };
-  if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
-  if (!state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
+  const text = getCurrentConfigurationText();
+  if (!text) return { disabled: true, label: 'Нет конфигурации' };
+  if (!state.isEditingConfiguration && !state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) {
+  if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
     return { disabled: false, label: 'Проверка пройдена · Проверить повторно', tone: 'success' };
   }
-  if (state.lastConfigCheckText === state.outputText) {
+  if (state.lastConfigCheckText === text) {
     return { disabled: false, label: 'Проверка не пройдена · Проверить повторно', tone: 'danger' };
   }
-  return { disabled: false, label: 'Проверить YAML в Mihomo' };
+  return { disabled: false, label: state.isEditingConfiguration ? 'Проверить черновик в Mihomo' : 'Проверить YAML в Mihomo' };
 }
 
 function renderReviewPrimaryActionButton() {
@@ -2255,6 +2658,10 @@ async function loadXkeenCommands(options = {}) {
     state.xkeenCommands.loaded = true;
     state.xkeenCommands.available = Boolean(data.available);
     state.xkeenCommands.groups = Array.isArray(data.groups) ? data.groups : [];
+    if (data.activeJob) {
+      state.xkeenCommands.job = data.activeJob;
+      startXkeenCommandPolling();
+    }
   } catch (error) {
     state.xkeenCommands.loaded = false;
     state.xkeenCommands.available = false;
@@ -2310,6 +2717,7 @@ async function runXkeenCommand(flag) {
       status: 'error',
       error: error?.message || String(error),
     };
+    await loadXkeenCommands({ silent: true });
     renderXkeenCommands();
   }
 }
@@ -2487,6 +2895,7 @@ function startServiceHealthPolling() {
   if (typeof window.setInterval !== 'function') return;
   window.setInterval(() => {
     if (!document.hidden) loadServiceHealth({ silent: true });
+    if (!document.hidden && state.activeSection === 'dns') loadDnsObservation();
   }, SERVICE_HEALTH_REFRESH_MS);
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', () => {
@@ -2509,6 +2918,7 @@ function normalizeComponentItem(item) {
     installed: Boolean(item?.installed),
     current: String(item?.current || ''),
     channel: String(item?.channel || ''),
+    core: item?.core === 'prizrak' ? 'prizrak' : 'mihomo',
     latest: String(item?.latest || ''),
     buildTimestamp: String(item?.buildTimestamp || ''),
     latestBuildTimestamp: String(item?.latestBuildTimestamp || ''),
@@ -2555,13 +2965,20 @@ async function loadComponents(options = {}) {
     state.components.items = {
       xkeen: normalizeComponentItem(data.components?.xkeen),
       mihomo: normalizeComponentItem(data.components?.mihomo),
+      'xkeen-ui': normalizeComponentItem(data.components?.['xkeen-ui']),
     };
     const xkeenChannel = normalizeXkeenChannel(state.components.items.xkeen.channel);
     if (!state.components.xkeenChannelSelection || state.components.xkeenChannelCurrent !== xkeenChannel) {
       state.components.xkeenChannelSelection = xkeenChannel;
     }
     state.components.xkeenChannelCurrent = xkeenChannel;
+    const core = state.components.items.mihomo.core;
+    if (state.components.mihomoCoreCurrent !== core) state.components.mihomoCoreSelection = core;
+    state.components.mihomoCoreCurrent = core;
     state.components.updateCount = Number(data.updateCount) || 0;
+    state.components.mihomoCoreSwitchAvailable = data.capabilities?.mihomoCoreSwitch === true;
+    state.components.mihuiServiceRepairRequired = data.mihuiService?.repairRequired === true
+      || (data.mihuiService?.managed === true && !state.components.mihomoCoreSwitchAvailable);
     state.components.job = normalizeComponentJob(data.job);
     if (state.components.job.running) state.components.jobVisible = true;
     if (state.components.job.running) pollComponentJob();
@@ -2597,7 +3014,8 @@ function handleComponentManagerClosed() {
 }
 
 function dismissComponentJob() {
-  if (state.components.job.running) return;
+  if (state.components.job.running || state.components.pendingAction) return;
+  state.components.actionError = '';
   state.components.jobVisible = false;
   els.componentJobDetails.open = false;
   renderComponentJob();
@@ -2642,10 +3060,11 @@ function formatXkeenBuild(version, timestamp) {
 }
 
 function componentVersionKey(value) {
-  const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})/i);
+  const match = String(value || '').match(/v?(\d+(?:\.\d+){1,3})(?:-r(\d+))?/i);
   if (!match) return [];
   const parts = match[1].split('.').map(Number);
   while (parts.length < 4) parts.push(0);
+  parts.push(Number(match[2] || 0));
   return parts;
 }
 
@@ -2664,7 +3083,7 @@ function getComponentServiceState(name) {
 }
 
 function renderComponentManager() {
-  const busy = state.components.loading || state.components.job.running;
+  const busy = state.components.loading || state.components.job.running || Boolean(state.components.pendingAction);
   const updateCount = Number(state.components.updateCount) || 0;
   const errors = Object.values(state.components.items).filter((item) => item.error).length;
   const xkeen = state.components.items.xkeen || normalizeComponentItem(null);
@@ -2789,8 +3208,29 @@ function renderComponentManager() {
     const item = state.components.items[button.dataset.maintenanceComponent] || normalizeComponentItem(null);
     button.disabled = busy || !item.installed;
   });
+  els.xkeenUiMaintenanceRow.hidden = !state.components.items['xkeen-ui']?.installed;
+  els.repairMihuiButton.hidden = !state.components.mihuiServiceRepairRequired;
+  els.repairMihuiButton.disabled = busy;
+  els.restartMihuiButton.disabled = busy;
 
   const mihomo = state.components.items.mihomo;
+  const core = mihomo.core || 'mihomo';
+  const selectedCore = state.components.mihomoCoreSelection;
+  const coreLabel = getMihomoCoreLabel(core);
+  els.mihomoCoreLabels.forEach((element) => { element.textContent = coreLabel; });
+  els.mihomoCoreSelect.value = selectedCore;
+  els.mihomoCoreSelect.disabled = busy || !mihomo.installed || !state.components.mihomoCoreSwitchAvailable;
+  els.switchMihomoCoreButton.disabled = busy || !mihomo.installed || !state.components.mihomoCoreSwitchAvailable || selectedCore === core;
+  els.switchMihomoCoreButton.textContent = selectedCore !== core
+    ? `Переключить на ${getMihomoCoreLabel(selectedCore)}` : 'Ядро выбрано';
+  els.mihomoCoreHint.textContent = state.components.loaded && !state.components.mihomoCoreSwitchAvailable
+    ? state.components.mihuiServiceRepairRequired
+      ? 'Запущенная версия MihUI не поддерживает смену ядра. Если MihUI уже обновлён, откройте «Обслуживание» → «Восстановить службу».'
+      : 'Запущенная версия MihUI не поддерживает смену ядра. Обновите MihUI, затем перезапустите его в «Обслуживании».'
+    : selectedCore !== core
+    ? `Будет установлено ${getMihomoCoreLabel(selectedCore)}. Конфигурация сохранится.`
+    : `Обновления из официальных релизов ${coreLabel}.`;
+  els.mihomoVersionSelect.setAttribute('aria-label', `Версия ${coreLabel}`);
   const selectedVersion = els.mihomoVersionSelect.value;
   els.mihomoVersionSelect.textContent = '';
   mihomo.versions.forEach((version) => {
@@ -2803,9 +3243,10 @@ function renderComponentManager() {
   els.mihomoVersionSelect.disabled = busy || mihomo.versions.length === 0;
   els.installMihomoVersionButton.disabled = busy || !els.mihomoVersionSelect.value;
   els.checkComponentUpdatesButton.disabled = busy;
-  els.checkComponentUpdatesButton.textContent = updateCount > 0
-    ? `Обновить всё (${updateCount})`
-    : state.components.loading
+  els.updateAllComponentsButton.hidden = updateCount === 0;
+  els.updateAllComponentsButton.disabled = busy;
+  els.updateAllComponentsButton.textContent = `Обновить всё (${updateCount})`;
+  els.checkComponentUpdatesButton.textContent = state.components.loading
       ? 'Проверяем обновления...'
       : 'Проверить обновления';
   els.componentVersionsChecked.textContent = state.components.checkedAt
@@ -2816,7 +3257,11 @@ function renderComponentManager() {
 }
 
 function renderComponentJob() {
-  const job = state.components.job;
+  const job = state.components.pendingAction
+    ? { ...state.components.pendingAction, running: true, ok: null, message: 'Подготовка операции', output: '' }
+    : state.components.actionError && !state.components.job.running
+      ? { ...state.components.job, ok: false, message: state.components.actionError, output: '' }
+      : state.components.job;
   const visible = job.running || (state.components.jobVisible && job.ok !== null);
   els.componentJobPanel.hidden = !visible;
   if (!visible) return;
@@ -2836,7 +3281,8 @@ function renderComponentJob() {
 
 function getComponentActionLabel(job) {
   if (job.component === 'all') return 'Обновление компонентов';
-  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  const component = job.component === 'xkeen-ui' ? 'Xkeen-UI' : job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  if (job.action === 'core') return 'Переключение ядра';
   if (job.action === 'restart') return `Перезапуск ${component}`;
   if (job.action === 'geo-update') return `Обновление GEO · ${component}`;
   if (job.action === 'channel') return `Переключение канала XKeen`;
@@ -2846,7 +3292,8 @@ function getComponentActionLabel(job) {
 
 function getComponentActionSuccessLabel(job) {
   if (job.component === 'all') return 'Компоненты обновлены';
-  const component = job.component === 'xkeen' ? 'XKeen' : 'Mihomo';
+  const component = job.component === 'xkeen-ui' ? 'Xkeen-UI' : job.component === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(state.components.items.mihomo.core);
+  if (job.action === 'core') return 'Ядро переключено';
   if (job.action === 'restart') return `${component} перезапущен`;
   if (job.action === 'geo-update') return `Геоданные ${component} обновлены`;
   if (job.action === 'channel') return 'Канал XKeen переключён';
@@ -2859,7 +3306,7 @@ function getComponentUpdateSummary() {
     .filter(([, item]) => item.updateAvailable)
     .map(([name, item]) => name === 'xkeen' && normalizeXkeenChannel(item.channel) === 'beta'
       ? `XKeen Beta → ${formatXkeenBuild(item.latest, item.latestBuildTimestamp)}`
-      : `${name === 'xkeen' ? 'XKeen' : 'Mihomo'} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
+      : `${name === 'xkeen' ? 'XKeen' : getMihomoCoreLabel(item.core)} ${formatComponentVersion(item.current)} → ${formatComponentVersion(item.latest)}`)
     .join(' · ');
 }
 
@@ -2912,16 +3359,136 @@ async function applyXkeenChannel() {
   els.xkeenChannelApplyButton.textContent = `Переключение на ${label}...`;
 }
 
+function getMihomoCoreLabel(core) {
+  return core === 'prizrak' ? 'Prizrak-Core' : 'Mihomo';
+}
+
+async function switchMihomoCore() {
+  if (!state.components.mihomoCoreSwitchAvailable) return;
+  const target = state.components.mihomoCoreSelection;
+  if (target === state.components.items.mihomo.core) return;
+  if (target === 'mihomo' && (hasUnsavedRouterChanges() || state.resourceMonitor.pendingSettings || state.resourceMonitor.saving)) {
+    showMessage('Сначала сохраните изменения режимов ресурсов и конфигурации, затем переключите ядро.', { severity: 'warning' });
+    return;
+  }
+  if (target === 'mihomo' && state.groups.some((group) => !group.deleted && group.type === 'smart')) {
+    const dialog = document.querySelector('#smartCoreReturnDialog');
+    dialog.returnValue = '';
+    dialog.showModal();
+    return;
+  }
+  if (!window.confirm(`Установить ${getMihomoCoreLabel(target)} вместо текущего ядра? Конфигурация сохранится, соединения могут кратковременно прерваться.`)) return;
+  await startComponentAction({ component: 'mihomo', action: 'core', target });
+}
+
+function prepareSmartCoreReturn(mode) {
+  const smartGroups = state.groups.filter((group) => !group.deleted && group.type === 'smart');
+  const resourceNames = new Set(Object.values(RESOURCE_MONITOR_DEFINITIONS).map((item) => item.group));
+  if (smartGroups.some((group) => !group.managedMonitoring && !resourceNames.has(group.name))) {
+    showMessage('В конфиге есть Smart-группы вне списка ресурсов. Измените или удалите их перед переходом на Mihomo.', { severity: 'error' });
+    return;
+  }
+  const settings = structuredClone(getResourceMonitorConfigSettings());
+  const sources = {};
+  Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    sources[key] = getResourceMonitorGroupSourceNames(group);
+    if (group?.type === 'smart') settings.services[key] = { ...settings.services[key], mode, enabled: mode !== 'off' };
+  });
+  const issue = getResourceMonitorDialogIssue(sources, settings.services);
+  if (issue) {
+    showMessage(issue, { severity: 'error' });
+    return;
+  }
+  settings.enabled = Object.values(settings.services).some((item) => getResourceMonitorMode(item) !== 'off');
+  prepareResourceMonitorConfig(sources, settings.services);
+  state.resourceMonitor.pendingSettings = { ...settings, sources };
+  closeComponentManager();
+  setActiveSection('review');
+  showMessage('Сохраните подготовленный конфиг, затем повторите переключение на Mihomo.', { severity: 'warning' });
+}
+
 async function startMaintenanceAction(component, action) {
-  if (!['xkeen', 'mihomo'].includes(component) || !['restart', 'geo-update'].includes(action)) return;
+  if (!['xkeen', 'mihomo', 'xkeen-ui'].includes(component) || !['restart', 'geo-update'].includes(action)) return;
+  if (component === 'xkeen-ui' && (action !== 'restart' || !state.components.items['xkeen-ui']?.installed)) return;
   if (action === 'restart') {
     const label = component === 'xkeen' ? 'XKeen и активное прокси-ядро' : 'ядро Mihomo';
-    if (!window.confirm(`Перезапустить ${label}? Соединения могут кратковременно прерваться.`)) return;
+    const warning = component === 'xkeen-ui'
+      ? 'Перезапустить Xkeen-UI? Его веб-интерфейс будет недоступен несколько секунд.'
+      : `Перезапустить ${label}? Соединения могут кратковременно прерваться.`;
+    if (!window.confirm(warning)) return;
   } else {
     const label = component === 'xkeen' ? 'XKeen' : 'Mihomo';
     if (!window.confirm(`Обновить геоданные ${label}?`)) return;
   }
   await startComponentAction({ component, action });
+}
+
+async function restartMihui() {
+  if (!window.confirm('Перезапустить MiHUI? Интерфейс будет недоступен несколько секунд.')) return;
+
+  els.restartMihuiButton.disabled = true;
+  els.restartMihuiButton.textContent = 'Перезапуск...';
+  try {
+    const status = await apiJson('/api/services/status');
+    const previousInstanceId = String(status.instanceId || '').trim();
+    await apiJson('/api/mihui/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-restart' },
+      body: '{}',
+    });
+    closeComponentManager();
+    showMessage('MiHUI перезапускается. Страница обновится после запуска сервиса.', { severity: 'warning' });
+    await waitForMihuiRestart(previousInstanceId);
+  } catch (error) {
+    els.restartMihuiButton.disabled = false;
+    els.restartMihuiButton.textContent = 'Перезапустить';
+    showMessage(`Не удалось перезапустить MiHUI: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+async function repairMihui() {
+  if (!window.confirm('Восстановить службу MiHUI? Скрипт запуска будет заменен исправленной версией, а текущий сохранен в резервную копию. Настройки не изменятся.')) return;
+
+  els.repairMihuiButton.disabled = true;
+  els.repairMihuiButton.textContent = 'Восстановление...';
+  try {
+    const status = await apiJson('/api/services/status');
+    const previousInstanceId = String(status.instanceId || '').trim();
+    await apiJson('/api/mihui/repair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'mihui-repair' },
+      body: '{}',
+    });
+    closeComponentManager();
+    showMessage('Служба MiHUI восстановлена. Страница обновится после перезапуска.', { severity: 'warning' });
+    await waitForMihuiRestart(previousInstanceId);
+  } catch (error) {
+    els.repairMihuiButton.disabled = false;
+    els.repairMihuiButton.textContent = 'Восстановить службу';
+    showMessage(`Не удалось восстановить службу MiHUI: ${error?.message || error}`, { severity: 'error' });
+  }
+}
+
+async function waitForMihuiRestart(previousInstanceId) {
+  await new Promise((resolve) => window.setTimeout(resolve, 2500));
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch('/api/services/status', { cache: 'no-store' });
+      if (response.ok) {
+        const status = await response.json();
+        const instanceId = String(status.instanceId || '').trim();
+        if (instanceId && instanceId !== previousInstanceId) {
+          window.location.reload();
+          return;
+        }
+      }
+    } catch (error) {
+      // Краткая потеря связи ожидаема во время перезапуска сервиса.
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+  }
+  throw new Error('не удалось подтвердить запуск нового сервера в течение минуты');
 }
 
 async function rollbackComponent(component) {
@@ -2934,15 +3501,22 @@ async function installSelectedMihomoVersion() {
   const target = els.mihomoVersionSelect.value;
   if (!target) return;
   const current = state.components.items.mihomo.current;
+  const label = getMihomoCoreLabel(state.components.items.mihomo.core);
   if (compareComponentVersions(target, current) < 0) {
-    if (!window.confirm(`Понизить Mihomo ${formatComponentVersion(current)} → ${formatComponentVersion(target)}?`)) return;
+    if (!window.confirm(`Понизить ${label} ${formatComponentVersion(current)} → ${formatComponentVersion(target)}?`)) return;
   } else if (compareComponentVersions(target, current) === 0) {
-    if (!window.confirm(`Переустановить Mihomo ${formatComponentVersion(current)}?`)) return;
+    if (!window.confirm(`Переустановить ${label} ${formatComponentVersion(current)}?`)) return;
   }
   await startComponentAction({ component: 'mihomo', action: 'update', target });
 }
 
 async function startComponentAction(payload) {
+  if (state.components.pendingAction || state.components.job.running) return false;
+  state.components.pendingAction = payload;
+  state.components.actionError = '';
+  state.components.jobVisible = true;
+  els.componentJobDetails.open = false;
+  renderComponentManager();
   try {
     const data = await apiJson('/api/components/action', {
       method: 'POST',
@@ -2957,8 +3531,16 @@ async function startComponentAction(payload) {
     pollComponentJob();
     return true;
   } catch (error) {
-    showMessage(`Не удалось запустить операцию: ${error?.message || error}`, { severity: 'warning' });
+    state.components.actionError = `Не удалось запустить операцию: ${error?.message || error}`;
+    if (error?.status === 409) {
+      await pollComponentJob();
+      if (state.components.job.running) state.components.actionError = '';
+    }
+    if (state.components.actionError) showMessage(state.components.actionError, { severity: 'warning' });
     return false;
+  } finally {
+    state.components.pendingAction = null;
+    renderComponentManager();
   }
 }
 
@@ -2986,10 +3568,14 @@ async function pollComponentJob() {
       );
       state.xkeenFiles.restartRequested = false;
     }
-    await Promise.all([
+    const refreshTasks = [
       loadServiceHealth({ silent: true }),
       loadComponents({ force: true, silent: true }),
-    ]);
+    ];
+    if (state.components.job.component === 'mihomo' && state.components.job.action === 'core') {
+      refreshTasks.push(loadProviderStatuses({ silent: true }), loadNodeInventory({ silent: true }), loadResourceMonitor({ silent: true }));
+    }
+    await Promise.all(refreshTasks);
     renderXkeenNetworkFiles();
   } catch (error) {
     state.components.pollTimer = window.setTimeout(pollComponentJob, 2000);
@@ -2997,26 +3583,32 @@ async function pollComponentJob() {
 }
 
 async function checkRouterConfig(options = {}) {
-  if (!state.outputText || !state.routerApiAvailable) return null;
+  const checkedText = getCurrentConfigurationText();
+  if (!checkedText || !state.routerApiAvailable) return null;
+  if (state.kernelCheckBusy) return false;
   setConfigCheckBusy(true);
 
   try {
     const data = await apiJson('/api/config/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: state.outputText }),
+      body: JSON.stringify({ text: checkedText }),
     });
-    state.lastConfigCheckText = state.outputText;
+    if (getCurrentConfigurationText() !== checkedText) return false;
+    state.configurationError = null;
+    state.lastConfigCheckText = checkedText;
     state.lastConfigCheckOk = Boolean(data.available);
-    if (state.lastConfigCheckOk) persistSuccessfulConfigCheck(state.outputText);
+    if (state.lastConfigCheckOk) persistSuccessfulConfigCheck(checkedText);
     if (!options.silent) {
       showMessage(data.available ? 'Проверка Mihomo пройдена.' : `Проверка недоступна: ${data.message || 'mihomo не найден'}`);
     }
     return true;
   } catch (error) {
-    state.lastConfigCheckText = state.outputText;
+    if (getCurrentConfigurationText() !== checkedText) return false;
+    state.configurationError = getConfigurationCheckError(error, checkedText);
+    state.lastConfigCheckText = checkedText;
     state.lastConfigCheckOk = false;
-    clearPersistedConfigCheck(state.outputText);
+    clearPersistedConfigCheck(checkedText);
     showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`, { severity: 'error' });
     return false;
   } finally {
@@ -3109,6 +3701,7 @@ async function loadResourceMonitor(options = {}) {
     state.resourceMonitor.config = data.config || null;
     state.resourceMonitor.runtime = data.runtime || null;
     state.resourceMonitor.readiness = data.readiness || null;
+    state.resourceMonitor.smartSupport = data.smartSupport || null;
     state.resourceMonitor.events = Array.isArray(data.events) ? data.events : [];
     state.resourceMonitor.checking = Boolean(data.job?.running);
   } catch (error) {
@@ -3449,27 +4042,32 @@ function renderResourceMonitor() {
   els.resourceMonitorPanel.hidden = !visible;
   if (!visible) return;
 
-  const config = state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  const lines = splitLines(state.routerSavedText || state.originalText);
+  const section = findTopSection(lines, 'proxy-groups');
+  const config = getResourceMonitorConfigSettings(undefined, section ? parseGroups(lines, section) : []);
+  els.resourceMonitorSettingsButton.disabled = Boolean(state.resourceMonitor.saving);
   const runtime = state.resourceMonitor.runtime?.services || {};
-  const enabledEntries = getEnabledResourceMonitorEntries(config.services);
+  const enabledEntries = config.enabled ? getEnabledResourceMonitorEntries(config.services) : [];
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
-  const serviceStates = enabledEntries.map(([key]) => runtime[key] || {});
+  const mihuiEntries = enabledEntries.filter(([key]) => getResourceMonitorMode(config.services[key]) === 'mihui');
+  const smartCount = enabledEntries.length - mihuiEntries.length;
+  const serviceStates = mihuiEntries.map(([key]) => runtime[key] || {});
   const availableCount = serviceStates.filter((item) => item.state === 'available').length;
   const recentSwitches = serviceStates.filter((item) => {
     const switchedAt = Number(item.lastSwitch?.at || 0);
     return switchedAt > 0 && Date.now() / 1000 - switchedAt < 24 * 60 * 60;
   }).length;
-  const summaryParts = [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`];
+  const summaryParts = mihuiEntries.length ? [`${availableCount} ${availableCount === 1 ? 'доступен' : 'доступны'}`] : [];
+  if (smartCount) summaryParts.push(`${smartCount} под управлением Prizrak`);
   if (recentSwitches > 0) summaryParts.push(`${recentSwitches} ${recentSwitches === 1 ? 'нода недавно переключена' : 'ноды недавно переключены'}`);
   els.resourceMonitorSummary.textContent = state.resourceMonitor.loading && !state.resourceMonitor.loaded
     ? 'Получаем состояние проверок…'
-    : summaryParts.join(' · ');
-  els.resourceMonitorEnabled.checked = Boolean(config.enabled);
-  els.resourceMonitorEnabled.disabled = state.resourceMonitor.loading || state.resourceMonitor.checking;
-  renderResourceMonitorHistory(enabledEntries, runtime);
+    : summaryParts.join(' · ') || 'Все ресурсы выключены';
+  renderResourceMonitorHistory(mihuiEntries, runtime);
 
   els.resourceMonitorRows.textContent = '';
   enabledEntries.forEach(([key, definition]) => {
+    const smart = getResourceMonitorMode(config.services[key]) === 'prizrak';
     const item = runtime[key] || {};
     const row = document.createElement('tr');
     const resourceCell = document.createElement('td');
@@ -3490,18 +4088,20 @@ function renderResourceMonitor() {
 
     const statusCell = document.createElement('td');
     const status = document.createElement('span');
-    const normalizedState = item.state || 'idle';
+    const normalizedState = smart ? state.resourceMonitor.readiness?.services?.[key]?.ready ? 'idle' : 'needs_sync' : item.state || 'idle';
     status.className = `resource-monitor-status is-${normalizedState}`;
-    status.textContent = getResourceMonitorStateLabel(normalizedState);
+    status.textContent = smart
+      ? normalizedState === 'idle' ? 'Управляет Prizrak' : 'Smart в конфиге; ядро не подтвердило готовность'
+      : getResourceMonitorStateLabel(normalizedState);
     statusCell.append(status);
 
     const nodeCell = document.createElement('td');
     const node = document.createElement('div');
     const nodeName = document.createElement('strong');
     node.className = 'resource-monitor-node';
-    nodeName.textContent = item.currentNode || '—';
+    nodeName.textContent = smart ? 'Выбор по направлению' : item.currentNode || '—';
     node.append(nodeName);
-    const hasRecentSwitch = isRecentResourceMonitorSwitch(item);
+    const hasRecentSwitch = !smart && isRecentResourceMonitorSwitch(item);
     if (hasRecentSwitch) {
       const note = document.createElement('span');
       const fullNote = `Нода переключена в ${formatResourceMonitorTime(item.lastSwitch.at)}${item.lastSwitch.reason ? ` · ${item.lastSwitch.reason}` : ''}`;
@@ -3513,19 +4113,31 @@ function renderResourceMonitor() {
     nodeCell.append(node);
 
     const checkedCell = document.createElement('td');
-    checkedCell.textContent = item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
+    checkedCell.textContent = !smart && item.checkedAt ? formatResourceMonitorTime(item.checkedAt) : '—';
     const delayCell = document.createElement('td');
     delayCell.className = 'resource-monitor-delay';
-    delayCell.textContent = Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
+    delayCell.textContent = !smart && item.delay != null && Number.isFinite(Number(item.delay)) ? `${Number(item.delay)} мс` : '—';
     const actionCell = document.createElement('td');
     const checkButton = document.createElement('button');
     checkButton.className = 'button ghost compact';
     if (hasRecentSwitch) checkButton.classList.add('is-visible');
     checkButton.type = 'button';
     checkButton.textContent = 'Проверить';
-    checkButton.disabled = state.resourceMonitor.checking;
+    checkButton.disabled = state.resourceMonitor.checking || Boolean(state.resourceMonitor.pendingSettings);
+    checkButton.hidden = smart;
     checkButton.addEventListener('click', () => checkResourceMonitor(key));
     actionCell.append(checkButton);
+    const switchButton = document.createElement('button');
+    switchButton.className = 'button ghost compact is-visible';
+    switchButton.type = 'button';
+    switchButton.textContent = 'Сменить ноду';
+    switchButton.title = `Исключить текущую ноду на ${Math.ceil(config.quarantineSeconds / 60)} мин и выбрать следующую по рейтингу`;
+    switchButton.setAttribute('aria-label', `Сменить ноду для ${definition.title}`);
+    switchButton.disabled = state.resourceMonitor.checking || Boolean(state.resourceMonitor.pendingSettings) || !item.currentNode;
+    switchButton.hidden = smart;
+    switchButton.addEventListener('click', () => checkResourceMonitor(key, true));
+    actionCell.className = 'resource-monitor-actions';
+    actionCell.append(switchButton);
     row.append(resourceCell, statusCell, nodeCell, checkedCell, delayCell, actionCell);
     els.resourceMonitorRows.append(row);
   });
@@ -3538,8 +4150,10 @@ function renderResourceMonitor() {
 
   const readiness = state.resourceMonitor.readiness;
   const needsConfig = readiness && !readiness.ready;
-  els.resourceMonitorNotice.hidden = !needsConfig;
-  els.resourceMonitorNotice.textContent = needsConfig
+  els.resourceMonitorNotice.hidden = !needsConfig && !state.resourceMonitor.pendingSettings;
+  els.resourceMonitorNotice.textContent = state.resourceMonitor.pendingSettings
+    ? 'Есть подготовленные изменения. До сохранения конфига действуют прежние режимы ресурсов.'
+    : needsConfig
     ? 'Группы мониторинга ещё не подготовлены. Откройте настройки, чтобы добавить их в конфиг через обычную проверку и сохранение.'
     : '';
 }
@@ -3616,51 +4230,58 @@ function defaultResourceMonitorClientSettings() {
   };
 }
 
+function getResourceMonitorMode(service) {
+  if (service?.enabled === false || service?.mode === 'off') return 'off';
+  return service?.mode === 'prizrak' ? 'prizrak' : 'mihui';
+}
+
+function getResourceMonitorConfigSettings(settings = state.resourceMonitor.config || defaultResourceMonitorClientSettings(), groups = state.groups) {
+  const services = Object.fromEntries(Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, definition]) => {
+    const saved = settings.services?.[key] || { group: definition.group, sources: [] };
+    const group = groups.find((item) => !item.deleted && item.name === definition.group);
+    const savedMode = settings.enabled ? getResourceMonitorMode(saved) : 'off';
+    const mode = String(group?.type || '').toLowerCase() === 'smart'
+      ? 'prizrak' : savedMode === 'prizrak' ? 'off' : savedMode;
+    return [key, { ...saved, group: definition.group, mode, enabled: mode !== 'off',
+      sources: mode === 'prizrak' && group && !group.managedMonitoring ? [] : saved.sources || [] }];
+  }));
+  return { ...settings, enabled: Object.values(services).some((item) => item.enabled), services };
+}
+
+function getResourceMonitorConfiguredSourceText(group) {
+  const names = [...new Set([...(group.use || []), ...(group.proxies || [])])];
+  if (group.includeAll) names.push('Все ноды и подписки');
+  else {
+    if (group.includeAllProxies) names.push('Все ноды');
+    if (group.includeAllProviders) names.push('Все подписки');
+  }
+  return names.join(', ') || 'Источники не заданы';
+}
+
+function resourceMonitorUsesConfiguredSources(group) {
+  return Boolean(group && (!group.managedMonitoring || group.monitorDirectSources));
+}
+
+function resourceMonitorCanChangeGroup(group) {
+  return Boolean(group && (group.managedMonitoring || String(group.type).toLowerCase() === 'smart'));
+}
+
+function resourceMonitorCanRemoveRule(rule, service, group) {
+  return isManagedResourceMonitorRule(rule, service)
+    || (resourceMonitorCanChangeGroup(group) && resourceMonitorUsesConfiguredSources(group)
+      && (RESOURCE_MONITOR_RULES[service] || []).some((parts) => resourceMonitorRuleMatches(rule, parts)));
+}
+
+function resourceMonitorRedundantCheckKeys(group, mode) {
+  return mode === 'prizrak' ? [] : group?.resourceCheckKeys || [];
+}
+
 function getEnabledResourceMonitorEntries(services = null) {
   const currentServices = services
     || state.resourceMonitor.config?.services
     || defaultResourceMonitorClientSettings().services;
   return Object.entries(RESOURCE_MONITOR_DEFINITIONS)
-    .filter(([key]) => currentServices[key]?.enabled !== false);
-}
-
-async function toggleResourceMonitor() {
-  const enabled = els.resourceMonitorEnabled.checked;
-  if (enabled && (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges())) {
-    els.resourceMonitorEnabled.checked = false;
-    openResourceMonitorDialog();
-    return;
-  }
-  const settings = {
-    ...(state.resourceMonitor.config || defaultResourceMonitorClientSettings()),
-    enabled,
-  };
-  if (!enabled) {
-    const disabledServices = Object.fromEntries(
-      Object.entries(settings.services || {}).map(([key, service]) => [
-        key,
-        { ...service, enabled: false },
-      ]),
-    );
-    if (resourceMonitorNeedsConfigChanges(null, disabledServices)) {
-      prepareResourceMonitorConfig(null, disabledServices);
-      state.resourceMonitor.pendingSettings = settings;
-      els.resourceMonitorEnabled.checked = true;
-      renderResourceMonitor();
-      setActiveSection('review');
-      showMessage('Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.', {
-        severity: 'warning',
-      });
-      return;
-    }
-  }
-  try {
-    await postResourceMonitorSettings(settings);
-    showMessage(enabled ? 'Мониторинг ресурсов включён.' : 'Мониторинг ресурсов выключен.', { severity: 'success' });
-  } catch (error) {
-    els.resourceMonitorEnabled.checked = !enabled;
-    showMessage(`Не удалось изменить мониторинг: ${error?.message || error}`, { severity: 'error' });
-  }
+    .filter(([key]) => getResourceMonitorMode(currentServices[key]) !== 'off');
 }
 
 function openResourceMonitorDialog(options = {}) {
@@ -3692,7 +4313,7 @@ function syncResourceMonitorProactiveControls() {
 }
 
 function renderResourceMonitorDialog() {
-  const settings = state.resourceMonitor.pendingSettings || state.resourceMonitor.config || defaultResourceMonitorClientSettings();
+  const settings = state.resourceMonitor.pendingSettings || getResourceMonitorConfigSettings();
   els.resourceMonitorInterval.value = String(settings.intervalSeconds || 300);
   els.resourceMonitorFailures.value = String(settings.failureThreshold || 2);
   els.resourceMonitorLatencyThreshold.value = String(settings.latencyThresholdMs || 400);
@@ -3707,14 +4328,12 @@ function renderResourceMonitorDialog() {
 
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     const target = state.groups.find((group) => group.name === definition.group);
-    const enabled = settings.services?.[key]?.enabled !== false;
+    const mode = settings.enabled ? getResourceMonitorMode(settings.services?.[key]) : 'off';
+    const enabled = mode !== 'off';
     const field = document.createElement('article');
     const head = document.createElement('div');
     const title = document.createElement('strong');
-    const toggle = document.createElement('label');
-    const checkbox = document.createElement('input');
-    const track = document.createElement('span');
-    const toggleState = document.createElement('strong');
+    const checkbox = document.createElement('select');
     const sourceField = document.createElement('div');
     const sourceTitle = document.createElement('span');
     const sourcePicker = document.createElement('details');
@@ -3728,22 +4347,28 @@ function renderResourceMonitorDialog() {
     field.classList.toggle('is-disabled', !enabled);
     head.className = 'resource-monitor-source-head';
     title.textContent = definition.title;
-    toggle.className = 'resource-monitor-switch';
-    checkbox.type = 'checkbox';
-    checkbox.checked = enabled;
+    checkbox.className = 'resource-monitor-mode';
+    [['off', 'Выключено'], ['mihui', 'MihUI'], ['prizrak', 'Prizrak · LightGBM']].forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value === 'prizrak' && String(target?.type).toLowerCase() === 'smart' && !target.useLightGBM ? 'Prizrak · Smart' : label;
+      option.disabled = value === 'prizrak' && !state.resourceMonitor.smartSupport?.supported && mode !== 'prizrak';
+      checkbox.append(option);
+    });
+    checkbox.value = mode;
+    checkbox.disabled = Boolean(state.resourceMonitor.saving);
     checkbox.dataset.resourceMonitorEnabled = key;
-    checkbox.setAttribute('aria-label', `Мониторинг ${definition.title}`);
-    toggleState.dataset.resourceMonitorEnabledState = key;
-    toggleState.textContent = enabled ? 'Включена' : 'Выключена';
-    toggle.append(checkbox, track, toggleState);
-    head.append(title, toggle);
+    checkbox.setAttribute('aria-label', `Режим ${definition.title}`);
+    checkbox.title = state.resourceMonitor.smartSupport?.message || '';
+    head.append(title, checkbox);
     sourceField.className = 'resource-monitor-source-select';
-    sourceTitle.textContent = 'Приоритетные группы-источники';
+    sourceTitle.textContent = resourceMonitorUsesConfiguredSources(target) ? 'Источники из конфига' : mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
+    sourceTitle.dataset.resourceMonitorSourceTitle = key;
     const configuredSources = getResourceMonitorGroupSourceNames(target);
     const pendingSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.pendingSettings?.sources?.[key]);
     const savedSources = normalizeResourceMonitorSourceNames(state.resourceMonitor.config?.services?.[key]?.sources);
-    const locked = Boolean(target && !target.managedMonitoring) || sources.length === 0;
-    const selectedSources = target && !target.managedMonitoring
+    const locked = resourceMonitorUsesConfiguredSources(target) || sources.length === 0 || Boolean(state.resourceMonitor.saving);
+    const selectedSources = resourceMonitorUsesConfiguredSources(target)
       ? []
       : configuredSources.length > 0
         ? configuredSources
@@ -3757,6 +4382,8 @@ function renderResourceMonitorDialog() {
     sourcePicker.className = 'resource-monitor-source-picker';
     sourcePicker.classList.toggle('is-disabled', !enabled || locked);
     sourcePicker.dataset.resourceMonitorLocked = String(locked);
+    sourcePicker.dataset.mode = mode;
+    if (resourceMonitorUsesConfiguredSources(target)) sourcePicker.dataset.configuredSources = getResourceMonitorConfiguredSourceText(target);
     sourceSummary.setAttribute('aria-label', `Выбрать группы-источники ${definition.title}`);
     sourceSummary.setAttribute('aria-disabled', String(!enabled || locked));
     sourceSummary.tabIndex = !enabled || locked ? -1 : 0;
@@ -3768,7 +4395,7 @@ function renderResourceMonitorDialog() {
     sourceSummary.append(sourceSummaryText, sourceIcon);
     sourceMenu.className = 'resource-monitor-source-menu';
     sourceMenu.setAttribute('role', 'group');
-    sourceMenu.setAttribute('aria-label', `Приоритетные группы-источники ${definition.title}`);
+    sourceMenu.setAttribute('aria-label', `Группы-источники ${definition.title}`);
     sources.forEach((group) => {
       const option = document.createElement('label');
       const input = document.createElement('input');
@@ -3794,7 +4421,7 @@ function renderResourceMonitorDialog() {
       if (sourcePicker.classList.contains('is-disabled')) event.preventDefault();
     });
     updateResourceMonitorSourcePickerSummary(sourcePicker);
-    hint.textContent = getResourceMonitorSourceHint(definition, target, enabled);
+    hint.textContent = getResourceMonitorSourceHint(definition, target, mode);
     sourceField.append(sourceTitle, sourcePicker);
     field.append(head, sourceField, hint);
     els.resourceMonitorSources.append(field);
@@ -3807,12 +4434,21 @@ function renderResourceMonitorDialog() {
   );
 }
 
-function getResourceMonitorSourceHint(definition, target, enabled) {
-  if (!enabled) {
+function getResourceMonitorSourceHint(definition, target, mode) {
+  if (resourceMonitorCanChangeGroup(target) && resourceMonitorUsesConfiguredSources(target)) {
+    if (mode === 'off') return `Группа ${definition.group} и её штатные правила будут удалены после сохранения конфига`;
+    if (mode === 'mihui') return `Нынешние источники нод сохраняются. После сохранения ресурсом управляет MihUI.`;
+    if (String(target.type).toLowerCase() !== 'smart') return `Нынешние источники сохраняются. После сохранения группа ${definition.group} станет Smart с LightGBM.`;
+  }
+  if (target && !target.managedMonitoring && String(target.type).toLowerCase() === 'smart') {
+    return `Smart настроен в конфиге${target.useLightGBM ? ', LightGBM включён' : ', LightGBM выключен'}. Проверки MihUI отключены. Режим можно изменить здесь.`;
+  }
+  if (mode === 'off') {
     return target?.managedMonitoring
       ? `Группа ${definition.group} и её правила будут удалены из конфига`
-      : `Правила ${definition.group} будут удалены; трафик пойдёт по общим правилам`;
+      : target ? `Управление выключено; пользовательская группа ${definition.group} сохраняется` : 'Отдельная группа не создаётся; трафик идёт по общим правилам';
   }
+  if (mode === 'prizrak') return `Smart-группа ${definition.group}: общий набор нод, выбор выполняет Prizrak. Проверки MihUI отключены.`;
   return target && !target.managedMonitoring
     ? `Будет использована существующая группа ${definition.group}`
     : `В конфиге появится select-группа ${definition.group}`;
@@ -3823,11 +4459,11 @@ function updateResourceMonitorSourcePickerSummary(sourcePicker) {
   if (!summary) return;
   const selected = [...sourcePicker.querySelectorAll('[data-resource-monitor-source]:checked')]
     .map((input) => input.value);
-  const text = selected.length > 0
-    ? selected.join(' → ')
+  const text = sourcePicker.dataset.configuredSources || (selected.length > 0
+    ? selected.join(sourcePicker.dataset.mode === 'prizrak' ? ', ' : ' → ')
     : sourcePicker.dataset.resourceMonitorLocked === 'true'
       ? 'Выбор недоступен'
-      : 'Выберите группы';
+      : 'Выберите группы');
   summary.textContent = text;
   summary.title = text;
 }
@@ -3836,6 +4472,8 @@ function handleResourceMonitorDialogChange(event) {
   const checkbox = event.target.closest?.('[data-resource-monitor-enabled]');
   if (checkbox) {
     const key = checkbox.dataset.resourceMonitorEnabled;
+    const mode = checkbox.value;
+    const enabled = mode !== 'off';
     const definition = RESOURCE_MONITOR_DEFINITIONS[key];
     const target = state.groups.find((group) => group.name === definition.group);
     const field = checkbox.closest('.resource-monitor-source');
@@ -3844,20 +4482,24 @@ function handleResourceMonitorDialogChange(event) {
     const sourceSummary = sourcePicker?.querySelector('summary');
     const locked = sourcePicker?.dataset.resourceMonitorLocked === 'true';
     const hint = field?.querySelector('small');
-    const toggleState = field?.querySelector('[data-resource-monitor-enabled-state]');
-    field?.classList.toggle('is-disabled', !checkbox.checked);
+    field?.classList.toggle('is-disabled', !enabled);
     sourceInputs.forEach((input) => {
-      input.disabled = !checkbox.checked || locked;
+      input.disabled = !enabled || locked;
     });
-    sourcePicker?.classList.toggle('is-disabled', !checkbox.checked || locked);
-    if (sourcePicker && !checkbox.checked) sourcePicker.open = false;
+    sourcePicker?.classList.toggle('is-disabled', !enabled || locked);
+    if (sourcePicker) {
+      sourcePicker.dataset.mode = mode;
+      if (!enabled) sourcePicker.open = false;
+      updateResourceMonitorSourcePickerSummary(sourcePicker);
+    }
     if (sourceSummary) {
-      const disabled = !checkbox.checked || locked;
+      const disabled = !enabled || locked;
       sourceSummary.setAttribute('aria-disabled', String(disabled));
       sourceSummary.tabIndex = disabled ? -1 : 0;
     }
-    if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, checkbox.checked);
-    if (toggleState) toggleState.textContent = checkbox.checked ? 'Включена' : 'Выключена';
+    if (hint) hint.textContent = getResourceMonitorSourceHint(definition, target, mode);
+    const sourceTitle = field?.querySelector('[data-resource-monitor-source-title]');
+    if (sourceTitle) sourceTitle.textContent = resourceMonitorUsesConfiguredSources(target) ? 'Источники из конфига' : mode === 'prizrak' ? 'Источники нод' : 'Приоритетные группы-источники';
   }
   const sourceCheckbox = event.target.closest?.('[data-resource-monitor-source]');
   if (sourceCheckbox) {
@@ -3870,7 +4512,8 @@ function collectResourceMonitorDialogServices() {
   return Object.fromEntries(
     Object.entries(RESOURCE_MONITOR_DEFINITIONS).map(([key, item]) => {
       const checkbox = els.resourceMonitorSources.querySelector(`[data-resource-monitor-enabled="${key}"]`);
-      return [key, { enabled: checkbox?.checked !== false, group: item.group }];
+      const mode = checkbox?.value || 'off';
+      return [key, { mode, enabled: mode !== 'off', group: item.group }];
     }),
   );
 }
@@ -3891,15 +4534,28 @@ function updateResourceMonitorDialogActions() {
   const issue = getResourceMonitorDialogIssue(sources, services);
   const needsConfig = resourceMonitorNeedsConfigChanges(sources, services);
   const removingAll = !Object.values(services).some((service) => service.enabled);
+  const hasMihui = Object.values(services).some((service) => getResourceMonitorMode(service) === 'mihui');
+  const { settings } = collectResourceMonitorDialogSettings();
+  const saved = getResourceMonitorConfigSettings();
+  const changedSettings = ['intervalSeconds', 'failureThreshold', 'latencyThresholdMs', 'proactiveSwitchEnabled',
+    'proactiveLatencyThresholdMs', 'minimumLatencyImprovementMs', 'quarantineSeconds'].some((key) => settings[key] !== saved[key])
+    || Object.keys(services).some((key) => getResourceMonitorMode(services[key]) !== (saved.enabled ? getResourceMonitorMode(saved.services[key]) : 'off')
+      || (services[key].enabled && !resourceMonitorSourceNamesEqual(sources[key], saved.services[key]?.sources)));
+  const policy = document.querySelector('#resourceMonitorPolicy');
+  if (policy) policy.hidden = !hasMihui;
   els.resourceMonitorDialogNotice.hidden = !issue;
   els.resourceMonitorDialogNotice.textContent = issue;
-  els.resourceMonitorSaveButton.disabled = Boolean(issue);
+  els.resourceMonitorSaveButton.disabled = Boolean(issue) || Boolean(state.resourceMonitor.saving);
   els.resourceMonitorSaveButton.textContent = needsConfig
     ? removingAll ? 'Убрать из конфига' : 'Подготовить конфиг'
     : 'Сохранить настройки';
   els.resourceMonitorCheckAllButton.disabled = state.resourceMonitor.checking
+    || Boolean(state.resourceMonitor.saving)
+    || !hasMihui
+    || changedSettings
     || Boolean(state.resourceMonitor.pendingSettings)
     || needsConfig;
+  els.resourceMonitorCheckAllButton.hidden = !hasMihui;
 }
 
 function getResourceMonitorSourceGroups() {
@@ -3937,6 +4593,7 @@ function resourceMonitorSourceNamesEqual(left, right) {
 
 function formatResourceMonitorGroupMarker(group) {
   if (!group.managedMonitoring) return '';
+  if (group.monitorDirectSources) return ` # webmihomo-monitor: group ${group.monitorService || ''} direct`;
   const sources = getResourceMonitorGroupSourceNames(group);
   const sourceMarker = sources.length <= 1
     ? `source=${sources[0] || ''}`
@@ -3945,6 +4602,8 @@ function formatResourceMonitorGroupMarker(group) {
 }
 
 function parseResourceMonitorGroupMarker(value) {
+  const direct = String(value || '').match(/#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+direct\s*$/i);
+  if (direct) return { service: direct[1], sources: [], directSources: true };
   const marker = String(value || '').match(
     /#\s*webmihomo-monitor:\s*group\s+([a-z0-9_-]+)\s+(source|sources)=(.+?)\s*$/i,
   );
@@ -3965,12 +4624,18 @@ function parseResourceMonitorGroupMarker(value) {
 }
 
 function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   const groupsNeedChanges = Object.entries(RESOURCE_MONITOR_DEFINITIONS).some(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    if (!enabledKeys.has(key)) return Boolean(group?.managedMonitoring);
-    if (!group || !['select', 'selector'].includes(String(group.type || '').toLowerCase())) return true;
+    if (!enabledKeys.has(key)) return resourceMonitorCanChangeGroup(group);
+    const mode = getResourceMonitorMode(currentServices[key]);
+    if (resourceMonitorRedundantCheckKeys(group, mode).length > 0) return true;
+    if (mode === 'prizrak' && (group?.testUrl !== definition.testUrl || group?.expectedStatus !== definition.expectedStatus)) return true;
+    const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    if (!group || !types.includes(String(group.type || '').toLowerCase())) return true;
+    if (mode === 'prizrak' && group.managedMonitoring && !group.useLightGBM) return true;
     if (
       group.proxies.length === 0
       && group.use.length === 0
@@ -3981,14 +4646,17 @@ function resourceMonitorNeedsConfigChanges(sources = null, services = null) {
     return Boolean(
       sources
       && group.managedMonitoring
+      && !group.monitorDirectSources
       && !resourceMonitorSourceNamesEqual(getResourceMonitorGroupSourceNames(group), sources[key]),
     );
   });
   if (groupsNeedChanges) return true;
   if (
-    state.groups.some((group) => group.managedMonitoring && enabledKeys.has(group.monitorService))
+    state.groups.some((group) => group.managedMonitoring && group.type !== 'smart' && enabledKeys.has(group.monitorService))
     && !isResourceMonitorSelectionPersistenceEnabled(state.outputText || state.originalText)
   ) return true;
+  const lines = splitLines(state.outputText || state.originalText);
+  if (syncSmartModelSettings(lines).join('\n') !== lines.join('\n')) return true;
   if (resourceMonitorRulesNeedChanges(enabledKeys)) return true;
   return resourceMonitorRuleProvidersNeedChanges(
     enabledKeys,
@@ -4245,29 +4913,21 @@ function combineResourceMonitorSourceGroups(sourceNames, sourceGroups, knownGrou
 }
 
 function prepareResourceMonitorConfig(sources, services = null) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
+  const issue = getResourceMonitorDialogIssue(sources, currentServices);
+  if (issue) throw new Error(issue);
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledKeys = new Set(enabledEntries.map(([key]) => key));
   Object.entries(RESOURCE_MONITOR_DEFINITIONS).forEach(([key, definition]) => {
     if (enabledKeys.has(key)) return;
+    const managedGroup = state.groups.find((group) => group.name === definition.group && resourceMonitorCanChangeGroup(group));
     getActiveRules()
-      .filter((rule) => isManagedResourceMonitorRule(rule, key))
+      .filter((rule) => resourceMonitorCanRemoveRule(rule, key, managedGroup))
       .forEach((rule) => {
         rule.deleted = true;
       });
-    const managedGroup = state.groups.find((group) => group.name === definition.group && group.managedMonitoring);
     if (!managedGroup) return;
-    const hasUserReferences = getActiveRules().some((rule) => rule.target === definition.group);
-    if (hasUserReferences) {
-      Object.assign(managedGroup, {
-        managedMonitoring: false,
-        monitorService: '',
-        monitorSourceGroup: '',
-        monitorSourceGroups: [],
-        requiresSelectionPersistence: false,
-      });
-    } else {
-      state.groups.splice(state.groups.indexOf(managedGroup), 1);
-    }
+    state.groups.splice(state.groups.indexOf(managedGroup), 1);
   });
 
   enabledEntries.forEach(([key]) => {
@@ -4286,14 +4946,36 @@ function prepareResourceMonitorConfig(sources, services = null) {
   const knownGroupNames = new Set(state.groups.map((group) => group.name));
   enabledEntries.forEach(([key, definition]) => {
     const existing = state.groups.find((group) => group.name === definition.group);
-    if (existing && !['select', 'selector'].includes(String(existing.type || '').toLowerCase())) {
-      throw new Error(`Группа ${definition.group} существует и не является select.`);
+    const mode = getResourceMonitorMode(currentServices[key]);
+    const resourceCheck = {
+      testUrl: mode === 'prizrak' ? definition.testUrl : '',
+      expectedStatus: mode === 'prizrak' ? definition.expectedStatus : '',
+    };
+    const types = mode === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    if (existing && !resourceMonitorCanChangeGroup(existing) && !types.includes(String(existing.type || '').toLowerCase())) {
+      throw new Error(`Группа ${definition.group} уже существует и имеет другой тип.`);
     }
-    if (existing && !existing.managedMonitoring) return;
+    if (existing) {
+      const removeKeys = resourceMonitorRedundantCheckKeys(existing, mode);
+      existing.removeResourceCheckKeys = mode === 'prizrak' ? [] : [...new Set([...(existing.removeResourceCheckKeys || []), ...removeKeys])];
+      existing.resourceCheckKeys = (existing.resourceCheckKeys || []).filter((key) => !removeKeys.includes(key));
+      Object.assign(existing, resourceCheck);
+    }
+    if (existing && !existing.managedMonitoring) {
+      if (String(existing.type).toLowerCase() !== 'smart' || mode === 'prizrak') return;
+      Object.assign(existing, { managedMonitoring: true, monitorDirectSources: true, monitorService: key });
+    }
+    if (existing?.monitorDirectSources) {
+      Object.assign(existing, { type: mode === 'prizrak' ? 'smart' : 'select', useLightGBM: mode === 'prizrak',
+        requiresSelectionPersistence: mode !== 'prizrak' });
+      return;
+    }
 
     const combined = combineResourceMonitorSourceGroups(sources[key], sourceGroups, knownGroupNames);
     const cloned = {
-      type: 'select',
+      type: mode === 'prizrak' ? 'smart' : 'select',
+      useLightGBM: mode === 'prizrak',
+      ...resourceCheck,
       proxies: combined.proxies,
       use: combined.use,
       includeAll: combined.includeAll,
@@ -4306,7 +4988,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
       monitorService: key,
       monitorSourceGroup: combined.names[0],
       monitorSourceGroups: combined.names,
-      requiresSelectionPersistence: true,
+      requiresSelectionPersistence: mode !== 'prizrak',
     };
 
     if (existing) {
@@ -4361,13 +5043,25 @@ function getResourceMonitorDialogIssue(
   sources = null,
   services = null,
 ) {
+  const currentServices = services || state.resourceMonitor.config?.services || defaultResourceMonitorClientSettings().services;
   const enabledEntries = getEnabledResourceMonitorEntries(services);
   const enabledDefinitions = enabledEntries.map(([, definition]) => definition);
-  const conflict = enabledDefinitions.find((definition) => {
-    const group = state.groups.find((item) => item.name === definition.group);
-    return group && !['select', 'selector'].includes(String(group.type || '').toLowerCase());
+  const smartEntry = enabledEntries.find(([key, definition]) => getResourceMonitorMode(currentServices[key]) === 'prizrak'
+    && !state.groups.some((group) => group.name === definition.group && String(group.type).toLowerCase() === 'smart'));
+  if (smartEntry && !state.resourceMonitor.smartSupport?.supported) return 'Поддержка Smart установленным ядром не подтверждена. Установите Prizrak и обновите состояние ресурсов.';
+  const referenced = Object.entries(RESOURCE_MONITOR_DEFINITIONS).find(([key, definition]) => {
+    if (getResourceMonitorMode(currentServices[key]) !== 'off') return false;
+    const group = state.groups.find((item) => item.name === definition.group && resourceMonitorCanChangeGroup(item));
+    return group && (getActiveRules().some((rule) => rule.target === definition.group && !resourceMonitorCanRemoveRule(rule, key, group))
+      || state.groups.some((item) => item !== group && !item.deleted && item.proxies.includes(group.name)));
   });
-  if (conflict) return `Группа ${conflict.group} уже существует, но имеет тип не select. MihUI не будет перезаписывать её автоматически.`;
+  if (referenced) return `На группу ${referenced[1].group} ссылаются пользовательские правила или группы. Уберите ссылки перед выключением ресурса.`;
+  const conflict = enabledEntries.find(([key, definition]) => {
+    const group = state.groups.find((item) => item.name === definition.group);
+    const types = getResourceMonitorMode(currentServices[key]) === 'prizrak' ? ['smart'] : ['select', 'selector'];
+    return group && !resourceMonitorCanChangeGroup(group) && !types.includes(String(group.type || '').toLowerCase());
+  });
+  if (conflict) return `Группа ${conflict[1].group} уже существует, но имеет другой тип. MihUI не будет перезаписывать её автоматически.`;
   const empty = enabledDefinitions.find((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
     return group
@@ -4381,20 +5075,20 @@ function getResourceMonitorDialogIssue(
   if (empty) return `Группа ${empty.group} существует, но не содержит нод или подписок. MihUI не будет перезаписывать её автоматически.`;
   const needsSource = enabledDefinitions.some((definition) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return !group || group.managedMonitoring;
+    return !group || (group.managedMonitoring && !group.monitorDirectSources);
   });
   const sourceGroups = getResourceMonitorSourceGroups();
   if (needsSource && sourceGroups.length === 0) return 'Не найдена группа-источник с нодами или подписками.';
   const sourceNames = new Set(sourceGroups.map((group) => group.name));
   const missingSource = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return (!group || group.managedMonitoring)
+    return (!group || (group.managedMonitoring && !group.monitorDirectSources))
       && normalizeResourceMonitorSourceNames(sources?.[key]).length === 0;
   });
   if (missingSource) return `Выберите хотя бы одну группу-источник для ${missingSource[1].title}.`;
   const unknownSource = enabledEntries.find(([key, definition]) => {
     const group = state.groups.find((item) => item.name === definition.group);
-    return (!group || group.managedMonitoring)
+    return (!group || (group.managedMonitoring && !group.monitorDirectSources))
       && normalizeResourceMonitorSourceNames(sources?.[key]).some((name) => !sourceNames.has(name));
   });
   if (unknownSource) return `Одна из групп-источников для ${unknownSource[1].title} больше не существует.`;
@@ -4426,17 +5120,10 @@ function collectResourceMonitorDialogSettings() {
 }
 
 async function saveResourceMonitorDialog() {
+  if (state.resourceMonitor.saving) return;
   const { settings, sources } = collectResourceMonitorDialogSettings();
   const disabling = settings.enabled === false;
-  if (state.resourceMonitor.pendingSettings && hasUnsavedRouterChanges()) {
-    closeResourceMonitorDialog();
-    setActiveSection('review');
-    showMessage('Сначала сохраните подготовленный конфиг. Мониторинг включится только после подтверждения Mihomo.', {
-      severity: 'warning',
-    });
-    return;
-  }
-  if (resourceMonitorNeedsConfigChanges(sources, settings.services)) {
+  if (state.resourceMonitor.pendingSettings || resourceMonitorNeedsConfigChanges(sources, settings.services)) {
     try {
       prepareResourceMonitorConfig(sources, settings.services);
     } catch (error) {
@@ -4449,20 +5136,36 @@ async function saveResourceMonitorDialog() {
     setActiveSection('review');
     showMessage(disabling
       ? 'Группы и правила мониторинга удалены из черновика. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг выключится.'
-      : 'Группы и правила добавлены в черновик. Проверьте изменения и сохраните конфиг — после подтверждения Mihomo мониторинг включится.', {
+      : 'Режимы ресурсов подготовлены в черновике. Проверьте изменения и сохраните конфиг — до сохранения действуют прежние режимы.', {
       severity: 'warning',
     });
     return;
   }
 
+  const inputs = [...els.resourceMonitorDialog.querySelectorAll('input, select')].map((input) => [input, input.disabled]);
+  let saveError = '';
   try {
+    state.resourceMonitor.saving = true;
+    inputs.forEach(([input]) => { input.disabled = true; });
+    updateResourceMonitorDialogActions();
+    renderResourceMonitor();
     await postResourceMonitorSettings(settings);
     state.resourceMonitor.pendingSettings = null;
     closeResourceMonitorDialog();
-    showMessage('Настройки мониторинга сохранены.', { severity: 'success' });
+    showMessage('Настройки ресурсов сохранены.', { severity: 'success' });
   } catch (error) {
-    els.resourceMonitorDialogNotice.hidden = false;
-    els.resourceMonitorDialogNotice.textContent = error?.message || String(error);
+    saveError = error?.message || String(error);
+  } finally {
+    state.resourceMonitor.saving = false;
+    inputs.forEach(([input, disabled]) => { input.disabled = disabled; });
+    renderResourceMonitor();
+    if (els.resourceMonitorDialog.open) {
+      updateResourceMonitorDialogActions();
+      if (saveError) {
+        els.resourceMonitorDialogNotice.hidden = false;
+        els.resourceMonitorDialogNotice.textContent = saveError;
+      }
+    }
   }
 }
 
@@ -4479,6 +5182,7 @@ async function postResourceMonitorSettings(settings) {
   state.resourceMonitor.config = data.config || settings;
   state.resourceMonitor.runtime = data.runtime || state.resourceMonitor.runtime;
   state.resourceMonitor.readiness = data.readiness || state.resourceMonitor.readiness;
+  state.resourceMonitor.smartSupport = data.smartSupport || state.resourceMonitor.smartSupport;
   state.resourceMonitor.events = Array.isArray(data.events) ? data.events : state.resourceMonitor.events;
   renderResourceMonitor();
 }
@@ -4492,12 +5196,12 @@ async function applyPendingResourceMonitorSettings() {
   state.resourceMonitor.pendingSettings = null;
 }
 
-async function checkResourceMonitor(service) {
+async function checkResourceMonitor(service, forceSwitch = false) {
   if (state.resourceMonitor.checking) return;
   state.resourceMonitor.checking = true;
   renderResourceMonitor();
   try {
-    await apiJson('/api/resource-monitor/check', {
+    await apiJson(forceSwitch ? '/api/resource-monitor/switch' : '/api/resource-monitor/check', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4507,7 +5211,7 @@ async function checkResourceMonitor(service) {
     });
     await pollResourceMonitorCheck();
   } catch (error) {
-    showMessage(`Проверка не запущена: ${error?.message || error}`, { severity: 'error' });
+    showMessage(`${forceSwitch ? 'Смена ноды' : 'Проверка'} не запущена: ${error?.message || error}`, { severity: 'error' });
     state.resourceMonitor.checking = false;
     renderResourceMonitor();
   }
@@ -4529,6 +5233,7 @@ function defaultWhitelistMonitorClientSettings() {
     actionMode: 'observe',
     intervalSeconds: 300,
     confirmationThreshold: 3,
+    recoveryThreshold: 3,
     controlFailureThreshold: 2,
     timeoutMs: 5000,
     proxyGroup: 'PROXY',
@@ -4581,6 +5286,7 @@ async function loadWhitelistMonitor(options = {}) {
     state.whitelistMonitor.loaded = true;
     state.whitelistMonitor.config = data.config || defaultWhitelistMonitorClientSettings();
     state.whitelistMonitor.runtime = data.runtime || null;
+    state.whitelistMonitor.domainList = data.domainList || null;
     state.whitelistMonitor.events = Array.isArray(data.events) ? data.events : [];
     state.whitelistMonitor.checking = Boolean(data.job?.running);
     state.whitelistMonitor.error = '';
@@ -4609,6 +5315,1361 @@ function startWhitelistMonitorPolling() {
       loadWhitelistMonitor({ silent: true });
     }
   }, WHITELIST_MONITOR_REFRESH_MS);
+}
+
+function getProtectedDnsProfile() {
+  return els.dnsProfileStrict?.checked ? 'strict' : 'resilient';
+}
+
+function getProtectedDnsConfirmations() {
+  return {
+    providerDns: Boolean(els.dnsStrictIgnoreProvider?.checked),
+    transitDns: Boolean(els.dnsStrictInterceptTransit?.checked),
+    wanReconnect: Boolean(els.dnsStrictWanConfirm?.checked),
+  };
+}
+
+function normalizeProtectedDnsLanInterfaces(value) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map((item) => String(item || '').trim())
+    .filter(Boolean))];
+}
+
+function normalizeProtectedDnsLanCandidates(capabilities = {}) {
+  const candidates = Array.isArray(capabilities.lanCandidates) ? capabilities.lanCandidates : [];
+  const seen = new Set();
+  return candidates.reduce((result, candidate) => {
+    const interfaceName = String(candidate?.interface || '').trim();
+    if (!interfaceName || seen.has(interfaceName)) return result;
+    seen.add(interfaceName);
+    result.push({
+      interface: interfaceName,
+      ipv4: normalizeProtectedDnsLanInterfaces(candidate.ipv4),
+      ipv6: normalizeProtectedDnsLanInterfaces(candidate.ipv6),
+    });
+    return result;
+  }, []);
+}
+
+function getProtectedDnsLanSelectionState(capabilities = {}) {
+  const candidates = normalizeProtectedDnsLanCandidates(capabilities);
+  const candidateNames = new Set(candidates.map((candidate) => candidate.interface));
+  const selected = normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces);
+  const missing = selected.filter((interfaceName) => !candidateNames.has(interfaceName));
+  if (missing.length) {
+    return {
+      state: 'invalid',
+      selected,
+      missing,
+      message: `Ранее выбранные интерфейсы сейчас не обнаружены: ${missing.join(', ')}. Снимите выбор или обновите состояние роутера.`,
+    };
+  }
+  if (!candidates.length) {
+    return {
+      state: 'unavailable',
+      selected,
+      missing,
+      message: 'Подходящие LAN-интерфейсы не обнаружены.',
+    };
+  }
+  if (!selected.length) {
+    return {
+      state: 'required',
+      selected,
+      missing,
+      message: candidates.length > 1
+        ? 'Найдено несколько LAN-интерфейсов. Выберите нужные; MihUI не станет угадывать.'
+        : 'Выберите LAN-интерфейс для DNS клиентов.',
+    };
+  }
+  return {
+    state: 'ready',
+    selected,
+    missing,
+    message: `Выбрано: ${selected.join(', ')}. Изменение применится только после запуска тестового режима.`,
+  };
+}
+
+function getProtectedDnsPayload(action = '') {
+  const revision = String(state.protectedDns.data?.revision || '');
+  if (action === 'switch') {
+    return { action, proxyGroup: String(els.dnsProxyGroup?.value || ''), ...(revision ? { expectedRevision: revision } : {}) };
+  }
+  const payload = {
+    profile: getProtectedDnsProfile(),
+    proxyGroup: String(els.dnsProxyGroup?.value || 'PROXY'),
+    whitelistDns: els.dnsWhitelistDns?.checked === true,
+    confirmations: getProtectedDnsConfirmations(),
+    lanInterfaces: normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces),
+  };
+  if (action !== 'system' && els.dnsUpstreamServers) {
+    payload.upstreams = getProtectedDnsUpstreamInput().servers;
+  }
+  if (revision) payload.expectedRevision = revision;
+  if (action) payload.action = action;
+  return payload;
+}
+
+function getProtectedDnsSavedUpstreams(data = state.protectedDns.data || {}) {
+  return data.runtime?.upstreams || data.upstreams || ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'];
+}
+
+function getProtectedDnsUpstreamInput() {
+  const text = state.protectedDns.upstreamsDraft ?? getProtectedDnsSavedUpstreams().join('\n');
+  const servers = String(text).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  let error = '';
+  if (servers.length < 1 || servers.length > 4) error = 'Укажите от одного до четырёх DNS-серверов, каждый с новой строки.';
+  else if (new Set(servers).size !== servers.length) error = 'Удалите повторяющиеся DNS-серверы.';
+  else {
+    for (const server of servers) {
+      try {
+        const url = new URL(server);
+        if (!['https:', 'tls:'].includes(url.protocol) || !url.hostname || url.username || url.password
+          || /[\s#\\]/.test(server) || (url.protocol === 'tls:' && (url.pathname || url.search || server.includes('?')))
+          || [...url.searchParams.keys()].some((key) => ['skip-cert-verify', 'insecure', 'allowinsecure', 'allow-insecure', 'proxy', 'interface', 'dialer-proxy'].includes(key.toLowerCase().replaceAll('_', '-')))) {
+          throw new Error('invalid');
+        }
+      } catch {
+        error = 'Используйте адрес DoH https://… или DoT tls://… без параметров маршрута и отключения проверки сертификата.';
+        break;
+      }
+    }
+  }
+  return { servers, error };
+}
+
+function protectedDnsUpstreamsNeedTest() {
+  const saved = getProtectedDnsSavedUpstreams();
+  const selected = getProtectedDnsUpstreamInput().servers;
+  return saved.length !== selected.length || saved.some((server, index) => server !== selected[index]);
+}
+
+function handleProtectedDnsUpstreamsInput() {
+  state.protectedDns.upstreamsDraft = els.dnsUpstreamServers.value;
+  handleProtectedDnsDraftChange();
+}
+
+function mergeProtectedDnsResponse(data, options = {}) {
+  const previous = state.protectedDns.data || {};
+  state.protectedDns.data = {
+    ...previous,
+    ...data,
+    capabilities: data.capabilities || previous.capabilities || {},
+    fallback: data.fallback || previous.fallback || {},
+  };
+  const events = Array.isArray(data.events) ? [...data.events] : [...state.protectedDns.events];
+  if (data.event && !events.some((event) => JSON.stringify(event) === JSON.stringify(data.event))) events.push(data.event);
+  state.protectedDns.events = events;
+  if (options.preview) state.protectedDns.preview = data;
+  if (options.syncProxyGroup) state.protectedDns.proxyGroupDraft = '';
+  if (options.syncProfile && ['resilient', 'strict'].includes(data.profile)) {
+    els.dnsProfileResilient.checked = data.profile === 'resilient';
+    els.dnsProfileStrict.checked = data.profile === 'strict';
+  }
+  if (options.syncProfile && els.dnsWhitelistDns) {
+    els.dnsWhitelistDns.checked = (data.whitelistDns ?? data.runtime?.whitelistDns) === true;
+  }
+  if (options.syncUpstreams && (Array.isArray(data.upstreams) || Array.isArray(data.runtime?.upstreams))) {
+    state.protectedDns.upstreamsDraft = null;
+  }
+  if ((!state.protectedDns.lanSelectionInitialized || options.syncLanSelection)
+      && Array.isArray(data.capabilities?.lanInterfaces)) {
+    state.protectedDns.lanInterfaces = normalizeProtectedDnsLanInterfaces(data.capabilities.lanInterfaces);
+    state.protectedDns.lanSelectionInitialized = true;
+  }
+  renderProtectedDnsProxyGroups(state.protectedDns.data);
+}
+
+async function loadProtectedDns(options = {}) {
+  if (!state.routerApiAvailable || typeof fetch !== 'function') return;
+  if (options.resetPreview === true) {
+    state.protectedDns.preview = null;
+    state.protectedDns.notice = '';
+  }
+  state.protectedDns.loading = true;
+  state.protectedDns.error = '';
+  renderProtectedDns();
+  try {
+    const data = await apiJson('/api/dns');
+    state.protectedDns.loaded = true;
+    state.protectedDns.preview = null;
+    mergeProtectedDnsResponse(data, { syncProfile: options.preserveDraft !== true });
+  } catch (error) {
+    state.protectedDns.error = error?.message || String(error);
+    if (!options.silent) {
+      showMessage(`Не удалось получить состояние защищённого DNS: ${state.protectedDns.error}`, { severity: 'error' });
+    }
+  } finally {
+    state.protectedDns.loading = false;
+    renderProtectedDns();
+  }
+}
+
+function handleProtectedDnsDraftChange() {
+  state.protectedDns.proxyGroupDraft = els.dnsProxyGroup?.value || '';
+  state.protectedDns.preview = null;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  renderProtectedDns();
+}
+
+function handleProtectedDnsLanChange(event) {
+  const control = event.target;
+  if (!control?.matches?.('[data-dns-lan-interface]')) return;
+  const selected = new Set(normalizeProtectedDnsLanInterfaces(state.protectedDns.lanInterfaces));
+  if (control.checked) selected.add(control.value);
+  else selected.delete(control.value);
+  state.protectedDns.lanInterfaces = [...selected];
+  state.protectedDns.lanSelectionInitialized = true;
+  handleProtectedDnsDraftChange();
+}
+
+function renderProtectedDnsProxyGroups(data = {}) {
+  if (!els.dnsProxyGroup) return;
+  const source = data.proxyGroups || data.capabilities?.proxyGroups;
+  const groups = Array.isArray(source)
+    ? source.map((item) => typeof item === 'string' ? item : item?.name).filter(Boolean)
+    : [];
+  const preferred = String(state.protectedDns.proxyGroupDraft || data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
+  const names = [...new Set(groups.length ? groups : [preferred, 'PROXY'])];
+  els.dnsProxyGroup.textContent = '';
+  names.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    els.dnsProxyGroup.append(option);
+  });
+  els.dnsProxyGroup.value = names.includes(preferred) ? preferred : names[0];
+  if (state.protectedDns.proxyGroupDraft && !names.includes(state.protectedDns.proxyGroupDraft)) state.protectedDns.proxyGroupDraft = '';
+}
+
+function hasProtectedDnsConfigDraft() {
+  return hasUnsavedWorkspaceChanges() || state.isEditingConfiguration || state.groupInspectorEditing
+    || Boolean(state.providerEditDraft || state.providerCreateDraft || state.resourceMonitor.pendingSettings || state.whitelistMonitor.pendingSettings);
+}
+
+function getProtectedDnsGroupChangeState() {
+  const data = state.protectedDns.data || {};
+  const current = String(data.runtime?.proxyGroup || data.proxyGroup || '');
+  const selected = String(els.dnsProxyGroup?.value || '');
+  const active = state.routerMode === true && data.mode === 'active' && data.runtime?.requestedMode === 'active';
+  const changed = Boolean(selected && selected !== current);
+  const message = hasProtectedDnsConfigDraft() ? 'Сначала завершите редактирование и сохраните изменения конфигурации.' : '';
+  return { active, changed, current, selected, message,
+    disabled: !active || !changed || Boolean(message || data.fallback?.pending || state.routerBusy
+      || state.protectedDns.loading || state.protectedDns.action || !state.routerApiAvailable) };
+}
+
+function adoptProtectedDnsConfigResult(data, previousRevision) {
+  if (state.routerMode !== true || typeof data.text !== 'string' || !data.revision || hasProtectedDnsConfigDraft() || state.routerConfigRevision !== previousRevision) return false;
+  state.originalText = data.text;
+  state.routerSavedText = data.text;
+  state.routerConfigRevision = data.revision;
+  state.configLoadedAt = Date.now();
+  state.lastConfigCheckText = data.text;
+  state.lastConfigCheckOk = true;
+  parseAndRender();
+  return true;
+}
+
+function getProtectedDnsSmartGroupState() {
+  const data = state.protectedDns.data || {};
+  const smart = data.smartGroup || {};
+  const sources = Array.isArray(smart.sources) ? smart.sources : [];
+  let message = '';
+  if (!state.routerMode || !state.routerApiAvailable) message = 'Откройте конфиг роутера, чтобы создать DNS Smart.';
+  else if (smart.available !== true) message = smart.message || 'Создание доступно только с установленным Prizrak-Core.';
+  else if (smart.exists) message = 'Группа DNS-SMART уже есть в конфиге. Повторное создание недоступно.';
+  else if (!['system', 'active'].includes(data.mode) || data.fallback?.pending === true) message = 'Дождитесь восстановления защиты или вернитесь к системному DNS.';
+  else if (hasProtectedDnsConfigDraft()) message = 'Сначала завершите редактирование и сохраните изменения конфигурации.';
+  else if (!state.routerConfigRevision) message = 'Перезагрузите конфиг с роутера перед созданием группы.';
+  else if (!sources.length) message = 'Нет подходящей группы-источника с прокси без прямого выхода.';
+  const busy = state.routerBusy || state.protectedDns.loading || Boolean(state.protectedDns.action);
+  return { sources, disabled: Boolean(message || busy), message: message || (data.mode === 'active'
+    ? 'Создаст DNS-SMART с сохранением действующей DNS-группы. Во время применения возможен краткий переход на системный резерв; затем примените смену группы.'
+    : 'Создаст DNS-SMART из нод и подписок выбранной группы. После создания проверьте и включите DNS обычным способом.') };
+}
+
+function renderProtectedDnsSmartGroup() {
+  if (!els.dnsSmartGroupSource || !els.dnsSmartGroupCreate || !els.dnsSmartGroupStatus) return;
+  const view = getProtectedDnsSmartGroupState();
+  const preferred = els.dnsSmartGroupSource.value || els.dnsProxyGroup?.value;
+  els.dnsSmartGroupSource.textContent = '';
+  view.sources.forEach((name) => {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    els.dnsSmartGroupSource.append(option);
+  });
+  if (view.sources.includes(preferred)) els.dnsSmartGroupSource.value = preferred;
+  els.dnsSmartGroupSource.disabled = view.disabled;
+  els.dnsSmartGroupCreate.disabled = view.disabled;
+  els.dnsSmartGroupCreate.textContent = state.protectedDns.action === 'smart-group' ? 'Создаём…' : 'Создать DNS Smart';
+  els.dnsSmartGroupStatus.textContent = view.message;
+}
+
+async function createProtectedDnsSmartGroup() {
+  const view = getProtectedDnsSmartGroupState();
+  const sourceGroup = els.dnsSmartGroupSource?.value;
+  if (view.disabled || !view.sources.includes(sourceGroup)) return;
+  const previousRevision = state.routerConfigRevision;
+  const wasActive = state.protectedDns.data?.mode === 'active';
+  state.protectedDns.action = 'smart-group';
+  state.protectedDns.preview = null;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  setRouterBusy(true, 'Создание DNS Smart…');
+  renderProtectedDns();
+  try {
+    const data = await apiJson('/api/dns/smart-group', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify({ sourceGroup, expectedRevision: previousRevision }),
+    });
+    if (data.applied !== true || typeof data.text !== 'string') {
+      const error = new Error(data.message || 'Применение DNS Smart не подтверждено. Обновите состояние роутера.');
+      error.data = data;
+      throw error;
+    }
+    const draftChanged = !adoptProtectedDnsConfigResult(data, previousRevision);
+    await loadProtectedDns({ silent: true, preserveDraft: true });
+    const dnsData = state.protectedDns.data || {};
+    mergeProtectedDnsResponse({
+      revision: data.revision,
+      proxyGroups: [...new Set([...(dnsData.proxyGroups || []), data.group])],
+      smartGroup: { ...dnsData.smartGroup, exists: true },
+    });
+    state.protectedDns.proxyGroupDraft = data.group;
+    renderProtectedDnsProxyGroups(state.protectedDns.data);
+    state.protectedDns.notice = draftChanged
+      ? 'DNS-SMART создана на роутере. Ваш черновик сохранён; перезагрузите конфиг после завершения редактирования.'
+      : state.protectedDns.data?.mode === 'active'
+        ? 'DNS-SMART создана. Действующая защита сохранена; нажмите «Применить смену группы», чтобы использовать новую группу.'
+        : 'DNS-SMART создана и выбрана для DNS. Проверьте настройки, запустите тест и включите защиту.';
+    state.protectedDns.noticeTone = 'success';
+    showMessage(state.protectedDns.notice, { severity: 'success' });
+  } catch (error) {
+    if (!error?.data && wasActive) {
+      mergeProtectedDnsResponse({ mode: 'unknown' });
+      error.message = 'Итог создания DNS-SMART и состояние защиты неизвестны. Обновите состояние роутера.';
+    }
+    if (error?.data?.saved || error?.data?.rolledBack) await loadProtectedDns({ silent: true, preserveDraft: true });
+    if (error?.data?.restoration) {
+      const outcome = { ...error.data, ...error.data.restoration };
+      outcome.fallback = { ...state.protectedDns.data?.fallback, pending: outcome.runtime?.fallbackPending === true };
+      adoptProtectedDnsConfigResult(outcome, previousRevision);
+      mergeProtectedDnsResponse(outcome, { syncProfile: true, syncProxyGroup: true });
+      state.protectedDns.preview = null;
+    }
+    state.protectedDns.error = error?.data?.message || error?.message || String(error);
+    showMessage(state.protectedDns.error, { severity: 'error' });
+  } finally {
+    state.protectedDns.action = '';
+    setRouterBusy(false, 'Перезагрузить с роутера');
+    renderProtectedDns();
+  }
+}
+
+function renderProtectedDnsLanSelector(capabilities = {}, busy = false) {
+  if (!els.dnsLanInterfaces || !els.dnsLanSelectionMessage) return getProtectedDnsLanSelectionState(capabilities);
+  const candidates = normalizeProtectedDnsLanCandidates(capabilities);
+  const selection = getProtectedDnsLanSelectionState(capabilities);
+  const selected = new Set(selection.selected);
+  const focusedInterface = document.activeElement?.matches?.('[data-dns-lan-interface]')
+    && els.dnsLanInterfaces.contains(document.activeElement) ? document.activeElement.value : null;
+  els.dnsLanInterfaces.textContent = '';
+  els.dnsLanInterfaces.className = 'dns-protection-lan-list';
+
+  candidates.forEach((candidate) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    const addresses = document.createElement('em');
+    const addressList = [...candidate.ipv4, ...candidate.ipv6];
+    input.type = 'checkbox';
+    input.value = candidate.interface;
+    input.checked = selected.has(candidate.interface);
+    input.disabled = busy;
+    input.dataset.dnsLanInterface = '';
+    name.textContent = candidate.interface;
+    addresses.textContent = addressList.length ? addressList.join(' · ') : 'IP-адреса не обнаружены';
+    copy.append(name, addresses);
+    label.append(input, copy);
+    els.dnsLanInterfaces.append(label);
+  });
+
+  selection.missing.forEach((interfaceName) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    const copy = document.createElement('span');
+    const name = document.createElement('strong');
+    const message = document.createElement('em');
+    label.className = 'is-missing';
+    input.type = 'checkbox';
+    input.value = interfaceName;
+    input.checked = true;
+    input.disabled = busy;
+    input.dataset.dnsLanInterface = '';
+    name.textContent = interfaceName;
+    message.textContent = 'Ранее выбран, но сейчас не обнаружен роутером';
+    copy.append(name, message);
+    label.append(input, copy);
+    els.dnsLanInterfaces.append(label);
+  });
+
+  if (!candidates.length && !selection.missing.length) {
+    els.dnsLanInterfaces.className = 'dns-protection-lan-list empty-state';
+    els.dnsLanInterfaces.textContent = 'Подходящие интерфейсы не обнаружены.';
+  }
+  els.dnsLanSelectionMessage.className = `is-${selection.state}`;
+  els.dnsLanSelectionMessage.textContent = selection.message;
+  if (focusedInterface !== null) {
+    [...els.dnsLanInterfaces.querySelectorAll('[data-dns-lan-interface]')]
+      .find((input) => input.value === focusedInterface && !input.disabled)?.focus({ preventScroll: true });
+  }
+  return selection;
+}
+
+function getProtectedDnsConfigCheckOutput(configCheck = {}) {
+  const details = configCheck.details ?? configCheck.output ?? configCheck.message ?? '';
+  if (typeof details === 'string') return details;
+  try {
+    return JSON.stringify(details, null, 2);
+  } catch (error) {
+    return String(details);
+  }
+}
+
+function renderProtectedDnsConfigCheck(configCheck) {
+  if (!els.dnsConfigCheck || !els.dnsConfigCheckSummary || !els.dnsConfigCheckOutput) return;
+  const available = configCheck?.available !== false;
+  const tone = configCheck?.ok === true ? 'ok' : available ? 'error' : 'warning';
+  els.dnsConfigCheck.hidden = !configCheck;
+  if (!configCheck) return;
+  els.dnsConfigCheck.className = `dns-protection-config-check is-${tone}`;
+  els.dnsConfigCheckSummary.textContent = configCheck.ok === true
+    ? 'Конфигурация корректна'
+    : available ? 'Проверка не пройдена' : 'Проверка недоступна';
+  els.dnsConfigCheckOutput.textContent = getProtectedDnsConfigCheckOutput(configCheck);
+}
+
+function getProtectedDnsFallbackPresentation(capabilities = {}, fallback = {}) {
+  const systemFallback = capabilities.systemFallback || {};
+  const stateName = systemFallback.state
+    || (systemFallback.ok === true ? 'ready' : systemFallback.ok === false ? 'failed' : 'not-tested');
+  const base = {
+    ready: { tone: 'is-ready', badge: 'Резерв проверен', state: 'Готов · автоматический' },
+    failed: { tone: 'is-error', badge: 'Резерв недоступен', state: 'Системный DNS не ответил' },
+    'not-tested': { tone: 'is-idle', badge: 'Резерв не проверен', state: 'Не проверен' },
+  }[stateName] || { tone: 'is-idle', badge: 'Резерв не проверен', state: 'Не проверен' };
+  const pending = fallback.pending === true;
+  return {
+    ...base,
+    badge: pending ? 'Возврат к системному DNS' : base.badge,
+    state: pending
+      ? 'Ожидается подтверждение снятия перехвата'
+      : stateName === 'ready' ? 'Готов · системный DNS отвечает по UDP'
+        : stateName === 'failed' ? 'Не готов · системный DNS не ответил по UDP'
+          : 'Не проверен · сначала выберите LAN-интерфейсы',
+    message: systemFallback.message || '',
+  };
+}
+
+function getProtectedDnsErrorMessage(error, action = 'preview') {
+  const backendMessage = String(error?.data?.message || error?.message || '').trim();
+  if (!error?.data && backendMessage && !/^HTTP\s+\d+$/i.test(backendMessage)) {
+    return `Не удалось связаться с DNS API: ${backendMessage}`;
+  }
+  const configCheck = error?.data?.configCheck || error?.data?.preview?.configCheck;
+  const hasConfigCheck = configCheck && configCheck.ok !== true;
+  if (hasConfigCheck) {
+    return action === 'preview'
+      ? 'Проверка конфигурации Mihomo не пройдена. Раскройте блок «Проверка конфигурации Mihomo» для подробностей.'
+      : 'Операция DNS остановлена предварительной проверкой. Подробности — в блоке «Проверка конфигурации Mihomo».';
+  }
+  if (backendMessage && !/^HTTP\s+\d+$/i.test(backendMessage)) return backendMessage;
+  return {
+    preview: 'Предварительная проверка DNS не пройдена. Проверьте выбранные LAN-интерфейсы и блок «Проверка готовности».',
+    test: 'Тестовый режим DNS не запущен. Проверьте условия в блоке «Проверка готовности».',
+    activate: 'Защищённый DNS не включён. Проверьте условия в блоке «Проверка готовности».',
+    system: 'Не удалось подтвердить возврат к системному DNS.',
+  }[action] || 'Операция DNS не выполнена.';
+}
+
+function mergeProtectedDnsErrorResponse(data) {
+  if (!data || typeof data !== 'object') return;
+  const preview = data.preview && typeof data.preview === 'object' ? data.preview : data;
+  mergeProtectedDnsResponse({
+    ...preview,
+    capabilities: preview.capabilities || state.protectedDns.data?.capabilities || {},
+    canTest: false,
+    canActivate: false,
+    message: data.message || preview.message,
+    event: data.event || preview.event,
+    events: Array.isArray(data.events) ? data.events : preview.events,
+  }, { preview: true });
+}
+
+function getProtectedDnsModePresentation(mode) {
+  return {
+    system: {
+      label: 'Системный DNS',
+      title: 'Работает системный DNS роутера',
+      message: 'Перехват отключён. Запросы обслуживает ndnproxy и настроенные системные DNS-серверы.',
+    },
+    test: {
+      label: 'Тестовый режим',
+      title: 'Mihomo DNS проверяется без переключения клиентов',
+      message: 'Слушатель Mihomo запущен отдельно, но устройства продолжают использовать системный DNS.',
+    },
+    active: {
+      label: 'Защита включена',
+      title: 'DNS клиентов проходит через Mihomo',
+      message: 'Перехват поддерживается только пока Mihomo отвечает; при отказе запросы вернутся к ndnproxy.',
+    },
+    fallback: {
+      label: 'Аварийный возврат',
+      title: 'Защищённый путь отключён автоматически',
+      message: 'Защищённый путь не подтверждён. После прекращения перехвата запросы обслуживает системный ndnproxy.',
+    },
+  }[mode] || {
+    label: 'Нет данных',
+    title: 'Состояние ещё не подтверждено',
+    message: 'MihUI не будет считать DNS включённым до успешного ответа роутера.',
+  };
+}
+
+function getProtectedDnsRoutePresentation(mode, fallback = {}) {
+  const systemResolver = `ndnproxy :${fallback.ndnproxyPort || 53}`;
+  if (mode === 'active') {
+    return {
+      resolver: 'Mihomo :1053', destination: 'DNS по правилам Mihomo',
+      noteLabel: 'При отказе', note: `${systemResolver} → системные DNS`,
+    };
+  }
+  if (['system', 'test', 'fallback'].includes(mode)) {
+    const notes = {
+      system: { noteLabel: 'Перехват', note: 'Отключён' },
+      test: { noteLabel: 'Тестовый слушатель', note: 'Mihomo :1053 запущен отдельно, без переключения клиентов' },
+      fallback: { noteLabel: 'Аварийный возврат', note: 'Перехват прекращён, используется системный DNS' },
+    };
+    return { resolver: systemResolver, destination: 'Системные DNS', ...notes[mode] };
+  }
+  return {
+    resolver: 'Маршрут не подтверждён', destination: 'Ожидается проверка',
+    noteLabel: 'Состояние', note: 'Нет подтверждённых данных роутера',
+  };
+}
+
+function getProtectedDnsCapabilityLabel(id) {
+  return {
+    root: 'Права root',
+    ndmc: 'Управление Netcraze/Keenetic',
+    mihomo: 'Mihomo',
+    config: 'Конфигурация Mihomo',
+    configWritable: 'Запись конфигурации',
+    listener: 'Порт Mihomo :1053',
+    port1053: 'Порт Mihomo :1053',
+    ndnproxy: 'Системный ndnproxy :53',
+    iptables: 'Перехват IPv4',
+    ip6tables: 'Перехват IPv6',
+    ipset: 'Срок действия перехвата',
+    ipsetTimeout: 'Автоматический возврат к системному DNS',
+    dnsOverride: 'Конфликт dns-override',
+    ipv4: 'DNS клиентов по IPv4',
+    ipv6: 'DNS клиентов по IPv6',
+    ipv6ClientDns: 'DNS клиентов по IPv6',
+    'mihomo-binary': 'Исполняемый файл Mihomo',
+    'mihomo-api': 'API Mihomo',
+    'proxy-group': 'Выбранная прокси-группа',
+    'proxy-route': 'Прокси-путь DNS без DIRECT',
+    'config-ownership': 'DNS-блок конфигурации',
+    'dns-override': 'Конфликт XKeen dns-override',
+    'lan-ipv4': 'LAN-адрес IPv4',
+    'port-1053': 'Порт Mihomo :1053',
+    'ipset-timeout': 'Автоматический возврат к системному DNS',
+    'firewall-chain4': 'Цепочка межсетевого экрана IPv4',
+    'firewall-chain6': 'Цепочка межсетевого экрана IPv6',
+    'local-resolver': 'Локальный резолвер :41100',
+    'system-fallback': 'Системный резерв DNS',
+    'lan-selection': 'LAN-интерфейсы DNS',
+  }[id] || id;
+}
+
+function normalizeProtectedDnsChecks(capabilities = {}) {
+  return Array.isArray(capabilities.checks) ? capabilities.checks : [];
+}
+
+function getProtectedDnsCheckState(check) {
+  if (check.ok === true || check.ready === true || check.state === 'ok' || check.state === 'ready') return 'ok';
+  if (check.required === false || check.state === 'warning' || check.state === 'not-tested' || check.warning === true) return 'warning';
+  return 'error';
+}
+
+function getProtectedDnsCheckMessage(check, tone) {
+  if (check.id === 'system-fallback') {
+    if (check.state === 'not-tested') return 'Не проверен: сначала выберите LAN-интерфейсы';
+    return tone === 'ok' ? 'Системный DNS отвечает по UDP' : 'Системный DNS не ответил по UDP';
+  }
+  if (check.id === 'lan-selection') {
+    return tone === 'ok' ? 'LAN-интерфейсы выбраны' : 'Требуется явный выбор LAN-интерфейсов';
+  }
+  const localized = {
+    root: ['MihUI запущен с правами root', 'Нужны права root'],
+    'mihomo-binary': ['Mihomo найден', 'Mihomo не найден'],
+    'mihomo-api': ['API Mihomo доступен', 'API Mihomo недоступен'],
+    'proxy-group': ['Прокси-группа найдена', 'Прокси-группа не найдена'],
+    'config-ownership': ['DNS-блок свободен или управляется MihUI', 'Обнаружен сторонний DNS-блок'],
+    ndmc: ['Чтение настроек через ndmc доступно', 'ndmc недоступен'],
+    'dns-override': ['XKeen dns-override выключен', 'XKeen dns-override конфликтует с режимом'],
+    ndnproxy: ['ndnproxy занимает системный порт 53', 'Системный ndnproxy не подтверждён'],
+    'lan-ipv4': ['LAN-адрес IPv4 найден', 'LAN-адрес IPv4 не найден'],
+    'port-1053': ['Порт 1053 свободен или занят управляемым Mihomo', 'Порт 1053 занят другим процессом'],
+    iptables: ['IPv4 NAT и ipset доступны', 'IPv4 NAT или ipset недоступны'],
+    'ipset-timeout': ['Ядро поддерживает срок действия записей ipset', 'Ядро не поддерживает срок действия записей ipset'],
+    'firewall-chain4': ['Имя цепочки IPv4 безопасно', 'Обнаружен конфликт цепочки IPv4'],
+    ip6tables: ['Защищённый путь IPv6 доступен', 'Защищённый путь IPv6 недоступен'],
+    'firewall-chain6': ['Имя цепочки IPv6 безопасно', 'Обнаружен конфликт цепочки IPv6'],
+    'local-resolver': ['Локальный UDP-резолвер :41100 доступен', 'Локальный UDP-резолвер :41100 недоступен'],
+  }[check.id];
+  if (localized) return localized[tone === 'ok' ? 0 : 1];
+  const detail = check.message ?? check.detail ?? check.value;
+  if (detail !== undefined && detail !== null && detail !== '') {
+    if (typeof detail === 'boolean') return detail ? 'Да' : 'Нет';
+    if (Array.isArray(detail)) return detail.join(', ');
+    return String(detail);
+  }
+  return tone === 'ok' ? 'Готово' : tone === 'warning' ? 'Нужно учесть' : 'Недоступно';
+}
+
+function renderProtectedDnsCapabilities(capabilities = {}) {
+  if (!els.dnsCapabilities) return;
+  const checks = normalizeProtectedDnsChecks(capabilities);
+  els.dnsCapabilities.textContent = '';
+  if (!checks.length) {
+    els.dnsCapabilities.className = 'dns-protection-capability-list empty-state';
+    els.dnsCapabilities.textContent = 'Нажмите «Проверить и показать план».';
+    return;
+  }
+  els.dnsCapabilities.className = 'dns-protection-capability-list';
+  checks.forEach((check) => {
+    const item = document.createElement('div');
+    const label = document.createElement('strong');
+    const value = document.createElement('span');
+    const stateName = check.id === 'system-fallback'
+      ? capabilities.systemFallback?.state
+      : check.id === 'lan-selection' ? capabilities.lanSelection?.state : check.state;
+    const effectiveCheck = stateName ? { ...check, state: stateName } : check;
+    const tone = getProtectedDnsCheckState(effectiveCheck);
+    item.className = `dns-protection-capability is-${tone}`;
+    label.textContent = check.label || getProtectedDnsCapabilityLabel(check.id || 'Проверка');
+    value.textContent = getProtectedDnsCheckMessage(effectiveCheck, tone);
+    item.append(label, value);
+    els.dnsCapabilities.append(item);
+  });
+}
+
+function normalizeProtectedDnsTextList(value) {
+  if (!value) return [];
+  if (!Array.isArray(value) && typeof value === 'object' && value.listener) {
+    const lines = [
+      `Подготовить DNS-слушатель Mihomo ${value.listener} (${value.enhancedMode || 'redir-host'}).`,
+      `Направить запросы к защищённым DNS-серверам через группу ${value.upstreamRoute || 'PROXY'}.`,
+    ];
+    if (Array.isArray(value.localNames) && value.localNames.length) {
+      lines.push(`Передавать локальному резолверу 127.0.0.1:41100 только имена: ${value.localNames.join(', ')}.`);
+    }
+    if (value.whitelistDns?.enabled) {
+      lines.push(`Направить DNS ${value.whitelistDns.count} доменов белого списка и их поддоменов напрямую через Яндекс Safe DoT (TCP/853). Правила трафика сайтов не меняются.`);
+    }
+    if (value.providerDnsChange) lines.push('Подготовить изменение настройки DNS провайдера после отдельного подтверждения.');
+    if (value.transitDnsChange) lines.push('Подготовить перехват транзитных DNS-запросов после отдельного подтверждения.');
+    return lines;
+  }
+  const list = Array.isArray(value) ? value : value.steps || value.changes || value.items || [value];
+  return list.map((item) => {
+    if (typeof item === 'string') return item;
+    return item?.message || item?.label || item?.title || item?.description || '';
+  }).filter(Boolean);
+}
+
+function renderProtectedDnsPlan(plan) {
+  if (!els.dnsPlan) return;
+  const steps = normalizeProtectedDnsTextList(plan);
+  els.dnsPlan.textContent = '';
+  els.dnsPlan.hidden = !steps.length;
+  if (!steps.length) return;
+  const title = document.createElement('strong');
+  const list = document.createElement('ol');
+  title.textContent = 'План изменений';
+  steps.forEach((step) => {
+    const item = document.createElement('li');
+    item.textContent = step;
+    list.append(item);
+  });
+  els.dnsPlan.append(title, list);
+}
+
+function renderProtectedDnsWarnings(warnings, strictSelected) {
+  if (!els.dnsWarnings) return;
+  const items = normalizeProtectedDnsTextList(warnings);
+  if (strictSelected) {
+    items.unshift('Строгий профиль в этой версии можно только проверить: применение будет доступно после подтверждения безопасных команд ndmc.');
+  }
+  els.dnsWarnings.textContent = '';
+  els.dnsWarnings.hidden = !items.length;
+  items.forEach((message) => {
+    const item = document.createElement('p');
+    item.textContent = message;
+    els.dnsWarnings.append(item);
+  });
+}
+
+function getProtectedDnsBooleanText(value, enabledText = 'Включено', disabledText = 'Выключено') {
+  if (value === true) return enabledText;
+  if (value === false) return disabledText;
+  return value === undefined || value === null || value === '' ? '—' : String(value);
+}
+
+function getProtectedDnsServerList(value) {
+  const list = Array.isArray(value) ? value : value ? [value] : [];
+  const names = list.map((item) => typeof item === 'string'
+    ? item
+    : item?.address || item?.server || item?.host || item?.label).filter(Boolean);
+  return names.length ? names.join(', ') : '—';
+}
+
+function getProtectedDnsProviderServers(provider = {}) {
+  if (provider.serversState === 'unknown') return 'Неизвестно · сведения DHCP недоступны';
+  if (provider.serversState === 'empty') return 'Через DHCP не обнаружены';
+  const details = Array.isArray(provider.details) ? provider.details : [];
+  if (details.length) return details.map((item) => `${item.address}${item.interface ? ` (${item.interface})` : ''}`).join(', ');
+  const servers = getProtectedDnsServerList(provider.servers || []);
+  return servers === '—' ? 'Не определены' : servers;
+}
+
+function getProtectedDnsUpstreamLabels(value) {
+  const list = Array.isArray(value) ? value : [];
+  const labels = list.map((item) => {
+    const source = typeof item === 'string' ? item : item?.label || item?.url || '';
+    try {
+      const host = new URL(source).hostname.toLowerCase();
+      if (['1.1.1.1', '1.0.0.1', 'cloudflare-dns.com', 'one.one.one.one'].includes(host)) return 'Cloudflare';
+      if (['8.8.8.8', '8.8.4.4', 'dns.google'].includes(host)) return 'Google';
+      return host || source;
+    } catch (error) {
+      return source;
+    }
+  }).filter(Boolean);
+  return [...new Set(labels)];
+}
+
+function getProtectedDnsTime(value) {
+  if (!value) return '—';
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return formatResourceMonitorTime(numeric > 1e12 ? numeric / 1000 : numeric);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderProtectedDnsExclusions(exclusions = []) {
+  if (!els.dnsExclusions) return;
+  const items = Array.isArray(exclusions) ? exclusions : exclusions.items || [];
+  els.dnsExclusions.textContent = '';
+  if (!items.length) {
+    els.dnsExclusions.className = 'dns-protection-exclusion-list empty-state';
+    els.dnsExclusions.textContent = 'Обходы не обнаружены или проверка ещё не выполнялась.';
+    return;
+  }
+  els.dnsExclusions.className = 'dns-protection-exclusion-list';
+  items.forEach((entry) => {
+    const item = document.createElement('article');
+    const title = document.createElement('strong');
+    const message = document.createElement('span');
+    const exclusionTitle = {
+      'application-doh': 'DoH и Private DNS приложений',
+      'tailscale-dns': 'DNS Tailscale',
+      'external-dns': 'Внешний DNS на устройствах',
+    }[entry?.id];
+    const exclusionMessage = {
+      'application-doh': 'DoH и Private DNS в приложениях не используют DNS роутера на порту 53 и остаются вне перехвата.',
+      'tailscale-dns': 'Устройства, использующие DNS Tailscale, могут обходить DNS локальной сети.',
+      'external-dns': 'Отказоустойчивый режим не перехватывает запросы к внешним DNS-серверам, заданным на устройствах. Для этого нужен строгий режим, пока доступный только как план.',
+    }[entry?.id];
+    title.textContent = typeof entry === 'string' ? entry : entry.label || entry.title || exclusionTitle || entry.type || 'Исключение';
+    message.textContent = typeof entry === 'string' ? '' : exclusionMessage || entry.message || entry.description || entry.value || '';
+    item.append(title);
+    if (message.textContent) item.append(message);
+    els.dnsExclusions.append(item);
+  });
+}
+
+function getProtectedDnsEventLabel(event = {}) {
+  return {
+    preview: 'Проверка',
+    preview_failed: 'Проверка не пройдена',
+    test: 'Тестовый режим',
+    activate: 'Включение',
+    active: 'Включение',
+    system: 'Системный DNS',
+    preflight_failed: 'Предусловия не пройдены',
+    fallback: 'Аварийный возврат',
+    fallback_ready: 'Перехват прекращён',
+    lease_recovered: 'Защита восстановлена',
+    lease_degraded: 'Защита недоступна',
+    whitelist_dns_synced: 'DNS белых списков',
+  }[event.type || event.action || event.mode] || (event.ok === false ? 'Ошибка' : 'Событие DNS');
+}
+
+function getProtectedDnsEventMessage(event = {}) {
+  const message = event.message || event.title || 'Событие DNS';
+  // Older journal entries keep their original data; localize only known summaries.
+  const translations = {
+    'DNS capture lease expired; system fallback is fully available': 'Срок действия перехвата DNS истёк; запросы возвращаются к системному DNS.',
+    'DNS lease восстановлен': 'Срок действия перехвата DNS продлён; защита восстановлена.',
+    'DNS lease больше не обновляется; системный fallback включится автоматически': 'Срок действия перехвата DNS больше не продлевается; после его истечения запросы вернутся к системному DNS.',
+  };
+  return Object.hasOwn(translations, message) ? translations[message] : message;
+}
+
+function renderProtectedDnsEvents() {
+  if (!els.dnsEvents || !els.dnsEventsCount) return;
+  const events = Array.isArray(state.protectedDns.events) ? [...state.protectedDns.events].reverse() : [];
+  els.dnsEventsCount.textContent = `${events.length} событий`;
+  els.dnsEvents.textContent = '';
+  if (!events.length) {
+    const empty = document.createElement('span');
+    empty.className = 'muted';
+    empty.textContent = 'Событий пока нет';
+    els.dnsEvents.append(empty);
+    return;
+  }
+  events.forEach((event) => {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    const badge = document.createElement('span');
+    const heading = document.createElement('span');
+    const time = document.createElement('time');
+    const raw = document.createElement('pre');
+    const ok = event.ok !== false && event.state !== 'error' && !/_failed$/.test(String(event.type || ''));
+    details.className = 'dns-protection-event';
+    badge.className = `dns-protection-state ${ok ? 'is-active' : 'is-error'}`;
+    badge.textContent = getProtectedDnsEventLabel(event);
+    heading.className = 'dns-protection-event-heading';
+    heading.textContent = getProtectedDnsEventMessage(event);
+    time.dateTime = event.at || '';
+    time.textContent = getProtectedDnsTime(event.timestamp || event.at);
+    raw.textContent = JSON.stringify(event, null, 2);
+    summary.append(badge, heading, time);
+    details.append(summary, raw);
+    els.dnsEvents.append(details);
+  });
+}
+
+function renderProtectedDns() {
+  if (!els.dnsStateBadge) return;
+  const apiAvailable = state.routerMode && state.routerApiAvailable;
+  const data = state.protectedDns.data || {};
+  const preview = state.protectedDns.preview;
+  const visible = preview || data;
+  const capabilities = visible.capabilities || {};
+  const fallback = data.fallback || {};
+  const runtime = data.runtime || {};
+  const mode = data.mode || 'unknown';
+  const presentation = getProtectedDnsModePresentation(mode);
+  const strictSelected = getProtectedDnsProfile() === 'strict';
+  const busy = state.protectedDns.loading || Boolean(state.protectedDns.action);
+  const settingsLocked = busy || runtime.requestedMode === 'active';
+  const groupChange = getProtectedDnsGroupChangeState();
+  const changingRoute = state.protectedDns.action === 'switch' || state.protectedDns.action === 'smart-group' && runtime.requestedMode === 'active';
+  const canTest = preview?.canTest === true;
+  const canActivate = preview?.canActivate === true && !protectedDnsUpstreamsNeedTest();
+  const lanSelection = getProtectedDnsLanSelectionState(capabilities);
+  const serverLanInterfaces = normalizeProtectedDnsLanInterfaces(capabilities.lanInterfaces);
+  const lanDraftChanged = lanSelection.selected.length !== serverLanInterfaces.length
+    || lanSelection.selected.some((interfaceName) => !serverLanInterfaces.includes(interfaceName));
+  const routerDns = capabilities.routerDns || {};
+  const providerDns = routerDns.provider || {};
+  const transitDns = routerDns.transit || {};
+  const fallbackPresentation = lanDraftChanged
+    ? {
+      tone: 'is-idle',
+      badge: 'Резерв требует проверки',
+      state: 'Не проверен после изменения LAN',
+      message: 'Повторите предварительную проверку для выбранных LAN-интерфейсов.',
+    }
+    : getProtectedDnsFallbackPresentation(capabilities, fallback);
+
+  els.dnsStateBadge.className = `dns-protection-state is-${mode === 'unknown' ? 'idle' : mode}`;
+  els.dnsStateBadge.textContent = state.protectedDns.loading && !state.protectedDns.loaded ? 'Загрузка…' : presentation.label;
+  els.dnsStateTitle.textContent = presentation.title;
+  els.dnsStateMessage.textContent = presentation.message;
+  els.dnsFallbackBadge.className = `dns-protection-context ${fallbackPresentation.tone}`;
+  els.dnsFallbackBadge.textContent = fallbackPresentation.badge;
+  els.dnsFallbackBadge.title = fallbackPresentation.message;
+  const route = getProtectedDnsRoutePresentation(mode, fallback);
+  els.dnsProtectedPath.textContent = route.resolver;
+  els.dnsRouteDestination.textContent = route.destination;
+  els.dnsRouteNoteLabel.textContent = route.noteLabel;
+  els.dnsFallbackPath.textContent = route.note;
+  els.dnsModeValue.textContent = presentation.label;
+  els.dnsProfileValue.textContent = data.profile === 'strict' ? 'Строгий' : data.profile === 'resilient' ? 'Отказоустойчивый' : '—';
+  els.dnsListenerValue.textContent = mode === 'test' || mode === 'active' ? ':1053' : 'Не активен';
+  const ipv4Addresses = capabilities.addresses?.ipv4 || [];
+  const ipv6Addresses = capabilities.addresses?.ipv6 || [];
+  const ipv6Path = normalizeProtectedDnsChecks(capabilities).find((item) => item.id === 'ip6tables');
+  els.dnsIpv4Value.textContent = lanSelection.state !== 'ready'
+    ? 'Не проверено: выберите LAN'
+    : lanDraftChanged ? 'Не проверено после изменения LAN'
+      : ipv4Addresses.length ? `Готово · ${ipv4Addresses.join(', ')}` : 'Не готово';
+  els.dnsIpv6Value.textContent = lanSelection.state !== 'ready'
+    ? 'Не проверено: выберите LAN'
+    : lanDraftChanged ? 'Не проверено после изменения LAN'
+      : capabilities.ipv6ClientDns === true
+        ? `${getProtectedDnsCheckState(ipv6Path || {}) === 'ok' ? 'Готово' : 'Путь не готов'}${ipv6Addresses.length ? ` · ${ipv6Addresses.join(', ')}` : ''}`
+        : capabilities.ipv6ClientDns === false ? 'Не обнаружен в выбранных LAN' : 'Не проверено';
+  els.dnsCheckedAt.textContent = getProtectedDnsTime(data.health?.lastProbeAt || runtime.updatedAt);
+  els.dnsSystemResolver.textContent = fallback.ndnproxyPort ? `ndnproxy :${fallback.ndnproxyPort}` : '—';
+  els.dnsProviderServers.textContent = getProtectedDnsProviderServers(providerDns);
+  els.dnsProviderServers.title = providerDns.error || '';
+  els.dnsIgnoreProviderV4.textContent = getProtectedDnsBooleanText(
+    providerDns.ignoreIpv4 ?? (providerDns.changed === false ? 'Не определено · без изменений' : undefined),
+    'Да',
+    'Нет',
+  );
+  els.dnsIgnoreProviderV6.textContent = getProtectedDnsBooleanText(
+    providerDns.ignoreIpv6 ?? (providerDns.changed === false ? 'Не определено · без изменений' : undefined),
+    'Да',
+    'Нет',
+  );
+  els.dnsTransitState.textContent = transitDns.blocked === true
+    ? 'Перехватываются'
+    : transitDns.blocked === false
+      ? 'Разрешены'
+      : transitDns.changed === false ? 'Не определено · без изменений' : '—';
+  els.dnsFallbackState.textContent = fallbackPresentation.state;
+  els.dnsFallbackState.title = fallbackPresentation.message;
+  const localNames = Array.isArray(preview?.plan?.localNames) ? preview.plan.localNames : [];
+  els.dnsLocalResolver.textContent = capabilities.localResolver?.ok === true
+    ? `127.0.0.1:41100 · ${localNames.length ? localNames.join(', ') : 'локальные имена из плана'}`
+    : capabilities.ready === true ? 'Не используется: UDP-проверка не пройдена' : 'Не используется до успешной проверки';
+
+  const upstreamInput = getProtectedDnsUpstreamInput();
+  if (els.dnsUpstreamServers) {
+    const text = state.protectedDns.upstreamsDraft ?? getProtectedDnsSavedUpstreams().join('\n');
+    if (els.dnsUpstreamServers.value !== text) els.dnsUpstreamServers.value = text;
+    els.dnsUpstreamServers.disabled = !apiAvailable || settingsLocked;
+    els.dnsUpstreamServers.setAttribute('aria-invalid', upstreamInput.error ? 'true' : 'false');
+    els.dnsUpstreamStatus.textContent = runtime.requestedMode === 'active'
+      ? 'Для изменения серверов сначала вернитесь к системному DNS. Затем выполните проверку, тест и включение защиты.'
+      : upstreamInput.error || 'Изменения применяются через проверку и тестовый режим. Все эти серверы используют выбранную прокси-группу.';
+    els.dnsUpstreamStatus.classList.toggle('is-error', Boolean(upstreamInput.error));
+  }
+  const upstreams = getProtectedDnsUpstreamLabels(preview?.plan?.upstreams || getProtectedDnsSavedUpstreams());
+  const upstreamRoute = groupChange.active ? groupChange.current : els.dnsProxyGroup.value || 'PROXY';
+  const upstreamState = changingRoute ? 'применение изменений' : ['unknown', 'fallback'].includes(mode) ? 'маршрут не подтверждён' : `через ${upstreamRoute}`;
+  els.dnsUpstreams.textContent = `${upstreams.length ? upstreams.join(', ') : 'Cloudflare и Google'} · ${upstreamState}`;
+  els.dnsStrictOptions.hidden = !strictSelected;
+  els.dnsStrictOptions.disabled = !strictSelected || settingsLocked;
+  els.dnsProfileResilient.disabled = settingsLocked;
+  els.dnsProfileStrict.disabled = settingsLocked;
+  els.dnsProxyGroup.disabled = !apiAvailable || busy || fallback.pending === true || runtime.requestedMode === 'active' && mode !== 'active';
+  if (els.dnsSwitchButton) {
+    els.dnsSwitchButton.hidden = !groupChange.active;
+    els.dnsSwitchButton.disabled = groupChange.disabled;
+    els.dnsSwitchButton.title = groupChange.message || (!groupChange.changed ? 'Выберите другую DNS-группу.' : 'Новый маршрут будет проверен; при ошибке восстановим прежнюю защиту.');
+    els.dnsSwitchButton.textContent = state.protectedDns.action === 'switch' ? 'Меняем группу…' : 'Применить смену группы';
+  }
+  renderProtectedDnsSmartGroup();
+  if (els.dnsWhitelistDns) {
+    els.dnsWhitelistDns.disabled = !apiAvailable || busy || runtime.requestedMode === 'active';
+    const enabled = els.dnsWhitelistDns.checked;
+    const planned = preview?.plan?.whitelistDns;
+    els.dnsWhitelistDnsStatus.textContent = runtime.requestedMode === 'active'
+      ? `${runtime.whitelistDns ? `Яндекс DoT настроен для ${runtime.whitelistDnsCount} доменов.` : 'Опция выключена.'} Для изменения сначала вернитесь к системному DNS.`
+      : planned?.enabled ? `Проверен план для ${planned.count} доменов. Доступность Яндекс DoT этой проверкой не подтверждается.`
+        : enabled ? 'Выбрано: Яндекс Safe DoT. Проверьте план и запустите тестовый режим; после обновления списка повторите применение DNS.'
+          : 'Выключено. Применяется после проверки и тестового режима.';
+  }
+  renderProtectedDnsLanSelector(capabilities, settingsLocked);
+  renderProtectedDnsCapabilities(capabilities);
+  renderProtectedDnsConfigCheck(preview?.configCheck);
+  renderProtectedDnsPlan(preview?.plan);
+  renderProtectedDnsWarnings(visible.warnings || [], strictSelected);
+  renderProtectedDnsExclusions(data.exclusions || []);
+  renderProtectedDnsEvents();
+
+  els.dnsRefreshButton.disabled = !apiAvailable || busy;
+  els.dnsPreviewButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error);
+  els.dnsPreviewButton.textContent = state.protectedDns.action === 'preview' ? 'Проверяем…' : 'Проверить и показать план';
+  els.dnsSystemButton.disabled = !apiAvailable || busy || (mode === 'system' && fallback.pending !== true);
+  els.dnsTestButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error) || strictSelected || !canTest || mode === 'active';
+  els.dnsActivateButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error) || strictSelected || !canActivate || mode !== 'test';
+  els.dnsTestButton.textContent = state.protectedDns.action === 'test' ? 'Запускаем тест…' : 'Запустить тестовый режим';
+  els.dnsActivateButton.textContent = state.protectedDns.action === 'activate' ? 'Включаем…' : 'Включить защиту';
+  els.dnsSystemButton.textContent = state.protectedDns.action === 'system' ? 'Возвращаем…' : 'Вернуться к системному DNS';
+  els.dnsTestButton.title = strictSelected
+    ? 'Строгий профиль в этой версии доступен только для предварительной проверки.'
+    : !canTest ? 'Сначала выполните успешную проверку и изучите план.' : '';
+  els.dnsActivateButton.title = strictSelected
+    ? 'Активация строгого профиля пока недоступна.'
+    : !canActivate ? 'Проверка не подтвердила готовность к безопасному перехвату.'
+      : mode !== 'test' ? 'Сначала успешно запустите тестовый режим.' : '';
+  const nextStep = mode === 'active' ? 'active'
+    : !strictSelected && canTest && mode === 'test' && canActivate ? 'activate'
+      : !strictSelected && canTest && (mode !== 'test' || protectedDnsUpstreamsNeedTest()) ? 'test' : 'preview';
+  els.dnsFlowHint.textContent = !apiAvailable
+    ? 'Откройте MihUI на роутере, чтобы настроить защиту DNS.'
+    : changingRoute ? 'Во время применения запросы могут кратковременно идти через системный DNS. Защита будет подтверждена после проверки DNS-ответов.'
+      : busy ? 'Дождитесь завершения проверки роутера.'
+      : mode === 'active' ? groupChange.message || (groupChange.changed
+        ? `Выбрана группа ${groupChange.selected}. Нажмите «Применить смену группы»: приложение проверит новый маршрут и восстановит защиту.`
+        : 'Защита включена. Для смены прокси выберите другую группу и примените изменение. Остальные настройки меняются через системный режим.')
+        : lanSelection.state !== 'ready' ? lanSelection.message
+          : strictSelected ? 'Строгий профиль доступен только для просмотра плана. Для включения выберите отказоустойчивый профиль в дополнительных настройках.'
+            : nextStep === 'activate' ? 'Тест пройден. Включите защиту, чтобы перевести устройства на защищённый DNS.'
+              : nextStep === 'test' ? 'Настройки проверены. Запустите тест: устройства пока останутся на системном DNS.'
+                : 'Проверьте настройки. Это покажет план изменений и не переключит DNS устройств.';
+  for (const [step, button] of [['preview', els.dnsPreviewButton], ['test', els.dnsTestButton], ['activate', els.dnsActivateButton]]) {
+    button.hidden = step !== 'preview' && step !== nextStep;
+    button.classList.toggle('primary', step === nextStep);
+    document.querySelector(`[data-dns-step="${step}"]`).setAttribute('aria-current', step === nextStep || nextStep === 'active' && step === 'activate' ? 'step' : 'false');
+  }
+  els.dnsPreviewButton.hidden = mode === 'active';
+  els.dnsSystemButton.hidden = mode === 'system' && fallback.pending !== true || mode === 'unknown';
+  els.dnsDownloadButton.disabled = !state.protectedDns.events.length;
+  els.dnsActionNotice.hidden = !(state.protectedDns.error || state.protectedDns.notice || state.protectedDns.action);
+  els.dnsActionNotice.className = state.protectedDns.error ? 'is-error' : state.protectedDns.noticeTone === 'success' ? 'is-success' : '';
+  els.dnsActionNotice.textContent = state.protectedDns.error
+    || state.protectedDns.notice
+    || (changingRoute ? 'Применяем изменения DNS с временным системным резервом. При ошибке проверим и восстановим прежнюю защиту.'
+      : state.protectedDns.action ? 'Операция выполняется. Текущее состояние изменится только после ответа роутера.' : '');
+  if (changingRoute) {
+    els.dnsStateBadge.className = 'dns-protection-state is-idle';
+    els.dnsStateBadge.textContent = 'Применение изменений';
+    els.dnsStateTitle.textContent = 'Проверяем маршрут DNS';
+    els.dnsStateMessage.textContent = 'Во время применения возможен краткий переход на системный DNS. Итог появится после проверки нового маршрута или восстановления прежнего.';
+  }
+}
+
+async function previewProtectedDns() {
+  if (state.protectedDns.action || !state.routerApiAvailable) return;
+  const upstreamError = getProtectedDnsUpstreamInput().error;
+  if (upstreamError) {
+    state.protectedDns.error = upstreamError;
+    renderProtectedDns();
+    return;
+  }
+  const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
+  if (lanSelection.state !== 'ready') {
+    state.protectedDns.error = lanSelection.message;
+    renderProtectedDns();
+    return;
+  }
+  state.protectedDns.action = 'preview';
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  renderProtectedDns();
+  try {
+    const data = await apiJson('/api/dns/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify(getProtectedDnsPayload()),
+    });
+    mergeProtectedDnsResponse(data, { preview: true });
+    state.protectedDns.notice = data.message || 'Проверка завершена. Изучите план перед запуском тестового режима.';
+    state.protectedDns.noticeTone = data.capabilities?.ready ? 'success' : 'warning';
+  } catch (error) {
+    if (error?.data && typeof error.data === 'object') {
+      mergeProtectedDnsErrorResponse(error.data);
+    }
+    state.protectedDns.error = getProtectedDnsErrorMessage(error, 'preview');
+  } finally {
+    state.protectedDns.action = '';
+    renderProtectedDns();
+  }
+}
+
+async function requestProtectedDnsOperation(payload) {
+  payload.operationId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('');
+  const deadline = Date.now() + 150000;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20000);
+  try {
+    const result = await apiJson('/api/dns/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!result.pending) return result;
+  } catch (error) {
+    if (error?.data) throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+  state.protectedDns.notice = 'Ответ роутера задерживается. Операция может продолжаться — проверяем её итог…';
+  state.protectedDns.noticeTone = 'warning';
+  renderProtectedDns();
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 3000));
+    const pollController = new AbortController();
+    const pollTimer = window.setTimeout(() => pollController.abort(), 5000);
+    let operation;
+    try {
+      const data = await apiJson(`/api/dns/operation?id=${encodeURIComponent(payload.operationId)}`, { signal: pollController.signal });
+      operation = data.operation;
+    } catch (error) {
+      // A lost connection does not say whether the router applied the change.
+    } finally {
+      window.clearTimeout(pollTimer);
+    }
+    if (!operation || operation.id !== payload.operationId || operation.running || !operation.body) continue;
+    if (operation.body.ok === true) return operation.body;
+    const error = new Error(operation.body.message || 'Операция DNS не выполнена');
+    error.data = operation.body;
+    throw error;
+  }
+  const error = new Error('Итог операции DNS неизвестен. Обновите состояние после восстановления связи с роутером.');
+  error.uncertain = true;
+  throw error;
+}
+
+async function runProtectedDnsAction(action) {
+  if (state.protectedDns.action || !state.routerApiAvailable) return;
+  if (action === 'switch' && getProtectedDnsGroupChangeState().disabled) return;
+  const previousRevision = state.routerConfigRevision;
+  const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
+  if (action !== 'system' && action !== 'switch' && lanSelection.state !== 'ready') {
+    state.protectedDns.error = lanSelection.message;
+    renderProtectedDns();
+    return;
+  }
+  state.protectedDns.action = action;
+  state.protectedDns.error = '';
+  state.protectedDns.notice = '';
+  if (action === 'switch') setRouterBusy(true, 'Смена DNS-группы…');
+  renderProtectedDns();
+  try {
+    const payload = getProtectedDnsPayload(action);
+    if (action === 'system') {
+      payload.profile = state.protectedDns.data?.profile || 'resilient';
+      payload.confirmations = { providerDns: false, transitDns: false, wanReconnect: false };
+    }
+    const data = await requestProtectedDnsOperation(payload);
+    const configAdopted = action === 'switch' ? adoptProtectedDnsConfigResult(data, previousRevision) : true;
+    mergeProtectedDnsResponse(data, { syncProfile: true, syncLanSelection: true, syncProxyGroup: true, syncUpstreams: action === 'test' || action === 'activate' });
+    state.protectedDns.preview = action === 'system' ? null : data;
+    state.protectedDns.notice = data.message || {
+      test: 'Тестовый режим подтверждён роутером. Клиенты ещё используют системный DNS.',
+      activate: 'Роутер подтвердил включение защищённого DNS.',
+      system: 'Роутер подтвердил возврат к системному DNS.',
+      switch: 'Новая DNS-группа проверена. Защита восстановлена.',
+    }[action];
+    if (!configAdopted) state.protectedDns.notice += ' Ваш черновик сохранён; перезагрузите конфиг после завершения редактирования.';
+    state.protectedDns.noticeTone = 'success';
+    showMessage(state.protectedDns.notice, { severity: 'success' });
+  } catch (error) {
+    if (action === 'switch' && error.uncertain) mergeProtectedDnsResponse({ mode: 'unknown' });
+    if (error?.data && typeof error.data === 'object') {
+      if (action === 'switch') {
+        const outcome = error.data.restoration ? { ...error.data, ...error.data.restoration } : error.data;
+        if (error.data.restoration) outcome.fallback = { ...state.protectedDns.data?.fallback, pending: outcome.runtime?.fallbackPending === true };
+        adoptProtectedDnsConfigResult(outcome, previousRevision);
+        mergeProtectedDnsResponse(outcome, { syncProfile: true, syncLanSelection: true, syncProxyGroup: true });
+        state.protectedDns.preview = null;
+      } else if (error.data.preview && typeof error.data.preview === 'object') mergeProtectedDnsErrorResponse(error.data);
+      else mergeProtectedDnsResponse(error.data);
+    }
+    state.protectedDns.error = error.uncertain ? error.message : getProtectedDnsErrorMessage(error, action);
+    state.protectedDns.notice = '';
+    showMessage(state.protectedDns.error, { severity: error.uncertain || error?.data?.uncertain ? 'warning' : 'error' });
+  } finally {
+    state.protectedDns.action = '';
+    if (action === 'switch') setRouterBusy(false, 'Перезагрузить с роутера');
+    renderProtectedDns();
+  }
+}
+
+function downloadProtectedDnsLog() {
+  if (!state.protectedDns.events.length) return;
+  const payload = JSON.stringify({
+    exportedAt: new Date().toISOString(),
+    revision: state.protectedDns.data?.revision || '',
+    events: state.protectedDns.events,
+  }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mihui-protected-dns-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function dnsObservationSettings() {
+  const lines = String(els.dnsObservationNames.value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return {
+    localObservation: true,
+    enabled: els.dnsObservationEnabled.checked,
+    intervalSeconds: Number(els.dnsObservationInterval.value),
+    timeoutMs: Number(els.dnsObservationTimeout.value),
+    localNames: lines.map((line) => {
+      const [name, ...addresses] = line.split(/\s+/);
+      return { name, expectedAddresses: addresses.join(',').split(',').filter(Boolean) };
+    }),
+  };
+}
+
+function mergeDnsObservation(data) {
+  const observation = state.dnsObservation;
+  if (!observation.dirty) {
+    const config = data.config || {};
+    els.dnsObservationEnabled.checked = Boolean(config.enabled && config.localObservation);
+    els.dnsObservationInterval.value = String(config.localObservation ? config.intervalSeconds : 300);
+    els.dnsObservationTimeout.value = String(config.localObservation ? config.timeoutMs : 4000);
+    els.dnsObservationNames.value = (config.localNames || [])
+      .map((entry) => `${entry.name}${entry.expectedAddresses?.length ? ` ${entry.expectedAddresses.join(', ')}` : ''}`).join('\n');
+  }
+  observation.data = data;
+}
+
+async function loadDnsObservation() {
+  if (!state.routerApiAvailable || state.dnsObservation.loading || state.dnsObservation.busy) return;
+  state.dnsObservation.loading = true;
+  try {
+    mergeDnsObservation(await apiJson('/api/dns/observation?limit=12'));
+    state.dnsObservation.error = '';
+  } catch (error) {
+    state.dnsObservation.error = `Не удалось загрузить наблюдение: ${error.message || error}`;
+  } finally {
+    state.dnsObservation.loading = false;
+    renderDnsObservation();
+  }
+}
+
+function observationProbeText(probe) {
+  const comparison = { expected: 'Ожидаемый IP', same: 'Как у системного DNS', different: 'Ответ отличается',
+    no_baseline: 'Нет подтверждённого эталона', incomplete: 'Ответ не получен полностью' };
+  const errors = { timeout: 'Тайм-аут', refused: 'Соединение отклонено', no_route: 'Нет маршрута',
+    reset: 'Соединение сброшено', network: 'Ошибка запроса', certificate: 'Ошибка сертификата', tls: 'Ошибка TLS' };
+  const answer = probe.error ? (errors[probe.error.category] || 'Ошибка запроса')
+    : probe.truncated ? 'Ответ обрезан'
+      : probe.rcode === 3 ? 'Имя не найдено (NXDOMAIN)'
+        : probe.rcode !== 0 ? `Ошибка DNS: ${probe.rcode}` : probe.addresses?.join(', ') || 'Нет записей этого типа';
+  const resolver = probe.resolver === 'system' ? 'Системный DNS' : probe.resolver === 'mihomo' ? 'Mihomo' : 'Резолвер прошивки';
+  return `${probe.name} · ${probe.type}/${String(probe.transport).toUpperCase()} · ${resolver} :${probe.port} — ${answer} · ${comparison[probe.comparison] || 'Не сравнивалось'} · ${probe.latencyMs} мс`;
+}
+
+function renderDnsObservation() {
+  if (!els.dnsObservationNotice) return;
+  const observation = state.dnsObservation;
+  const data = observation.data || {};
+  const running = Boolean(data.job?.running);
+  const busy = observation.busy || observation.loading;
+  const ready = state.routerApiAvailable && Boolean(observation.data);
+  [els.dnsObservationEnabled, els.dnsObservationInterval, els.dnsObservationTimeout, els.dnsObservationNames]
+    .forEach((control) => { control.disabled = observation.busy || !ready; });
+  els.dnsObservationNotice.textContent = observation.error || (busy ? 'Операция выполняется…'
+    : observation.dirty ? 'Есть несохранённые настройки наблюдения.'
+      : running ? 'Замер выполняется. При выключении текущий замер завершится, новые запускаться не будут.'
+        : data.config?.enabled && data.config?.localObservation ? 'Периодическое наблюдение включено.'
+          : data.config?.localObservation ? 'Периодическое наблюдение выключено. Доступен разовый замер.'
+            : 'Периодическое наблюдение выключено. Для первого замера сохраните настройки.');
+  els.dnsObservationSave.disabled = !ready || busy;
+  els.dnsObservationCheck.disabled = !ready || busy || running || observation.dirty || !data.config?.localObservation;
+  els.dnsObservationRefresh.disabled = !state.routerApiAvailable || busy;
+  els.dnsObservationDownload.disabled = !ready || busy;
+  const latest = data.latest;
+  const local = latest?.observation;
+  if (!local) {
+    els.dnsObservationSummary.textContent = latest?.type === 'internal_error'
+      ? 'Последний замер завершился внутренней ошибкой. Подробности доступны в экспорте.'
+      : 'Замеров домашних имён ещё нет.';
+  } else {
+    const ports = local.candidatePorts?.join(', ') || 'не найдены';
+    const differences = local.probes.filter((probe) => probe.comparison === 'different').length;
+    const confirmed = local.probes.filter((probe) => ['same', 'expected'].includes(probe.comparison)).length;
+    const uncertain = local.probes.length - differences - confirmed;
+    const external = [...(latest.probes?.plain || []), ...(latest.probes?.encrypted || [])];
+    const externalOk = external.filter((probe) => probe.ok).length;
+    els.dnsObservationSummary.textContent = `Последний замер: ${new Date(latest.timestamp * 1000).toLocaleString('ru-RU')}. `
+      + `Порты-кандидаты: ${ports}; проверяются не более трёх. В управляемом DNS-блоке: ${local.appliedLocalPort || 'не указан'}. `
+      + `${local.names.length ? `Совпадений с эталоном: ${confirmed}; расхождений: ${differences}; без подтверждения: ${uncertain}.` : 'Домашние имена не заданы — их работа не проверена.'} `
+      + `${local.mihomoConfigured ? '' : 'Mihomo :1053 не настроен — сравнение с ним пропущено. '}`
+      + `Ответы внешних контрольных DNS: ${externalOk}/${external.length}; это не доказательство DIRECT или обрыва WAN. `
+      + `${local.rebootDetected ? 'Обнаружена перезагрузка. ' : ''}${local.candidatesChanged ? 'Список портов изменился. ' : ''}`
+      + `${latest.contextChangedDuringMeasurement ? 'Во время замера изменились настройки или контекст белых списков. ' : ''}`
+      + 'Путь LAN-клиента не проверен.';
+  }
+  els.dnsObservationResults.replaceChildren();
+  for (const probe of local?.probes || []) {
+    const row = document.createElement('p');
+    row.textContent = observationProbeText(probe);
+    els.dnsObservationResults.append(row);
+  }
+  els.dnsObservationEvents.replaceChildren();
+  const whitelistLabels = { active: 'резервный режим активен', confirmed: 'признаки подтверждены',
+    suspected: 'есть подозрение', normal: 'ограничения не обнаружены', disabled: 'монитор выключен' };
+  for (const event of [...(data.events || [])].reverse().filter((item) => item.observation).slice(0, 8)) {
+    const row = document.createElement('p');
+    const failed = event.observation.probes.filter((probe) => probe.comparison === 'different' || probe.comparison === 'incomplete').length;
+    row.textContent = `${new Date(event.timestamp * 1000).toLocaleString('ru-RU')} · Расхождения/неполные ответы: ${failed}`
+      + ` · Белые списки: ${whitelistLabels[event.whitelist?.state] || 'нет данных'}`;
+    els.dnsObservationEvents.append(row);
+  }
+}
+
+async function runDnsObservationAction(action) {
+  const observation = state.dnsObservation;
+  if (!state.routerApiAvailable || observation.busy || observation.loading) return;
+  if (action === 'check' && (observation.dirty || !observation.data?.config?.localObservation)) return;
+  observation.busy = true;
+  observation.error = '';
+  renderDnsObservation();
+  try {
+    const data = await apiJson(`/api/dns/observation/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'dns-observation' },
+      body: JSON.stringify(action === 'settings' ? dnsObservationSettings() : {}),
+    });
+    if (action === 'settings') {
+      observation.dirty = false;
+      mergeDnsObservation(data);
+    } else {
+      observation.data = { ...observation.data, job: data.job };
+    }
+  } catch (error) {
+    observation.error = `Наблюдение: ${error.message || error}`;
+  } finally {
+    observation.busy = false;
+    renderDnsObservation();
+  }
+}
+
+async function downloadDnsObservation() {
+  if (!state.routerApiAvailable || state.dnsObservation.busy) return;
+  state.dnsObservation.busy = true;
+  renderDnsObservation();
+  try {
+    const data = await apiJson('/api/dns/observation?limit=576');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mihui-dns-observation-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    state.dnsObservation.error = `Не удалось скачать наблюдение: ${error.message || error}`;
+  } finally {
+    state.dnsObservation.busy = false;
+    renderDnsObservation();
+  }
 }
 
 function getWhitelistMonitorStatePresentation(value, evidenceState = '') {
@@ -4641,7 +6702,8 @@ function normalizeWhitelistMonitorHistoryState(value) {
   if (value === 'normal') return 'normal';
   if (value === 'confirmed') return 'confirmed';
   if (['suspected', 'unknown', 'error'].includes(value)) return 'disputed';
-  return 'idle';
+  if (value === 'idle') return 'idle';
+  return null;
 }
 
 function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hours = 24) {
@@ -4654,12 +6716,13 @@ function buildWhitelistMonitorTimeline(events, runtime, nowMs = Date.now(), hour
       at: getWhitelistMonitorHistoryTimestamp(event.timestamp ?? event.at),
       state: normalizeWhitelistMonitorHistoryState(event.type),
     }))
-    .filter((event) => Number.isFinite(event.at) && event.at <= windowEnd);
+    .filter((event) => event.state && Number.isFinite(event.at) && event.at <= windowEnd);
   const runtimeAt = getWhitelistMonitorHistoryTimestamp(runtime?.checkedAt);
-  if (Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
+  const runtimeState = normalizeWhitelistMonitorHistoryState(runtime?.state);
+  if (runtimeState && Number.isFinite(runtimeAt) && runtimeAt <= windowEnd) {
     transitions.push({
       at: runtimeAt,
-      state: normalizeWhitelistMonitorHistoryState(runtime?.state),
+      state: runtimeState,
     });
   }
   transitions.sort((left, right) => left.at - right.at);
@@ -4776,6 +6839,7 @@ function renderWhitelistMonitor() {
   renderWhitelistMonitorHistory(runtime);
   els.whitelistMonitorIntro.hidden = enabled;
   els.whitelistMonitorDetails.hidden = !enabled;
+  renderWhitelistDomainList();
   if (!enabled) return;
 
   els.whitelistMonitorStateBadge.className = `whitelist-monitor-state is-${runtimeState}`;
@@ -4807,6 +6871,62 @@ function renderWhitelistMonitor() {
   els.whitelistMonitorSaveButton.disabled = state.whitelistMonitor.loading || state.whitelistMonitor.checking;
 }
 
+function renderWhitelistDomainList() {
+  if (!els.whitelistDomainListBadge) return;
+  const status = state.whitelistMonitor.domainList || {};
+  const running = Boolean(status.job?.running);
+  const ready = Boolean(status.ready);
+  const failed = Boolean(status.lastError);
+  const stale = Boolean(status.stale);
+  let badge = 'Нет данных';
+  let tone = 'idle';
+  let title = 'Локальный список разрешённых доменов';
+  let message = 'MihUI загрузит и проверит список независимо от переключения режима.';
+  if (running) {
+    badge = 'Обновляется';
+    tone = 'suspected';
+    message = ready
+      ? 'Текущий проверенный снимок остаётся доступен до завершения обновления.'
+      : 'MihUI получает первый снимок. Переключение не будет обращаться к GitHub.';
+  } else if (!ready) {
+    badge = 'Не готов';
+    tone = 'error';
+    message = failed
+      ? `Первый снимок не получен: ${status.lastError}`
+      : 'Первый проверенный снимок ещё не получен. Автопереключение пока заблокировано.';
+  } else if (stale) {
+    badge = 'Устарел';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = failed
+      ? `Обновление не удалось: ${status.lastError}`
+      : 'Снимок старше двух суток; MihUI продолжит использовать его и повторит обновление.';
+  } else if (failed) {
+    badge = 'Сохранённая копия';
+    tone = 'suspected';
+    title = 'Используется last-known-good снимок';
+    message = `Последнее обновление не удалось: ${status.lastError}`;
+  } else {
+    badge = 'Актуален';
+    tone = 'normal';
+    title = 'Список готов к переключению';
+    message = 'Снимок проверен и будет использован локально без запроса к GitHub в момент переключения.';
+  }
+  els.whitelistDomainListBadge.className = `whitelist-monitor-state is-${tone}`;
+  els.whitelistDomainListBadge.textContent = badge;
+  els.whitelistDomainListTitle.textContent = title;
+  els.whitelistDomainListMessage.textContent = message;
+  els.whitelistDomainListSource.textContent = status.source || 'hxehex/russia-mobile-internet-whitelist';
+  if (status.sourceUrl) els.whitelistDomainListSource.href = status.sourceUrl;
+  els.whitelistDomainListCount.textContent = String(status.count || 0);
+  els.whitelistDomainListUpdatedAt.textContent = status.updatedAt
+    ? formatResourceMonitorTime(status.updatedAt)
+    : '—';
+  els.whitelistDomainListNextAt.textContent = status.nextUpdateAt
+    ? formatResourceMonitorTime(status.nextUpdateAt)
+    : '—';
+}
+
 function getWhitelistFallbackRules() {
   return getActiveRules().filter((rule) => (
     String(rule.comment || '').toLowerCase().includes(WHITELIST_FALLBACK_MARKER)
@@ -4822,11 +6942,45 @@ function renderWhitelistMonitorProposal(config, runtime) {
     els.whitelistMonitorProposal.hidden = true;
     return;
   }
-  const fallbackActive = isWhitelistFallbackConfigActive();
+  const automatic = config.actionMode === 'automatic';
+  const fallbackActive = automatic
+    ? Boolean(runtime.fallbackActive)
+    : isWhitelistFallbackConfigActive();
   const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
   const shouldSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !fallbackActive;
   const cannotSuggest = config.actionMode === 'suggest' && runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
   const shouldRestore = fallbackActive && runtime.state === 'normal';
+  if (automatic) {
+    const pending = runtime.automaticActionPending || '';
+    const failed = runtime.lastConfigActionOk === false && Boolean(pending);
+    const cannotActivate = runtime.state === 'confirmed' && !proxyReady && !fallbackActive;
+    els.whitelistMonitorProposal.hidden = !fallbackActive && !pending && !failed && !cannotActivate;
+    if (els.whitelistMonitorProposal.hidden) return;
+    els.whitelistMonitorProposal.classList.toggle('is-active', fallbackActive);
+    els.whitelistMonitorProposalButton.hidden = true;
+    if (failed) {
+      els.whitelistMonitorProposalBadge.textContent = 'Ошибка автозамены';
+      els.whitelistMonitorProposalTitle.textContent = 'Конфиг не переключён';
+      els.whitelistMonitorProposalMessage.textContent = runtime.lastConfigActionMessage || 'MihUI повторит попытку после защитной паузы.';
+    } else if (pending === 'restore') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает восстановления';
+      els.whitelistMonitorProposalTitle.textContent = 'Нормальный доступ подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'Исходная маршрутизация будет восстановлена после 15-минутной защитной паузы между заменами.';
+    } else if (pending === 'activate') {
+      els.whitelistMonitorProposalBadge.textContent = 'Ожидает замены';
+      els.whitelistMonitorProposalTitle.textContent = 'Режим белых списков подтверждён';
+      els.whitelistMonitorProposalMessage.textContent = 'MihUI применит временную маршрутизацию после 15-минутной защитной паузы между заменами.';
+    } else if (cannotActivate) {
+      els.whitelistMonitorProposalBadge.textContent = 'PROXY не подтверждён';
+      els.whitelistMonitorProposalTitle.textContent = 'Автозамена приостановлена';
+      els.whitelistMonitorProposalMessage.textContent = 'Выбранная PROXY-группа не восстановила достаточно контрольных ресурсов.';
+    } else {
+      els.whitelistMonitorProposalBadge.textContent = 'Применено автоматически';
+      els.whitelistMonitorProposalTitle.textContent = 'Временная маршрутизация активна';
+      els.whitelistMonitorProposalMessage.textContent = `Остальной трафик направляется в ${config.proxyGroup}. Исходные правила вернутся после устойчивого восстановления DIRECT.`;
+    }
+    return;
+  }
   els.whitelistMonitorProposal.hidden = !shouldSuggest && !cannotSuggest && !shouldRestore && !fallbackActive;
   if (els.whitelistMonitorProposal.hidden) return;
 
@@ -4903,9 +7057,12 @@ function createWhitelistFallbackRule(type, value, target, comment, insertBeforeR
   };
 }
 
-function prepareWhitelistFallbackConfig(settings) {
+function prepareWhitelistFallbackConfig(settings, domainList) {
   if (isWhitelistFallbackConfigActive()) return;
-  const hosts = getWhitelistAllowedHosts(settings);
+  const hosts = [...new Set([
+    ...(Array.isArray(domainList) ? domainList : []),
+    ...getWhitelistAllowedHosts(settings),
+  ])];
   if (!hosts.length) throw new Error('Не найдены включённые разрешённые адреса.');
   if (!state.groups.some((group) => group.name === settings.proxyGroup)) {
     throw new Error(`Прокси-группа ${settings.proxyGroup} отсутствует в конфигурации.`);
@@ -4939,6 +7096,7 @@ function removeWhitelistFallbackConfig() {
 }
 
 function prepareWhitelistMonitorDisable(settings) {
+  state.whitelistMonitor.proposalSnapshot = null;
   state.whitelistMonitor.pendingSettings = {
     ...cloneWhitelistMonitorSettings(settings),
     enabled: false,
@@ -4946,7 +7104,7 @@ function prepareWhitelistMonitorDisable(settings) {
   removeWhitelistFallbackConfig();
 }
 
-function handleWhitelistMonitorProposal() {
+async function handleWhitelistMonitorProposal() {
   if (hasUnsavedRouterChanges()) {
     state.whitelistMonitor.error = 'Сначала сохраните или отмените текущие изменения конфигурации.';
     renderWhitelistMonitor();
@@ -4961,11 +7119,15 @@ function handleWhitelistMonitorProposal() {
         severity: 'warning',
       });
     } else {
-      prepareWhitelistFallbackConfig(config);
+      const domainList = await loadWhitelistDomainListDomains();
+      prepareWhitelistFallbackConfig(config, domainList);
       showMessage('Временные правила добавлены в черновик. Проверьте их перед сохранением.', {
         severity: 'warning',
       });
     }
+    state.whitelistMonitor.proposalSnapshot = {
+      action: fallbackActive ? 'restore' : 'activate',
+    };
     state.whitelistMonitor.error = '';
     render();
     setActiveSection('review');
@@ -4979,6 +7141,7 @@ function renderWhitelistMonitorForm() {
   const settings = getWhitelistMonitorDraft();
   els.whitelistMonitorInterval.value = String(settings.intervalSeconds);
   els.whitelistMonitorConfirmations.value = String(settings.confirmationThreshold);
+  els.whitelistMonitorRecoveryConfirmations.value = String(settings.recoveryThreshold || 3);
   els.whitelistMonitorTimeout.value = String(settings.timeoutMs);
   els.whitelistMonitorProxyGroup.value = settings.proxyGroup || 'PROXY';
   els.whitelistMonitorActionMode.value = settings.actionMode || 'observe';
@@ -5130,7 +7293,7 @@ function renderWhitelistMonitorEvents() {
     const title = document.createElement('strong');
     const details = document.createElement('span');
     const date = document.createElement('time');
-    const tone = event.type === 'confirmed'
+    const tone = ['confirmed', 'config_failed'].includes(event.type)
       ? 'error'
       : ['suspected', 'unknown'].includes(event.type)
         ? 'warning'
@@ -5154,10 +7317,45 @@ function formatWhitelistMonitorEventDetails(event) {
   return `DIRECT: ${Number(event.positiveDirectSuccesses || 0)} доступно, ${Number(event.controlDirectFailures || 0)} сбоев · PROXY: ${Number(event.controlProxyRecoveries || 0)} восстановлено · Яндекс: ${Number(event.controlYandexRecoveries || 0)} восстановлено`;
 }
 
+async function validateWhitelistProposalSnapshot() {
+  const snapshot = state.whitelistMonitor.proposalSnapshot;
+  if (!snapshot) return true;
+  try {
+    const data = await apiJson('/api/whitelist-monitor');
+    const config = data.config || defaultWhitelistMonitorClientSettings();
+    const runtime = data.runtime || {};
+    const proxyReady = Number(runtime.controlProxyRecoveries || 0) >= Number(config.controlFailureThreshold || 0);
+    const stillValid = snapshot.action === 'activate'
+      ? config.actionMode === 'suggest' && runtime.state === 'confirmed' && proxyReady && !runtime.fallbackActive
+      : runtime.state === 'normal' && Boolean(runtime.fallbackActive);
+    if (stillValid) return true;
+    showMessage('Состояние сети изменилось после подготовки черновика. Конфиг не сохранён — подготовьте переключение заново.', {
+      severity: 'warning',
+    });
+    return false;
+  } catch (error) {
+    showMessage(`Не удалось повторно проверить режим белых списков: ${error?.message || error}`, {
+      severity: 'error',
+    });
+    return false;
+  }
+}
+
+async function loadWhitelistDomainListDomains() {
+  const data = await apiJson('/api/whitelist-monitor/domain-list');
+  state.whitelistMonitor.domainList = data;
+  renderWhitelistDomainList();
+  if (!data.ready || !Array.isArray(data.domains) || !data.domains.length) {
+    throw new Error(data.lastError || 'Локальный список разрешённых доменов ещё не готов.');
+  }
+  return data.domains;
+}
+
 function handleWhitelistMonitorPolicyInput(event) {
   const draft = getWhitelistMonitorDraft();
   draft.intervalSeconds = Number(els.whitelistMonitorInterval.value);
   draft.confirmationThreshold = Number(els.whitelistMonitorConfirmations.value);
+  draft.recoveryThreshold = Number(els.whitelistMonitorRecoveryConfirmations.value);
   draft.timeoutMs = Number(els.whitelistMonitorTimeout.value);
   draft.proxyGroup = els.whitelistMonitorProxyGroup.value;
   draft.actionMode = els.whitelistMonitorActionMode.value;
@@ -5272,7 +7470,7 @@ function restoreWhitelistMonitorDefaults() {
 
 function validateWhitelistMonitorDraft(settings) {
   if (!settings.proxyGroup.trim()) return 'Укажите прокси-группу.';
-  if (!['observe', 'suggest'].includes(settings.actionMode || 'observe')) {
+  if (!['observe', 'suggest', 'automatic'].includes(settings.actionMode || 'observe')) {
     return 'Выберите действие после подтверждения.';
   }
   if (!settings.positiveEndpoints.some((item) => item.enabled)) {
@@ -5534,12 +7732,16 @@ async function decodeHappProvider(provider) {
     const data = await decodeHappProviderUrl(provider);
     const previousName = provider.name;
     provider.url = data.decryptedUrl || provider.url;
+    provider.sourceKind = 'happ';
     provider.hasUrl = true;
+    if (data.wrapped && canUseXrayProviderAdapter(provider)) provider.sourceFormat = 'xray-json';
     if (provider.autoName) applyGeneratedProviderName(provider, provider.url, previousName);
     state.happDecodeFeedback = {
       provider,
       severity: 'success',
-      message: 'Happ-ссылка расшифрована. Прямой URL подставлен.',
+      message: data.wrapped && provider.sourceFormat === 'xray-json'
+        ? 'Happ-ссылка расшифрована. Xray JSON будет преобразован локально.'
+        : 'Happ-ссылка расшифрована. Прямой URL подставлен.',
     };
     generateOutput();
     render();
@@ -5559,19 +7761,55 @@ async function decodeHappProvider(provider) {
   }
 }
 
+function normalizeHappCryptUrl(value) {
+  const source = String(value || '').trim().replace(/^happ\\*:(?:\\?\/){2}/i, 'happ://');
+  return /^happ:\/\/crypt\d*\//i.test(source) ? source : '';
+}
+
+function extractHappCryptUrl(value) {
+  const source = String(value || '').trim();
+  const direct = normalizeHappCryptUrl(source);
+  if (direct) return direct;
+  try {
+    const parsed = new URL(source);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return '';
+    const supportedKeys = new Set(['link', 'uri', 'url', 'target', 'import', 'sub', 'subscription']);
+    for (const [key, value] of parsed.searchParams) {
+      if (!supportedKeys.has(String(key || '').toLowerCase())) continue;
+      let candidate = String(value || '').trim();
+      let normalized = normalizeHappCryptUrl(candidate);
+      if (normalized) return normalized;
+      try {
+        candidate = decodeURIComponent(candidate);
+      } catch {
+        continue;
+      }
+      normalized = normalizeHappCryptUrl(candidate);
+      if (normalized) return normalized;
+    }
+  } catch {
+    return '';
+  }
+  return '';
+}
+
 async function decodeHappProviderUrl(provider) {
-  if (!canUseBrowserHappDecryptor()) throw new Error('browser Happ decryptor is unavailable');
-  return decodeHappProviderUrlInBrowser(provider.url);
+  if (!canUseBrowserHappDecryptor()) throw new Error('Расшифровка Happ в браузере недоступна.');
+  const sourceUrl = String(provider?.url || '').trim();
+  const happUrl = extractHappCryptUrl(sourceUrl);
+  if (!happUrl) throw new Error('В ссылке не найден полный адрес happ://crypt*.');
+  const result = await decodeHappProviderUrlInBrowser(happUrl);
+  return { ...result, wrapped: happUrl !== sourceUrl };
 }
 
 async function decodeHappProviderUrlInBrowser(sourceUrl) {
   const decryptor = await loadHappBrowserDecryptor();
   if (typeof decryptor.decryptLink !== 'function') {
-    throw new Error('browser module does not export decryptLink');
+    throw new Error('В модуле расшифровки Happ отсутствует функция decryptLink.');
   }
   const decryptedUrl = normalizeBrowserDecodedHappUrl(await decryptor.decryptLink(sourceUrl));
   if (!/^https?:\/\//i.test(decryptedUrl)) {
-    throw new Error('browser decryptor did not return a direct http/https URL');
+    throw new Error('Модуль расшифровки Happ не вернул прямую ссылку HTTP/HTTPS.');
   }
   return {
     ok: true,
@@ -5693,6 +7931,7 @@ function render() {
   renderGroups(activeProviders, groupsWithUse);
   renderNodeInventory();
   renderWhitelistMonitor();
+  renderProtectedDns();
 }
 
 function renderShellStatus(diagnostics) {
@@ -5847,7 +8086,7 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
       attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.', severity: 'neutral' });
     }
     if (changeCount > 0) {
-      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговый diff.', severity: 'neutral' });
+      attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговые изменения.', severity: 'neutral' });
     }
     if (state.routerApiAvailable && state.nodeInventoryError) {
       attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError, severity: 'danger' });
@@ -6015,6 +8254,7 @@ function renderReviewSummary(changes, diagnostics) {
   const warningCount = diagnostics.length - errorCount;
   const kernelCheck = getKernelCheckSummary();
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  const hasRawDraft = state.isEditingConfiguration && getCurrentConfigurationText() !== state.outputText;
 
   els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
   els.reviewChecklist.textContent = '';
@@ -6024,34 +8264,34 @@ function renderReviewSummary(changes, diagnostics) {
   [
     {
       title: 'Локальная проверка',
-      value: !state.originalText
+      value: hasRawDraft ? 'Черновик не разобран' : !state.originalText
         ? 'Нет конфигурации'
         : errorCount > 0
           ? formatErrorCount(errorCount)
           : warningCount > 0
             ? formatWarningCount(warningCount)
             : 'Без ошибок',
-      note: !state.originalText
+      note: hasRawDraft ? 'Локальная проверка обновится после применения ручных изменений.' : !state.originalText
         ? 'Откройте YAML, чтобы запустить проверку.'
         : errorCount > 0
           ? 'Исправьте блокирующие ошибки перед сохранением.'
           : warningCount > 0
             ? 'Проверьте предупреждения перед сохранением.'
             : 'Синтаксис и обязательные поля корректны.',
-      variant: !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
+      variant: hasRawDraft || !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
       icon: 'review',
     },
     {
       title: 'Структура и связи',
-      value: !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
-      note: !state.originalText
+      value: hasRawDraft || !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
+      note: hasRawDraft ? 'Для текущего черновика используйте проверку Mihomo.' : !state.originalText
         ? 'Связи появятся после загрузки конфигурации.'
         : hasStructuralError
           ? 'Отсутствует обязательный раздел proxy-groups.'
           : errorCount > 0
             ? 'Проверьте ссылки между подписками, группами и правилами.'
             : 'Подписки, группы и правила связаны корректно.',
-      variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      variant: hasRawDraft || !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
       action: diagnostics.length > 0 ? focusDiagnosticsPanel : null,
       icon: 'routing',
     },
@@ -6088,7 +8328,7 @@ function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount,
 }
 
 function renderReviewYamlSummary(changeCount) {
-  const text = state.outputText || '';
+  const text = getCurrentConfigurationText();
   const lineCount = text ? text.split(/\r?\n/).length : 0;
   const size = getUtf8ByteLength(text);
   const hasUnsavedChanges = changeCount > 0 || hasUnsavedRouterChanges();
@@ -6129,19 +8369,20 @@ function getUtf8ByteLength(value) {
 }
 
 function getKernelCheckSummary() {
-  if (!state.outputText) {
+  const text = getCurrentConfigurationText();
+  if (!text) {
     return { value: 'нет данных', note: 'Итоговый YAML пустой', variant: 'is-muted' };
   }
-  if (state.originalText && !state.hasGroupsSection) {
+  if (!state.isEditingConfiguration && state.originalText && !state.hasGroupsSection) {
     return { value: 'заблокирована', note: 'Исправьте proxy-groups', variant: 'is-danger' };
   }
   if (!state.routerApiAvailable) {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
   }
-  if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
+  if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
     return { value: 'YAML принят', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
   }
-  if (state.lastConfigCheckText === state.outputText) {
+  if (state.lastConfigCheckText === text) {
     return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
   }
   return { value: 'не проверено', note: 'Нажмите основную кнопку ниже', variant: 'is-warning' };
@@ -6699,7 +8940,7 @@ function getUrlScheme(value) {
 }
 
 function isHappDeepLink(value) {
-  return String(value || '').trim().toLowerCase().startsWith('happ://crypt');
+  return Boolean(extractHappCryptUrl(value));
 }
 
 function collectDuplicateProviderUrls(activeProviders) {
@@ -7016,6 +9257,13 @@ function collectChanges(activeProviders) {
 
   const sections = [];
   const structuralChanges = [];
+  const modelChanges = [];
+  ['lgbm-auto-update', 'lgbm-update-interval'].forEach((key) => {
+    const before = splitLines(state.originalText).find((line) => parseTopLevelKeyValueLine(line)?.key === key);
+    const after = splitLines(state.outputText).find((line) => parseTopLevelKeyValueLine(line)?.key === key);
+    if (before === after) return;
+    modelChanges.push(after ? `Будет добавлен параметр ${after.trim()}.` : `Будет удалён параметр ${key}.`);
+  });
   const connectionSettingChanges = collectConnectionSettingChanges();
   const providerChanges = collectProviderChanges(activeProviders);
   const ruleChanges = collectRuleChanges();
@@ -7029,6 +9277,7 @@ function collectChanges(activeProviders) {
   }
 
   if (structuralChanges.length > 0) sections.push({ title: 'Структура конфигурации', items: structuralChanges });
+  if (modelChanges.length > 0) sections.push({ title: 'Модель LightGBM', items: modelChanges });
   if (connectionSettingChanges.length > 0) sections.push({ title: 'Параметры подключения', items: connectionSettingChanges });
   if (providerChanges.length > 0) sections.push({ title: 'Подписки', items: providerChanges });
   if (ruleChanges.length > 0) sections.push({ title: 'Правила', items: ruleChanges });
@@ -7180,8 +9429,17 @@ function collectGroupUseChanges() {
       changes.push(`Группа ${original.name}: переименована в ${group.name}.`);
     }
 
+    if (group.managedMonitoring && Boolean(group.useLightGBM) !== Boolean(original.useLightGBM)) {
+      changes.push(`Группа ${group.name}: LightGBM будет ${group.useLightGBM ? 'включён' : 'выключен'}.`);
+    }
     if (group.type !== original.type) {
       changes.push(`Группа ${group.name}: тип изменится с ${original.type || 'не задан'} на ${group.type || 'не задан'}.`);
+    }
+    if (group.removeResourceCheckKeys?.length) {
+      changes.push(`Группа ${group.name}: будут удалены дополнительные проверки ядра (${group.removeResourceCheckKeys.join(', ')}).`);
+    }
+    if (group.type === 'smart' && (group.testUrl !== original.testUrl || group.expectedStatus !== original.expectedStatus)) {
+      changes.push(`Группа ${group.name}: проверка Smart — ${group.testUrl}, HTTP ${group.expectedStatus}.`);
     }
 
     collectListDiff(original.proxies, group.proxies).added.forEach((name) => {
@@ -7327,6 +9585,7 @@ function parseXrayProviderAdapterUrl(value) {
       sourceUrl,
       providerName,
       adapterUrl: `${parsed.origin}${parsed.pathname}`,
+      sourceKind: parsed.searchParams.get('source') === 'happ' ? 'happ' : 'direct',
     };
   } catch {
     return null;
@@ -7361,6 +9620,7 @@ function buildXrayProviderAdapterUrl(provider) {
   const output = new URL(endpoint);
   output.searchParams.set('provider', String(provider?.name || '').trim());
   output.searchParams.set('url', String(provider?.url || '').trim());
+  if (provider?.sourceKind === 'happ') output.searchParams.set('source', 'happ');
   return output.toString();
 }
 
@@ -7372,6 +9632,7 @@ function getProviderOutputUrl(provider) {
     && provider.rawUrl
     && provider.originalSourceFormat === 'xray-json'
     && provider.url === provider.originalSourceUrl
+    && (provider.sourceKind || 'direct') === (provider.originalSourceKind || 'direct')
     && provider.name === provider.originalName
     && (!currentEndpoint || currentEndpoint === originalEndpoint);
   if (unchanged) return provider.rawUrl;
@@ -7443,6 +9704,9 @@ function snapshotGroup(group) {
     name: group.name || '',
     originalName: group.originalName || group.name || '',
     type: group.type || '',
+    useLightGBM: Boolean(group.useLightGBM),
+    testUrl: group.testUrl || '',
+    expectedStatus: group.expectedStatus || '',
     proxies: group.proxies.slice(),
     use: group.use.slice(),
     includeAll: Boolean(group.includeAll),
@@ -7452,6 +9716,7 @@ function snapshotGroup(group) {
     excludeFilter: group.excludeFilter || '',
     excludeType: group.excludeType || '',
     managedMonitoring: Boolean(group.managedMonitoring),
+    monitorDirectSources: Boolean(group.monitorDirectSources),
     monitorService: group.monitorService || '',
     monitorSourceGroup: getResourceMonitorGroupSourceNames(group)[0] || '',
     monitorSourceGroups: getResourceMonitorGroupSourceNames(group),
@@ -8316,6 +10581,7 @@ function getNodeGroupSelectionItems(nodes) {
 
   return orderNodeGroupSelectionGroups(groups).map((group) => {
     const selection = selectionByName.get(normalizeLookupName(group.name));
+    const isSmart = String(selection?.type || '').trim().toLowerCase() === 'smart';
     const selectedName = String(selection?.now || '');
     const selectedNode = nodeByName.get(normalizeLookupName(selectedName));
     const selected = selection?.selected || {};
@@ -8326,8 +10592,13 @@ function getNodeGroupSelectionItems(nodes) {
     return {
       groupName: group.name,
       groupType: group.type || selection?.type || 'group',
+      smartFixed: isSmart && typeof selection?.fixed === 'string'
+        ? selection.fixed
+        : '',
       selectedName,
-      selectedDisplayName: selectedNode?.displayName || stripNodeFlagEmoji(selectedName) || 'не выбрано',
+      selectedDisplayName: isSmart && selection?.fixed === '' && selectedName === 'Smart - Select'
+        ? 'Автоматический выбор'
+        : selectedNode?.displayName || stripNodeFlagEmoji(selectedName) || 'не выбрано',
       selectedType,
       statusKey: getNodeStatusKey(selectedStatusSource),
       statusText: formatNodeStatus(selectedStatusSource),
@@ -8379,7 +10650,7 @@ function createNodeGroupSelectionCard(item) {
   meta.textContent = formatNodeGroupSelectionMeta(item);
   current.className = 'node-group-selection-current';
   label.className = 'node-group-selection-label';
-  label.textContent = 'Сейчас';
+  label.textContent = item.smartFixed ? 'Закреплено' : 'Сейчас';
   name.className = 'node-group-selection-name';
   name.textContent = item.isKnown ? item.selectedDisplayName : 'нет данных Mihomo';
   badges.className = 'node-badges';
@@ -8395,7 +10666,19 @@ function createNodeGroupSelectionCard(item) {
   titleRow.append(title, meta);
   current.append(label, name);
   card.append(titleRow, current, badges);
-  if (isSelectableNodeGroup(item)) {
+  if (item.smartFixed) {
+    const actions = document.createElement('div');
+    const button = document.createElement('button');
+    const isBusy = state.nodeGroupSelectingName === item.groupName;
+    actions.className = 'node-group-selection-actions';
+    button.className = 'button compact';
+    button.type = 'button';
+    button.textContent = isBusy ? 'Включение…' : 'Включить автовыбор';
+    button.disabled = Boolean(state.nodeGroupSelectingName);
+    button.addEventListener('click', () => enableSmartGroupAuto(item.groupName));
+    actions.append(button);
+    card.append(actions);
+  } else if (isSelectableNodeGroup(item)) {
     const actions = document.createElement('div');
     const choiceLabel = document.createElement('label');
     const choiceText = document.createElement('span');
@@ -8456,6 +10739,30 @@ async function selectNodeGroup(groupName, proxyName) {
         : `Не удалось переключить группу ${groupName}.`,
       { severity: 'error', details: error?.message || String(error) },
     );
+  } finally {
+    state.nodeGroupSelectingName = '';
+    renderNodeInventory();
+  }
+}
+
+async function enableSmartGroupAuto(groupName) {
+  if (!groupName || state.nodeGroupSelectingName) return;
+  state.nodeGroupSelectingName = groupName;
+  renderNodeInventory();
+  try {
+    await apiJson('/api/groups/auto', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ group: groupName }),
+    });
+    await loadNodeInventory({ silent: true });
+    showMessage(`Группа ${groupName}: автовыбор Smart включён.`, { severity: 'success' });
+  } catch (error) {
+    await loadNodeInventory({ silent: true });
+    showMessage(`Не удалось включить автовыбор группы ${groupName}.`, {
+      severity: 'error',
+      details: error?.message || String(error),
+    });
   } finally {
     state.nodeGroupSelectingName = '';
     renderNodeInventory();
@@ -8800,8 +11107,8 @@ function applyNodeNameFilter(provider, key, rawValue, node) {
   }
 
   const impact = getNodeNameRuleImpact(provider.name, value);
-  if (!impact.valid) {
-    showMessage('Проверьте выражение для filter: оно не распознаётся.', { severity: 'error' });
+  if (impact.valid === false) {
+    showMessage('Проверьте выражение: оно не распознаётся.', { severity: 'error' });
     return;
   }
   applyNodeProviderRule(provider, key, value);
@@ -8809,7 +11116,7 @@ function applyNodeNameFilter(provider, key, rawValue, node) {
   render();
   focusNodeActionTrigger(node, 'name');
   showMessage(
-    `Подписка ${provider.name}: в ${key === 'filter' ? 'filter' : 'exclude-filter'} добавлено «${value}» · совпадений: ${impact.matches.length}.`,
+    `Подписка ${provider.name}: в ${key === 'filter' ? 'filter' : 'exclude-filter'} добавлено «${value}» · ${impact.valid === null ? 'совпадения проверит Mihomo' : `совпадений: ${impact.matches.length}`}.`,
     { severity: 'success' },
   );
 }
@@ -8839,7 +11146,9 @@ function applyNodeProtocolExclude(provider, protocol, node) {
 }
 
 function applyNodeProviderRule(provider, key, value) {
-  const nextValue = appendPipeValue(provider[key], value);
+  const nextValue = key === 'excludeType'
+    ? appendPipeValue(provider[key], value)
+    : appendNodeNamePattern(provider[key], value);
   updateProvider(provider, key, nextValue);
   return nextValue;
 }
@@ -8850,9 +11159,12 @@ function getNodeNameRuleImpact(providerName, rawPattern) {
   if (!pattern) return { matches: [], total: nodes.length, valid: true };
 
   try {
-    const expression = new RegExp(pattern, 'i');
+    const expressions = pattern.split('`').map(compileNodeNamePattern);
+    if (expressions.some((expression) => expression === null)) {
+      return { matches: [], total: nodes.length, valid: null };
+    }
     return {
-      matches: nodes.filter((node) => expression.test(String(node.name || ''))),
+      matches: nodes.filter((node) => expressions.some((expression) => expression.test(String(node.name || '')))),
       total: nodes.length,
       valid: true,
     };
@@ -8861,9 +11173,24 @@ function getNodeNameRuleImpact(providerName, rawPattern) {
   }
 }
 
+function compileNodeNamePattern(pattern) {
+  let source = pattern;
+  const flags = new Set();
+  let modifier;
+  while ((modifier = source.match(/^\(\?([ims]*)(?:-([ims]+))?\)/)) && (modifier[1] || modifier[2])) {
+    for (const flag of modifier[1]) flags.add(flag);
+    for (const flag of modifier[2] || '') flags.delete(flag);
+    source = source.slice(modifier[0].length);
+  }
+  // Leave .NET-specific syntax and character classes to Mihomo's regexp2 engine.
+  if (/\\[a-z0-9]|\(\?(?![:=!])|-\[|\[\^?\]/i.test(source)) return null;
+  return new RegExp(source, [...flags].join(''));
+}
+
 function formatNodeNameRuleImpact(providerName, pattern) {
   const impact = getNodeNameRuleImpact(providerName, pattern);
-  if (!impact.valid) return 'Не удалось посчитать совпадения: проверьте выражение.';
+  if (impact.valid === false) return 'Не удалось посчитать совпадения: проверьте выражение.';
+  if (impact.valid === null) return 'Предпросмотр этого выражения недоступен. При сохранении конфигурацию проверит Mihomo.';
   const examples = impact.matches.slice(0, 3).map((node) => stripNodeFlagEmoji(node.name)).join(', ');
   return `Совпадения: ${impact.matches.length} из ${impact.total}${examples ? ` · ${examples}` : ''}`;
 }
@@ -8897,6 +11224,18 @@ function appendPipeValue(current, value) {
     .filter(Boolean);
   const exists = parts.some((part) => part.toLowerCase() === value.toLowerCase());
   return exists ? parts.join('|') : [...parts, value].join('|');
+}
+
+function appendNodeNamePattern(current, value) {
+  const existing = String(current || '');
+  if (!existing) return value;
+  const patterns = existing.split('`');
+  const additions = value.split('`').filter((pattern) => {
+    if (patterns.includes(pattern)) return false;
+    patterns.push(pattern);
+    return true;
+  });
+  return additions.length ? `${existing}\`${additions.join('`')}` : existing;
 }
 
 function suggestNodeNameFilter(node) {
@@ -11102,7 +13441,7 @@ function createGroupEditorDetail(group, activeProviders) {
   fields.className = 'group-editor-fields';
   nameText.textContent = 'Название группы';
   nameInput.value = group.name || '';
-  nameInput.title = group.isNew ? 'Имя новой группы' : 'Переименование обновит ссылки в rules и proxies других групп.';
+  nameInput.title = group.isNew ? 'Имя новой группы' : 'Переименование обновит ссылки на группу в конфигурации.';
   nameInput.addEventListener('input', () => renameGroup(group, nameInput.value));
   nameInput.addEventListener('change', render);
   nameLabel.append(nameText, nameInput);
@@ -11112,9 +13451,12 @@ function createGroupEditorDetail(group, activeProviders) {
     const option = document.createElement('option');
     option.value = type;
     option.textContent = type;
+    option.disabled = type === 'smart' && group.type !== 'smart' && !state.resourceMonitor.smartSupport?.supported;
     typeSelect.append(option);
   });
   typeSelect.value = GROUP_TYPE_OPTIONS.includes(group.type) ? group.type : 'select';
+  typeSelect.disabled = Boolean(group.managedMonitoring);
+  if (group.managedMonitoring) typeSelect.title = 'Измените режим в настройках ресурсов';
   typeSelect.addEventListener('change', () => updateGroup(group, 'type', typeSelect.value));
   typeLabel.append(typeText, typeSelect);
   fields.append(nameLabel, typeLabel);
@@ -11222,6 +13564,7 @@ function describeGroupTypeForEditor(group) {
   if (type === 'fallback') return 'Резервирование: Mihomo идет по списку сверху вниз и берет первый доступный вариант.';
   if (type === 'url-test') return 'Автовыбор по скорости: Mihomo проверяет задержку и выбирает самый быстрый доступный вариант.';
   if (type === 'load-balance') return 'Балансировка: трафик распределяется между доступными вариантами группы.';
+  if (type === 'smart') return 'Smart: Prizrak выбирает ноды для направлений по истории соединений и оценке их качества.';
   if (type === 'relay') return 'Цепочка: трафик проходит через варианты по порядку, поэтому порядок особенно важен.';
   return 'Обычная группа Mihomo: поведение зависит от указанного type.';
 }
@@ -11906,7 +14249,7 @@ function handleProviderCreateFormatChange() {
 function renderProviderCreateFormatHint() {
   const isXray = state.providerCreateDraft?.sourceFormat === 'xray-json';
   els.providerCreateFormatHint.textContent = isXray
-    ? 'Поддерживаются Xray JSON с VLESS / TCP / Reality.'
+    ? 'Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.'
     : canUseXrayProviderAdapter()
       ? 'Обычные подписки Mihomo, Happ и INCY передаются без локального преобразования.'
       : 'Локальное преобразование Xray JSON доступно в MihUI на роутере.';
@@ -11943,6 +14286,7 @@ function getProviderCreateUrlError(value, sourceFormat = 'direct') {
   if (sourceFormat === 'xray-json' && !/^https?:\/\/\S+$/i.test(url)) {
     return 'Для Xray JSON используйте http:// или https://.';
   }
+  if (normalizeHappCryptUrl(url)) return '';
   if (!/^(https?|happ|incy):\/\/\S+$/i.test(url)) {
     return 'Используйте http://, https://, happ:// или incy://.';
   }
@@ -12014,7 +14358,7 @@ function bindProviderSourceFormat(root, provider) {
   if (xrayOption) xrayOption.disabled = !available;
   const renderHint = () => {
     if (select.value === 'xray-json') {
-      hint.textContent = 'Поддерживаются Xray JSON с VLESS / TCP / Reality.';
+      hint.textContent = 'Поддерживаются VLESS (TCP/raw, WS, gRPC, XHTTP, HTTPUpgrade; без TLS, TLS или Reality) и Hysteria 2.';
     } else if (available) {
       hint.textContent = 'Обычная подписка передаётся в Mihomo без локального преобразования.';
     } else {
@@ -12175,6 +14519,8 @@ function addProvider(options = {}) {
     url: String(options.url || '').trim(),
     rawUrl: '',
     sourceFormat: options.sourceFormat === 'xray-json' ? 'xray-json' : 'direct',
+    sourceKind: options.sourceKind === 'happ' ? 'happ' : 'direct',
+    originalSourceKind: 'direct',
     originalSourceFormat: 'direct',
     originalSourceUrl: '',
     xrayAdapterUrl: normalizeXrayProviderAdapterEndpoint(state.xrayProviderAdapterUrl),
@@ -12445,8 +14791,32 @@ function generateOutput() {
     nextLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  setOutputText(syncResourceMonitorRuleProviders(nextLines).join('\n'));
+  try {
+    const output = syncSmartModelSettings(syncResourceMonitorRuleProviders(nextLines)).join('\n');
+    setOutputText(rewriteRenamedGroupReferences(output, renamedGroups));
+  } catch (error) {
+    setOutputText('');
+    showMessage(error.message, { severity: 'error' });
+  }
   renderOutputOnly();
+}
+
+function syncSmartModelSettings(lines) {
+  const hasSmart = state.groups.some((group) => !group.deleted && String(group.type).toLowerCase() === 'smart');
+  const defaults = { 'lgbm-auto-update': 'true', 'lgbm-update-interval': '72' };
+  const present = new Set();
+  const next = lines.filter((line) => {
+    const item = parseTopLevelKeyValueLine(line);
+    if (!item || !(item.key in defaults)) return true;
+    present.add(item.key);
+    return hasSmart;
+  });
+  if (hasSmart) {
+    const missing = Object.entries(defaults).filter(([key]) => !present.has(key)).map(([key, value]) => `${key}: ${value}`);
+    const groups = findTopSection(next, 'proxy-groups');
+    next.splice(groups?.start ?? 0, 0, ...missing);
+  }
+  return next;
 }
 
 function setOutputText(text) {
@@ -12454,6 +14824,7 @@ function setOutputText(text) {
   if (state.outputText !== nextText) {
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    state.configurationError = null;
   }
   state.outputText = nextText;
   restorePersistedConfigCheck();
@@ -12596,8 +14967,12 @@ function renderYamlPreview(text) {
 
   if (!value.trim()) return;
 
-  value.split('\n').forEach((line) => {
-    els.outputCodeView.append(createYamlCodeLine(line));
+  value.split('\n').forEach((line, index) => {
+    const row = createYamlCodeLine(line);
+    if (state.configurationError?.text === getCurrentConfigurationText() && state.configurationError.line === index + 1) {
+      row.classList.add('is-error');
+    }
+    els.outputCodeView.append(row);
   });
 }
 
@@ -12854,6 +15229,7 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
+  renderConfigurationError();
   renderReviewPrimaryActionButton();
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.reviewDownloadButton.disabled = isEditing || !state.outputText;
@@ -12880,7 +15256,11 @@ function beginConfigurationEdit() {
 
 function handleConfigurationDraftInput() {
   if (!state.isEditingConfiguration) return;
+  state.configurationError = null;
   renderYamlPreview(els.outputPreview.value);
+  renderConfigurationError();
+  renderReviewPrimaryActionButton();
+  renderChangesOnly();
   syncConfigurationEditorScroll();
 }
 
@@ -12915,7 +15295,9 @@ function applyConfigurationEdit() {
   const nextText = els.outputPreview.value;
   const error = getConfigurationInputError(nextText);
   if (error) {
-    showMessage(error);
+    state.configurationError = { text: nextText, message: error, line: 0, column: 0 };
+    renderConfigurationError();
+    showMessage(error, { severity: 'error' });
     return false;
   }
 
@@ -12923,9 +15305,64 @@ function applyConfigurationEdit() {
   state.originalText = nextText;
   state.isEditingConfiguration = false;
   parseAndRender();
+  setOutputText(syncSmartModelSettings(splitLines(state.outputText)).join("\n"));
+  renderOutputOnly();
   els.outputPreview.scrollTop = 0;
   if (els.outputCodeView) els.outputCodeView.scrollTop = 0;
   return true;
+}
+
+function getCurrentConfigurationText() {
+  return String(state.isEditingConfiguration ? els.outputPreview.value || '' : state.outputText || '');
+}
+
+function getConfigurationCheckError(error, text) {
+  let message = String(error?.data?.message || error?.message || error);
+  message = message.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  const loggedMessage = [...message.matchAll(/\bmsg=("(?:\\.|[^"\\])*")/g)].find((match) => /\byaml:/i.test(match[1]));
+  if (loggedMessage) {
+    try { message = JSON.parse(loggedMessage[1]); } catch {}
+  }
+  const yamlStart = message.search(/\byaml:/i);
+  const location = yamlStart < 0 ? null : message.slice(yamlStart).match(/\bline\s+([1-9]\d*)(?:,\s*column\s+([1-9]\d*))?:\s*([^\r\n]*)/i);
+  const line = Number(location?.[1]) || 0;
+  return {
+    text,
+    message: location?.[3]?.trim() || message,
+    line: line <= String(text).split('\n').length ? line : 0,
+    column: Number(location?.[2]) || 0,
+  };
+}
+
+function renderConfigurationError() {
+  const error = state.configurationError;
+  const visible = Boolean(error && error.text === getCurrentConfigurationText());
+  els.configurationError.hidden = !visible;
+  els.outputPreview.setAttribute('aria-invalid', visible ? 'true' : 'false');
+  els.outputCodeView?.querySelectorAll('.yaml-line').forEach((row, index) => {
+    row.classList.toggle('is-error', visible && error.line === index + 1);
+  });
+  if (!visible) return;
+  const location = error.line ? `Строка ${error.line}${error.column ? `, столбец ${error.column}` : ''}: ` : '';
+  els.configurationErrorMessage.textContent = `${location}${error.message}`;
+  els.configurationErrorJump.hidden = !error.line;
+}
+
+function jumpToConfigurationError() {
+  const error = state.configurationError;
+  if (!error?.line || error.text !== getCurrentConfigurationText()) return;
+  if (!state.isEditingConfiguration) beginConfigurationEdit();
+  const lines = els.outputPreview.value.split('\n');
+  const lineStart = lines.slice(0, error.line - 1).reduce((offset, line) => offset + line.length + 1, 0);
+  const lineLength = lines[error.line - 1].replace(/\r$/, '').length;
+  const start = lineStart + Math.min(Math.max(0, error.column - 1), lineLength);
+  els.outputPreview.focus({ preventScroll: true });
+  els.outputPreview.setSelectionRange(start, error.column ? Math.min(start + 1, lineStart + lineLength) : lineStart + lineLength);
+  const styles = window.getComputedStyle?.(els.outputPreview);
+  const lineHeight = Number.parseFloat(styles?.lineHeight) || 20.15;
+  els.outputPreview.scrollTop = Math.max(0, (error.line - 3) * lineHeight);
+  els.outputPreview.scrollLeft = 0;
+  syncConfigurationEditorScroll();
 }
 
 function getConfigurationInputError(text) {
@@ -12937,6 +15374,7 @@ function getConfigurationInputError(text) {
 
 function validateModel() {
   const errors = [];
+  const originalLines = splitLines(state.originalText);
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const names = activeProviders.map((provider) => provider.name);
   const duplicate = names.find((name, index) => names.indexOf(name) !== index);
@@ -12962,6 +15400,17 @@ function validateModel() {
     if (!group.name || /[\r\n]/.test(group.name)) {
       errors.push(`Некорректное имя группы: ${group.name || '(пусто)'}`);
     }
+    if (group.isNew) return;
+    const original = state.originalGroups.find((item) => item.name === (group.originalName || group.name));
+    const block = originalLines.slice(group.start, group.end);
+    const keyIndent = indentOf(block[0] || '') + 2;
+    ['proxies', 'use'].forEach((key) => {
+      if (!original || JSON.stringify(group[key]) === JSON.stringify(original[key])) return;
+      const entry = block.map((line) => parseKeyValueLine(line, keyIndent)).find((item) => item?.key === key);
+      if (entry && splitYamlScalarProperties(entry.value).value.startsWith('*')) {
+        errors.push(`Группа ${group.name}: список ${key} задан YAML-ссылкой. Измените его вручную в YAML.`);
+      }
+    });
   });
   getActiveRules().forEach((rule, index) => {
     const title = `Правило ${index + 1}`;
@@ -13070,6 +15519,196 @@ function slugifyName(value) {
     .slice(0, 48);
 }
 
+function rewriteRenamedGroupReferences(text, renamed) {
+  if (!renamed.size) return text;
+  // Keep offsets and change only reference values, leaving YAML formatting intact.
+  const lines = text.split('\n');
+  const maskedLines = lines.map((line) => {
+    const body = stripYamlComment(line);
+    return body + ' '.repeat(line.length - body.length);
+  });
+  const masked = maskedLines.join('\n');
+  const edits = [];
+  const anchors = new Map();
+  const aliases = [];
+  const scalars = [];
+  const parents = [];
+  let offset = 0;
+  let literalIndent = -1;
+
+  function pairAt(value) {
+    const pair = splitInlineKeyValue(value);
+    if (!pair) return null;
+    const colon = value.indexOf(':', value.indexOf(pair.key) + pair.key.length);
+    if (colon < 0 || (value[colon + 1] && !/[\s\[\]{},"']/.test(value[colon + 1]))) return null;
+    return { key: cleanScalar(pair.key), start: colon + 1 };
+  }
+
+  function replacement(value, path) {
+    const section = path[0];
+    const field = path[path.length - 1];
+    const reference = (section === 'proxies' && path.length === 3 && field === 'dialer-proxy')
+      || (section === 'proxy-providers' && ((path.length === 3 && field === 'proxy')
+        || (path.length === 4 && path[2] === 'override' && field === 'dialer-proxy')))
+      || (section === 'rule-providers' && path.length === 3 && field === 'proxy')
+      || (['listeners', 'tunnels'].includes(section) && path.length === 3 && field === 'proxy')
+      || (section === 'ntp' && path.length === 2 && field === 'dialer-proxy');
+    if (reference) return renamed.get(value) || value;
+    if (section === 'dns' && ['nameserver', 'fallback', 'default-nameserver', 'proxy-server-nameserver',
+      'direct-nameserver', 'nameserver-policy', 'proxy-server-nameserver-policy'].includes(path[1])) {
+      const hash = value.indexOf('#');
+      if (hash < 0) return value;
+      const end = value.indexOf('&', hash);
+      const name = value.slice(hash + 1, end < 0 ? undefined : end);
+      return renamed.has(name) ? value.slice(0, hash + 1) + renamed.get(name) + (end < 0 ? '' : value.slice(end)) : value;
+    }
+    if ((section === 'sub-rules' && path.length === 3) || (section === 'tunnels' && path.length === 2)) {
+      const parts = splitRuleParts(value);
+      const target = section === 'tunnels' ? 2 : getRuleTargetIndexFromParts(parts);
+      if (target < 0 || !renamed.has(cleanScalar(parts[target]))) return value;
+      let cursor = 0;
+      for (let index = 0; index <= target; index += 1) {
+        const start = value.indexOf(parts[index], cursor);
+        if (index === target) return value.slice(0, start) + renamed.get(cleanScalar(parts[index])) + value.slice(start + parts[index].length);
+        cursor = start + parts[index].length;
+      }
+    }
+    return value;
+  }
+
+  function visit(from, to, path, inFlow = false) {
+    while (from < to && /\s/.test(masked[from])) from += 1;
+    while (to > from && /\s/.test(masked[to - 1])) to -= 1;
+    const properties = masked.slice(from, to).match(/^(?:(?:&[^\s]+|![^\s]+)(?:\s+|$))*/)?.[0] || '';
+    const anchor = properties.match(/&([^\s]+)/)?.[1];
+    from += properties.length;
+    const value = masked.slice(from, to);
+    if (!value) return;
+    if ((value[0] === '{' && value.endsWith('}')) || (value[0] === '[' && value.endsWith(']'))) {
+      if (anchor) anchors.set(anchor, { from, to, path, collection: true });
+      let cursor = from + 1;
+      splitInlineItems(masked.slice(cursor, to - 1)).forEach((item) => {
+        const start = masked.indexOf(item, cursor);
+        cursor = start + item.length;
+        const pair = value[0] === '{' ? pairAt(item) : null;
+        visit(start + (pair?.start || 0), cursor, [...path, pair ? pair.key : '*'], true);
+      });
+      return;
+    }
+    if (value.startsWith('*')) {
+      const alias = { name: value.slice(1), path, from, to };
+      aliases.push(alias);
+      scalars.push(alias);
+      return;
+    }
+    const decoded = value.startsWith("'") && value.endsWith("'")
+      ? value.slice(1, -1).replace(/''/g, "'") : cleanScalar(value);
+    const next = replacement(decoded, path);
+    const scalar = { from, to, path, value: decoded, next };
+    scalars.push(scalar);
+    if (anchor) anchors.set(anchor, scalar);
+    if (next === decoded) return;
+    const plainSafe = !/^[\s\[\]{},#&*!|>'"%@`]|^[-?:](?:\s|$)|:(?:\s|$)|\s#|[\r\n]/.test(next)
+      && !/^(?:true|false|null|~|[-+]?(?:\d[\d_.eE+-]*|\.inf|\.nan))$/i.test(next)
+      && (!inFlow || !/[\[\]{},]/.test(next));
+    const encoded = value.startsWith("'") ? "'" + next.replace(/'/g, "''") + "'"
+      : value.startsWith('"') ? JSON.stringify(next)
+        : plainSafe ? next : JSON.stringify(next);
+    edits.push({ from, to, text: encoded });
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = maskedLines[index];
+    const start = offset;
+    offset += lines[index].length + 1;
+    if (!line.trim()) continue;
+    const indent = indentOf(line);
+    if (literalIndent >= 0 && indent > literalIndent) continue;
+    literalIndent = -1;
+    const sequence = line.slice(indent).match(/^-\s+/);
+    while (parents.length && (parents[parents.length - 1].indent > indent
+      || (parents[parents.length - 1].indent === indent && !(sequence && parents[parents.length - 1].mapping)))) parents.pop();
+    let path = parents.length ? parents[parents.length - 1].path : [];
+    const contentStart = indent + (sequence?.[0].length || 0);
+    if (sequence) {
+      path = [...path, '*'];
+      parents.push({ indent, path });
+    }
+    const pair = /^(?:(?:&[^\s]+|![^\s]+)\s+)*[\[{]/.test(line.slice(contentStart)) ? null : pairAt(line.slice(contentStart));
+    const valueStart = contentStart + (pair?.start || 0);
+    if (pair) {
+      path = [...path, pair.key];
+      parents.push({ indent: contentStart, path, mapping: true });
+    }
+    const value = line.slice(valueStart).trim();
+    const blockAnchor = value.match(/^(?:(?:![^\s]+|&[^\s]+)\s*)+$/)?.[0].match(/&([^\s]+)/)?.[1];
+    if (blockAnchor) {
+      let blockEnd = offset;
+      const boundaryIndent = pair ? contentStart : indent;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const nested = maskedLines[next];
+        if (nested.trim() && (indentOf(nested) < boundaryIndent
+          || (indentOf(nested) === boundaryIndent && (!pair || !/^\s*-\s+/.test(nested))))) break;
+        blockEnd += lines[next].length + 1;
+      }
+      anchors.set(blockAnchor, { from: start + valueStart, to: blockEnd, path, collection: true });
+      continue;
+    }
+    if (/^[>|][+\-\d]*$/.test(value)) {
+      literalIndent = indent;
+      continue;
+    }
+    // A flow collection can span lines. Consume it as a single value.
+    let end = start + line.length;
+    if (/^(?:(?:&[^\s]+|![^\s]+)\s+)*[\[{]/.test(value)) {
+      let depth = 0;
+      let quote = '';
+      let escaped = false;
+      for (let cursor = start + valueStart; cursor < masked.length; cursor += 1) {
+        const char = masked[cursor];
+        if (quote) {
+          if (quote === '"' && char === '\\' && !escaped) { escaped = true; continue; }
+          if (char === quote && !escaped) quote = '';
+          escaped = false;
+          continue;
+        }
+        if (char === '"' || char === "'") quote = char;
+        else if (char === '[' || char === '{') depth += 1;
+        else if (char === ']' || char === '}') {
+          depth -= 1;
+          if (!depth) { end = cursor + 1; break; }
+        }
+      }
+      while (index + 1 < lines.length && offset <= end) {
+        index += 1;
+        offset += lines[index].length + 1;
+      }
+    }
+    visit(start + valueStart, end, path);
+  }
+  function checkAlias({ name, path }, seen = new Set()) {
+    const anchor = anchors.get(name);
+    if (!anchor || seen.has(name)) return;
+    const nestedSeen = new Set([...seen, name]);
+    const merge = path.lastIndexOf('<<');
+    const aliasPath = merge >= 0 && path.slice(merge + 1).every((key) => key === '*') ? path.slice(0, merge) : path;
+    const values = anchor.collection ? scalars.filter((scalar) => scalar.from >= anchor.from && scalar.to <= anchor.to) : [anchor];
+    const needsChange = values.some((scalar) => {
+      const targetPath = [...aliasPath, ...scalar.path.slice(anchor.path.length)];
+      if (scalar.name) {
+        checkAlias({ name: scalar.name, path: targetPath }, nestedSeen);
+        return false;
+      }
+      return replacement(scalar.value, targetPath) !== scalar.next;
+    });
+    if (needsChange) {
+      throw new Error(`Ссылка на группу задана YAML-алиасом *${name}. Измените её в YAML перед переименованием группы.`);
+    }
+  }
+  aliases.forEach((alias) => checkAlias(alias));
+  return edits.sort((a, b) => b.from - a.from).reduce((result, edit) => result.slice(0, edit.from) + edit.text + result.slice(edit.to), text);
+}
+
 function getRenamedGroupMap() {
   const renamed = new Map();
   state.groups.forEach((group) => {
@@ -13082,9 +15721,14 @@ function getRenamedGroupMap() {
 }
 
 function serializeProvidersSection() {
-  const result = ['proxy-providers:'];
+  const originalLines = splitLines(state.originalText);
+  const originalSection = findTopSection(originalLines, 'proxy-providers');
+  const originalHeader = originalSection ? originalLines[originalSection.start] : 'proxy-providers:';
+  const result = [isNestedMapHeaderValue(parseTopLevelKeyValueLine(originalHeader)?.value)
+    ? originalHeader
+    : replaceYamlLineValue(originalHeader, '')];
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
-  if (activeProviders.length === 0) return ['proxy-providers: {}'];
+  if (activeProviders.length === 0) return [replaceYamlLineValue(originalHeader, '{}')];
   activeProviders.forEach((provider) => result.push(...serializeProvider(provider)));
   return result;
 }
@@ -13101,7 +15745,10 @@ function serializeProvider(provider) {
   const current = snapshotProvider(provider, { output: true });
   const changed = (...keys) => !original || keys.some((key) => current[key] !== original[key]);
   if (provider.name !== provider.originalName) {
-    lines[0] = `  ${formatKey(provider.name)}:`;
+    lines[0] = lines[0].replace(
+      /^(\s*)(?:"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^:]*?\S)([ \t]*:)/,
+      (_, indent, suffix) => `${indent}${formatKey(provider.name)}${suffix}`,
+    );
   }
 
   if (changed('hasType', 'type')) {
@@ -13257,10 +15904,8 @@ function getRulesInSerializationOrder() {
   return ordered;
 }
 
-function serializeRule(rule, renamedGroups = new Map()) {
-  const target = renamedGroups.get(rule.target) || rule.target;
-  const nextRule = { ...rule, target };
-  const body = buildRuleParts(nextRule).join(',');
+function serializeRule(rule) {
+  const body = buildRuleParts(rule).join(',');
   const comment = rule.comment ? ` ${rule.comment}` : '';
   return `${rule.indent || '  '}- ${body}${comment}`;
 }
@@ -13317,14 +15962,14 @@ function serializeGroupsSection(lines, groupsSection) {
 function serializeGroupBlock(lines, parsedGroup, currentGroup) {
   const block = lines.slice(parsedGroup.start, parsedGroup.end);
   const replacements = [
-    parsedGroup.proxiesStart === -1
+    parsedGroup.proxiesStart === -1 || JSON.stringify(currentGroup.proxies) === JSON.stringify(parsedGroup.proxies)
       ? null
       : {
           start: parsedGroup.proxiesStart - parsedGroup.start,
           end: parsedGroup.proxiesEnd - parsedGroup.start,
           lines: serializeListBlock('proxies', currentGroup.proxies, lines[parsedGroup.proxiesStart]),
         },
-    parsedGroup.useStart === -1
+    parsedGroup.useStart === -1 || JSON.stringify(getActiveGroupUse(currentGroup)) === JSON.stringify(parsedGroup.use)
       ? null
       : {
           start: parsedGroup.useStart - parsedGroup.start,
@@ -13341,7 +15986,10 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     });
 
   setGroupName(block, currentGroup);
-  setGroupScalar(block, 'type', currentGroup.type || 'select');
+  if (currentGroup.type !== parsedGroup.type) setGroupScalar(block, 'type', currentGroup.type || 'select');
+  (currentGroup.removeResourceCheckKeys || []).forEach((key) => setOptionalGroupScalar(block, key, ''));
+  if (currentGroup.testUrl !== parsedGroup.testUrl) setOptionalGroupScalar(block, 'url', currentGroup.testUrl);
+  if (currentGroup.expectedStatus !== parsedGroup.expectedStatus) setOptionalGroupScalar(block, 'expected-status', currentGroup.expectedStatus);
 
   if (parsedGroup.proxiesStart === -1 && currentGroup.proxies.length > 0) {
     insertGroupListBlock(block, 'proxies', currentGroup.proxies);
@@ -13352,6 +16000,8 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     if (use.length > 0) insertGroupListBlock(block, 'use', use);
   }
   if (currentGroup.managedMonitoring) {
+    setOptionalGroupScalar(block, 'uselightgbm', currentGroup.type === 'smart' ? 'true' : '');
+    setOptionalGroupScalar(block, 'collectdata', currentGroup.type === 'smart' ? 'false' : '');
     setOptionalGroupScalar(block, 'include-all', currentGroup.includeAll ? 'true' : '');
     setOptionalGroupScalar(block, 'include-all-proxies', currentGroup.includeAllProxies ? 'true' : '');
     setOptionalGroupScalar(block, 'include-all-providers', currentGroup.includeAllProviders ? 'true' : '');
@@ -13368,6 +16018,9 @@ function createGroupBlock(group) {
     `  - name: ${formatScalar(group.name)}${formatResourceMonitorGroupMarker(group)}`,
     `    type: ${formatScalar(group.type || 'select')}`,
   ];
+  if (group.managedMonitoring && group.type === 'smart') lines.push('    uselightgbm: true', '    collectdata: false');
+  if (group.testUrl) lines.push(`    url: ${formatScalar(group.testUrl)}`);
+  if (group.expectedStatus) lines.push(`    expected-status: ${formatScalar(group.expectedStatus)}`);
   if (group.proxies.length > 0) lines.push(...serializeListBlockWithIndent('proxies', group.proxies, '    '));
   const use = getActiveGroupUse(group);
   if (use.length > 0) lines.push(...serializeListBlockWithIndent('use', use, '    '));
@@ -13381,9 +16034,30 @@ function createGroupBlock(group) {
 }
 
 function setGroupName(block, group) {
-  const indent = block[0].match(/^\s*/)?.[0] || '  ';
+  const originalValue = splitYamlScalarProperties(stripYamlComment(block[0].replace(/^\s*-\s+name\s*:\s*/, ''))).value;
+  if (cleanScalar(originalValue) !== group.name) {
+    block[0] = replaceYamlLineValue(block[0], formatScalar(group.name));
+  }
   const marker = formatResourceMonitorGroupMarker(group);
-  block[0] = `${indent}- name: ${formatScalar(group.name)}${marker}`;
+  const originalMarker = block[0].match(/[ \t]+#\s*webmihomo-monitor:\s*group\s+.*$/)?.[0] || '';
+  if (originalMarker.trim() !== marker.trim()) {
+    block[0] = `${originalMarker ? block[0].slice(0, -originalMarker.length) : block[0]}${marker}`;
+  }
+}
+
+function splitYamlScalarProperties(value) {
+  const match = String(value || '').match(/^((?:(?:&[^\s]+|!<[^>]*>|![^\s]+)(?:[ \t]+|$))*)(.*)$/);
+  return { properties: match[1], value: match[2] };
+}
+
+function replaceYamlLineValue(line, value) {
+  const match = line.match(/^(\s*(?:-\s+)?(?:"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^:]+):[ \t]*)(.*)$/);
+  if (!match) return line;
+  const body = stripYamlComment(match[2]);
+  const { properties } = splitYamlScalarProperties(body);
+  const suffix = match[2].slice(body.length);
+  const separator = value && !properties && !/\s$/.test(match[1]) ? ' ' : '';
+  return `${match[1]}${separator}${properties}${properties && !/\s$/.test(properties) && value ? ' ' : ''}${value}${suffix}`;
 }
 
 function setGroupScalar(block, key, value) {
@@ -13393,7 +16067,7 @@ function setGroupScalar(block, key, value) {
   const foundIndex = block.findIndex((line) => re.test(line));
 
   if (foundIndex !== -1) {
-    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    block[foundIndex] = replaceYamlLineValue(block[foundIndex], formatScalar(value));
     return;
   }
 
@@ -13411,7 +16085,7 @@ function setOptionalGroupScalar(block, key, value) {
     return;
   }
   if (foundIndex !== -1) {
-    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    block[foundIndex] = replaceYamlLineValue(block[foundIndex], formatScalar(value));
     return;
   }
   const headerIndex = block.indexOf(header);
@@ -13437,7 +16111,10 @@ function getActiveGroupUse(group) {
 
 function serializeListBlock(key, items, originalLine) {
   const indent = originalLine.match(/^\s*/)[0];
-  return serializeListBlockWithIndent(key, items, indent);
+  return [
+    replaceYamlLineValue(originalLine, items.length === 0 ? '[]' : ''),
+    ...items.map((name) => `${indent}  - ${formatScalar(name)}`),
+  ];
 }
 
 function serializeListBlockWithIndent(key, items, indent) {
@@ -13454,7 +16131,7 @@ function setNestedScalar(lines, baseIndentLevel, key, value) {
   const foundIndex = lines.findIndex((line) => re.test(line));
 
   if (foundIndex !== -1) {
-    lines[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    lines[foundIndex] = replaceYamlLineValue(lines[foundIndex], formatScalar(value));
     return;
   }
 
@@ -13682,6 +16359,7 @@ function parseProviders(lines, section) {
     const xraySource = parseXrayProviderAdapterUrl(rawUrl);
     const sourceFormat = xraySource ? 'xray-json' : 'direct';
     const sourceUrl = xraySource?.sourceUrl || rawUrl;
+    const sourceKind = xraySource?.sourceKind || 'direct';
     providers.push({
       name: entry.key,
       originalName: entry.key,
@@ -13689,6 +16367,8 @@ function parseProviders(lines, section) {
       url: sourceUrl,
       rawUrl,
       sourceFormat,
+      sourceKind,
+      originalSourceKind: sourceKind,
       originalSourceFormat: sourceFormat,
       originalSourceUrl: sourceUrl,
       xrayAdapterUrl: xraySource?.adapterUrl || '',
@@ -13754,12 +16434,16 @@ function parseGroups(lines, section) {
     const keyIndent = groupIndent + 2;
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
-    const name = cleanScalar(stripYamlComment(match[2]));
+    const name = cleanScalar(splitYamlScalarProperties(stripYamlComment(match[2])).value);
     const monitorMarker = parseResourceMonitorGroupMarker(match[2]);
     groups.push({
       name,
       originalName: name,
       type: readScalar(block, keyIndent, 'type') || '',
+      useLightGBM: readBoolScalar(block, keyIndent, 'uselightgbm'),
+      testUrl: readScalar(block, keyIndent, 'url'),
+      expectedStatus: readScalar(block, keyIndent, 'expected-status'),
+      resourceCheckKeys: ['url', 'expected-status', 'interval'].filter((key) => block.some((item) => parseKeyValueLine(item, keyIndent)?.key === key)),
       proxies: proxiesMeta.items,
       use: useMeta.items,
       includeAll: readBoolScalar(block, keyIndent, 'include-all'),
@@ -13769,6 +16453,7 @@ function parseGroups(lines, section) {
       excludeFilter: readScalar(block, keyIndent, 'exclude-filter') || '',
       excludeType: readScalar(block, keyIndent, 'exclude-type') || '',
       managedMonitoring: Boolean(monitorMarker),
+      monitorDirectSources: Boolean(monitorMarker?.directSources),
       monitorService: monitorMarker?.service || '',
       monitorSourceGroup: monitorMarker?.sources?.[0] || '',
       monitorSourceGroups: monitorMarker?.sources || [],
@@ -13846,8 +16531,11 @@ function findListBlock(lines, start, end, keyIndent, key) {
   for (let index = start; index < end; index += 1) {
     const line = lines[index];
     if (indentOf(line) !== keyIndent) continue;
+    const entry = parseKeyValueLine(line, keyIndent);
+    if (entry?.key !== key) continue;
+    const value = splitYamlScalarProperties(entry.value).value;
 
-    const inline = line.match(new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*\\[(.*)\\]\\s*(?:#.*)?$`));
+    const inline = value.match(/^\[(.*)\]$/);
     if (inline) {
       return {
         start: index,
@@ -13856,7 +16544,7 @@ function findListBlock(lines, start, end, keyIndent, key) {
       };
     }
 
-    if (new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*(?:#.*)?$`).test(line)) {
+    if (!value) {
       listStart = index;
       break;
     }
@@ -13902,7 +16590,7 @@ function parseTopLevelKeyValueLine(line) {
 
 function readScalar(lines, indent, key) {
   const entry = lines.map((line) => parseKeyValueLine(line, indent)).find((item) => item?.key === key);
-  return entry ? cleanScalar(entry.value) : '';
+  return entry ? cleanScalar(splitYamlScalarProperties(entry.value).value) : '';
 }
 
 function readBoolScalar(lines, indent, key) {
@@ -14447,7 +17135,11 @@ async function updateMihui() {
     state.mihuiUpdateAccepted = true;
     pollMihuiUpdateStatus();
   } catch (error) {
-    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    if (error?.status === 409 && error?.data?.running) {
+      resumeMihuiUpdatePolling(error.data);
+      return;
+    }
+    showMessage(`Не удалось обновить MihUI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
     setMihuiUpdateHint(false, 'Повторить обновление');
@@ -14525,7 +17217,7 @@ async function pollMihuiUpdateStatus() {
     }
 
     state.updatePollTimer = 0;
-    showMessage(`Не удалось обновить UI: ${error?.message || error}`);
+    showMessage(`Не удалось обновить MihUI: ${error?.message || error}`);
     state.mihuiUpdateStartedAt = 0;
     state.mihuiUpdateAccepted = false;
   } finally {

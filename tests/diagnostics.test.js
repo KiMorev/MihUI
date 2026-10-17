@@ -5,7 +5,6 @@ const vm = require('node:vm');
 
 const SOURCES = [
   { name: 'app.js', path: 'app.js', type: 'js' },
-  { name: 'mihomo-editor.html', path: 'mihomo-editor.html', type: 'html' },
 ];
 
 function createElement() {
@@ -73,6 +72,7 @@ function loadApp(source, initialStorage = {}, options = {}) {
   const context = {
     Blob,
     URL,
+    structuredClone,
     console,
     document: {
       body: createElement(),
@@ -105,6 +105,7 @@ function loadApp(source, initialStorage = {}, options = {}) {
   vm.runInContext(
     `${readSource(source)}
 globalThis.__app = {
+  document,
   els,
   state,
   addConnectionSetting,
@@ -140,6 +141,15 @@ globalThis.__app = {
   getReviewPrimaryActionState,
   getHighRiskSaveSummaries,
   getKernelCheckSummary,
+  getProtectedDnsErrorMessage,
+  mergeProtectedDnsErrorResponse,
+  getProtectedDnsRoutePresentation,
+  getProtectedDnsFallbackPresentation,
+  getProtectedDnsCapabilityLabel,
+  getProtectedDnsCheckMessage,
+  getProtectedDnsEventLabel,
+  getProtectedDnsEventMessage,
+  getProtectedDnsConfigCheckOutput,
   confirmHighRiskSave,
   hasUnsavedWorkspaceChanges,
   handleBeforeUnload,
@@ -171,9 +181,13 @@ globalThis.__app = {
   getStaleProviderInfo,
   persistSuccessfulConfigCheck,
   prepareResourceMonitorConfig,
+  prepareSmartCoreReturn,
+  getResourceMonitorMode,
+  getResourceMonitorConfigSettings,
+  getResourceMonitorConfiguredSourceText,
+  getResourceMonitorSourceHint,
   resourceMonitorNeedsConfigChanges,
   getResourceMonitorDialogIssue,
-  toggleResourceMonitor,
   getResourceMonitorSourceGroups,
   buildResourceMonitorTimeline,
   getResourceMonitorHistoryTooltipContent,
@@ -193,6 +207,9 @@ globalThis.__app = {
   renderConfigurationEditorControls,
   renderOutputOnly,
   renderConnectionSettings,
+  renderProtectedDnsExclusions,
+  renderProtectedDnsLanSelector,
+  renderProtectedDnsEvents,
   renameGroup,
   addRule,
   moveRule,
@@ -256,6 +273,187 @@ function flattenChanges(changes) {
 }
 
 for (const source of SOURCES) {
+  test(`${source.name}: DNS statuses and capability messages use Russian wording`, () => {
+    const app = loadApp(source);
+    for (const state of ['ready', 'failed', 'not-tested']) {
+      const presentation = app.getProtectedDnsFallbackPresentation({ systemFallback: { state } });
+      assert.match(presentation.badge, /Резерв/);
+      assert.doesNotMatch(presentation.badge, /fallback/i);
+    }
+    assert.equal(app.getProtectedDnsFallbackPresentation({}, { pending: true }).badge, 'Возврат к системному DNS');
+    const ids = ['root', 'mihomo-binary', 'mihomo-api', 'proxy-group', 'config-ownership', 'ndmc',
+      'dns-override', 'ndnproxy', 'system-fallback', 'lan-selection', 'lan-ipv4', 'port-1053',
+      'iptables', 'ipset-timeout', 'firewall-chain4', 'ip6tables', 'firewall-chain6', 'local-resolver'];
+    for (const id of ids) {
+      const label = app.getProtectedDnsCapabilityLabel(id);
+      assert.match(label, /[а-яё]|^API Mihomo$/i, id);
+      assert.doesNotMatch(label, /fallback|fail-open|lease|firewall/i, id);
+      for (const tone of ['ok', 'error']) {
+        const message = app.getProtectedDnsCheckMessage({ id }, tone);
+        assert.match(message, /[а-яё]/i, `${id}: ${tone}`);
+        assert.doesNotMatch(message, /Kernel timeout|fallback|fail-open|lease|firewall/i, id);
+      }
+    }
+  });
+
+  test(`${source.name}: DNS journal localizes event badges and existing summaries without rewriting raw events`, () => {
+    const app = loadApp(source);
+    const labels = {
+      preview: 'Проверка', preview_failed: 'Проверка не пройдена', test: 'Тестовый режим',
+      activate: 'Включение', active: 'Включение', system: 'Системный DNS',
+      preflight_failed: 'Предусловия не пройдены', fallback: 'Аварийный возврат',
+      fallback_ready: 'Перехват прекращён', lease_recovered: 'Защита восстановлена',
+      lease_degraded: 'Защита недоступна',
+    };
+    for (const [type, expected] of Object.entries(labels)) {
+      assert.equal(app.getProtectedDnsEventLabel({ type }), expected);
+    }
+    assert.equal(app.getProtectedDnsEventLabel({ type: 'future_event' }), 'Событие DNS');
+    const events = [
+      { type: 'fallback_ready', message: 'DNS capture lease expired; system fallback is fully available' },
+      { type: 'lease_recovered', message: 'DNS lease восстановлен' },
+      { type: 'lease_degraded', message: 'DNS lease больше не обновляется; системный fallback включится автоматически' },
+    ];
+    app.state.protectedDns.events = events;
+    app.renderProtectedDnsEvents();
+    const rows = app.els.dnsEvents.children.slice(-events.length);
+    rows.forEach((row, index) => {
+      const original = events[events.length - 1 - index];
+      const [summary, raw] = row.children;
+      assert.equal(summary.children[0].textContent, labels[original.type]);
+      assert.match(summary.children[1].textContent, /[а-яё]/i);
+      assert.doesNotMatch(summary.children[1].textContent, /lease|fallback|capture/i);
+      assert.deepEqual(JSON.parse(raw.textContent), original);
+    });
+  });
+
+  test(`${source.name}: DNS translations preserve original technical details and unknown event text`, () => {
+    const app = loadApp(source);
+    const details = 'level=error msg="list private not found in GeoSite.dat"';
+    assert.equal(app.getProtectedDnsConfigCheckOutput({ output: details }), details);
+    const message = '<img src=x onerror=alert(1)>';
+    app.state.protectedDns.events = [{ type: 'future_event', message }];
+    app.renderProtectedDnsEvents();
+    const heading = app.els.dnsEvents.children.at(-1).children[0].children[1];
+    assert.equal(heading.textContent, message);
+    assert.equal(heading.children.length, 0);
+    assert.equal(app.getProtectedDnsEventMessage({ message: 'Защищённый DNS включён' }), 'Защищённый DNS включён');
+    assert.equal(app.getProtectedDnsEventMessage({ message: 'constructor' }), 'constructor');
+  });
+
+  test(`${source.name}: DNS route reflects the current mode rather than the proposed protected path`, () => {
+    const app = loadApp(source);
+
+    for (const mode of ['system', 'test', 'fallback']) {
+      const route = app.getProtectedDnsRoutePresentation(mode);
+      assert.match(route.resolver, /ndnproxy.*:53/);
+      assert.equal(route.destination, 'Системные DNS');
+    }
+    const testRoute = app.getProtectedDnsRoutePresentation('test');
+    assert.match(testRoute.note, /Mihomo.*:1053/);
+    assert.match(testRoute.note, /без переключения клиентов/);
+    const activeRoute = app.getProtectedDnsRoutePresentation('active');
+    assert.match(activeRoute.resolver, /Mihomo.*:1053/);
+    assert.match(activeRoute.note, /ndnproxy.*:53/);
+    assert.match(app.getProtectedDnsRoutePresentation('system', { ndnproxyPort: 5353 }).resolver, /:5353/);
+    const unknownRoute = app.getProtectedDnsRoutePresentation('unknown');
+    assert.doesNotMatch(unknownRoute.resolver, /ndnproxy|Mihomo/);
+    assert.notEqual(unknownRoute.destination, 'Системные DNS');
+  });
+
+  test(`${source.name}: rebuilding LAN controls preserves the focused interface without stealing outside focus`, () => {
+    const app = loadApp(source);
+    const list = app.els.dnsLanInterfaces;
+    const focusCalls = [];
+    const descendants = (node) => node.children.flatMap((child) => [child, ...descendants(child)]);
+    list.contains = (node) => descendants(list).includes(node);
+    list.querySelectorAll = () => descendants(list).filter((node) => node.type === 'checkbox');
+    Object.defineProperty(list, 'textContent', {
+      set() {
+        if (list.contains(app.document.activeElement)) app.document.activeElement = null;
+        this.children = [];
+      },
+    });
+    app.document.createElement = () => {
+      const element = createElement();
+      element.matches = (selector) => selector === '[data-dns-lan-interface]'
+        && Object.hasOwn(element.dataset, 'dnsLanInterface');
+      element.focus = () => {
+        app.document.activeElement = element;
+        focusCalls.push(element.value);
+      };
+      return element;
+    };
+    const capabilities = {
+      lanCandidates: [
+        { interface: 'br0', ipv4: ['192.0.2.1'] },
+        { interface: 'br1', ipv4: ['192.0.2.129'] },
+      ],
+    };
+    app.state.protectedDns.lanInterfaces = ['br0'];
+    app.renderProtectedDnsLanSelector(capabilities);
+    const oldControl = list.querySelectorAll()[0];
+    app.document.activeElement = oldControl;
+
+    app.renderProtectedDnsLanSelector({ lanCandidates: [...capabilities.lanCandidates].reverse() });
+
+    assert.notEqual(app.document.activeElement, oldControl);
+    assert.equal(app.document.activeElement.value, 'br0');
+    assert.equal(app.document.activeElement.checked, true);
+    assert.deepEqual(focusCalls, ['br0']);
+    const outsideControl = createElement();
+    app.document.activeElement = outsideControl;
+    app.renderProtectedDnsLanSelector(capabilities);
+    assert.equal(app.document.activeElement, outsideControl);
+    assert.deepEqual(focusCalls, ['br0']);
+  });
+
+  test(`${source.name}: known DNS exclusions are localized and unknown details remain literal text`, () => {
+    const app = loadApp(source);
+    const unknownMessage = '<img src=x onerror=alert(1)>';
+
+    app.renderProtectedDnsExclusions([
+      { id: 'application-doh', message: 'Application DoH bypasses DNS interception.' },
+      { id: 'tailscale-dns', message: 'Tailscale uses its own DNS configuration.' },
+      { id: 'external-dns', message: 'External device DNS can bypass protection.' },
+      { id: 'future-exclusion', title: 'Custom exception', message: unknownMessage },
+    ]);
+
+    const items = app.els.dnsExclusions.children;
+    for (const item of items.slice(-4, -1)) {
+      assert.match(item.children[1].textContent, /[а-яё]/i);
+      assert.doesNotMatch(item.children[1].textContent, /bypasses|configuration|device/);
+    }
+    const unknown = items.at(-1);
+    assert.equal(unknown.children[0].textContent, 'Custom exception');
+    assert.equal(unknown.children[1].textContent, unknownMessage);
+    assert.equal(unknown.children[1].children.length, 0);
+  });
+
+  test(`${source.name}: DNS validation failures point to the named configuration section`, () => {
+    const app = loadApp(source);
+    const previewError = { data: { configCheck: { ok: false } } };
+    const actionError = { data: { preview: { configCheck: { ok: false } } } };
+
+    for (const [error, action] of [[previewError, 'preview'], [actionError, 'test']]) {
+      const message = app.getProtectedDnsErrorMessage(error, action);
+      assert.match(message, /«Проверка конфигурации Mihomo»/);
+      assert.doesNotMatch(message, /ниже/);
+    }
+  });
+
+  test(`${source.name}: DNS errors preserve networks and revoke stale readiness`, () => {
+    const app = loadApp(source);
+    app.state.protectedDns.data = { capabilities: { lanCandidates: [{ interface: 'br0' }], lanInterfaces: ['br0'] }, proxyGroups: ['PROXY', 'FALLBACK'] };
+    app.state.protectedDns.preview = { canTest: true, canActivate: true };
+    app.mergeProtectedDnsErrorResponse({ message: 'Прокси-группа недоступна' });
+    assert.equal(app.state.protectedDns.preview.capabilities.lanCandidates[0].interface, 'br0');
+    assert.equal(app.state.protectedDns.preview.canTest, false);
+    assert.equal(app.state.protectedDns.preview.canActivate, false);
+    assert.deepEqual(Array.from(app.state.protectedDns.data.proxyGroups), ['PROXY', 'FALLBACK']);
+    assert.equal(app.getProtectedDnsErrorMessage({ data: { message: 'Прокси-группа недоступна', configCheck: { ok: true } } }), 'Прокси-группа недоступна');
+  });
+
   test(`${source.name}: shows the current MihUI update step and download percentage`, () => {
     const app = loadApp(source);
 
@@ -297,15 +495,26 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
 
     const output = app.state.outputText;
     assert.match(output, /profile:\n  store-selected: true/);
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
+    assert.match(output, /name: TIKTOK # webmihomo-monitor: group tiktok source=FASTEST/);
+    assert.match(output, /tiktok@domain: .*tiktok\.mrs/);
+    assert.ok(output.indexOf('RULE-SET,tiktok@domain,TIKTOK') >= 0);
+    assert.ok(output.indexOf('RULE-SET,tiktok@domain,TIKTOK') < output.indexOf('MATCH,PROXY'));
+    assert.equal(app.state.groups.find((group) => group.name === 'TIKTOK').type, 'select');
     assert.match(output, /name: INSTAGRAM # webmihomo-monitor: group instagram source=FASTEST/);
+    assert.match(output, /name: TWITTER # webmihomo-monitor: group twitter source=FASTEST/);
+    assert.match(output, /twitter@domain: .*twitter\.mrs/);
+    assert.ok(output.indexOf('RULE-SET,twitter@domain,TWITTER') >= 0);
+    assert.ok(output.indexOf('RULE-SET,twitter@domain,TWITTER') < output.indexOf('MATCH,PROXY'));
     assert.match(output, /name: AI # webmihomo-monitor: group ai source=FASTEST/);
     assert.match(output, /filter: ["']?\(\?i\)nl\|de/);
     assert.match(output, /exclude-filter: ["']?\(\?i\)expired/);
@@ -329,8 +538,10 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
     assert.equal(app.state.outputText, before);
@@ -369,15 +580,19 @@ rules:
     const sources = {
       youtube: [],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: ['FASTEST'],
+      twitter: ['FASTEST'],
       ai: ['FASTEST'],
     };
     const services = {
       youtube: { enabled: false, group: 'YOUTUBE', sources: [] },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
       instagram: { enabled: true, group: 'INSTAGRAM', sources: sources.instagram },
+      twitter: { enabled: true, group: 'TWITTER', sources: sources.twitter },
       ai: { enabled: true, group: 'AI', sources: sources.ai },
     };
 
@@ -421,14 +636,18 @@ rules:
     const sources = {
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
+      tiktok: { enabled: false, group: 'TIKTOK' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
@@ -439,8 +658,8 @@ rules:
     const output = app.state.outputText;
     assert.match(output, /name: YOUTUBE # webmihomo-monitor: group youtube source=FASTEST/);
     assert.match(output, /GEOSITE,youtube,YOUTUBE/);
-    assert.doesNotMatch(output, /name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
-    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,AI(?:,|$)/m);
+    assert.doesNotMatch(output, /name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
+    assert.doesNotMatch(output, /,TELEGRAM(?:,|$)|,WHATSAPP(?:,|$)|,INSTAGRAM(?:,|$)|,TWITTER(?:,|$)|,AI(?:,|$)/m);
     assert.ok(output.indexOf('GEOSITE,youtube,YOUTUBE') < output.indexOf('MATCH,PROXY'));
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
 
@@ -453,7 +672,7 @@ rules:
     app.prepareResourceMonitorConfig(sources, disabledServices);
 
     const disabledOutput = app.state.outputText;
-    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
+    assert.doesNotMatch(disabledOutput, /name: YOUTUBE|name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.doesNotMatch(disabledOutput, /webmihomo-monitor/);
     assert.match(disabledOutput, /MATCH,PROXY/);
     assert.equal(app.resourceMonitorNeedsConfigChanges(sources, disabledServices), false);
@@ -483,7 +702,9 @@ rules:
     const disabledServices = {
       youtube: { enabled: false, group: 'YOUTUBE' },
       telegram: { enabled: false, group: 'TELEGRAM' },
+      tiktok: { enabled: false, group: 'TIKTOK' },
       whatsapp: { enabled: false, group: 'WHATSAPP' },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM' },
       ai: { enabled: false, group: 'AI' },
     };
@@ -496,7 +717,7 @@ rules:
     assert.equal(app.resourceMonitorNeedsConfigChanges({}, disabledServices), false);
   });
 
-  test(`${source.name}: global resource monitor switch prepares full config cleanup`, async () => {
+  test(`${source.name}: off modes prepare full resource config cleanup`, () => {
     const app = loadApp(source);
     hydrate(app, `
 proxy-groups:
@@ -514,8 +735,10 @@ rules:
     const sources = {
       youtube: ['FASTEST'],
       telegram: ['FASTEST'],
+      tiktok: ['FASTEST'],
       whatsapp: ['FASTEST'],
       instagram: ['FASTEST'],
+      twitter: ['FASTEST'],
       ai: ['FASTEST'],
     };
     const services = Object.fromEntries(
@@ -526,14 +749,10 @@ rules:
     );
     app.prepareResourceMonitorConfig(sources, services);
     app.state.resourceMonitor.config = { enabled: true, services };
-    app.els.resourceMonitorEnabled.checked = false;
-
-    await app.toggleResourceMonitor();
-
-    assert.equal(app.els.resourceMonitorEnabled.checked, true);
-    assert.equal(app.state.resourceMonitor.pendingSettings.enabled, false);
+    const disabled = Object.fromEntries(Object.entries(services).map(([key, item]) => [key, { ...item, mode: 'off', enabled: false }]));
+    app.prepareResourceMonitorConfig({}, disabled);
     assert.doesNotMatch(app.state.outputText, /webmihomo-monitor/);
-    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: WHATSAPP|name: INSTAGRAM|name: AI/);
+    assert.doesNotMatch(app.state.outputText, /name: YOUTUBE|name: TELEGRAM|name: TIKTOK|name: WHATSAPP|name: INSTAGRAM|name: TWITTER|name: AI/);
     assert.match(app.state.outputText, /MATCH,PROXY/);
   });
 
@@ -570,14 +789,18 @@ rules:
     const sources = {
       youtube: ['FASTEST', 'FALLBACK'],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: [],
+      twitter: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
@@ -637,14 +860,18 @@ rules:
     const sources = {
       youtube: ['PROXY'],
       telegram: [],
+      tiktok: [],
       whatsapp: [],
       instagram: [],
+      twitter: [],
       ai: [],
     };
     const services = {
       youtube: { enabled: true, group: 'YOUTUBE', sources: sources.youtube },
       telegram: { enabled: false, group: 'TELEGRAM', sources: [] },
+      tiktok: { enabled: false, group: 'TIKTOK', sources: [] },
       whatsapp: { enabled: false, group: 'WHATSAPP', sources: [] },
+      twitter: { enabled: false, group: 'TWITTER' },
       instagram: { enabled: false, group: 'INSTAGRAM', sources: [] },
       ai: { enabled: false, group: 'AI', sources: [] },
     };
@@ -752,6 +979,26 @@ rules:
     ], null, now, 1);
 
     assert.equal(timeline[0].state, 'confirmed');
+  });
+
+  test(`${source.name}: ignores service events in the whitelist state timeline`, () => {
+    const app = loadApp(source);
+    const now = Date.UTC(2026, 6, 25, 12, 0, 0);
+    const start = now - 3 * 60 * 60 * 1000;
+    const at = (offsetMinutes) => Math.floor((start + offsetMinutes * 60 * 1000) / 1000);
+    const timeline = app.buildWhitelistMonitorTimeline([
+      { type: 'normal', timestamp: at(10) },
+      { type: 'config_restored', timestamp: at(10) },
+      { type: 'domain_list_updated', timestamp: at(70) },
+    ], {
+      state: 'normal',
+      checkedAt: at(179),
+    }, now, 3);
+
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(timeline.map((item) => item.state))),
+      ['normal', 'normal', 'normal'],
+    );
   });
 
   test(`${source.name}: builds resource history and marks node switches`, () => {
@@ -894,8 +1141,10 @@ rules:
     app.prepareResourceMonitorConfig({
       youtube: 'FASTEST',
       telegram: 'FASTEST',
+      tiktok: 'FASTEST',
       whatsapp: 'FASTEST',
       instagram: 'FASTEST',
+      twitter: 'FASTEST',
       ai: 'FASTEST',
     });
 
@@ -1413,6 +1662,135 @@ rules:
     assert.equal(app.els.changesJumpButton.textContent, 'Изменения (1)');
   });
 
+  test(`${source.name}: form output preserves unchanged YAML anchors, tags and comments`, () => {
+    const app = loadApp(source);
+    const yaml = [
+      'proxy-providers: &subscriptions # subscription map',
+      '  "provider: one": !!map &subscription # provider header',
+      '    type: !!str "http" # provider type',
+      '    url: https://example.com/sub',
+      'proxy-groups:',
+      '  - name: &route !!str "Proxy" # routing group',
+      '    type: &kind !!str "select" # group type',
+      '    proxies: [DIRECT] # original inline list',
+      '    use: # providers in order',
+      '      - "provider: one" # preferred provider',
+      'x-subscription: *subscription',
+      'x-route: *route',
+      'x-kind: *kind',
+      'rules:',
+      '  - MATCH,Proxy',
+      '',
+    ].join('\n');
+    hydrate(app, yaml);
+
+    assert.equal(app.state.groups[0].name, 'Proxy');
+    assert.equal(app.state.groups[0].type, 'select');
+    app.generateOutput();
+
+    assert.equal(app.state.outputText, yaml);
+  });
+
+  test(`${source.name}: form edits preserve scalar anchors and header comments`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'proxy-providers: &subscriptions # subscription map',
+      '  "provider: one" : !!map &subscription # provider header',
+      '    type : !!str &providerType "http"  # provider type',
+      '    url: &subscriptionUrl "https://example.com/sub" # URL',
+      'proxy-groups:',
+      '  - name : &route !!str "Proxy"  # routing group',
+      '    type : &kind !!str "select"  # group type',
+      '    proxies: [DIRECT] # original inline list',
+      '    use: ["provider: one"]',
+      'x-subscription: *subscription',
+      'x-route: *route',
+      'x-kind: *kind',
+      'rules:',
+      '  - MATCH,Proxy',
+      '',
+    ].join('\n'));
+    const provider = app.state.providers[0];
+    const group = app.state.groups[0];
+    provider.name = 'renamed-provider';
+    provider.type = 'file';
+    provider.url = 'https://example.com/new';
+    group.use = ['renamed-provider'];
+    group.name = 'Renamed';
+    group.type = 'fallback';
+    app.generateOutput();
+
+    const output = app.state.outputText;
+    assert.match(output, /^proxy-providers: &subscriptions # subscription map/m);
+    assert.match(output, /^  renamed-provider : !!map &subscription # provider header/m);
+    assert.match(output, /^    type : !!str &providerType file  # provider type/m);
+    assert.match(output, /^    url: &subscriptionUrl https:\/\/example.com\/new # URL/m);
+    assert.match(output, /^  - name : &route !!str Renamed  # routing group/m);
+    assert.match(output, /^    type : &kind !!str fallback  # group type/m);
+    assert.match(output, /^    proxies: \[DIRECT\] # original inline list/m);
+    assert.match(output, /^x-subscription: \*subscription/m);
+    assert.match(output, /^x-route: \*route/m);
+    assert.match(output, /^x-kind: \*kind/m);
+  });
+
+  test(`${source.name}: unchanged groups do not acquire an implicit type`, () => {
+    const app = loadApp(source);
+    const yaml = 'proxy-groups:\n  - name: Proxy # header\n    proxies: [DIRECT] # routes\nrules:\n  - MATCH,Proxy\n';
+    hydrate(app, yaml);
+    app.generateOutput();
+    assert.equal(app.state.outputText, yaml);
+  });
+
+  test(`${source.name}: group list edits preserve YAML anchors, tags and header comments`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'proxy-providers:',
+      '  existing:',
+      '    type: http',
+      '    url: https://example.com/sub',
+      'proxy-groups:',
+      '  - name: Proxy',
+      '    type: select',
+      '    proxies: &pool !!seq [DIRECT] # shared routes',
+      '    use: !!seq &subscriptions # shared providers',
+      '      - existing',
+      'x-routes: *pool',
+      'x-providers: *subscriptions',
+      '',
+    ].join('\n'));
+    const group = app.state.groups[0];
+    assert.deepEqual([...group.proxies], ['DIRECT']);
+    assert.deepEqual([...group.use], ['existing']);
+
+    app.toggleGroupProxy(group, 'REJECT', true);
+    app.toggleGroupUse(group, 'existing', false);
+
+    assert.match(app.state.outputText, /^    proxies: &pool !!seq  # shared routes\n      - DIRECT\n      - REJECT/m);
+    assert.match(app.state.outputText, /^    use: !!seq &subscriptions \[\] # shared providers/m);
+    assert.equal((app.state.outputText.match(/^    proxies:/gm) || []).length, 1);
+    assert.equal((app.state.outputText.match(/^    use:/gm) || []).length, 1);
+  });
+
+  test(`${source.name}: group form refuses to replace an aliased YAML list`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'x-routes: &pool [DIRECT]',
+      'proxy-groups:',
+      '  - name: Proxy',
+      '    type: select',
+      '    proxies: *pool # shared routes',
+      '',
+    ].join('\n'));
+    const group = app.state.groups[0];
+    app.generateOutput();
+    assert.match(app.state.outputText, /proxies: \*pool # shared routes/);
+
+    app.toggleGroupProxy(group, 'REJECT', true);
+
+    assert.equal(app.state.outputText, '');
+    assert.match(app.els.messageBox.textContent, /список proxies задан YAML-ссылкой.*вручную в YAML/);
+  });
+
   test(`${source.name}: preserves optional http provider defaults until an explicit action`, () => {
     const app = loadApp(source);
     const activeProviders = hydrate(app, `
@@ -1438,7 +1816,7 @@ rules:
 
   test(`${source.name}: recognizes and preserves an unchanged selective Xray provider wrapper`, () => {
     const app = loadApp(source);
-    const wrapper = 'http://127.0.0.1:9879/mihomo/xray/provider.yaml?provider=wrapped&url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc';
+    const wrapper = 'http://127.0.0.1:9879/mihomo/xray/provider.yaml?provider=wrapped&url=https%3A%2F%2Fexample.com%2Fsub%3Ftoken%3Dabc&source=happ';
     const providers = hydrate(app, `
 proxy-providers:
   wrapped:
@@ -1454,6 +1832,7 @@ rules:
 `);
 
     assert.equal(providers[0].sourceFormat, 'xray-json');
+    assert.equal(providers[0].sourceKind, 'happ');
     assert.equal(providers[0].url, 'https://example.com/sub?token=abc');
     assert.equal(app.getProviderOutputUrl(providers[0]), wrapper);
     app.generateOutput();
@@ -1480,6 +1859,7 @@ rules:
       name: 'converted',
       url: 'https://xray.example/config?token=secret',
       sourceFormat: 'xray-json',
+      sourceKind: 'happ',
       groupNames: ['Proxy'],
     });
 
@@ -1488,6 +1868,7 @@ rules:
     assert.match(app.getProviderOutputUrl(converted), /^http:\/\/127\.0\.0\.1:9888\/mihomo\/xray\/provider\.yaml\?/);
     assert.match(app.getProviderOutputUrl(converted), /provider=converted/);
     assert.match(app.getProviderOutputUrl(converted), /url=https%3A%2F%2Fxray\.example%2Fconfig%3Ftoken%3Dsecret/);
+    assert.match(app.getProviderOutputUrl(converted), /source=happ/);
     assert.equal(providers[0].sourceFormat, 'direct');
   });
 
@@ -2347,6 +2728,77 @@ rules:
     assert.match(app.state.outputText, /\n    exclude-type: vless\s*\n/);
   });
 
+  test(`${source.name}: preserves node name expressions when appending provider rules`, () => {
+    const app = loadApp(source);
+    const cases = [
+      ['A\\|B', 'B', 'A\\|B`B'],
+      ['US | NL', 'DE', 'US | NL`DE'],
+      ['^US$|', 'DE', '^US$|`DE'],
+      ['US', 'us', 'US`us'],
+      ['US`us', 'US', 'US`us'],
+      ['(US|NL)\\|([A-Z]+)\\1', 'DE', '(US|NL)\\|([A-Z]+)\\1`DE'],
+      ['US`NL', 'NL`DE`DE', 'US`NL`DE'],
+      ['  US | NL  ', 'DE', '  US | NL  `DE'],
+      ['', '`', '`'],
+    ];
+
+    for (const key of ['filter', 'excludeFilter']) {
+      for (const [current, addition, expected] of cases) {
+        const [provider] = hydrate(app, 'proxy-providers:\n  AlphaNet:\n    type: http\n    url: https://alpha.example/sub\nproxy-groups:\n  - name: PROXY\n    type: select\n    use: [AlphaNet]\nrules:\n  - MATCH,PROXY\n');
+        provider[key] = current;
+        assert.equal(app.applyNodeProviderRule(provider, key, addition), expected, `${key}: ${current} + ${addition}`);
+        assert.equal(provider[key], expected);
+        const [reloaded] = hydrate(app, app.state.outputText);
+        assert.equal(reloaded[key], expected, `${key}: yaml round-trip`);
+      }
+    }
+  });
+
+  test(`${source.name}: keeps pipe-separated protocol exclusions`, () => {
+    const app = loadApp(source);
+    const [provider] = hydrate(app, 'proxy-providers:\n  AlphaNet:\n    type: http\n    url: https://alpha.example/sub\n    exclude-type: vless\nproxy-groups:\n  - name: PROXY\n    type: select\n    use: [AlphaNet]\nrules:\n  - MATCH,PROXY\n');
+
+    assert.equal(app.applyNodeProviderRule(provider, 'excludeType', 'trojan'), 'vless|trojan');
+    assert.equal(app.applyNodeProviderRule(provider, 'excludeType', 'VLESS'), 'vless|trojan');
+    const [reloaded] = hydrate(app, app.state.outputText);
+    assert.equal(reloaded.excludeType, 'vless|trojan');
+  });
+
+  test(`${source.name}: previews Mihomo name rules with explicit case and provider scope`, () => {
+    const app = loadApp(source);
+    app.state.mihomoNodes = [
+      { name: 'NL Amsterdam', provider: 'AlphaNet' },
+      { name: 'nl amsterdam', provider: 'AlphaNet' },
+      { name: 'DE Berlin', provider: 'AlphaNet' },
+      { name: 'NL Rotterdam', provider: 'BetaMesh' },
+    ];
+    const cases = [
+      ['nl', ['nl amsterdam']],
+      ['(?i)NL', ['NL Amsterdam', 'nl amsterdam']],
+      ['(?i)(?-i)NL', ['NL Amsterdam']],
+      ['(?im-s)nl', ['NL Amsterdam', 'nl amsterdam']],
+      ['NL`DE', ['NL Amsterdam', 'DE Berlin']],
+      ['(?i)nl`DE', ['NL Amsterdam', 'nl amsterdam', 'DE Berlin']],
+    ];
+
+    for (const [pattern, expected] of cases) {
+      const impact = app.getNodeNameRuleImpact('AlphaNet', pattern);
+      assert.equal(impact.valid, true, pattern);
+      assert.equal(impact.total, 3, pattern);
+      assert.deepEqual([...impact.matches].map((node) => node.name), expected, pattern);
+    }
+
+    const invalid = app.getNodeNameRuleImpact('AlphaNet', '[');
+    assert.equal(invalid.valid, false);
+    assert.equal(invalid.matches.length, 0);
+    for (const pattern of ['(?i:NL)', '(?x)NL', '\\w+', '(NL)\\1', '[a-z-[aeiou]]', '[]]', '[^]]']) {
+      const unknown = app.getNodeNameRuleImpact('AlphaNet', pattern);
+      assert.equal(unknown.valid, null, pattern);
+      assert.equal(unknown.total, 3, pattern);
+      assert.equal(unknown.matches.length, 0, pattern);
+    }
+  });
+
   test(`${source.name}: reports node rule impact, status and filtered totals`, () => {
     const app = loadApp(source);
     app.state.mihomoNodes = [
@@ -2414,6 +2866,37 @@ rules:
     assert.match(app.state.outputText, /  - MATCH,Service/);
     assert(flattenChanges(app.collectChanges(app.state.providers)).includes('Группа Proxy: переименована в Primary.'));
     assert.equal(app.getGroupUsage(proxy).used, true);
+  });
+
+  test(`${source.name}: group name swaps preserve rule and external reference targets`, () => {
+    const app = loadApp(source);
+    hydrate(app, `proxy-groups:
+  - name: A
+    type: select
+    proxies: [DIRECT]
+  - name: B
+    type: select
+    proxies: [DIRECT]
+rules:
+  - DOMAIN,a.example,A
+  - MATCH,B
+dns:
+  nameserver: [https://dns.example/#A, https://dns.example/#B]
+ntp:
+  dialer-proxy: A
+`);
+    const first = app.state.groups.find((group) => group.name === 'A');
+    const second = app.state.groups.find((group) => group.name === 'B');
+    app.renameGroup(first, 'Temporary');
+    app.renameGroup(second, 'A');
+    app.renameGroup(first, 'B');
+    assert.match(app.state.outputText, /DOMAIN,a.example,B/);
+    assert.match(app.state.outputText, /MATCH,A/);
+    assert.match(app.state.outputText, /nameserver: \[https:\/\/dns.example\/#B, https:\/\/dns.example\/#A\]/);
+    assert.match(app.state.outputText, /dialer-proxy: B/);
+    app.generateOutput();
+    assert.match(app.state.outputText, /DOMAIN,a.example,B/);
+    assert.match(app.state.outputText, /MATCH,A/);
   });
 
   test(`${source.name}: adds missing recommended connection settings only`, () => {
@@ -3077,4 +3560,378 @@ rules:
     assert.equal(rule.deleted, false);
     assert.deepEqual([...app.state.groups[0].use], ['one']);
   });
+}
+
+function resourceModeFixture(source) {
+  const app = loadApp(source);
+  hydrate(app, [
+    'proxy-providers:', '  main:', '    type: http', '    url: https://example.com/sub',
+    'proxy-groups:', '  - name: FASTEST', '    type: url-test', '    use: [main]',
+    '  - name: SECOND', '    type: fallback', '    proxies: [node-b]',
+    '  - name: PROXY', '    type: select', '    proxies: [FASTEST, SECOND]',
+    'rules:', '  - MATCH,PROXY', '',
+  ].join('\n'));
+  app.state.resourceMonitor.smartSupport = { supported: true };
+  const services = Object.fromEntries(['youtube', 'tiktok', 'telegram', 'whatsapp', 'instagram', 'twitter', 'ai']
+    .map((key) => [key, { enabled: false, mode: 'off', group: key.toUpperCase(), sources: [] }]));
+  return { app, services };
+}
+
+test('resource settings reject double submission and preserve inputs after a failed save', async () => {
+  const source = readSource(SOURCES[0]);
+  const script = source.slice(source.indexOf('async function saveResourceMonitorDialog()'), source.indexOf('async function postResourceMonitorSettings('));
+  const input = { value: '3600', disabled: false };
+  const locked = { disabled: true };
+  const dialog = { open: true, querySelectorAll: () => [input, locked] };
+  const state = { resourceMonitor: { pendingSettings: null } };
+  const notice = { hidden: true, textContent: '' };
+  let rejectRequest;
+  let requests = 0;
+  const context = vm.createContext({
+    state,
+    els: { resourceMonitorDialog: dialog, resourceMonitorDialogNotice: notice },
+    collectResourceMonitorDialogSettings: () => ({ settings: { enabled: true, services: {} }, sources: {} }),
+    resourceMonitorNeedsConfigChanges: () => false,
+    postResourceMonitorSettings: () => { requests += 1; return new Promise((resolve, reject) => { rejectRequest = reject; }); },
+    updateResourceMonitorDialogActions() { notice.hidden = true; },
+    renderResourceMonitor() {},
+    closeResourceMonitorDialog() { dialog.open = false; },
+    showMessage() {},
+  });
+  vm.runInContext(script + '\nglobalThis.save = saveResourceMonitorDialog;', context);
+  const first = context.save();
+  assert.equal(input.disabled, true);
+  await context.save();
+  assert.equal(requests, 1);
+  rejectRequest(new Error('Сервис недоступен'));
+  await first;
+  assert.equal(state.resourceMonitor.saving, false);
+  assert.equal(input.value, '3600');
+  assert.equal(input.disabled, false);
+  assert.equal(locked.disabled, true);
+  assert.equal(notice.hidden, false);
+  assert.equal(notice.textContent, 'Сервис недоступен');
+  assert.equal(dialog.open, true);
+  context.postResourceMonitorSettings = async () => { requests += 1; };
+  await context.save();
+  assert.equal(requests, 2);
+  assert.equal(dialog.open, false);
+});
+
+for (const source of SOURCES) {
+  test(source.name + ': mixes Smart and MihUI without duplicating groups or rules', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, enabled: true, mode: 'prizrak', sources: ['FASTEST', 'SECOND'] };
+    services.telegram = { ...services.telegram, enabled: true, mode: 'mihui', sources: ['FASTEST'] };
+    const sources = { youtube: ['FASTEST', 'SECOND'], telegram: ['FASTEST'] };
+    app.prepareResourceMonitorConfig(sources, services);
+    const youtube = app.state.groups.find((group) => group.name === 'YOUTUBE');
+    assert.equal(youtube.type, 'smart');
+    assert.deepEqual(Array.from(youtube.use), ['main']);
+    assert.deepEqual(Array.from(youtube.proxies), ['node-b']);
+    assert.equal(app.state.groups.find((group) => group.name === 'TELEGRAM').type, 'select');
+    assert.match(app.state.outputText, /uselightgbm: true/);
+    assert.match(app.state.outputText, /collectdata: false/);
+    assert.equal(youtube.testUrl, 'https://www.youtube.com/generate_204');
+    assert.equal(youtube.expectedStatus, '204');
+    assert.match(app.state.outputText, /^lgbm-auto-update: true$/m);
+    assert.match(app.state.outputText, /^lgbm-update-interval: 72$/m);
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal((app.state.outputText.match(/name: YOUTUBE /g) || []).length, 1);
+    assert.equal((app.state.outputText.match(/GEOSITE,youtube,YOUTUBE/g) || []).length, 1);
+  });
+
+  test(source.name + ': converts the last Smart resource to MihUI and removes model settings', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    hydrate(app, app.state.outputText);
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    assert.equal(app.state.groups.find((group) => group.name === 'YOUTUBE').type, 'select');
+    assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval|uselightgbm|collectdata/);
+    assert.match(app.state.outputText, /GEOSITE,youtube,YOUTUBE/);
+  });
+
+  test(source.name + ': keeps global model settings until every Smart group is removed', () => {
+    const { app, services } = resourceModeFixture(source);
+    hydrate(app, app.state.originalText.replace('proxy-groups:', [
+      'lgbm-auto-update: false', 'lgbm-update-interval: 24', 'proxy-groups:',
+      '  - name: CUSTOM', '    type: smart', '    uselightgbm: true', '    proxies: [node-a]',
+    ].join('\n')));
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    services.youtube = { ...services.youtube, mode: 'off', enabled: false };
+    app.prepareResourceMonitorConfig({}, services);
+    assert.match(app.state.outputText, /^lgbm-auto-update: false$/m);
+    assert.match(app.state.outputText, /^lgbm-update-interval: 24$/m);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|GEOSITE,youtube/);
+    app.state.groups = app.state.groups.filter((group) => group.name !== 'CUSTOM');
+    app.generateOutput();
+    assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval/);
+  });
+
+  test(source.name + ': blocks unsupported Smart and referenced cleanup without changing the draft', () => {
+    const { app, services } = resourceModeFixture(source);
+    services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+    app.state.resourceMonitor.smartSupport.supported = false;
+    const original = app.state.outputText;
+    assert.throws(() => app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services), /не подтверждена/);
+    assert.equal(app.state.outputText, original);
+    app.state.resourceMonitor.smartSupport.supported = true;
+    app.prepareResourceMonitorConfig({ youtube: ['FASTEST'] }, services);
+    hydrate(app, app.state.outputText.replace('  - MATCH,PROXY', '  - DOMAIN,example.org,YOUTUBE\n  - MATCH,PROXY'));
+    const active = app.state.originalText;
+    services.youtube = { ...services.youtube, mode: 'off', enabled: false };
+    assert.throws(() => app.prepareResourceMonitorConfig({}, services), /пользовательские правила/);
+    assert.equal(app.state.originalText, active);
+    assert.equal(app.state.rules.some((rule) => rule.deleted), false);
+  });
+
+  test(source.name + ': raw edits add and clean model parameters while preserving other YAML', () => {
+    const { app } = resourceModeFixture(source);
+    const original = app.state.originalText;
+    app.els.outputPreview.value = original.replace('type: fallback', 'type: smart');
+    assert.equal(app.applyConfigurationEdit(), true);
+    assert.match(app.state.outputText, /^lgbm-auto-update: true$/m);
+    app.els.outputPreview.value = app.state.outputText.replace('type: smart', 'type: fallback');
+    assert.equal(app.applyConfigurationEdit(), true);
+    assert.equal(app.state.outputText, original);
+  });
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': detects existing Smart resources from YAML despite old off settings', () => {
+    const { app, services } = resourceModeFixture(source);
+    const text = [
+      'lgbm-auto-update: true', 'lgbm-update-interval: 72', 'proxy-providers:',
+      '  main:', '    type: http', '    url: https://example.com/sub',
+      'proxy-groups:', '  - name: FASTEST', '    type: url-test', '    use: [main]',
+      ...['YOUTUBE', 'TELEGRAM', 'TWITTER', 'TIKTOK'].flatMap((name) => [
+        '  - name: ' + name, '    type: smart', '    uselightgbm: true', '    use: [main]',
+      ]),
+      'rules:', '  - GEOSITE,youtube,YOUTUBE', '  - MATCH,FASTEST', '',
+    ].join('\n');
+    hydrate(app, text);
+    const saved = { enabled: false, services };
+    const before = JSON.stringify(saved);
+    const actual = app.getResourceMonitorConfigSettings(saved);
+    assert.equal(actual.enabled, true);
+    for (const key of ['youtube', 'telegram', 'twitter', 'tiktok']) {
+      assert.equal(actual.services[key].mode, 'prizrak');
+      assert.equal(actual.services[key].enabled, true);
+    }
+    for (const key of ['whatsapp', 'instagram', 'ai']) assert.equal(actual.services[key].mode, 'off');
+    assert.equal(JSON.stringify(saved), before);
+    assert.equal(app.state.originalText, text);
+    assert.equal(app.state.groups.every((group) => !group.managedMonitoring), true);
+    assert.equal(app.getResourceMonitorConfiguredSourceText(app.state.groups[1]), 'main');
+    assert.match(app.getResourceMonitorSourceHint({ group: 'YOUTUBE' }, app.state.groups[1], 'prizrak'), /настроен в конфиге/);
+    app.state.resourceMonitor.smartSupport = null;
+    assert.equal(app.getResourceMonitorDialogIssue({}, actual.services), '');
+  });
+
+  test(source.name + ': does not infer active MihUI from select groups or keep stale Smart after YAML replacement', () => {
+    const { app, services } = resourceModeFixture(source);
+    const select = { name: 'YOUTUBE', type: 'select', managedMonitoring: false, proxies: ['node-a'], use: [] };
+    const settings = { enabled: false, services };
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'off');
+    settings.enabled = true;
+    settings.services.youtube = { mode: 'prizrak', enabled: true, group: 'YOUTUBE', sources: [] };
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'off');
+    assert.equal(app.getResourceMonitorConfigSettings(settings, []).services.youtube.mode, 'off');
+    settings.services.youtube.mode = 'mihui';
+    assert.equal(app.getResourceMonitorConfigSettings(settings, [select]).services.youtube.mode, 'mihui');
+    assert.equal(app.getResourceMonitorConfigSettings({ enabled: false, services }, [select]).services.youtube.mode, 'off');
+  });
+}
+
+function existingSmartFixture(source) {
+  const { app, services } = resourceModeFixture(source);
+  const text = app.state.originalText
+    .replace('proxy-groups:', 'lgbm-auto-update: true\nlgbm-update-interval: 72\nproxy-groups:')
+    .replace('  - name: PROXY', [
+      '  - name: YOUTUBE', '    type: smart', '    uselightgbm: true', '    collectdata: false',
+      '    use: [main]', '    proxies: [node-b]', '    filter: premium', '    exclude-filter: blocked',
+      '    url: https://www.youtube.com/generate_204', '    expected-status: "204"', '  - name: PROXY',
+    ].join('\n'))
+    .replace('  - MATCH,PROXY', '  - GEOSITE,youtube,YOUTUBE\n  - MATCH,PROXY');
+  hydrate(app, text);
+  services.youtube = { ...services.youtube, mode: 'prizrak', enabled: true, sources: [] };
+  return { app, services, text };
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': all Smart resources use their first MihUI endpoint and keep it after reload', () => {
+    const { app, services } = resourceModeFixture(source);
+    const monitorSource = fs.readFileSync('router/mihui_server.py', 'utf8');
+    const endpoints = [...monitorSource.matchAll(/"(youtube|tiktok|telegram|whatsapp|instagram|twitter|ai)": \{\s*"title": "[^"]+",\s*"group": "([^"]+)",\s*"endpoints": \[\s*\{"url": "([^"]+)", "expected": (\d+)\}/g)];
+    assert.equal(endpoints.length, 7);
+    const sources = {};
+    for (const [, key] of endpoints) {
+      services[key] = { ...services[key], mode: 'prizrak', enabled: true, sources: ['FASTEST'] };
+      sources[key] = ['FASTEST'];
+    }
+    app.prepareResourceMonitorConfig(sources, services);
+    const prepared = app.state.outputText;
+    const lines = app.splitLines(prepared);
+    const groups = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups'));
+    for (const [, , name, url, expected] of endpoints) {
+      const group = groups.find((item) => item.name === name);
+      const block = lines.slice(group.start, group.end);
+      assert.equal(group.type, 'smart');
+      assert.equal(group.testUrl, url);
+      assert.equal(group.expectedStatus, expected);
+      assert.equal(block.filter((line) => /^\s+url:/.test(line)).length, 1);
+      assert.equal(block.filter((line) => /^\s+expected-status:/.test(line)).length, 1);
+    }
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal(app.state.outputText.split('\n').filter((line) => line.trim()).join('\n'), prepared.split('\n').filter((line) => line.trim()).join('\n'));
+    hydrate(app, prepared);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges(sources, services), false);
+    app.prepareResourceMonitorConfig(sources, services);
+    assert.equal(app.state.outputText.split('\n').filter((line) => line.trim()).join('\n'), prepared.split('\n').filter((line) => line.trim()).join('\n'));
+  });
+
+  test(source.name + ': existing Smart resources gain missing checks without changing custom Smart groups', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    const yaml = text
+      .replace('    url: https://www.youtube.com/generate_204\n    expected-status: "204"\n', '')
+      .replace('  - name: PROXY', '  - name: CUSTOM\n    type: smart\n    proxies: [node-a]\n    url: "https://example.com/custom"\n    expected-status: "201"\n  - name: PROXY');
+    hydrate(app, yaml);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    app.prepareResourceMonitorConfig({}, services);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.match(app.state.outputText, /url: "https:\/\/example.com\/custom"\n    expected-status: "201"/);
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({}, services);
+    services.youtube.mode = 'prizrak';
+    app.prepareResourceMonitorConfig({}, services);
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+
+  test(source.name + ': Smart resource checks preserve provider checks, baseline groups and adaptive settings', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    const yaml = text
+      .replace('    url: https://www.youtube.com/generate_204', '    url: https://example.com/old-check')
+      .replace('    expected-status: "204"', '    expected-status: "200"')
+      .replace('    type: url-test', '    type: url-test\n    url: https://www.gstatic.com/generate_204\n    expected-status: 204\n    interval: 30')
+      .replace('    url: https://example.com/sub', '    url: https://example.com/sub\n    health-check:\n      enable: true\n      url: https://www.gstatic.com/generate_204\n      expected-status: 204\n      interval: 300')
+      .replace('    type: smart', '    type: smart\n    interval: 90\n    max-failed-times: 2\n    tolerance: 75');
+    hydrate(app, yaml);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    app.prepareResourceMonitorConfig({}, services);
+    const lines = app.splitLines(app.state.outputText);
+    const groups = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups'));
+    const group = groups.find((item) => item.name === 'YOUTUBE');
+    const block = lines.slice(group.start, group.end).join('\n');
+    assert.equal(group.testUrl, 'https://www.youtube.com/generate_204');
+    assert.equal(group.expectedStatus, '204');
+    assert.match(block, /interval: 90/);
+    assert.match(block, /max-failed-times: 2/);
+    assert.match(block, /tolerance: 75/);
+    assert.deepEqual(Array.from(group.use), ['main']);
+    assert.deepEqual(Array.from(group.proxies), ['node-b']);
+    assert.equal(group.managedMonitoring, false);
+    const fastest = groups.find((item) => item.name === 'FASTEST');
+    assert.match(lines.slice(fastest.start, fastest.end).join('\n'), /url: https:\/\/www.gstatic.com\/generate_204/);
+    const providers = app.findTopSection(lines, 'proxy-providers');
+    assert.match(lines.slice(providers.start, providers.end).join('\n'), /health-check:[\s\S]+expected-status: 204/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    assert.match(flattenChanges(app.collectChanges(app.state.providers)).join('\n'), /проверка Smart — https:\/\/www.youtube.com\/generate_204, HTTP 204/);
+  });
+
+  test(source.name + ': MihUI groups have no parallel group test or timer', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    hydrate(app, text.replace('    type: smart', '    type: smart\n    interval: 90\n    timeout: 4000\n    lazy: false'));
+    services.youtube.mode = 'mihui';
+    app.prepareResourceMonitorConfig({}, services);
+    const lines = app.splitLines(app.state.outputText);
+    const group = app.parseGroups(lines, app.findTopSection(lines, 'proxy-groups')).find((item) => item.name === 'YOUTUBE');
+    const block = lines.slice(group.start, group.end).join('\n');
+    assert.match(block, /type: select/);
+    assert.doesNotMatch(block, /^\s+(url|expected-status|interval):/m);
+    assert.match(block, /timeout: 4000/);
+    assert.match(block, /lazy: false/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+}
+
+for (const source of SOURCES) {
+  test(source.name + ': switches existing Smart to MihUI while preserving its actual node pool', () => {
+    const { app, services } = existingSmartFixture(source);
+    services.youtube.mode = 'mihui';
+    assert.equal(app.getResourceMonitorDialogIssue({}, services), '');
+    app.prepareResourceMonitorConfig({}, services);
+    const group = app.state.groups.find((item) => item.name === 'YOUTUBE');
+    assert.equal(group.type, 'select');
+    assert.equal(group.managedMonitoring, true);
+    assert.equal(group.monitorDirectSources, true);
+    assert.deepEqual(Array.from(group.use), ['main']);
+    assert.deepEqual(Array.from(group.proxies), ['node-b']);
+    assert.equal(group.filter, 'premium');
+    assert.equal(group.excludeFilter, 'blocked');
+    assert.doesNotMatch(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.doesNotMatch(app.state.outputText, /expected-status: "204"/);
+    assert.doesNotMatch(app.state.outputText, /uselightgbm|collectdata|lgbm-auto-update|lgbm-update-interval/);
+    assert.match(app.state.outputText, /GEOSITE,youtube,YOUTUBE/);
+    hydrate(app, app.state.outputText);
+    app.state.resourceMonitor.config = { enabled: true, services };
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').monitorDirectSources, true);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+    services.youtube.mode = 'prizrak';
+    app.prepareResourceMonitorConfig({}, services);
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').type, 'smart');
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').testUrl, 'https://www.youtube.com/generate_204');
+    assert.match(app.state.outputText, /url: https:\/\/www.youtube.com\/generate_204/);
+    assert.match(app.state.outputText, /expected-status: "?204"?/);
+    assert.deepEqual(Array.from(app.state.groups.find((item) => item.name === 'YOUTUBE').use), ['main']);
+    assert.match(app.state.outputText, /uselightgbm: true/);
+    assert.match(app.state.outputText, /lgbm-auto-update: true/);
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    app.prepareResourceMonitorConfig({}, services);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|lgbm-auto-update|lgbm-update-interval/);
+  });
+
+  test(source.name + ': disables an unmarked Smart group and its canonical rules without extra setup', () => {
+    const { app, services } = existingSmartFixture(source);
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), true);
+    assert.equal(app.getResourceMonitorDialogIssue({}, services), '');
+    app.prepareResourceMonitorConfig({}, services);
+    assert.doesNotMatch(app.state.outputText, /YOUTUBE|lgbm-auto-update|lgbm-update-interval/);
+    assert.match(app.state.outputText, /MATCH,PROXY/);
+    assert.equal(app.resourceMonitorNeedsConfigChanges({}, services), false);
+  });
+
+  test(source.name + ': blocks only extra references when disabling an existing Smart group', () => {
+    const { app, services, text } = existingSmartFixture(source);
+    hydrate(app, text.replace('  - MATCH,PROXY', '  - DOMAIN,custom.example,YOUTUBE\n  - MATCH,PROXY'));
+    services.youtube.mode = 'off';
+    services.youtube.enabled = false;
+    assert.throws(() => app.prepareResourceMonitorConfig({}, services), /пользовательские правила/);
+    assert.equal(app.state.rules.some((rule) => rule.deleted), false);
+    assert.equal(app.state.groups.find((item) => item.name === 'YOUTUBE').type, 'smart');
+  });
+
+  for (const mode of ['mihui', 'off']) {
+    test(source.name + ': core return handles known resource Smart groups from older YAML in ' + mode + ' mode', () => {
+      const { app } = existingSmartFixture(source);
+      app.els.componentManagerDialog.close = () => {};
+      app.prepareSmartCoreReturn(mode);
+      assert.equal(Boolean(app.state.resourceMonitor.pendingSettings), true);
+      assert.equal(app.state.resourceMonitor.pendingSettings.services.youtube.mode, mode);
+      assert.equal(app.state.groups.some((group) => group.type === 'smart'), false);
+      assert.doesNotMatch(app.state.outputText, /lgbm-auto-update|lgbm-update-interval/);
+    });
+  }
 }

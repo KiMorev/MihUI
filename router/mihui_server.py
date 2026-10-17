@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import base64
+import binascii
 import codecs
+import gzip
 import hashlib
+import hmac
 import html
 import io
 import ipaddress
@@ -11,7 +14,11 @@ import os
 import re
 import select
 import shutil
+import shlex
 import signal
+import socket
+import ssl
+import struct
 import subprocess
 import tarfile
 import tempfile
@@ -22,6 +29,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, ExitStack
 from datetime import datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -33,11 +41,25 @@ except ImportError:  # pragma: no cover - PTY is available on the target router
     pty = None
 
 
+MIHUI_INSTANCE_ID = uuid.uuid4().hex
 DEFAULT_CONFIG_PATH = "/opt/etc/mihomo/config.yaml"
+DEFAULT_MIHUI_INIT_SCRIPT = "/opt/etc/init.d/S99mihui"
+MIHUI_INIT_OWNER_MARKER = 'MIHUI_INIT_OWNER="KiMorev/MihUI"'
+MIHUI_SERVICE_FIX_MARKERS = (
+    'pid_file_matches() {',
+    'pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"',
+    'pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"',
+    'process_pids() {',
+)
 DEFAULT_GITHUB_REPO = "KiMorev/MihUI"
 DEFAULT_XKEEN_GITHUB_REPO = "jameszeroX/XKeen"
 DEFAULT_MIHOMO_GITHUB_REPO = "MetaCubeX/mihomo"
+PRIZRAK_GITHUB_REPO = "legiz-ru/Prizrak-Core"
 DEFAULT_XKEEN_DIR = "/opt/etc/xkeen"
+XKEEN_UI_INIT_SCRIPTS = (
+    "/opt/etc/init.d/S99xkeen-ui-umarcheh001",
+    "/opt/etc/init.d/S99xkeen-ui",
+)
 XKEEN_STATUS_TIMEOUT = 8
 XKEEN_FILES_MAX_BYTES = 512 * 1024
 XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
@@ -45,6 +67,7 @@ XKEEN_COMMAND_TIMEOUT = 30 * 60
 XKEEN_COMMAND_MAX_OUTPUT_CHARS = 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
 COMPONENT_ACTION_TIMEOUT = 10 * 60
+MIHUI_UPDATE_TIMEOUT = 5 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
 PROVIDER_ADAPTER_HWID_PATH = "/mihomo/hwid/provider.yaml"
 PROVIDER_ADAPTER_MAX_BYTES = 20 * 1024 * 1024
@@ -59,6 +82,19 @@ PROVIDER_ADAPTER_BLOCKED_HEADERS = {
     "accept-encoding",
 }
 DEFAULT_HAPP_FALLBACK_USER_AGENT = "Happ/1.0"
+HAPP_AES_GCM_IV = b"kkkkkkkkkkkk"
+HAPP_AES_GCM_KEYS = {
+    "key01": b"key01:3jk#R2d&Dd",
+    "key02": b'key02:+]%4ij#P"/',
+    "key03": b'key03:?&YNg/"L3}',
+    "key04": b'key04:+-4b"-?S${',
+    "key05": b"key05:N5<a/(~jJ'",
+    "key06": b'key06:s5\\["=`uC/',
+    "key07": b"key07:(H+b'')_@5",
+    "key08": b"key08:W'=)[/~i9w",
+    "key09": b"key09:'2%`C~>)_d",
+    "key10": b"key10:)\\'h]*#7MP",
+}
 XKEEN_COMMAND_GROUPS = [
     {
         "title": "Установка",
@@ -84,7 +120,6 @@ XKEEN_COMMAND_GROUPS = [
         "title": "Регистрация в системе",
         "tone": "warning",
         "items": [
-            {"flag": "-rrk", "description": "Зарегистрировать XKeen"},
             {"flag": "-rrx", "description": "Зарегистрировать Xray"},
             {"flag": "-rrm", "description": "Зарегистрировать Mihomo"},
             {"flag": "-ri", "description": "Добавить XKeen в автозапуск init.d"},
@@ -200,6 +235,7 @@ RESOURCE_MONITOR_GROUP_TYPES = {
     "loadbalance",
     "load-balance",
     "relay",
+    "smart",
 }
 RESOURCE_MONITOR_BUILTINS = {
     "DIRECT",
@@ -214,6 +250,11 @@ RESOURCE_MONITOR_SERVICES = {
         "title": "YouTube",
         "group": "YOUTUBE",
         "endpoints": [{"url": "https://www.youtube.com/generate_204", "expected": 204}],
+    },
+    "tiktok": {
+        "title": "TikTok",
+        "group": "TIKTOK",
+        "endpoints": [{"url": "https://www.tiktok.com/robots.txt", "expected": 200}],
     },
     "telegram": {
         "title": "Telegram",
@@ -230,6 +271,11 @@ RESOURCE_MONITOR_SERVICES = {
         "group": "INSTAGRAM",
         "endpoints": [{"url": "https://www.instagram.com/robots.txt", "expected": 200}],
     },
+    "twitter": {
+        "title": "X (Twitter)",
+        "group": "TWITTER",
+        "endpoints": [{"url": "https://x.com/robots.txt", "expected": 200}],
+    },
     "ai": {
         "title": "AI",
         "group": "AI",
@@ -243,6 +289,22 @@ WHITELIST_MONITOR_LOG_MAX_BYTES = 256 * 1024
 WHITELIST_MONITOR_EVENT_LIMIT = 200
 WHITELIST_MONITOR_ENDPOINT_LIMIT = 10
 WHITELIST_MONITOR_YANDEX_RELAY_URL = "https://translate.yandex.ru/translate"
+WHITELIST_FALLBACK_MARKER = "webmihomo-whitelist:"
+WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS = 15 * 60
+WHITELIST_DOMAIN_SOURCE_NAME = "hxehex/russia-mobile-internet-whitelist"
+WHITELIST_DOMAIN_SOURCE_URL = (
+    "https://raw.githubusercontent.com/"
+    "hxehex/russia-mobile-internet-whitelist/main/whitelist.txt"
+)
+WHITELIST_DOMAIN_SOURCE_PAGE = (
+    "https://github.com/hxehex/russia-mobile-internet-whitelist"
+)
+WHITELIST_DOMAIN_REFRESH_SECONDS = 24 * 60 * 60
+WHITELIST_DOMAIN_RETRY_SECONDS = 60 * 60
+WHITELIST_DOMAIN_STALE_SECONDS = 48 * 60 * 60
+WHITELIST_DOMAIN_MAX_BYTES = 512 * 1024
+WHITELIST_DOMAIN_MIN_COUNT = 100
+WHITELIST_DOMAIN_MAX_COUNT = 5000
 WHITELIST_MONITOR_POSITIVE_ENDPOINTS = [
     {"id": "allowed-ya", "name": "Яндекс", "url": "https://ya.ru/", "enabled": True},
     {"id": "allowed-gosuslugi", "name": "Госуслуги", "url": "https://www.gosuslugi.ru/", "enabled": True},
@@ -267,10 +329,62 @@ WHITELIST_MONITOR_CONTROL_ENDPOINTS = [
         "enabled": True,
     },
 ]
+DNS_LAB_LOG_MAX_BYTES = 4 * 1024 * 1024
+DNS_LAB_EVENT_LIMIT = 576
+DNS_LAB_STATUS_EVENT_LIMIT = 48
+DNS_LAB_QUERY_NAME = "example.com"
+DNS_LAB_PLAIN_TARGETS = [
+    {"id": "yandex", "label": "Яндекс DNS", "address": "77.88.8.8"},
+    {"id": "cloudflare", "label": "Cloudflare DNS", "address": "1.1.1.1"},
+    {"id": "google", "label": "Google DNS", "address": "8.8.8.8"},
+]
+DNS_LAB_ENCRYPTED_TARGETS = [
+    {
+        "id": "cloudflare",
+        "label": "Cloudflare",
+        "address": "1.1.1.1",
+        "hostname": "cloudflare-dns.com",
+        "dohPath": "/dns-query?name=example.com&type=A",
+    },
+    {
+        "id": "google",
+        "label": "Google",
+        "address": "8.8.8.8",
+        "hostname": "dns.google",
+        "dohPath": "/resolve?name=example.com&type=A",
+    },
+]
+
+DNS_PROTECTION_PORT = 1053
+DNS_PROTECTION_LOCAL_PORT = 41100
+DNS_PROTECTION_LEASE_SECONDS = 30
+DNS_PROTECTION_REFRESH_SECONDS = 5
+DNS_PROTECTION_EVENT_LIMIT = 100
+DNS_PROTECTION_MARKER_BEGIN = "# mihui-protected-dns: begin"
+DNS_PROTECTION_MARKER_END = "# mihui-protected-dns: end"
+DNS_PROTECTION_CHAIN4 = "MIHUI_DNS4"
+DNS_PROTECTION_CHAIN6 = "MIHUI_DNS6"
+DNS_PROTECTION_SET4 = "MIHUI_DNS_READY4"
+DNS_PROTECTION_SET6 = "MIHUI_DNS_READY6"
+DNS_PROTECTION_COMMENT = "mihui-protected-dns"
+DNS_PROTECTION_UPSTREAMS = (
+    "https://1.1.1.1/dns-query",
+    "https://8.8.8.8/dns-query",
+)
+DNS_PROTECTION_BOOTSTRAP = ("1.1.1.1", "8.8.8.8")
+DNS_PROTECTION_PROXY_RESOLVER = "udp://127.0.0.1:53"
+DNS_SMART_GROUP = "DNS-SMART"
+DNS_PROTECTION_LOCAL_NAMES = ("*", "+.lan", "+.localdomain", "+.home.arpa")
+DNS_WHITELIST_BEGIN = "    # mihui-whitelist-dns: begin"
+DNS_WHITELIST_END = "    # mihui-whitelist-dns: end"
+DNS_WHITELIST_SERVERS = (
+    "tls://77.88.8.88#DIRECT&name-cert-verify=safe.dot.dns.yandex.net",
+    "tls://77.88.8.2#DIRECT&name-cert-verify=safe.dot.dns.yandex.net",
+)
 
 
 update_lock = threading.Lock()
-config_write_lock = threading.Lock()
+config_write_lock = threading.RLock()
 update_state = {
     "running": False,
     "ok": None,
@@ -300,7 +414,10 @@ component_release_cache = {"checkedAt": 0, "catalog": {}}
 xkeen_files_lock = threading.Lock()
 xkeen_command_jobs_lock = threading.Lock()
 xkeen_command_jobs = {}
+resource_smart_support_cache = {}
+resource_smart_support_lock = threading.Lock()
 resource_monitor_lock = threading.Lock()
+group_replace_lock = threading.Lock()
 resource_monitor_state_lock = threading.Lock()
 resource_monitor_log_prune_lock = threading.Lock()
 resource_monitor_log_pruned_at = {}
@@ -316,6 +433,33 @@ whitelist_monitor_job_state = {
     "running": False,
     "startedAt": None,
     "finishedAt": None,
+}
+whitelist_domain_list_lock = threading.Lock()
+whitelist_domain_list_state_lock = threading.Lock()
+whitelist_domain_list_job_state = {
+    "running": False,
+    "startedAt": None,
+    "finishedAt": None,
+}
+dns_lab_lock = threading.Lock()
+dns_lab_state_lock = threading.Lock()
+dns_lab_job_state = {
+    "running": False,
+    "startedAt": None,
+    "finishedAt": None,
+    "error": "",
+}
+dns_protection_lock = threading.Lock()
+dns_operation_lock = threading.Lock()
+atomic_write_lock = threading.Lock()
+dns_protection_health_lock = threading.Lock()
+dns_protection_health = {
+    "firewallReady": False,
+    "leaseHealthy": False,
+    "lastProbeAt": None,
+    "lastFirewallCheckAt": None,
+    "consecutiveFailures": 0,
+    "message": "",
 }
 xray_provider_adapter_slots = threading.BoundedSemaphore(2)
 xray_provider_adapter_status_lock = threading.Lock()
@@ -398,11 +542,28 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/nodes":
             self.handle_nodes_get()
             return
+        if route == "/api/groups":
+            result = get_runtime_groups(self.app_dir)
+            self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_GATEWAY, result)
+            return
         if route == "/api/resource-monitor":
             self.handle_resource_monitor_get()
             return
         if route == "/api/whitelist-monitor":
             self.handle_whitelist_monitor_get()
+            return
+        if route == "/api/whitelist-monitor/domain-list":
+            self.handle_whitelist_domain_list_get()
+            return
+        if route == "/api/dns":
+            self.handle_dns_get()
+            return
+        if route == "/api/dns/operation":
+            operation_id = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
+            self.send_json(HTTPStatus.OK, {"ok": True, "operation": get_dns_operation(self.app_dir, operation_id)})
+            return
+        if route in {"/api/dns-lab", "/api/dns/observation"}:
+            self.handle_dns_lab_get()
             return
         if route in {PROVIDER_ADAPTER_PATH, PROVIDER_ADAPTER_HWID_PATH}:
             self.handle_provider_adapter_get(append_hwid=route == PROVIDER_ADAPTER_HWID_PATH)
@@ -423,6 +584,12 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/update/start":
             self.handle_update_start()
+            return
+        if route == "/api/mihui/restart":
+            self.handle_mihui_restart()
+            return
+        if route == "/api/mihui/repair":
+            self.handle_mihui_repair()
             return
         if route == "/api/components/action":
             self.handle_component_action()
@@ -448,8 +615,17 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/groups/select":
             self.handle_group_select()
             return
+        if route == "/api/groups/auto":
+            self.handle_group_auto()
+            return
+        if route == "/api/groups/replace":
+            self.handle_group_replace()
+            return
         if route == "/api/resource-monitor/settings":
             self.handle_resource_monitor_settings()
+            return
+        if route == "/api/resource-monitor/switch":
+            self.handle_resource_monitor_check(force_switch=True)
             return
         if route == "/api/resource-monitor/check":
             self.handle_resource_monitor_check()
@@ -463,6 +639,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/whitelist-monitor/proxy-check":
             self.handle_whitelist_monitor_proxy_check()
             return
+        if route == "/api/dns/preview":
+            self.handle_dns_preview()
+            return
+        if route == "/api/dns/action":
+            self.handle_dns_action()
+            return
+        if route == "/api/dns/smart-group":
+            self.handle_dns_smart_group()
+            return
+        if route in {"/api/dns-lab/settings", "/api/dns/observation/settings"}:
+            self.handle_dns_lab_settings()
+            return
+        if route in {"/api/dns-lab/check", "/api/dns/observation/check"}:
+            self.handle_dns_lab_check()
+            return
         if route == "/cgi-bin/mihui-update":
             self.handle_legacy_update()
             return
@@ -474,7 +665,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if not config_path.is_file():
             self.send_json(
                 HTTPStatus.NOT_FOUND,
-                {"ok": False, "path": str(config_path), "message": "config not found"},
+                {"ok": False, "path": str(config_path), "message": "Файл конфигурации не найден"},
             )
             return
 
@@ -497,10 +688,10 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         text = payload.get("text")
         expected_revision = payload.get("expectedRevision")
         if not isinstance(text, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указан текст конфигурации"})
             return
         if expected_revision is not None and not isinstance(expected_revision, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Версия конфигурации expectedRevision должна быть строкой"})
             return
 
         result = save_checked_config(self.app_dir, text, expected_revision=expected_revision)
@@ -527,11 +718,11 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         name = str(payload.get("name") or "")
         expected_revision = payload.get("expectedRevision")
         if expected_revision is not None and not isinstance(expected_revision, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "expectedRevision must be a string"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Версия конфигурации expectedRevision должна быть строкой"})
             return
         backup = backup_path_by_name(self.app_dir, name)
         if not backup:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "backup not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Резервная копия не найдена"})
             return
 
         result = restore_checked_backup(self.app_dir, backup, expected_revision=expected_revision)
@@ -573,7 +764,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                     "ok": None,
                     "phase": "download",
                     "progress": None,
-                    "message": "starting",
+                    "message": "Запуск обновления",
                     "startedAt": int(time.time()),
                     "finishedAt": None,
                     "output": "",
@@ -584,9 +775,38 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         thread.start()
         self.send_json(HTTPStatus.ACCEPTED, snapshot_update_state())
 
+    def handle_mihui_restart(self):
+        if self.headers.get("X-Mihui-Action") != "mihui-restart":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не подтверждён перезапуск MiHUI"})
+            return
+
+        try:
+            schedule_mihui_restart(self.app_dir)
+        except RuntimeError as error:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": str(error)})
+            return
+
+        self.send_json(HTTPStatus.ACCEPTED, {"ok": True, "message": "MiHUI перезапускается"})
+
+    def handle_mihui_repair(self):
+        if self.headers.get("X-Mihui-Action") != "mihui-repair":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не подтверждено восстановление службы MiHUI"})
+            return
+
+        try:
+            backup = repair_mihui_service(self.app_dir)
+        except RuntimeError as error:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"ok": False, "message": str(error)})
+            return
+
+        self.send_json(
+            HTTPStatus.ACCEPTED,
+            {"ok": True, "message": "Служба MiHUI восстановлена и перезапускается", "backup": backup},
+        )
+
     def handle_component_action(self):
         if self.headers.get("X-Mihui-Action") != "components":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -598,7 +818,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
         with component_state_lock:
             if component_action_state["running"]:
-                self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "component action already running"})
+                self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "Операция с компонентом уже выполняется"})
                 return
             component_action_state.update(
                 {
@@ -627,7 +847,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         payload = self.read_json_body()
         text = payload.get("text")
         if not isinstance(text, str):
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "text is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указан текст конфигурации"})
             return
 
         result = check_mihomo_config(self.app_dir, text)
@@ -643,7 +863,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_xkeen_network_files_save(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-network-files":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -675,7 +895,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         payload = self.read_json_body()
         name = str(payload.get("name") or "")
         if not name:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "name is required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя подписки"})
             return
 
         result = update_proxy_provider(self.app_dir, name)
@@ -686,16 +906,54 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         group = str(payload.get("group") or "").strip()
         name = str(payload.get("name") or "").strip()
         if not group or not name:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "group and name are required"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указаны группа и имя ноды"})
             return
 
         result = select_proxy_group(self.app_dir, group, name)
         if result["ok"]:
+            if result.get("changed"):
+                start_resource_monitor_reserve_refresh(self.app_dir, group=group)
             status = HTTPStatus.OK
         elif result.get("unavailable") or result.get("uncertain"):
             status = HTTPStatus.BAD_GATEWAY
         else:
             status = HTTPStatus.UNPROCESSABLE_ENTITY
+        self.send_json(status, result)
+
+    def handle_group_auto(self):
+        payload = self.read_json_body()
+        group = payload.get("group")
+        if not isinstance(group, str) or not group:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя группы"})
+            return
+        with config_write_lock:
+            result = reset_smart_proxy_group(self.app_dir, group)
+        status = HTTPStatus.OK if result["ok"] else (
+            HTTPStatus.BAD_GATEWAY if result.get("unavailable") or result.get("uncertain")
+            else HTTPStatus.UNPROCESSABLE_ENTITY
+        )
+        self.send_json(status, result)
+
+    def handle_group_replace(self):
+        if self.headers.get("X-Mihui-Action") != "group-replace":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        payload = self.read_json_body()
+        group = payload.get("group") if isinstance(payload, dict) else None
+        if not isinstance(group, str) or not group.strip():
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Не указано имя группы"})
+            return
+        if not group_replace_lock.acquire(blocking=False):
+            self.send_json(HTTPStatus.CONFLICT, {"ok": False, "message": "Смена сервера уже выполняется"})
+            return
+        try:
+            result = replace_runtime_group(self.app_dir, group)
+        finally:
+            group_replace_lock.release()
+        status = HTTPStatus.OK if result["ok"] else (
+            HTTPStatus.BAD_GATEWAY if result.get("unavailable") or result.get("uncertain")
+            else HTTPStatus.UNPROCESSABLE_ENTITY
+        )
         self.send_json(status, result)
 
     def handle_xkeen_commands_get(self):
@@ -705,6 +963,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "available": bool(find_xkeen_binary(self.app_dir)),
                 "groups": XKEEN_COMMAND_GROUPS,
+                "activeJob": snapshot_active_xkeen_command_job(),
             },
         )
 
@@ -712,18 +971,18 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         job_id = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("id", [""])[0]
         job = snapshot_xkeen_command_job(job_id)
         if job is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "command job not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Задание команды не найдено"})
             return
         self.send_json(HTTPStatus.OK, {"ok": True, "job": job})
 
     def handle_xkeen_command_run(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         flag = str(self.read_json_body().get("flag") or "").strip()
         if flag not in XKEEN_COMMAND_FLAGS:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "command is not allowed"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Эта команда не разрешена"})
             return
         if not find_xkeen_binary(self.app_dir):
             self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "XKeen не найден"})
@@ -740,21 +999,21 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_xkeen_command_input(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         payload = self.read_json_body()
         job_id = str(payload.get("jobId") or "").strip()
         text = payload.get("text")
         if not isinstance(text, str) or len(text) > 4096:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "invalid command input"})
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Некорректный ввод для команды"})
             return
         result = send_xkeen_command_input(job_id, text)
         self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_xkeen_command_stop(self):
         if self.headers.get("X-Mihui-Action") != "xkeen-command":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         job_id = str(self.read_json_body().get("jobId") or "").strip()
@@ -766,7 +1025,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_resource_monitor_settings(self):
         if self.headers.get("X-Mihui-Action") != "resource-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -775,51 +1034,75 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
             return
 
-        if settings["enabled"]:
-            readiness = get_resource_monitor_readiness(self.app_dir, settings)
-            if not readiness["ready"]:
-                self.send_json(
-                    HTTPStatus.UNPROCESSABLE_ENTITY,
-                    {"ok": False, "message": "resource groups are not ready", "readiness": readiness},
-                )
-                return
+        with config_write_lock, resource_monitor_lock:
+            previous = load_resource_monitor_settings(self.app_dir)
+            if settings["enabled"]:
+                readiness = get_resource_monitor_readiness(self.app_dir, settings)
+                if not readiness["ready"]:
+                    self.send_json(
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
+                        {"ok": False, "message": "Группы ресурсов не готовы", "readiness": readiness},
+                    )
+                    return
 
-            proxies = load_resource_monitor_proxies(self.app_dir)
-            selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
-            if not selection["ok"]:
-                self.send_json(
-                    HTTPStatus.BAD_GATEWAY,
-                    {
-                        "ok": False,
-                        "message": "Mihomo did not apply the fastest resource nodes",
-                        "selection": selection,
-                    },
-                )
-                return
+                for service, item in settings["services"].items():
+                    old = previous["services"][service]
+                    if resource_monitor_mode(item) != "prizrak" or (
+                        previous["enabled"] and resource_monitor_mode(old) == "prizrak" and old["group"] == item["group"]
+                    ):
+                        continue
+                    reset = reset_smart_proxy_group(self.app_dir, item["group"])
+                    if not reset["ok"]:
+                        self.send_json(HTTPStatus.BAD_GATEWAY, {
+                            "ok": False,
+                            "message": f"Не удалось включить автовыбор Smart для {item['group']}: {reset['message']}",
+                            "reset": reset,
+                        })
+                        return
 
-        save_resource_monitor_settings(self.app_dir, settings)
+                proxies = load_resource_monitor_proxies(self.app_dir)
+                selection = select_resource_monitor_fastest_nodes(self.app_dir, settings, proxies)
+                if not selection["ok"]:
+                    self.send_json(
+                        HTTPStatus.BAD_GATEWAY,
+                        {
+                            "ok": False,
+                            "message": "Mihomo не применил выбор самых быстрых нод для ресурсов",
+                            "selection": selection,
+                        },
+                    )
+                    return
+
+            save_resource_monitor_settings(self.app_dir, settings)
         self.send_json(HTTPStatus.OK, get_resource_monitor_status(self.app_dir))
 
-    def handle_resource_monitor_check(self):
+    def handle_resource_monitor_check(self, force_switch=False):
         if self.headers.get("X-Mihui-Action") != "resource-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         payload = self.read_json_body()
         service = str(payload.get("service") or "").strip().casefold()
-        if service and service not in RESOURCE_MONITOR_SERVICES:
-            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "unknown service"})
+        if (service and service not in RESOURCE_MONITOR_SERVICES) or (force_switch and not service):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Неизвестный ресурс"})
             return
 
-        result = start_resource_monitor_check(self.app_dir, [service] if service else None)
+        if service and resource_monitor_mode(load_resource_monitor_settings(self.app_dir)["services"][service]) != "mihui":
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Мониторинг ресурса не настроен"})
+            return
+        result = start_resource_monitor_check(self.app_dir, [service] if service else None, force_switch=force_switch)
         self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_whitelist_monitor_get(self):
         self.send_json(HTTPStatus.OK, get_whitelist_monitor_status(self.app_dir))
 
+    def handle_whitelist_domain_list_get(self):
+        status = get_whitelist_domain_list_status(self.app_dir, include_domains=True)
+        self.send_json(HTTPStatus.OK, {"ok": True, **status})
+
     def handle_whitelist_monitor_settings(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         try:
@@ -829,6 +1112,29 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
 
         previous = load_whitelist_monitor_settings(self.app_dir)
+        if not settings["enabled"]:
+            config_path = get_config_path(self.app_dir)
+            current_text = read_config_text(config_path)
+            restored_text = remove_whitelist_fallback_text(current_text)
+            if restored_text != current_text:
+                restore = save_checked_config(
+                    self.app_dir,
+                    restored_text,
+                    expected_revision=config_revision(current_text),
+                )
+                if not restore.get("ok") or not restore.get("applied"):
+                    self.send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "ok": False,
+                            "message": restore.get(
+                                "message",
+                                "temporary whitelist routing could not be restored",
+                            ),
+                            "restore": restore,
+                        },
+                    )
+                    return
         save_whitelist_monitor_settings(self.app_dir, settings)
         if previous["enabled"] != settings["enabled"]:
             append_whitelist_monitor_event(
@@ -840,7 +1146,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_check(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         result = start_whitelist_monitor_check(self.app_dir)
@@ -854,7 +1160,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_whitelist_monitor_proxy_check(self):
         if self.headers.get("X-Mihui-Action") != "whitelist-monitor":
-            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "action header required"})
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
             return
 
         endpoint_id = str(self.read_json_body().get("endpointId") or "").strip()
@@ -868,7 +1174,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             None,
         )
         if endpoint is None:
-            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "control endpoint not found"})
+            self.send_json(HTTPStatus.NOT_FOUND, {"ok": False, "message": "Контрольный адрес не найден"})
             return
 
         result = probe_whitelist_monitor_endpoint(
@@ -886,6 +1192,89 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "result": result,
             },
         )
+
+    def handle_dns_get(self):
+        self.send_json(HTTPStatus.OK, get_dns_protection_status(self.app_dir))
+
+    def handle_dns_smart_group(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            request_data = validate_dns_smart_group_request(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = create_dns_smart_group(self.app_dir, request_data)
+        status = HTTPStatus.OK if result.get("ok") else (
+            HTTPStatus.CONFLICT if result.get("stage") == "conflict" else
+            HTTPStatus.UNPROCESSABLE_ENTITY if result.get("stage") in {"unsupported", "preflight", "check"} else
+            HTTPStatus.BAD_GATEWAY
+        )
+        self.send_json(status, result)
+
+    def handle_dns_preview(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            request_data = validate_dns_protection_request(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = preview_dns_protection(self.app_dir, request_data)
+        self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.UNPROCESSABLE_ENTITY, result)
+
+    def handle_dns_action(self):
+        if self.headers.get("X-Mihui-Action") != "dns":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            request_data = validate_dns_protection_request(self.read_json_body(), require_action=True)
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        result = run_dns_protection_operation(self.app_dir, request_data)
+        if result.get("ok"):
+            status = HTTPStatus.OK
+        elif result.get("stage") == "conflict":
+            status = HTTPStatus.CONFLICT
+        elif result.get("stage") in {"validation", "unsupported", "preflight", "probe"}:
+            status = HTTPStatus.UNPROCESSABLE_ENTITY
+        else:
+            status = HTTPStatus.BAD_GATEWAY
+        self.send_json(status, result)
+
+    def handle_dns_lab_get(self):
+        raw_limit = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("limit", [""])[0]
+        try:
+            event_limit = min(DNS_LAB_EVENT_LIMIT, max(1, int(raw_limit))) if raw_limit else DNS_LAB_STATUS_EVENT_LIMIT
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Некорректное число записей"})
+            return
+        self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir, event_limit=event_limit))
+
+    def handle_dns_lab_settings(self):
+        if self.headers.get("X-Mihui-Action") not in {"dns-lab", "dns-observation"}:
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            settings = validate_dns_lab_settings(self.read_json_body())
+        except (TypeError, ValueError) as error:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": str(error)})
+            return
+        save_dns_lab_settings(self.app_dir, settings)
+        self.send_json(HTTPStatus.OK, get_dns_lab_status(self.app_dir))
+
+    def handle_dns_lab_check(self):
+        if self.headers.get("X-Mihui-Action") not in {"dns-lab", "dns-observation"}:
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        if self.path.split("?", 1)[0] == "/api/dns/observation/check" and not load_dns_lab_settings(self.app_dir)["localObservation"]:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Сначала сохраните настройки наблюдения"})
+            return
+        result = start_dns_lab_check(self.app_dir)
+        self.send_json(HTTPStatus.ACCEPTED if result["ok"] else HTTPStatus.CONFLICT, result)
 
     def handle_provider_adapter_get(self, append_hwid=False):
         if not is_loopback_address(self.client_address[0]):
@@ -918,12 +1307,17 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
         provider_name = str((query.get("provider") or [""])[0]).strip()
         source_url = str((query.get("url") or [""])[0]).strip()
+        source_kind = str((query.get("source") or ["direct"])[0]).strip().casefold()
         if not provider_name or len(provider_name) > 128 or "\n" in provider_name or "\r" in provider_name:
             self.send_plain(HTTPStatus.BAD_REQUEST, "valid provider query parameter is required")
             return
         if not source_url:
             record_xray_provider_adapter_error(provider_name, "invalid_source", "URL источника не задан")
             self.send_plain(HTTPStatus.BAD_REQUEST, "url query parameter is required")
+            return
+        if source_kind not in {"direct", "happ"}:
+            record_xray_provider_adapter_error(provider_name, "invalid_source_kind", "Некорректный тип источника")
+            self.send_plain(HTTPStatus.BAD_REQUEST, "source query parameter must be direct or happ")
             return
         if not xray_provider_adapter_slots.acquire(timeout=5):
             record_xray_provider_adapter_error(provider_name, "busy", "Обработчик временно занят")
@@ -934,6 +1328,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             body = fetch_xray_provider_payload(
                 source_url,
                 build_provider_request_headers(self.headers),
+                source_kind=source_kind,
             )
             yaml_body, adapter_status = convert_xray_json_provider(body, provider_name)
         except XrayProviderError as error:
@@ -1027,6 +1422,86 @@ def get_env_path(app_dir):
     return Path(app_dir) / "mihui.env"
 
 
+def schedule_mihui_restart(app_dir):
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    try:
+        init_source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Скрипт запуска MiHUI не найден") from error
+    if MIHUI_INIT_OWNER_MARKER not in init_source:
+        raise RuntimeError("Скрипт запуска MiHUI не распознан")
+
+    try:
+        subprocess.Popen(
+            [
+                "/bin/sh",
+                "-c",
+                'sleep 1; exec /bin/sh "$1" restart',
+                "mihui-restart",
+                str(init_script),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            start_new_session=True,
+        )
+    except OSError as error:
+        raise RuntimeError("Не удалось запустить перезапуск MiHUI") from error
+
+
+def repair_mihui_service(app_dir):
+    app_dir = Path(app_dir).resolve()
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    template_path = app_dir / "www" / "cgi-bin" / "mihui-service"
+
+    try:
+        current_source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Скрипт запуска MiHUI не найден") from error
+    if MIHUI_INIT_OWNER_MARKER not in current_source:
+        raise RuntimeError("Скрипт запуска MiHUI не распознан")
+
+    try:
+        template = template_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        raise RuntimeError("Шаблон службы MiHUI не найден; сначала обновите MiHUI") from error
+    if MIHUI_INIT_OWNER_MARKER not in template or "__MIHUI_APP_DIR__" not in template:
+        raise RuntimeError("Шаблон службы MiHUI поврежден")
+
+    rendered = template.replace("__MIHUI_APP_DIR__", shlex.quote(str(app_dir)), 1)
+    backup_dir = app_dir / "backups"
+    backup_name = f"S99mihui-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.bak"
+    backup_path = backup_dir / backup_name
+    temporary = init_script.with_name(f".{init_script.name}.mihui.tmp")
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(init_script), str(backup_path))
+        temporary.write_text(rendered, encoding="utf-8")
+        temporary.chmod(0o755)
+        os.replace(str(temporary), str(init_script))
+    except OSError as error:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError("Не удалось заменить скрипт запуска MiHUI") from error
+
+    schedule_mihui_restart(app_dir)
+    return backup_name
+
+
+def get_mihui_service_repair_status(app_dir):
+    init_script = Path(get_env(app_dir).get("MIHUI_INIT_SCRIPT", DEFAULT_MIHUI_INIT_SCRIPT))
+    try:
+        source = init_script.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {"managed": False, "repairRequired": False}
+
+    managed = MIHUI_INIT_OWNER_MARKER in source
+    return {
+        "managed": managed,
+        "repairRequired": managed and not all(marker in source for marker in MIHUI_SERVICE_FIX_MARKERS),
+    }
+
+
 def get_config_path(app_dir):
     return Path(get_env(app_dir).get("MIHUI_CONFIG_PATH", DEFAULT_CONFIG_PATH))
 
@@ -1090,9 +1565,26 @@ def backup_path_by_name(app_dir, name):
 
 
 def write_text_atomic(path, text):
-    tmp = path.with_name(f".{path.name}.mihui.tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(str(tmp), str(path))
+    path = Path(path)
+    with atomic_write_lock:
+        descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(text)
+                stream.flush()
+                os.chmod(temporary, path.stat().st_mode & 0o777 if path.exists() else 0o644)
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            try:
+                directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
+            except OSError:
+                pass  # Some filesystems and Windows do not support syncing directories.
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
 
 XKEEN_NETWORK_FILE_DEFS = {
@@ -1326,13 +1818,14 @@ def validate_xkeen_network_files(contents):
 
 def run_xkeen_restart(app_dir, binary):
     try:
-        result = subprocess.run(
-            [binary, "-restart"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=180,
-            check=False,
-        )
+        with suspend_dns_capture(app_dir):
+            result = subprocess.run(
+                [binary, "-restart"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=180,
+                check=False,
+            )
         output = result.stdout.decode("utf-8", "replace").strip()
     except subprocess.TimeoutExpired:
         return {"ok": False, "message": "Перезапуск XKeen превысил время ожидания", "output": ""}
@@ -1439,7 +1932,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
                 "stage": "conflict",
                 "path": str(config_path),
                 "currentRevision": current_revision,
-                "message": "config changed on disk after it was loaded",
+                "message": "Файл конфигурации изменился после загрузки в редактор",
             }
 
         check = check_mihomo_config(app_dir, text)
@@ -1447,7 +1940,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
             return {
                 "ok": False,
                 "stage": "check",
-                "message": check.get("message", "config check failed"),
+                "message": check.get("message", "Проверка конфигурации не пройдена"),
                 "check": check,
             }
 
@@ -1481,7 +1974,7 @@ def save_checked_config(app_dir, text, expected_revision=None):
                 "backup": backup.name if backup else None,
                 "check": check,
                 "reload": reload_result,
-                "message": "config saved, but Mihomo apply status could not be confirmed",
+                "message": "Конфигурация сохранена, но не удалось подтвердить её применение в Mihomo",
             }
 
         rollback = restore_config_backup(config_path, backup)
@@ -1500,9 +1993,9 @@ def save_checked_config(app_dir, text, expected_revision=None):
             "reload": reload_result,
             "rollback": {**rollback, "reload": rollback_reload},
             "message": (
-                "Mihomo did not apply the config; previous config restored"
+                "Mihomo не применил конфигурацию; предыдущая конфигурация восстановлена"
                 if rollback["ok"]
-                else "Mihomo did not apply the config and rollback failed"
+                else "Mihomo не применил конфигурацию; восстановить предыдущую конфигурацию не удалось"
             ),
         }
 
@@ -1518,7 +2011,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "stage": "conflict",
                 "path": str(config_path),
                 "currentRevision": current_revision,
-                "message": "config changed on disk after it was loaded",
+                "message": "Файл конфигурации изменился после загрузки в редактор",
             }
 
         backup_text = backup.read_text(encoding="utf-8", errors="replace")
@@ -1528,7 +2021,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "ok": False,
                 "restored": False,
                 "stage": "check",
-                "message": check.get("message", "backup config check failed"),
+                "message": check.get("message", "Конфигурация из резервной копии не прошла проверку"),
                 "check": check,
             }
 
@@ -1564,7 +2057,7 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
                 "backup": current_backup.name if current_backup else None,
                 "check": check,
                 "reload": reload_result,
-                "message": "backup restored, but Mihomo apply status could not be confirmed",
+                "message": "Резервная копия восстановлена, но не удалось подтвердить её применение в Mihomo",
             }
 
         rollback = restore_config_backup(config_path, current_backup)
@@ -1585,9 +2078,9 @@ def restore_checked_backup(app_dir, backup, expected_revision=None):
             "reload": reload_result,
             "rollback": {**rollback, "reload": rollback_reload},
             "message": (
-                "Mihomo did not apply the backup; previous config restored"
+                "Mihomo не применил резервную копию; предыдущая конфигурация восстановлена"
                 if rollback["ok"]
-                else "Mihomo did not apply the backup and rollback failed"
+                else "Mihomo не применил резервную копию; восстановить предыдущую конфигурацию не удалось"
             ),
         }
 
@@ -1609,7 +2102,7 @@ def check_mihomo_config(app_dir, text):
         return {
             "ok": True,
             "available": False,
-            "message": "mihomo binary not found; config check skipped",
+            "message": "Исполняемый файл Mihomo не найден; проверка конфигурации пропущена",
         }
 
     tmp_path = None
@@ -1626,11 +2119,11 @@ def check_mihomo_config(app_dir, text):
         return {
             "ok": result.returncode == 0,
             "available": True,
-            "message": output or ("config is valid" if result.returncode == 0 else "config check failed"),
+            "message": output or ("Конфигурация корректна" if result.returncode == 0 else "Проверка конфигурации не пройдена"),
             "returncode": result.returncode,
         }
     except subprocess.TimeoutExpired:
-        return {"ok": False, "available": True, "message": "config check timed out"}
+        return {"ok": False, "available": True, "message": "Время ожидания проверки конфигурации истекло"}
     except Exception as error:
         return {"ok": False, "available": True, "message": str(error)}
     finally:
@@ -1709,6 +2202,7 @@ def mihomo_api_request(app_dir, path, method="GET", payload=None, timeout=10):
 def get_services_status(app_dir):
     return {
         "ok": True,
+        "instanceId": MIHUI_INSTANCE_ID,
         "checkedAt": int(time.time()),
         "services": {
             "xkeen": get_xkeen_service_status(app_dir),
@@ -1786,6 +2280,15 @@ def snapshot_xkeen_command_job(job_id):
         return _snapshot_xkeen_command_job_locked(job) if job else None
 
 
+def snapshot_active_xkeen_command_job():
+    with xkeen_command_jobs_lock:
+        return next(
+            (_snapshot_xkeen_command_job_locked(job) for job in xkeen_command_jobs.values()
+             if job.get("status") in {"queued", "running"}),
+            None,
+        )
+
+
 def _append_xkeen_command_output(job_id, text):
     clean = strip_ansi(text)
     if not clean:
@@ -1835,6 +2338,7 @@ def _terminate_xkeen_command_process(process):
 
 
 def _run_xkeen_command_job(app_dir, job_id):
+    lifecycle = ExitStack()
     master_fd = None
     slave_fd = None
     process = None
@@ -1847,6 +2351,9 @@ def _run_xkeen_command_job(app_dir, job_id):
         binary = find_xkeen_binary(app_dir)
         if not binary:
             raise RuntimeError("XKeen не найден")
+        flag = xkeen_command_jobs[job_id]["flag"]
+        if flag in {"-stop", "-restart", "-um", "-uk", "-kbr", "-xray", "-mihomo"}:
+            lifecycle.enter_context(suspend_dns_capture(app_dir, resume=flag != "-stop"))
         master_fd, slave_fd = pty.openpty()
         process = subprocess.Popen(
             [binary, xkeen_command_jobs[job_id]["flag"]],
@@ -1917,6 +2424,8 @@ def _run_xkeen_command_job(app_dir, job_id):
             if job:
                 job.update({"status": "error", "error": str(error)})
     finally:
+        if process is not None and process.poll() is None:
+            _terminate_xkeen_command_process(process)
         if slave_fd is not None:
             try:
                 os.close(slave_fd)
@@ -1927,6 +2436,7 @@ def _run_xkeen_command_job(app_dir, job_id):
                 os.close(master_fd)
             except OSError:
                 pass
+        lifecycle.close()
         with xkeen_command_jobs_lock:
             job = xkeen_command_jobs.get(job_id)
             if job:
@@ -2026,11 +2536,11 @@ def strip_ansi(value):
 
 
 def component_version_key(value):
-    match = re.search(r"v?(\d+(?:\.\d+){1,3})", str(value or ""), re.IGNORECASE)
+    match = re.search(r"v?(\d+(?:\.\d+){1,3})(?:-r(\d+))?", str(value or ""), re.IGNORECASE)
     if not match:
         return ()
     parts = [int(item) for item in match.group(1).split(".")]
-    return tuple(parts + [0] * (4 - len(parts)))
+    return tuple(parts + [0] * (4 - len(parts)) + [int(match.group(2) or 0)])
 
 
 def component_update_available(current, latest):
@@ -2120,7 +2630,7 @@ def read_mihomo_binary_version(app_dir):
         output = strip_ansi(result.stdout.decode("utf-8", "replace")).strip()
     except Exception as error:
         return {"installed": True, "version": "", "binary": binary, "output": str(error)}
-    match = re.search(r"\bv?(\d+(?:\.\d+){2,3})\b", output)
+    match = re.search(r"\bv?(\d+(?:\.\d+){2,3}(?:-r\d+)?)\b", output)
     return {
         "installed": True,
         "version": match.group(1) if match else "",
@@ -2129,13 +2639,38 @@ def read_mihomo_binary_version(app_dir):
     }
 
 
+def fetch_component_metadata(request, max_bytes):
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            body = response.read(max_bytes + 1)
+    except urllib.error.URLError as error:
+        if not isinstance(error.reason, socket.gaierror):
+            raise
+        # Keep DNS family selection local to this retry: the server is threaded.
+        command = ["curl", "-4", "--fail", "--silent", "--show-error", "--location",
+                   "--proto", "=https", "--proto-redir", "=https",
+                   "--connect-timeout", "8", "--max-time", "15",
+                   "--max-filesize", str(max_bytes)]
+        for name, value in request.header_items():
+            command.extend(["--header", f"{name}: {value}"])
+        command.append(request.full_url)
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                timeout=20, check=False, env=_xkeen_command_environment())
+        if result.returncode:
+            raise RuntimeError("Повтор проверки через IPv4 не удался: " +
+                               result.stderr.decode("utf-8", "replace").strip()) from error
+        body = result.stdout
+    if len(body) > max_bytes:
+        raise ValueError("Ответ проверки обновлений превышает допустимый размер")
+    return body
+
+
 def fetch_component_releases(repo, limit=10):
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/releases?per_page={int(limit)}",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
     )
-    with urllib.request.urlopen(request, timeout=8) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    data = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
     versions = []
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
@@ -2151,11 +2686,11 @@ def fetch_component_releases(repo, limit=10):
 
 def parse_xkeen_beta_archive(body):
     if not body or len(body) > XKEEN_BETA_ARCHIVE_MAX_BYTES:
-        raise ValueError("XKeen Beta archive has an invalid size")
+        raise ValueError("Некорректный размер архива XKeen Beta")
     try:
         archive = tarfile.open(fileobj=io.BytesIO(body), mode="r:gz")
     except tarfile.TarError as error:
-        raise ValueError("XKeen Beta archive is invalid") from error
+        raise ValueError("Архив XKeen Beta повреждён или имеет неверный формат") from error
 
     with archive:
         member = next(
@@ -2168,10 +2703,10 @@ def parse_xkeen_beta_archive(body):
             None,
         )
         if not member or not member.isfile() or member.size > 64 * 1024:
-            raise ValueError("XKeen Beta build metadata is missing")
+            raise ValueError("В архиве XKeen Beta отсутствуют сведения о сборке")
         source = archive.extractfile(member)
         if source is None:
-            raise ValueError("XKeen Beta build metadata is unreadable")
+            raise ValueError("Не удалось прочитать сведения о сборке XKeen Beta")
         text = source.read(64 * 1024 + 1).decode("utf-8", "replace")
 
     def assignment(name):
@@ -2182,34 +2717,48 @@ def parse_xkeen_beta_archive(body):
     channel = normalize_xkeen_channel(assignment("xkeen_build"))
     build_timestamp = normalize_xkeen_build_timestamp(assignment("build_timestamp"))
     if not COMPONENT_VERSION_PATTERN.fullmatch(version) or channel != "beta" or not build_timestamp:
-        raise ValueError("XKeen Beta build metadata is invalid")
+        raise ValueError("Некорректные сведения о сборке XKeen Beta")
     return {"version": version, "buildTimestamp": build_timestamp}
 
 
 def fetch_xkeen_beta_build(repo):
     if not re.fullmatch(r"[0-9A-Za-z_.-]+/[0-9A-Za-z_.-]+", str(repo or "")):
-        raise ValueError("invalid XKeen GitHub repository")
+        raise ValueError("Некорректный адрес репозитория XKeen на GitHub")
     request = urllib.request.Request(
         f"https://raw.githubusercontent.com/{repo}/main/test/xkeen.tar.gz",
         headers={"Accept": "application/octet-stream", "User-Agent": "MihUI"},
     )
-    with urllib.request.urlopen(request, timeout=8) as response:
-        body = response.read(XKEEN_BETA_ARCHIVE_MAX_BYTES + 1)
+    body = fetch_component_metadata(request, XKEEN_BETA_ARCHIVE_MAX_BYTES)
     return parse_xkeen_beta_archive(body)
 
 
-def get_component_release_catalog(app_dir, force=False):
-    now = int(time.time())
-    with component_release_cache_lock:
-        checked_at = int(component_release_cache.get("checkedAt") or 0)
-        if not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL:
-            return dict(component_release_cache.get("catalog") or {}), checked_at
+def get_mihomo_core(app_dir):
+    settings = read_json_file(Path(app_dir) / "mihomo-core.json", {})
+    return "prizrak" if settings.get("core") == "prizrak" else "mihomo"
 
+
+def get_mihomo_core_repo(app_dir, core=None):
+    if (core or get_mihomo_core(app_dir)) == "prizrak":
+        return PRIZRAK_GITHUB_REPO
+    return get_env(app_dir).get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO)
+
+
+def save_mihomo_core(app_dir, core):
+    write_text_atomic(Path(app_dir) / "mihomo-core.json", json.dumps({"core": core}) + "\n")
+
+
+def get_component_release_catalog(app_dir, force=False):
     env = get_env(app_dir)
     repositories = {
         "xkeen": env.get("MIHUI_XKEEN_GITHUB_REPO", DEFAULT_XKEEN_GITHUB_REPO),
-        "mihomo": env.get("MIHUI_MIHOMO_GITHUB_REPO", DEFAULT_MIHOMO_GITHUB_REPO),
+        "mihomo": get_mihomo_core_repo(app_dir),
     }
+    now = int(time.time())
+    with component_release_cache_lock:
+        checked_at = int(component_release_cache.get("checkedAt") or 0)
+        if (not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL
+                and component_release_cache.get("repositories") == repositories):
+            return dict(component_release_cache.get("catalog") or {}), checked_at
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         release_futures = {
@@ -2241,13 +2790,17 @@ def get_component_release_catalog(app_dir, force=False):
             )
 
     with component_release_cache_lock:
-        component_release_cache.update({"checkedAt": now, "catalog": catalog})
+        component_release_cache.update({"checkedAt": now, "catalog": catalog, "repositories": repositories})
     return catalog, now
 
 
 def invalidate_component_release_cache():
     with component_release_cache_lock:
         component_release_cache.update({"checkedAt": 0, "catalog": {}})
+
+
+def find_xkeen_ui_init_script():
+    return next((path for path in XKEEN_UI_INIT_SCRIPTS if Path(path).is_file()), "")
 
 
 def get_components_status(app_dir, force=False):
@@ -2291,6 +2844,8 @@ def get_components_status(app_dir, force=False):
         },
         "mihomo": {
             "installed": bool(mihomo.get("installed")),
+            "core": get_mihomo_core(app_dir),
+            "repo": get_mihomo_core_repo(app_dir),
             "current": mihomo.get("version") or "",
             "channel": "",
             "latest": mihomo_release.get("latest") or "",
@@ -2298,11 +2853,17 @@ def get_components_status(app_dir, force=False):
             "updateAvailable": mihomo_update,
             "error": mihomo_release.get("error") or "",
         },
+        "xkeen-ui": {
+            "installed": bool(find_xkeen_ui_init_script()),
+            "updateAvailable": False,
+        },
     }
     return {
         "ok": True,
         "checkedAt": checked_at,
         "components": components,
+        "capabilities": {"mihomoCoreSwitch": True},
+        "mihuiService": get_mihui_service_repair_status(app_dir),
         "updateCount": sum(1 for item in components.values() if item["updateAvailable"]),
         "job": snapshot_component_action_state(),
     }
@@ -2312,9 +2873,15 @@ def validate_component_action(app_dir, payload):
     component = str((payload or {}).get("component") or "").strip().lower()
     action = str((payload or {}).get("action") or "").strip().lower()
     target = str((payload or {}).get("target") or "").strip()
+    if component == "xkeen-ui":
+        if action != "restart" or target:
+            raise ValueError("Неподдерживаемая операция Xkeen-UI")
+        if not find_xkeen_ui_init_script():
+            raise ValueError("Служба Xkeen-UI не найдена")
+        return {"component": component, "action": action, "target": ""}
     if component == "all":
         if action != "update" or target:
-            raise ValueError("unsupported all-components action")
+            raise ValueError("Эта операция не поддерживается для всех компонентов сразу")
         status = get_components_status(app_dir, force=True)
         updates = []
         xkeen = status["components"]["xkeen"]
@@ -2324,33 +2891,47 @@ def validate_component_action(app_dir, payload):
         if mihomo.get("updateAvailable") and mihomo.get("latest"):
             updates.append({"component": "mihomo", "target": mihomo["latest"]})
         if not updates:
-            raise ValueError("no component updates available")
+            raise ValueError("Доступных обновлений компонентов нет")
         return {"component": component, "action": action, "target": "", "updates": updates}
     if component not in {"xkeen", "mihomo"}:
-        raise ValueError("unsupported component")
+        raise ValueError("Неподдерживаемый компонент")
     if component == "xkeen" and action not in {"update", "rollback", "channel", "restart", "geo-update"}:
-        raise ValueError("unsupported XKeen action")
-    if component == "mihomo" and action not in {"update", "restart", "geo-update"}:
-        raise ValueError("unsupported Mihomo action")
+        raise ValueError("Неподдерживаемая операция XKeen")
+    if component == "mihomo" and action not in {"update", "core", "restart", "geo-update"}:
+        raise ValueError("Неподдерживаемая операция Mihomo")
+    if component == "mihomo" and action == "core":
+        if target not in {"mihomo", "prizrak"}:
+            raise ValueError("Неподдерживаемое ядро")
+        if target == get_mihomo_core(app_dir):
+            raise ValueError("Выбранное ядро уже установлено")
+        if target == "mihomo" and has_config_smart_groups(read_config_text(get_config_path(app_dir))):
+            raise ValueError("Перед переходом на Mihomo переведите Smart-группы в MihUI или удалите их и сохраните конфиг")
+        try:
+            versions = fetch_component_releases(get_mihomo_core_repo(app_dir, target))
+        except Exception as error:
+            raise ValueError(f"Не удалось проверить релизы выбранного ядра: {error}") from error
+        if not versions:
+            raise ValueError("Нет доступного релиза выбранного ядра")
+        return {"component": component, "action": action, "core": target, "target": versions[0]}
     if component == "xkeen" and action == "channel":
         target = target.lower()
         if target not in {"stable", "beta"}:
-            raise ValueError("invalid XKeen channel")
+            raise ValueError("Некорректный канал обновлений XKeen")
     elif component == "xkeen" and target:
-        raise ValueError("XKeen target version is not supported")
+        raise ValueError("Выбор целевой версии XKeen не поддерживается")
     if component == "mihomo" and action != "update" and target:
-        raise ValueError("Mihomo target is not supported for this action")
+        raise ValueError("Выбор целевой версии Mihomo не поддерживается для этой операции")
     if component == "mihomo" and action == "update":
         status = get_components_status(app_dir)
         versions = status["components"]["mihomo"].get("versions") or []
         if not target:
             target = status["components"]["mihomo"].get("latest") or ""
         if not COMPONENT_VERSION_PATTERN.fullmatch(target):
-            raise ValueError("invalid Mihomo version")
+            raise ValueError("Некорректная версия Mihomo")
         normalized_target = target.lstrip("v")
         allowed = {str(version).lstrip("v") for version in versions}
         if normalized_target not in allowed:
-            raise ValueError("Mihomo version is not in the checked release list")
+            raise ValueError("Версия Mihomo отсутствует в проверенном списке релизов")
         target = f"v{normalized_target}"
     return {"component": component, "action": action, "target": target}
 
@@ -2376,15 +2957,40 @@ def append_component_action_output(output):
 
 
 def run_component_command(command, input_text=None, timeout=COMPONENT_ACTION_TIMEOUT):
+    if len(command) > 1 and command[0] in XKEEN_UI_INIT_SCRIPTS and command[1] == "restart":
+        return _run_component_command(command, input_text, timeout, capture_output=False)
+    if len(command) > 1 and command[1] in {"-start", "-stop", "-restart"}:
+        env = _xkeen_command_environment()
+        env["XKEEN_FOREGROUND"] = "1"
+        return _run_component_command(command, input_text, timeout, env, capture_output=command[1] == "-stop")
+    if len(command) > 1 and command[1] in {"-uk", "-um"}:
+        env = _xkeen_command_environment()
+        env["RES_OPTIONS"] = "timeout:5 attempts:2"
+        candidates = [Path(env[key]) / name for key, name in (
+            ("CURL_HOME", ".curlrc"), ("XDG_CONFIG_HOME", "curlrc"), ("HOME", ".curlrc")
+        ) if env.get(key)]
+        config = next((path.read_text(encoding="utf-8") for path in candidates if path.is_file()), "")
+        with tempfile.TemporaryDirectory(prefix="mihui-curl-") as directory:
+            Path(directory, ".curlrc").write_text(config + "\nipv4\n", encoding="utf-8")
+            env["CURL_HOME"] = directory
+            append_component_action_output("Загрузка компонентов: curl использует IPv4 для этой операции")
+            append_component_action_output("DNS для этой операции: ожидание ответа 5 секунд, до 2 попыток")
+            return _run_component_command(command, input_text, timeout, env)
+    return _run_component_command(command, input_text, timeout)
+
+
+def _run_component_command(command, input_text, timeout, env=None, capture_output=True):
     result = subprocess.run(
         command,
         input=input_text.encode("utf-8") if input_text is not None else None,
-        stdout=subprocess.PIPE,
+        # The background core inherits stdout; a pipe stays open until the core exits.
+        stdout=subprocess.PIPE if capture_output else subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
         timeout=timeout,
         check=False,
+        env=env,
     )
-    output = result.stdout.decode("utf-8", "replace")
+    output = result.stdout.decode("utf-8", "replace") if capture_output else ""
     append_component_action_output(output)
     return result.returncode, output
 
@@ -2399,17 +3005,24 @@ def require_component_command(command, message, input_text=None, timeout=COMPONE
 
 def run_component_action(app_dir, request_data):
     with component_action_lock:
+        lifecycle = ExitStack()
         try:
             component = request_data["component"]
             action = request_data["action"]
+            if action != "geo-update" and component != "xkeen-ui":
+                lifecycle.enter_context(suspend_dns_capture(app_dir))
             if component == "all":
                 run_all_component_updates(app_dir, request_data["updates"])
+            elif component == "xkeen-ui":
+                run_xkeen_ui_restart()
             elif component == "xkeen" and action in {"update", "rollback", "channel"}:
                 run_xkeen_component_action(app_dir, action, request_data.get("target", ""))
             elif component == "xkeen":
                 run_xkeen_maintenance_action(app_dir, action)
             elif action == "update":
                 run_mihomo_component_update(app_dir, request_data["target"])
+            elif action == "core":
+                run_mihomo_component_update(app_dir, request_data["target"], core=request_data["core"])
             else:
                 run_mihomo_maintenance_action(app_dir, action)
             update_component_action_state(
@@ -2429,6 +3042,7 @@ def run_component_action(app_dir, request_data):
                 finishedAt=int(time.time()),
             )
         finally:
+            lifecycle.close()
             invalidate_component_release_cache()
 
 
@@ -2456,8 +3070,7 @@ def run_xkeen_component_action(app_dir, action, target=""):
 
     if action == "rollback":
         update_component_action_state(phase="rollback", message="Восстанавливаем последнюю копию XKeen")
-        require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen")
-        run_component_command([binary, "-rrk"], timeout=180)
+        require_component_command([binary, "-kbr"], "Не удалось восстановить XKeen", input_text="1\n")
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if not get_xkeen_version_info(app_dir).get("version"):
@@ -2481,7 +3094,10 @@ def run_xkeen_component_action(app_dir, action, target=""):
                 timeout=180,
             )
         update_component_action_state(phase="install", message="Обновляем XKeen")
-        require_component_command([binary, "-uk"], "Не удалось обновить XKeen")
+        # Older XKeen builds still ask for confirmation even with the auto argument.
+        output = require_component_command([binary, "-uk", "auto"], "Не удалось обновить XKeen", input_text="1\n")
+        if re.search(r"Проверка обновлений XKeen\s+отменена", strip_ansi(output), re.IGNORECASE):
+            raise RuntimeError("Обновление XKeen отменено")
         update_component_action_state(phase="verify", message="Проверяем XKeen")
         version_info = get_xkeen_version_info(app_dir)
         if not version_info.get("version"):
@@ -2492,13 +3108,24 @@ def run_xkeen_component_action(app_dir, action, target=""):
             raise RuntimeError("XKeen не запустился после обновления")
     except Exception as error:
         update_component_action_state(phase="rollback", message="Обновление не удалось, восстанавливаем XKeen")
-        rollback_code, _ = run_component_command([binary, "-kbr"], timeout=180)
-        run_component_command([binary, "-rrk"], timeout=180)
+        rollback_code, _ = run_component_command([binary, "-kbr"], input_text="1\n", timeout=180)
         if was_running:
             run_component_command([binary, "-start"], timeout=180)
         if rollback_code != 0:
             raise RuntimeError(f"{error}; автоматическое восстановление XKeen не удалось") from error
         raise
+
+
+def run_xkeen_ui_restart():
+    init_script = find_xkeen_ui_init_script()
+    if not init_script:
+        raise RuntimeError("Служба Xkeen-UI не найдена")
+    update_component_action_state(phase="restart", message="Перезапускаем Xkeen-UI")
+    require_component_command([init_script, "restart"], "Не удалось перезапустить Xkeen-UI", timeout=180)
+    update_component_action_state(phase="verify", message="Проверяем запуск Xkeen-UI")
+    output = require_component_command([init_script, "status"], "Не удалось проверить Xkeen-UI", timeout=10)
+    if not re.search(r"Xkeen Web UI запущен, PID [1-9]\d*\.", strip_ansi(output)):
+        raise RuntimeError("Xkeen-UI не подтвердил запуск после перезапуска")
 
 
 def run_xkeen_maintenance_action(app_dir, action):
@@ -2559,15 +3186,75 @@ def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_r
     replacement = Path(f"{binary_path}.mihui-restore")
     shutil.copy2(backup_path, replacement)
     os.replace(replacement, binary_path)
-    run_component_command([xkeen_binary, "-rrm"], timeout=180)
     if was_running:
-        run_component_command([xkeen_binary, "-start"], timeout=180)
+        require_component_command([xkeen_binary, "-start"], "Не удалось запустить прежнее ядро", timeout=180)
+        if not wait_for_mihomo_service(app_dir):
+            raise RuntimeError("Прежнее ядро не отвечает после восстановления")
 
 
-def run_mihomo_component_update(app_dir, target):
+def download_prizrak_binary(binary_path, target, directory):
+    with binary_path.open("rb") as source:
+        header = source.read(20)
+    if len(header) < 20 or header[:4] != b"\x7fELF" or header[4] not in {1, 2} or header[5] not in {1, 2}:
+        raise RuntimeError("Не удалось определить архитектуру установленного ядра")
+    machine = int.from_bytes(header[18:20], "little" if header[5] == 1 else "big")
+    architecture = {3: "386", 62: "amd64-v1", 183: "arm64"}.get(machine)
+    if machine == 8:
+        architecture = "mips" + ("64" if header[4] == 2 else "") + ("le" if header[5] == 1 else "")
+        if header[4] == 1:
+            architecture += "-softfloat"
+    elif machine == 40:
+        cpu = os.uname().machine.lower()
+        architecture = "armv7" if cpu.startswith("armv7") else "armv6" if cpu.startswith("armv6") else "armv5"
+    if not architecture:
+        raise RuntimeError("Архитектура установленного ядра не поддерживается для Prizrak-Core")
+    name = f"prizrak-core-linux-{architecture}-{target}.gz"
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{PRIZRAK_GITHUB_REPO}/releases/tags/{urllib.parse.quote(target, safe='')}",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
+    )
+    release = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
+    asset = next((item for item in release.get("assets", []) if item.get("name") == name), None)
+    if not asset or release.get("draft") or release.get("prerelease"):
+        raise RuntimeError(f"В релизе Prizrak-Core отсутствует сборка {architecture}")
+    archive = directory / "prizrak.gz"
+    update_component_action_state(phase="download", message=f"Скачиваем Prizrak-Core {target}")
+    require_component_command(
+        ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https",
+         "--proto-redir", "=https", "--connect-timeout", "15", "--max-time", "180",
+         "--max-filesize", str(64 * 1024 * 1024), "--output", str(archive),
+         f"https://github.com/{PRIZRAK_GITHUB_REPO}/releases/download/{target}/{name}"],
+        "Не удалось скачать Prizrak-Core", timeout=200,
+    )
+    digest = str(asset.get("digest") or "")
+    if digest.startswith("sha256:"):
+        checksum = hashlib.sha256()
+        with archive.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                checksum.update(chunk)
+        if checksum.hexdigest() != digest[7:]:
+            raise RuntimeError("Контрольная сумма Prizrak-Core не совпадает")
+    candidate = directory / "prizrak"
+    with gzip.open(archive, "rb") as source, candidate.open("wb") as destination:
+        size = 0
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            size += len(chunk)
+            if size > 128 * 1024 * 1024:
+                raise RuntimeError("Превышен допустимый размер Prizrak-Core")
+            destination.write(chunk)
+    candidate.chmod(binary_path.stat().st_mode | 0o111)
+    return candidate
+
+
+def run_mihomo_component_update(app_dir, target, core=None):
+    current_core = get_mihomo_core(app_dir)
+    core = core or current_core
+    if core == "mihomo" and has_config_smart_groups(read_config_text(get_config_path(app_dir))):
+        raise RuntimeError("Перед переходом на Mihomo переведите Smart-группы в MihUI или удалите их и сохраните конфиг")
+    label = "Prizrak-Core" if core == "prizrak" else "Mihomo"
     xkeen_binary = find_xkeen_binary(app_dir)
     mihomo = read_mihomo_binary_version(app_dir)
-    binary_path = Path(mihomo.get("binary") or "")
+    binary_path = Path(mihomo.get("binary") or "").resolve()
     if not xkeen_binary:
         raise RuntimeError("XKeen не найден")
     if not binary_path.is_file():
@@ -2579,38 +3266,201 @@ def run_mihomo_component_update(app_dir, target):
     backup_path = backup_dir / "mihomo"
     shutil.copy2(binary_path, backup_path)
 
+    replacement = binary_path.with_name(f".{binary_path.name}.mihui-install")
+    binary_changed = False
+    keep_backup = False
     try:
         update_component_action_state(phase="backup", message="Сохраняем текущую версию Mihomo")
-        update_component_action_state(phase="install", message=f"Устанавливаем Mihomo {target}")
-        returncode, output = run_component_command(
-            [xkeen_binary, "-um"],
-            input_text=f"9\n{target}\n",
-        )
-        if returncode != 0:
-            detail = strip_ansi(output).strip().splitlines()
-            raise RuntimeError(detail[-1] if detail else "Не удалось установить Mihomo")
+        if core == "prizrak":
+            candidate = download_prizrak_binary(binary_path, target, backup_dir)
+            code, output = run_component_command([str(candidate), "-v"], timeout=15)
+            if code or component_version_key(output) != component_version_key(target):
+                raise RuntimeError("Не удалось проверить версию загруженного Prizrak-Core")
+            config_path = get_config_path(app_dir)
+            require_component_command(
+                [str(candidate), "-t", "-d", str(config_path.parent), "-f", str(config_path)],
+                "Текущая конфигурация несовместима с Prizrak-Core", timeout=60,
+            )
+            update_component_action_state(phase="install", message=f"Устанавливаем {label} {target}")
+            shutil.copy2(candidate, replacement)
+            if was_running:
+                require_component_command([xkeen_binary, "-stop"], "Не удалось остановить ядро", timeout=180)
+            os.replace(replacement, binary_path)
+            binary_changed = True
+            if was_running:
+                update_component_action_state(phase="start", message=f"Запускаем {label} {target}")
+                require_component_command([xkeen_binary, "-start"], "Не удалось запустить ядро", timeout=180)
+        else:
+            update_component_action_state(phase="install", message=f"Устанавливаем {label} {target}")
+            binary_changed = True
+            returncode, output = run_component_command(
+                [xkeen_binary, "-um"],
+                input_text=f"9\n{target}\n",
+            )
+            if returncode != 0:
+                detail = strip_ansi(output).strip().splitlines()
+                raise RuntimeError(detail[-1] if detail else "Не удалось установить Mihomo")
 
-        update_component_action_state(phase="verify", message="Проверяем версию и запуск Mihomo")
+        update_component_action_state(phase="verify", message=f"Проверяем версию и запуск {label}")
         installed = read_mihomo_binary_version(app_dir).get("version") or ""
         if component_version_key(installed) != component_version_key(target):
-            raise RuntimeError(f"Установлена неожиданная версия Mihomo: {installed or 'не определена'}")
+            raise RuntimeError(f"Установлена неожиданная версия {label}: {installed or 'не определена'}")
         if was_running:
             service_ok = False
             for _ in range(10):
-                if get_mihomo_service_status(app_dir).get("state") == "ok":
+                service = get_mihomo_service_status(app_dir)
+                if (service.get("state") == "ok"
+                        and component_version_key(service.get("detail")) == component_version_key(target)):
                     service_ok = True
                     break
                 time.sleep(1)
             if not service_ok:
-                raise RuntimeError("Mihomo не запустился после обновления")
-    except Exception:
-        restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running)
+                raise RuntimeError(f"{label} не запустился после обновления")
+        if core != current_core:
+            save_mihomo_core(app_dir, core)
+    except Exception as error:
+        if binary_changed:
+            try:
+                restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_running)
+            except Exception as rollback_error:
+                keep_backup = True
+                raise RuntimeError(f"{error}; не удалось восстановить прежнее ядро: {rollback_error}. "
+                                   f"Резервная копия: {backup_path}") from error
+        elif was_running and get_mihomo_service_status(app_dir).get("state") != "ok":
+            run_component_command([xkeen_binary, "-start"], timeout=180)
         raise
     finally:
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        replacement.unlink(missing_ok=True)
+        if not keep_backup:
+            shutil.rmtree(backup_dir, ignore_errors=True)
 
 
-def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
+AES_SBOX = (
+    0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5, 0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
+    0xCA, 0x82, 0xC9, 0x7D, 0xFA, 0x59, 0x47, 0xF0, 0xAD, 0xD4, 0xA2, 0xAF, 0x9C, 0xA4, 0x72, 0xC0,
+    0xB7, 0xFD, 0x93, 0x26, 0x36, 0x3F, 0xF7, 0xCC, 0x34, 0xA5, 0xE5, 0xF1, 0x71, 0xD8, 0x31, 0x15,
+    0x04, 0xC7, 0x23, 0xC3, 0x18, 0x96, 0x05, 0x9A, 0x07, 0x12, 0x80, 0xE2, 0xEB, 0x27, 0xB2, 0x75,
+    0x09, 0x83, 0x2C, 0x1A, 0x1B, 0x6E, 0x5A, 0xA0, 0x52, 0x3B, 0xD6, 0xB3, 0x29, 0xE3, 0x2F, 0x84,
+    0x53, 0xD1, 0x00, 0xED, 0x20, 0xFC, 0xB1, 0x5B, 0x6A, 0xCB, 0xBE, 0x39, 0x4A, 0x4C, 0x58, 0xCF,
+    0xD0, 0xEF, 0xAA, 0xFB, 0x43, 0x4D, 0x33, 0x85, 0x45, 0xF9, 0x02, 0x7F, 0x50, 0x3C, 0x9F, 0xA8,
+    0x51, 0xA3, 0x40, 0x8F, 0x92, 0x9D, 0x38, 0xF5, 0xBC, 0xB6, 0xDA, 0x21, 0x10, 0xFF, 0xF3, 0xD2,
+    0xCD, 0x0C, 0x13, 0xEC, 0x5F, 0x97, 0x44, 0x17, 0xC4, 0xA7, 0x7E, 0x3D, 0x64, 0x5D, 0x19, 0x73,
+    0x60, 0x81, 0x4F, 0xDC, 0x22, 0x2A, 0x90, 0x88, 0x46, 0xEE, 0xB8, 0x14, 0xDE, 0x5E, 0x0B, 0xDB,
+    0xE0, 0x32, 0x3A, 0x0A, 0x49, 0x06, 0x24, 0x5C, 0xC2, 0xD3, 0xAC, 0x62, 0x91, 0x95, 0xE4, 0x79,
+    0xE7, 0xC8, 0x37, 0x6D, 0x8D, 0xD5, 0x4E, 0xA9, 0x6C, 0x56, 0xF4, 0xEA, 0x65, 0x7A, 0xAE, 0x08,
+    0xBA, 0x78, 0x25, 0x2E, 0x1C, 0xA6, 0xB4, 0xC6, 0xE8, 0xDD, 0x74, 0x1F, 0x4B, 0xBD, 0x8B, 0x8A,
+    0x70, 0x3E, 0xB5, 0x66, 0x48, 0x03, 0xF6, 0x0E, 0x61, 0x35, 0x57, 0xB9, 0x86, 0xC1, 0x1D, 0x9E,
+    0xE1, 0xF8, 0x98, 0x11, 0x69, 0xD9, 0x8E, 0x94, 0x9B, 0x1E, 0x87, 0xE9, 0xCE, 0x55, 0x28, 0xDF,
+    0x8C, 0xA1, 0x89, 0x0D, 0xBF, 0xE6, 0x42, 0x68, 0x41, 0x99, 0x2D, 0x0F, 0xB0, 0x54, 0xBB, 0x16,
+)
+AES_RCON = (0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36)
+
+
+def aes128_expand_key(key):
+    if len(key) != 16:
+        raise ValueError("AES-128 key must contain 16 bytes")
+    expanded = list(key)
+    rcon_index = 0
+    while len(expanded) < 176:
+        temp = expanded[-4:]
+        if len(expanded) % 16 == 0:
+            temp = temp[1:] + temp[:1]
+            temp = [AES_SBOX[value] for value in temp]
+            temp[0] ^= AES_RCON[rcon_index]
+            rcon_index += 1
+        for value in temp:
+            expanded.append(expanded[-16] ^ value)
+    return expanded
+
+
+def aes_mix_column(column):
+    total = column[0] ^ column[1] ^ column[2] ^ column[3]
+    return [
+        column[index] ^ total ^ (((column[index] ^ column[(index + 1) % 4]) << 1)
+        ^ (0x11B if (column[index] ^ column[(index + 1) % 4]) & 0x80 else 0))
+        for index in range(4)
+    ]
+
+
+def aes128_encrypt_block(block, expanded_key):
+    if len(block) != 16:
+        raise ValueError("AES block must contain 16 bytes")
+    state = [value ^ expanded_key[index] for index, value in enumerate(block)]
+    for round_index in range(1, 11):
+        state = [AES_SBOX[value] for value in state]
+        state = [state[4 * ((column + row) % 4) + row] for column in range(4) for row in range(4)]
+        if round_index < 10:
+            mixed = []
+            for column in range(4):
+                mixed.extend(aes_mix_column(state[column * 4:(column + 1) * 4]))
+            state = mixed
+        offset = round_index * 16
+        state = [value ^ expanded_key[offset + index] for index, value in enumerate(state)]
+    return bytes(state)
+
+
+def gcm_multiply(left, right):
+    result = 0
+    value = right
+    for bit_index in range(128):
+        if left & (1 << (127 - bit_index)):
+            result ^= value
+        value = (value >> 1) ^ (0xE1000000000000000000000000000000 if value & 1 else 0)
+    return result
+
+
+def gcm_hash(hash_key, ciphertext):
+    result = 0
+    for offset in range(0, len(ciphertext), 16):
+        block = ciphertext[offset:offset + 16].ljust(16, b"\0")
+        result = gcm_multiply(result ^ int.from_bytes(block, "big"), hash_key)
+    length_block = (len(ciphertext) * 8).to_bytes(16, "big")
+    return gcm_multiply(result ^ int.from_bytes(length_block, "big"), hash_key)
+
+
+def decode_happ_base64(value):
+    compact = re.sub(rb"\s+", b"", value if isinstance(value, bytes) else str(value or "").encode("ascii", "ignore"))
+    compact += b"=" * (-len(compact) % 4)
+    try:
+        return base64.b64decode(compact, altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error):
+        return None
+
+
+def decrypt_happ_response_body(source_url, body, encrypt_tag):
+    key_name = (urllib.parse.parse_qs(urllib.parse.urlsplit(source_url).query).get("key") or [""])[0]
+    key = HAPP_AES_GCM_KEYS.get(key_name)
+    if not key or not encrypt_tag:
+        return body
+    ciphertext = decode_happ_base64(body)
+    tag = decode_happ_base64(encrypt_tag)
+    if ciphertext is None or tag is None or len(tag) != 16:
+        raise XrayProviderError("invalid_happ_encryption", "Источник Happ вернул некорректный зашифрованный ответ")
+
+    expanded_key = aes128_expand_key(key)
+    hash_key = int.from_bytes(aes128_encrypt_block(b"\0" * 16, expanded_key), "big")
+    initial_counter = HAPP_AES_GCM_IV + b"\0\0\0\1"
+    authentication = bytes(
+        left ^ right
+        for left, right in zip(
+            aes128_encrypt_block(initial_counter, expanded_key),
+            gcm_hash(hash_key, ciphertext).to_bytes(16, "big"),
+        )
+    )
+    if not hmac.compare_digest(authentication, tag):
+        raise XrayProviderError("happ_decryption_failed", "Не удалось расшифровать ответ подписки Happ")
+
+    plaintext = bytearray()
+    counter = int.from_bytes(initial_counter[-4:], "big")
+    for offset in range(0, len(ciphertext), 16):
+        counter = (counter + 1) & 0xFFFFFFFF
+        counter_block = initial_counter[:12] + counter.to_bytes(4, "big")
+        stream = aes128_encrypt_block(counter_block, expanded_key)
+        plaintext.extend(left ^ right for left, right in zip(ciphertext[offset:offset + 16], stream))
+    return bytes(plaintext)
+
+
+def fetch_xray_provider_payload(source_url, headers=None, timeout=20, source_kind="direct"):
     source_url = str(source_url or "").strip()
     parsed = urllib.parse.urlsplit(source_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -2620,14 +3470,24 @@ def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
             status=HTTPStatus.BAD_REQUEST,
         )
 
+    request_headers = dict(headers or {})
+    if source_kind == "happ":
+        request_headers = build_happ_fallback_headers(request_headers)
+        source_url = append_hwid_query(source_url, request_headers)
+
     try:
-        body, _ = request_provider_payload_once(
-            source_url,
-            headers or {},
-            timeout,
-            max_bytes=XRAY_PROVIDER_ADAPTER_MAX_BYTES,
-        )
+        request = urllib.request.Request(source_url, headers=request_headers, method="GET")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read(XRAY_PROVIDER_ADAPTER_MAX_BYTES + 1)
+            encrypt_tag = response.headers.get("Encrypt-Tag") or ""
+            final_url = response.geturl() or source_url
+        if len(body) > XRAY_PROVIDER_ADAPTER_MAX_BYTES:
+            raise ValueError("payload too large")
+        if source_kind == "happ":
+            body = decrypt_happ_response_body(final_url, body, encrypt_tag)
         return body
+    except XrayProviderError:
+        raise
     except ValueError:
         raise XrayProviderError(
             "payload_too_large",
@@ -2642,24 +3502,58 @@ def fetch_xray_provider_payload(source_url, headers=None, timeout=20):
         ) from None
 
 
-def convert_xray_json_provider(body, provider_name):
+def load_xray_json_document(body):
     try:
-        document = json.loads(body.decode("utf-8-sig", errors="strict"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        text = body.decode("utf-8-sig", errors="strict").strip()
+    except UnicodeDecodeError:
         raise XrayProviderError("invalid_json", "Источник не содержит корректный Xray JSON") from None
 
-    if not isinstance(document, dict) or not isinstance(document.get("outbounds"), list):
-        raise XrayProviderError("invalid_config", "В Xray JSON не найден список outbounds")
+    candidates = [text]
+    decoded = decode_base64_text(text)
+    if decoded and decoded not in candidates:
+        candidates.append(decoded)
+    for candidate in candidates:
+        if not candidate or candidate[0] not in "[{":
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    raise XrayProviderError("invalid_json", "Источник не содержит корректный Xray JSON")
 
-    base_name = document.get("remarks")
-    if not isinstance(base_name, str) or not base_name.strip():
-        base_name = str(provider_name or "Xray").strip() or "Xray"
-    else:
-        base_name = base_name.strip()
-    try:
-        base_name.encode("utf-8", errors="strict")
-    except UnicodeEncodeError:
-        raise XrayProviderError("invalid_name", "Название Xray-конфигурации содержит некорректные символы") from None
+
+def iter_xray_config_documents(value, inherited_name=""):
+    if isinstance(value, list):
+        for item in value:
+            yield from iter_xray_config_documents(item, inherited_name)
+        return
+    if not isinstance(value, dict):
+        return
+
+    name = inherited_name
+    for key in ("remarks", "remark", "name", "ps", "title", "tag"):
+        candidate = value.get(key)
+        if isinstance(candidate, str) and candidate.strip():
+            name = candidate.strip()
+            break
+
+    if isinstance(value.get("outbounds"), list):
+        yield value, name
+        return
+    if isinstance(value.get("settings"), dict) and str(value.get("protocol") or "").strip():
+        yield {"outbounds": [value]}, name
+        return
+    for key in ("configs", "items", "nodes", "profiles", "servers", "subscriptions"):
+        child = value.get(key)
+        if isinstance(child, (dict, list)):
+            yield from iter_xray_config_documents(child, name)
+
+
+def convert_xray_json_provider(body, provider_name):
+    document = load_xray_json_document(body)
+    documents = list(iter_xray_config_documents(document))
+    if not documents:
+        raise XrayProviderError("invalid_config", "В Xray JSON не найден список outbounds")
 
     source_count = 0
     converted = []
@@ -2669,35 +3563,54 @@ def convert_xray_json_provider(body, provider_name):
         if len(skipped) < 5:
             skipped.append({"index": source_count, "code": code, "message": message})
 
-    for outbound in document["outbounds"]:
-        if not isinstance(outbound, dict) or str(outbound.get("protocol") or "").casefold() != "vless":
-            continue
+    for document_item, document_name in documents:
+        base_name = document_name or str(provider_name or "Xray").strip() or "Xray"
+        try:
+            base_name.encode("utf-8", errors="strict")
+        except UnicodeEncodeError:
+            raise XrayProviderError("invalid_name", "Название Xray-конфигурации содержит некорректные символы") from None
 
-        settings = outbound.get("settings")
-        vnext = settings.get("vnext") if isinstance(settings, dict) else None
-        if not isinstance(vnext, list) or not vnext:
-            source_count += 1
-            skip("invalid_vnext", "У VLESS outbound отсутствует settings.vnext")
-            continue
-
-        for endpoint in vnext:
-            users = endpoint.get("users") if isinstance(endpoint, dict) else None
-            if not isinstance(users, list) or not users:
-                source_count += 1
-                skip("invalid_users", "У VLESS endpoint отсутствует список users")
+        for outbound in document_item["outbounds"]:
+            if not isinstance(outbound, dict):
                 continue
-
-            for user in users:
+            protocol = str(outbound.get("protocol") or "").strip().casefold()
+            if protocol in {"hysteria", "hysteria2", "hy2"}:
                 source_count += 1
                 try:
-                    node = convert_xray_vless_node(outbound, endpoint, user)
+                    node = convert_xray_hysteria2_node(outbound, protocol)
                 except XrayProviderError as error:
                     skip(error.code, str(error))
                     continue
-                converted.append((source_count, node))
+                converted.append((source_count, base_name, node))
+                continue
+            if protocol != "vless":
+                continue
+
+            settings = outbound.get("settings")
+            vnext = settings.get("vnext") if isinstance(settings, dict) else None
+            if not isinstance(vnext, list) or not vnext:
+                source_count += 1
+                skip("invalid_vnext", "У VLESS outbound отсутствует settings.vnext")
+                continue
+
+            for endpoint in vnext:
+                users = endpoint.get("users") if isinstance(endpoint, dict) else None
+                if not isinstance(users, list) or not users:
+                    source_count += 1
+                    skip("invalid_users", "У VLESS endpoint отсутствует список users")
+                    continue
+
+                for user in users:
+                    source_count += 1
+                    try:
+                        node = convert_xray_vless_node(outbound, endpoint, user)
+                    except XrayProviderError as error:
+                        skip(error.code, str(error))
+                        continue
+                    converted.append((source_count, base_name, node))
 
     if not converted:
-        message = "В Xray JSON не найдено поддерживаемых VLESS/TCP/Reality узлов"
+        message = "В Xray JSON не найдено поддерживаемых VLESS или Hysteria 2 узлов"
         raise XrayProviderError(
             "no_supported_nodes",
             message,
@@ -2706,9 +3619,12 @@ def convert_xray_json_provider(body, provider_name):
         )
 
     lines = ["proxies:"]
-    for source_index, node in converted:
+    for source_index, base_name, node in converted:
         name = base_name if source_count == 1 else f"{base_name} · {source_index}"
-        lines.extend(render_mihomo_vless_proxy(name, node))
+        if node["type"] == "vless":
+            lines.extend(render_mihomo_vless_proxy(name, node))
+        else:
+            lines.extend(render_mihomo_hysteria2_proxy(name, node))
     try:
         yaml_body = ("\n".join(lines) + "\n").encode("utf-8", errors="strict")
     except UnicodeEncodeError:
@@ -2737,23 +3653,17 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if not isinstance(endpoint, dict) or not isinstance(user, dict):
         raise XrayProviderError("invalid_node", "Некорректная структура VLESS узла")
 
-    stream = outbound.get("streamSettings")
+    stream = outbound.get("streamSettings") or {}
     if not isinstance(stream, dict):
         raise XrayProviderError("missing_stream", "У VLESS узла отсутствует streamSettings")
-    if str(stream.get("network") or "").casefold() != "tcp":
-        raise XrayProviderError("unsupported_network", "Поддерживается только транспорт TCP")
-    if str(stream.get("security") or "").casefold() != "reality":
-        raise XrayProviderError("unsupported_security", "Поддерживается только Reality")
+    source_network = str(stream.get("network") or "tcp").casefold()
+    if source_network not in {"tcp", "raw", "ws", "grpc", "xhttp", "httpupgrade"}:
+        raise XrayProviderError("unsupported_network", "Неподдерживаемый транспорт VLESS")
+    security = str(stream.get("security") or "none").casefold()
+    if security not in {"none", "reality", "tls"}:
+        raise XrayProviderError("unsupported_security", "Поддерживается security none, TLS или Reality")
 
-    tcp_settings = stream.get("tcpSettings")
-    if tcp_settings is not None and not isinstance(tcp_settings, dict):
-        raise XrayProviderError("invalid_tcp", "Некорректные tcpSettings")
-    header = tcp_settings.get("header") if isinstance(tcp_settings, dict) else None
-    if header is not None and not isinstance(header, dict):
-        raise XrayProviderError("invalid_tcp", "Некорректный TCP header")
-    header_type = str((header or {}).get("type") or "none").casefold()
-    if header_type != "none":
-        raise XrayProviderError("unsupported_tcp_header", "Поддерживается только TCP header none")
+    transport_options = convert_xray_vless_transport(stream, source_network)
 
     mux = outbound.get("mux")
     if isinstance(mux, dict):
@@ -2762,10 +3672,14 @@ def convert_xray_vless_node(outbound, endpoint, user):
             raise XrayProviderError("unsupported_mux", "Mux для этого формата не поддерживается")
 
     address = endpoint.get("address")
-    port = endpoint.get("port")
+    raw_port = endpoint.get("port")
     if not isinstance(address, str) or not address.strip():
         raise XrayProviderError("invalid_address", "У VLESS узла отсутствует адрес")
-    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        raise XrayProviderError("invalid_port", "У VLESS узла указан некорректный порт") from None
+    if isinstance(raw_port, bool) or not 1 <= port <= 65535:
         raise XrayProviderError("invalid_port", "У VLESS узла указан некорректный порт")
 
     user_id = user.get("id")
@@ -2784,6 +3698,49 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if user_security not in {"", "auto"}:
         raise XrayProviderError("unsupported_user_security", "Неподдерживаемый параметр security у пользователя")
 
+    common = {
+        "type": "vless",
+        "server": address.strip(),
+        "port": port,
+        "uuid": user_id,
+        "flow": flow,
+        "network": "ws" if source_network == "httpupgrade" else "tcp" if source_network == "raw" else source_network,
+        "transportOptions": transport_options,
+        "security": security,
+        "servername": "",
+        "fingerprint": "",
+    }
+
+    if security == "none":
+        return common
+
+    if security == "tls":
+        tls = stream.get("tlsSettings")
+        if not isinstance(tls, dict):
+            raise XrayProviderError("missing_tls", "У VLESS/TLS узла отсутствуют tlsSettings")
+        server_name = tls.get("serverName")
+        fingerprint = tls.get("fingerprint")
+        allow_insecure = tls.get("allowInsecure")
+        alpn = tls.get("alpn")
+        if server_name is not None and not isinstance(server_name, str):
+            raise XrayProviderError("invalid_server_name", "В TLS указан некорректный serverName")
+        if fingerprint is not None and not isinstance(fingerprint, str):
+            raise XrayProviderError("invalid_fingerprint", "В TLS указан некорректный fingerprint")
+        if allow_insecure is not None and not isinstance(allow_insecure, bool):
+            raise XrayProviderError("invalid_insecure", "В TLS указан некорректный allowInsecure")
+        if alpn is not None and (
+            not isinstance(alpn, list)
+            or not all(isinstance(value, str) and value for value in alpn)
+        ):
+            raise XrayProviderError("invalid_alpn", "В TLS указан некорректный список ALPN")
+        common.update({
+            "servername": str(server_name or "").strip(),
+            "fingerprint": str(fingerprint or "chrome").strip(),
+            "allowInsecure": allow_insecure is True,
+            "alpn": list(alpn or []),
+        })
+        return common
+
     reality = stream.get("realitySettings")
     if not isinstance(reality, dict):
         raise XrayProviderError("missing_reality", "У VLESS узла отсутствуют realitySettings")
@@ -2796,6 +3753,9 @@ def convert_xray_vless_node(outbound, endpoint, user):
         "shortId",
         "spiderX",
         "allowInsecure",
+        "support-x25519mlkem768",
+        "supportX25519MLKEM768",
+        "support_x25519mlkem768",
     }
     for key, value in reality.items():
         if key not in known_reality_fields and value is not None and value != "" and value is not False:
@@ -2807,8 +3767,8 @@ def convert_xray_vless_node(outbound, endpoint, user):
     password = reality.get("password")
     if not isinstance(server_name, str) or not server_name.strip():
         raise XrayProviderError("missing_server_name", "В Reality отсутствует serverName")
-    if not isinstance(fingerprint, str) or not fingerprint.strip():
-        raise XrayProviderError("missing_fingerprint", "В Reality отсутствует fingerprint")
+    if fingerprint is not None and not isinstance(fingerprint, str):
+        raise XrayProviderError("invalid_fingerprint", "В Reality указан некорректный fingerprint")
     if public_key and password and public_key != password:
         raise XrayProviderError("conflicting_public_key", "В Reality заданы разные publicKey и password")
     public_key = public_key or password
@@ -2819,21 +3779,300 @@ def convert_xray_vless_node(outbound, endpoint, user):
     if not isinstance(short_id, str) or len(short_id) > 16 or len(short_id) % 2 or not re.fullmatch(r"[0-9a-fA-F]*", short_id):
         raise XrayProviderError("invalid_short_id", "В Reality указан некорректный shortId")
     allow_insecure = reality.get("allowInsecure")
-    if allow_insecure is not None and allow_insecure is not False:
-        raise XrayProviderError("unsupported_insecure", "allowInsecure должен быть выключен")
-    spider = reality.get("spiderX")
-    if spider is not None and spider != "" and spider != "/":
-        raise XrayProviderError("unsupported_spider", "Поддерживается только пустой spiderX или /")
+    if allow_insecure is not None and not isinstance(allow_insecure, bool):
+        raise XrayProviderError("invalid_insecure", "В Reality указан некорректный allowInsecure")
+    spider = reality.get("spiderX", "")
+    if spider is not None and not isinstance(spider, str):
+        raise XrayProviderError("invalid_spider", "В Reality указан некорректный spiderX")
+    support_hybrid = first_xray_value(
+        reality.get("support-x25519mlkem768"),
+        reality.get("supportX25519MLKEM768"),
+        reality.get("support_x25519mlkem768"),
+        False,
+    )
 
-    return {
-        "server": address.strip(),
-        "port": port,
-        "uuid": user_id,
-        "flow": flow,
+    common.update({
         "servername": server_name.strip(),
-        "fingerprint": fingerprint.strip(),
+        "fingerprint": str(fingerprint or "chrome").strip(),
         "publicKey": public_key.strip(),
         "shortId": short_id,
+        "allowInsecure": allow_insecure is True,
+        "spiderX": str(spider or "").strip(),
+        "supportHybrid": xray_boolean(support_hybrid),
+    })
+    return common
+
+
+def convert_xray_vless_transport(stream, network):
+    if network in {"tcp", "raw"}:
+        settings = stream.get("rawSettings") if network == "raw" else stream.get("tcpSettings")
+        if settings is None and network == "raw":
+            settings = stream.get("tcpSettings")
+        if settings is not None and not isinstance(settings, dict):
+            raise XrayProviderError("invalid_tcp", "Некорректные TCP/raw settings")
+        header = settings.get("header") if isinstance(settings, dict) else None
+        if header is not None and not isinstance(header, dict):
+            raise XrayProviderError("invalid_tcp", "Некорректный TCP header")
+        if str((header or {}).get("type") or "none").casefold() != "none":
+            raise XrayProviderError("unsupported_tcp_header", "Поддерживается только TCP header none")
+        return {}
+
+    settings_key = {
+        "ws": "wsSettings",
+        "grpc": "grpcSettings",
+        "xhttp": "xhttpSettings",
+        "httpupgrade": "httpupgradeSettings",
+    }[network]
+    settings = stream.get(settings_key) or {}
+    if not isinstance(settings, dict):
+        raise XrayProviderError("invalid_transport", f"Некорректные настройки транспорта {network}")
+
+    if network == "ws":
+        path = settings.get("path", "/")
+        headers = settings.get("headers") or {}
+        if not isinstance(path, str) or not isinstance(headers, dict):
+            raise XrayProviderError("invalid_ws", "Некорректные WS settings")
+        if not all(isinstance(key, str) and isinstance(value, (str, int, float, bool)) for key, value in headers.items()):
+            raise XrayProviderError("invalid_ws", "Некорректные WS headers")
+        return {"path": path or "/", "headers": {key: str(value) for key, value in headers.items()}}
+    if network == "grpc":
+        service_name = settings.get("serviceName", "")
+        if not isinstance(service_name, str):
+            raise XrayProviderError("invalid_grpc", "Некорректный gRPC serviceName")
+        return {"grpc-service-name": service_name} if service_name else {}
+    if network == "httpupgrade":
+        path = settings.get("path", "/")
+        host = settings.get("host", "")
+        if not isinstance(path, str) or not isinstance(host, str):
+            raise XrayProviderError("invalid_httpupgrade", "Некорректные HTTPUpgrade settings")
+        result = {"path": path or "/", "v2ray-http-upgrade": True}
+        if host:
+            result["headers"] = {"Host": host}
+        return result
+
+    path = settings.get("path", "/")
+    host = settings.get("host", "")
+    mode = settings.get("mode", "")
+    headers = sanitize_xray_headers(settings.get("headers"))
+    if not all(isinstance(value, str) for value in (path, host, mode)) or headers is None:
+        raise XrayProviderError("invalid_xhttp", "Некорректные XHTTP settings")
+    result = {"path": path or "/"}
+    if host:
+        result["host"] = host
+    if mode:
+        result["mode"] = mode
+    if headers:
+        result["headers"] = headers
+    if xray_boolean(first_xray_value(settings.get("no-grpc-header"), settings.get("noGrpcHeader"), settings.get("noGRPCHeader"), False)):
+        result["no-grpc-header"] = True
+    for output_key, source_keys in {
+        "x-padding-bytes": ("x-padding-bytes", "xPaddingBytes"),
+        "sc-max-each-post-bytes": ("sc-max-each-post-bytes", "scMaxEachPostBytes"),
+    }.items():
+        value = first_xray_value(*(settings.get(key) for key in source_keys))
+        if value is not None:
+            result[output_key] = value if isinstance(value, (bool, int, float)) else str(value)
+    reuse_settings = sanitize_xray_reuse_settings(first_xray_value(settings.get("reuse-settings"), settings.get("reuseSettings")))
+    if reuse_settings:
+        result["reuse-settings"] = reuse_settings
+    download_settings = sanitize_xray_download_settings(first_xray_value(settings.get("download-settings"), settings.get("downloadSettings")))
+    if download_settings:
+        result["download-settings"] = download_settings
+    return result
+
+
+def first_xray_value(*values):
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def first_xray_text(*values):
+    value = first_xray_value(*values)
+    return str(value).strip() if value is not None else ""
+
+
+def xray_boolean(value):
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def sanitize_xray_headers(value):
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for key, raw_value in value.items():
+        name = str(key or "").strip()
+        if not name or raw_value in (None, ""):
+            continue
+        if isinstance(raw_value, list):
+            items = [str(item) for item in raw_value if item not in (None, "")]
+            if items:
+                result[name] = items
+        else:
+            result[name] = raw_value if isinstance(raw_value, (bool, int, float)) else str(raw_value)
+    return result
+
+
+def sanitize_xray_reuse_settings(value):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    aliases = {
+        "max-concurrency": ("max-concurrency", "maxConcurrency"),
+        "max-connections": ("max-connections", "maxConnections"),
+        "c-max-reuse-times": ("c-max-reuse-times", "cMaxReuseTimes"),
+        "h-max-request-times": ("h-max-request-times", "hMaxRequestTimes"),
+        "h-max-reusable-secs": ("h-max-reusable-secs", "hMaxReusableSecs"),
+    }
+    for output_key, source_keys in aliases.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value if isinstance(raw_value, (bool, int, float)) else str(raw_value)
+    return result
+
+
+def sanitize_xray_download_settings(value):
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    aliases = {
+        "path": ("path",),
+        "host": ("host",),
+        "server": ("server",),
+        "port": ("port",),
+        "fingerprint": ("fingerprint",),
+        "servername": ("servername", "serverName"),
+        "client-fingerprint": ("client-fingerprint", "clientFingerprint"),
+        "certificate": ("certificate",),
+        "private-key": ("private-key", "privateKey"),
+        "ech-opts": ("ech-opts", "echOpts"),
+        "reality-opts": ("reality-opts", "realityOpts"),
+    }
+    for output_key, source_keys in aliases.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value
+    headers = sanitize_xray_headers(value.get("headers"))
+    if headers:
+        result["headers"] = headers
+    no_grpc_header = first_xray_value(value.get("no-grpc-header"), value.get("noGrpcHeader"), value.get("noGRPCHeader"))
+    if no_grpc_header is not None:
+        result["no-grpc-header"] = xray_boolean(no_grpc_header)
+    for output_key, source_keys in {
+        "x-padding-bytes": ("x-padding-bytes", "xPaddingBytes"),
+        "sc-max-each-post-bytes": ("sc-max-each-post-bytes", "scMaxEachPostBytes"),
+    }.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = raw_value
+    reuse_settings = sanitize_xray_reuse_settings(first_xray_value(value.get("reuse-settings"), value.get("reuseSettings")))
+    if reuse_settings:
+        result["reuse-settings"] = reuse_settings
+    for output_key, source_keys in {
+        "tls": ("tls",),
+        "skip-cert-verify": ("skip-cert-verify", "skipCertVerify"),
+    }.items():
+        raw_value = first_xray_value(*(value.get(key) for key in source_keys))
+        if raw_value is not None:
+            result[output_key] = xray_boolean(raw_value)
+    alpn = value.get("alpn")
+    if isinstance(alpn, str):
+        alpn = [item.strip() for item in alpn.split(",") if item.strip()]
+    if isinstance(alpn, list) and alpn:
+        result["alpn"] = [str(item).strip() for item in alpn if str(item or "").strip()]
+    return result
+
+
+def xray_finalmask_obfs(finalmask):
+    if not isinstance(finalmask, dict):
+        return "", ""
+    masks = finalmask.get("udpmasks")
+    if not isinstance(masks, list):
+        masks = finalmask.get("udp")
+    if not isinstance(masks, list):
+        return "", ""
+    for item in masks:
+        if not isinstance(item, dict):
+            continue
+        mask_settings = item.get("settings") or {}
+        if not isinstance(mask_settings, dict):
+            mask_settings = {}
+        obfs = first_xray_text(item.get("type"))
+        password = first_xray_text(
+            mask_settings.get("password"),
+            mask_settings.get("obfs-password"),
+            mask_settings.get("obfsPassword"),
+            mask_settings.get("obfs_password"),
+        )
+        if obfs or password:
+            return obfs, password
+    return "", ""
+
+
+def convert_xray_hysteria2_node(outbound, protocol):
+    settings = outbound.get("settings") or {}
+    stream = outbound.get("streamSettings") or {}
+    if not isinstance(settings, dict) or not isinstance(stream, dict):
+        raise XrayProviderError("invalid_hysteria2", "Некорректная структура Hysteria 2 узла")
+    hysteria = stream.get("hysteriaSettings") or {}
+    tls = stream.get("tlsSettings") or {}
+    if not isinstance(hysteria, dict) or not isinstance(tls, dict):
+        raise XrayProviderError("invalid_hysteria2", "Некорректные настройки Hysteria 2")
+
+    version = first_xray_value(settings.get("version"), hysteria.get("version"))
+    if protocol == "hysteria" and version not in (None, "", 2, "2"):
+        raise XrayProviderError("unsupported_hysteria_version", "Поддерживается только Hysteria 2")
+    server = first_xray_text(settings.get("address"), settings.get("server"), hysteria.get("address"), hysteria.get("server"))
+    raw_port = first_xray_value(settings.get("port"), hysteria.get("port"))
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        raise XrayProviderError("invalid_port", "У Hysteria 2 узла указан некорректный порт") from None
+    password = first_xray_text(
+        hysteria.get("auth"), hysteria.get("auth_str"), hysteria.get("authStr"),
+        settings.get("auth"), settings.get("password"),
+    )
+    if not server or not 1 <= port <= 65535 or not password:
+        raise XrayProviderError("invalid_hysteria2", "У Hysteria 2 узла отсутствует адрес, порт или пароль")
+
+    alpn_value = first_xray_value(tls.get("alpn"), hysteria.get("alpn"))
+    if isinstance(alpn_value, str):
+        alpn = [item.strip() for item in alpn_value.split(",") if item.strip()]
+    elif isinstance(alpn_value, list) and all(isinstance(item, str) for item in alpn_value):
+        alpn = [item.strip() for item in alpn_value if item.strip()]
+    elif alpn_value is None:
+        alpn = []
+    else:
+        raise XrayProviderError("invalid_alpn", "В Hysteria 2 указан некорректный список ALPN")
+
+    finalmask = stream.get("finalmask") or {}
+    quic = finalmask.get("quicParams") if isinstance(finalmask, dict) else {}
+    quic = quic if isinstance(quic, dict) else {}
+    obfs = first_xray_text(hysteria.get("obfs"), settings.get("obfs"), hysteria.get("obfsType"))
+    obfs_password = first_xray_text(
+        hysteria.get("obfs-password"), hysteria.get("obfs_password"), hysteria.get("obfsPassword"),
+        settings.get("obfs-password"), settings.get("obfs_password"), settings.get("obfsPassword"),
+    )
+    finalmask_obfs, finalmask_password = xray_finalmask_obfs(finalmask)
+    obfs = obfs or finalmask_obfs
+    obfs_password = obfs_password or finalmask_password
+    return {
+        "type": "hysteria2",
+        "server": server,
+        "port": port,
+        "password": password,
+        "sni": first_xray_text(tls.get("serverName"), tls.get("servername"), hysteria.get("sni"), settings.get("sni")),
+        "alpn": alpn or ["h3"],
+        "allowInsecure": xray_boolean(first_xray_value(tls.get("allowInsecure"), settings.get("allowInsecure"), False)),
+        "up": first_xray_text(hysteria.get("up"), settings.get("up"), quic.get("brutalUp"), quic.get("up")),
+        "down": first_xray_text(hysteria.get("down"), settings.get("down"), quic.get("brutalDown"), quic.get("down")),
+        "obfs": obfs,
+        "obfsPassword": obfs_password,
     }
 
 
@@ -2845,37 +4084,98 @@ def render_mihomo_vless_proxy(name, node):
         f"    server: {quote(node['server'])}",
         f"    port: {node['port']}",
         f"    uuid: {quote(node['uuid'])}",
-        "    network: tcp",
-        "    tls: true",
+        '    encryption: ""',
+        f"    network: {node['network']}",
         "    udp: true",
+        "    packet-encoding: xudp",
     ]
     if node["flow"]:
         lines.append(f"    flow: {quote(node['flow'])}")
-    lines.extend(
-        [
-            f"    servername: {quote(node['servername'])}",
-            f"    client-fingerprint: {quote(node['fingerprint'])}",
-            "    reality-opts:",
-            f"      public-key: {quote(node['publicKey'])}",
-            f"      short-id: {quote(node['shortId'])}",
-        ]
-    )
+    if node["security"] in {"tls", "reality"}:
+        lines.append("    tls: true")
+    if node["servername"]:
+        lines.append(f"    servername: {quote(node['servername'])}")
+    if node["fingerprint"]:
+        lines.append(f"    client-fingerprint: {quote(node['fingerprint'])}")
+    if node["security"] == "tls":
+        if node["allowInsecure"]:
+            lines.append("    skip-cert-verify: true")
+        if node["alpn"]:
+            lines.append("    alpn:")
+            lines.extend(f"      - {quote(value)}" for value in node["alpn"])
+    elif node["security"] == "reality":
+        lines.extend(
+            [
+                "    reality-opts:",
+                f"      public-key: {quote(node['publicKey'])}",
+                f"      short-id: {quote(node['shortId'])}",
+            ]
+        )
+        if node["supportHybrid"]:
+            lines.append("      support-x25519mlkem768: true")
+        if node["spiderX"]:
+            lines.append(f"      spider-x: {quote(node['spiderX'])}")
+        if node["allowInsecure"]:
+            lines.append("    skip-cert-verify: true")
+    option_key = {
+        "ws": "ws-opts",
+        "grpc": "grpc-opts",
+        "xhttp": "xhttp-opts",
+        "httpupgrade": "http-upgrade-opts",
+    }.get(node["network"])
+    if option_key and node["transportOptions"]:
+        options = dict(node["transportOptions"])
+        if node["servername"]:
+            if node["network"] in {"ws", "httpupgrade"} and not options.get("headers"):
+                options["headers"] = {"Host": node["servername"]}
+            elif node["network"] == "xhttp" and not options.get("host"):
+                options["host"] = node["servername"]
+        lines.append(f"    {option_key}:")
+        for key, value in options.items():
+            lines.append(f"      {key}: {json.dumps(value, ensure_ascii=False)}")
+    return lines
+
+
+def render_mihomo_hysteria2_proxy(name, node):
+    quote = lambda value: json.dumps(str(value), ensure_ascii=False)
+    lines = [
+        f"  - name: {quote(name)}",
+        "    type: hysteria2",
+        f"    server: {quote(node['server'])}",
+        f"    port: {node['port']}",
+        f"    password: {quote(node['password'])}",
+        "    udp: true",
+    ]
+    if node["alpn"]:
+        lines.append(f"    alpn: {json.dumps(node['alpn'], ensure_ascii=False)}")
+    if node["sni"]:
+        lines.append(f"    sni: {quote(node['sni'])}")
+    if node["allowInsecure"]:
+        lines.append("    skip-cert-verify: true")
+    if node["up"]:
+        lines.append(f"    up: {quote(node['up'])}")
+    if node["down"]:
+        lines.append(f"    down: {quote(node['down'])}")
+    if node["obfs"]:
+        lines.append(f"    obfs: {quote(node['obfs'])}")
+    if node["obfsPassword"]:
+        lines.append(f"    obfs-password: {quote(node['obfsPassword'])}")
     return lines
 
 
 def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=False, depth=0, app_dir=None):
     if depth > 3:
-        raise ValueError("provider landing redirect depth exceeded")
+        raise ValueError("Превышено допустимое количество перенаправлений страницы подписки")
 
     source_url = str(source_url or "").strip()
     if not source_url:
-        raise ValueError("url query parameter is required")
+        raise ValueError("Не указан параметр url со ссылкой на подписку")
 
     parsed = urllib.parse.urlsplit(source_url)
     if parsed.scheme == "incy":
         import_payload = extract_incy_import_payload(source_url)
         if not import_payload:
-            raise ValueError("incy://import does not contain a supported URL")
+            raise ValueError("Ссылка incy://import не содержит поддерживаемого адреса подписки")
         kind, value = import_payload
         if kind == "body":
             return value, "text/yaml; charset=utf-8"
@@ -2889,9 +4189,9 @@ def fetch_provider_payload(source_url, headers=None, timeout=20, append_hwid=Fal
         )
 
     if parsed.scheme not in {"http", "https"}:
-        raise ValueError("provider adapter supports only http/https and incy://import URLs")
+        raise ValueError("Адаптер подписок поддерживает только ссылки HTTP/HTTPS и incy://import")
     if not parsed.netloc:
-        raise ValueError("provider URL host is required")
+        raise ValueError("В ссылке на подписку не указан адрес сервера")
 
     if append_hwid:
         source_url = append_hwid_query(source_url, headers or {})
@@ -2943,7 +4243,7 @@ def request_provider_payload_once(source_url, headers, timeout, max_bytes=PROVID
         content_type = response.headers.get("Content-Type") or "text/yaml; charset=utf-8"
 
     if len(body) > max_bytes:
-        raise ValueError("provider payload is too large")
+        raise ValueError("Размер данных подписки превышает допустимый предел")
     return body, content_type
 
 
@@ -3007,8 +4307,9 @@ def normalize_happ_transport_result(text):
     if isinstance(data, dict):
         for key in ("url", "uri", "link", "decryptedUrl", "decrypted_url", "subscription"):
             value = str(data.get(key) or "").strip()
-            if normalize_landing_url(value, ""):
-                return "url", value
+            normalized = normalize_landing_url(value, "")
+            if normalized:
+                return "url", normalized
         for key in ("payload", "content", "yaml", "data", "text", "body", "result", "output", "decrypted"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -3030,10 +4331,9 @@ def normalize_happ_transport_result(text):
     lines = [line.strip() for line in raw.replace("\r", "\n").split("\n") if line.strip()]
     if len(lines) == 1:
         line = lines[0]
-        if line.lower().startswith("incy://import/"):
-            return "url", line
-        if normalize_landing_url(line, ""):
-            return "url", line
+        normalized = normalize_landing_url(line, "")
+        if normalized:
+            return "url", normalized
 
     return None
 
@@ -3108,9 +4408,10 @@ def normalize_header_map(headers):
 
 def extract_incy_import_payload(source_url):
     parsed = urllib.parse.urlsplit(source_url)
-    query = urllib.parse.parse_qs(parsed.query)
-    for key in ("url", "uri", "target", "link", "sub", "subscription"):
-        value = (query.get(key) or [""])[0]
+    supported_keys = {"url", "uri", "target", "link", "import", "sub", "subscription"}
+    for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        if str(key or "").casefold() not in supported_keys:
+            continue
         result = normalize_happ_transport_text(value, "")
         if result:
             return result
@@ -3160,6 +4461,7 @@ def build_happ_transport_candidates(text):
     add(text)
     unquoted = urllib.parse.unquote_plus(str(text or "").strip())
     add(unquoted)
+    add(urllib.parse.unquote_plus(unquoted))
     for candidate in list(candidates):
         decoded = decode_base64_text(candidate)
         if decoded:
@@ -3207,7 +4509,7 @@ def extract_landing_provider_url(body, content_type, base_url):
     unescaped = html.unescape(text)
     patterns = [
         r"(?:href|data-url|data-href|url)\s*=\s*['\"]([^'\"]+)['\"]",
-        r"(happ://crypt[^\s'\"<>]+|incy://import[^\s'\"<>]+)",
+        r"(happ\\*:(?:\\?/){2}crypt[0-9]*/[^\s'\"<>]+|incy://import[^\s'\"<>]+)",
     ]
     for pattern in patterns:
         for match in re.finditer(pattern, unescaped, flags=re.IGNORECASE):
@@ -3224,7 +4526,7 @@ def looks_like_landing_page(text, content_type):
         "html" in lower_type
         or sample.startswith("<!doctype")
         or sample.startswith("<html")
-        or "happ://crypt" in sample
+        or bool(re.search(r"happ\\*:(?:\\?/){2}crypt[0-9]*/", sample, flags=re.IGNORECASE))
         or "incy://import" in sample
     )
 
@@ -3236,15 +4538,23 @@ def looks_like_happ_landing_page(text, content_type):
     return (
         "happ" in sample
         or "incy://import" in sample
-        or "happ://crypt" in sample
+        or bool(re.search(r"happ\\*:(?:\\?/){2}crypt[0-9]*/", sample, flags=re.IGNORECASE))
     )
 
 
 def normalize_landing_url(value, base_url):
-    candidate = urllib.parse.unquote(html.unescape(str(value or "").strip()))
+    candidate = html.unescape(str(value or "").strip())
+    for _ in range(2):
+        decoded = urllib.parse.unquote(candidate)
+        if decoded == candidate:
+            break
+        candidate = decoded
     if not candidate:
         return ""
-    if re.match(r"^(https?|incy)://", candidate, flags=re.IGNORECASE) or is_happ_crypt_url(candidate):
+    happ_url = normalize_happ_crypt_url(candidate)
+    if happ_url:
+        return happ_url
+    if re.match(r"^(https?|incy)://", candidate, flags=re.IGNORECASE):
         return candidate
     if base_url and candidate.startswith(("/", "./", "../")):
         return urllib.parse.urljoin(base_url, candidate)
@@ -3252,7 +4562,17 @@ def normalize_landing_url(value, base_url):
 
 
 def is_happ_crypt_url(value):
-    return str(value or "").strip().lower().startswith("happ://crypt")
+    return bool(normalize_happ_crypt_url(value))
+
+
+def normalize_happ_crypt_url(value):
+    candidate = re.sub(
+        r"(?i)^happ\\*:(?:\\?/){2}",
+        "happ://",
+        str(value or "").strip(),
+        count=1,
+    )
+    return candidate if re.match(r"(?i)^happ://crypt[0-9]*/", candidate) else ""
 
 
 def build_provider_request_headers(incoming_headers):
@@ -3365,7 +4685,7 @@ def update_proxy_provider(app_dir, name):
         mihomo_api_request(app_dir, f"/providers/proxies/{encoded_name}", method="PUT", timeout=30)
         return {
             "ok": True,
-            "message": "provider update started",
+            "message": "Обновление подписки запущено",
             "adapter": get_xray_provider_adapter_status(name),
         }
     except Exception as error:
@@ -3376,7 +4696,36 @@ def update_proxy_provider(app_dir, name):
         }
 
 
-def select_proxy_group(app_dir, group, name):
+def load_proxy_groups(app_dir):
+    data = mihomo_api_request(app_dir, "/proxies", timeout=5)
+    proxies = data.get("proxies", data) if isinstance(data, dict) else None
+    if not isinstance(proxies, dict):
+        raise RuntimeError("Ядро вернуло некорректный список групп")
+    return proxies
+
+
+def reset_smart_proxy_group(app_dir, group):
+    path = f"/proxies/{urllib.parse.quote(group, safe='')}"
+    try:
+        current = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "unavailable": True, "message": str(error)}
+    if not isinstance(current, dict) or str(current.get("type") or "").casefold() != "smart":
+        return {"ok": False, "message": "Автовыбор поддерживается только в группе Smart"}
+    if not isinstance(current.get("fixed"), str):
+        return {"ok": False, "message": "Ядро не сообщает состояние фиксации Smart"}
+    # DELETE also clears a cached choice whose node is currently absent.
+    try:
+        mihomo_api_request(app_dir, path, method="DELETE")
+        confirmed = mihomo_api_request(app_dir, path)
+    except Exception as error:
+        return {"ok": False, "uncertain": True, "message": str(error)}
+    if not isinstance(confirmed, dict) or str(confirmed.get("type") or "").casefold() != "smart" or confirmed.get("fixed") != "":
+        return {"ok": False, "uncertain": True, "message": "Prizrak не подтвердил автовыбор Smart"}
+    return {"ok": True, "changed": bool(current["fixed"]), "group": group, "now": confirmed.get("now", ""), "fixed": ""}
+
+
+def select_proxy_group(app_dir, group, name, expected_snapshot=None):
     encoded_group = urllib.parse.quote(group, safe="")
     path = f"/proxies/{encoded_group}"
     try:
@@ -3385,12 +4734,19 @@ def select_proxy_group(app_dir, group, name):
         return {"ok": False, "unavailable": True, "message": str(error)}
 
     group_type = str(current.get("type") or "").strip().casefold() if isinstance(current, dict) else ""
+    if expected_snapshot is not None and (
+        not isinstance(current, dict)
+        or group_type != str(expected_snapshot.get("type") or "").strip().casefold()
+        or current.get("now") != expected_snapshot.get("now")
+        or current.get("all") != expected_snapshot.get("all")
+    ):
+        return {"ok": False, "drift": True, "message": "Состояние группы изменилось. Обновите список и попробуйте снова"}
     if group_type not in {"select", "selector"}:
-        return {"ok": False, "message": "group is not selectable"}
+        return {"ok": False, "message": "Группа не поддерживает ручной выбор ноды"}
 
     options = current.get("all") if isinstance(current, dict) else None
     if not isinstance(options, list) or name not in options:
-        return {"ok": False, "message": "proxy is not available in this group"}
+        return {"ok": False, "message": "Нода недоступна в этой группе"}
 
     if str(current.get("now") or "") == name:
         return {"ok": True, "changed": False, "group": group, "now": name}
@@ -3409,7 +4765,7 @@ def select_proxy_group(app_dir, group, name):
 
     confirmed_name = str(confirmed.get("now") or "") if isinstance(confirmed, dict) else ""
     if confirmed_name != name:
-        return {"ok": False, "uncertain": True, "message": "Mihomo did not confirm the selected proxy"}
+        return {"ok": False, "uncertain": True, "message": "Mihomo не подтвердил выбор ноды"}
     return {"ok": True, "changed": True, "group": group, "now": confirmed_name}
 
 
@@ -3446,6 +4802,207 @@ def get_current_nodes(app_dir):
         return {"ok": True, "nodes": nodes, "providers": provider_items, "groups": groups, "groupsError": groups_error}
     except Exception as error:
         return {"ok": False, "message": str(error), "nodes": [], "providers": [], "groups": [], "groupsError": ""}
+
+
+def get_runtime_groups(app_dir):
+    try:
+        proxies = load_proxy_groups(app_dir)
+        groups = [item for item in normalize_current_group_selections(proxies)
+                  if item["type"].casefold() in {"smart", "selector", "select"}]
+        return {"ok": True, "groups": groups}
+    except Exception:
+        return {"ok": False, "groups": [], "message": "Не удалось загрузить группы. Проверьте подключение и попробуйте снова"}
+
+
+def load_group_connections(app_dir):
+    data = mihomo_api_request(app_dir, "/connections", timeout=5)
+    connections = data.get("connections") if isinstance(data, dict) else None
+    if not isinstance(connections, list):
+        raise RuntimeError("Не удалось получить текущие подключения")
+    return connections
+
+
+def smart_group_routes(group, proxies, connections):
+    routes = {}
+    for connection in connections:
+        if not isinstance(connection, dict):
+            continue
+        chains = connection.get("chains")
+        metadata = connection.get("metadata")
+        if not isinstance(chains, list) or group not in chains or not isinstance(metadata, dict):
+            continue
+        # A shared complaint flag would affect every Smart callback in a nested chain.
+        smart_groups = [name for name in chains if isinstance(proxies.get(name), dict)
+                        and str(proxies[name].get("type") or "").casefold() == "smart"]
+        if smart_groups != [group]:
+            raise ValueError("В этой группе смена сервера пока недоступна из-за вложенных групп")
+        if metadata.get("smartBlock") != "normal":
+            continue
+        position = chains.index(group)
+        if not position or not isinstance(connection.get("id"), str):
+            continue
+        node = chains[position - 1]
+        if node not in proxies[group].get("all", []):
+            continue
+        target = str(metadata.get("smartTarget") or "")
+        destination = str(metadata.get("wildcardTarget") or metadata.get("host") or metadata.get("destinationIP") or "")
+        if not target or not destination or not connection["id"]:
+            continue
+        routes.setdefault((destination, target, node), connection["id"])
+    return routes
+
+
+def replace_smart_group(app_dir, group, proxies):
+    current = proxies[group]
+    if not isinstance(current.get("fixed"), str):
+        return {"ok": False, "message": "В этой группе смена сервера пока недоступна"}
+    routes = smart_group_routes(group, proxies, load_group_connections(app_dir))
+    if not routes:
+        return {"ok": False, "message": "Нет активных подключений. Откройте сервис и повторите смену сервера"}
+    if current["fixed"]:
+        reset = reset_smart_proxy_group(app_dir, group)
+        if not reset["ok"]:
+            return {"ok": False, "uncertain": bool(reset.get("uncertain")), "unavailable": bool(reset.get("unavailable")),
+                    "message": "Не удалось подготовить смену сервера. Попробуйте снова"}
+    accepted = 0
+    for route in routes:
+        try:
+            live_proxies = load_proxy_groups(app_dir)
+            live_group = live_proxies.get(group)
+            if not isinstance(live_group, dict) or str(live_group.get("type") or "").casefold() != "smart" or live_group.get("fixed") != "":
+                return {"ok": False, "uncertain": bool(accepted or current["fixed"]), "message": "Состояние группы изменилось. Попробуйте снова"}
+            live_routes = smart_group_routes(group, live_proxies, load_group_connections(app_dir))
+        except Exception:
+            return {"ok": False, "uncertain": bool(accepted or current["fixed"]),
+                    "message": "Не удалось подтвердить состояние группы. Попробуйте снова"}
+        connection_id = live_routes.get(route)
+        if not connection_id:
+            continue
+        try:
+            mihomo_api_request(app_dir, f"/connections/smart/{urllib.parse.quote(connection_id, safe='')}", method="DELETE")
+            remaining = load_group_connections(app_dir)
+        except Exception:
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Проверьте работу сервиса"}
+        if any(item.get("id") == connection_id and isinstance(item.get("metadata"), dict) and item["metadata"].get("smartBlock") == "normal"
+               for item in remaining if isinstance(item, dict)):
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Проверьте работу сервиса"}
+        accepted += 1
+    if not accepted:
+        return {"ok": False, "message": "Подключения уже завершились. Откройте сервис и повторите смену сервера"}
+    return {"ok": True, "group": group, "changed": False, "requestAccepted": True, "routeCount": accepted,
+            "message": "Готово. Попробуйте открыть сервис снова"}
+
+
+def replace_selector_group(app_dir, group, current, proxies):
+    settings = load_resource_monitor_settings(app_dir)
+    managed = [service for service, item in settings["services"].items()
+               if settings["enabled"] and item["group"] == group and resource_monitor_mode(item) == "mihui"]
+    if managed:
+        if snapshot_resource_monitor_job()["running"]:
+            return {"ok": False, "message": "Смена сервера временно занята проверкой. Попробуйте немного позже"}
+        service = managed[0]
+        previous_switch = load_resource_monitor_runtime(app_dir)["services"][service].get("lastSwitch")
+        runtime = run_resource_monitor_cycle(app_dir, [service], force_switch=True, expected_group=group)
+        confirmed = load_proxy_groups(app_dir).get(group, {})
+        now = str(confirmed.get("now") or "")
+        if str(confirmed.get("type") or "").casefold() not in {"select", "selector"} or not now:
+            return {"ok": False, "uncertain": True, "message": "Не удалось подтвердить смену сервера. Попробуйте снова"}
+        last_switch = runtime["services"][service].get("lastSwitch")
+        if last_switch and last_switch != previous_switch and last_switch.get("to") == now:
+            return {"ok": True, "changed": True, "group": group, "now": now, "message": "Сервер сменён"}
+        if now != str(current.get("now") or ""):
+            return {"ok": False, "uncertain": True, "message": "Состояние сервера изменилось. Проверьте работу сервиса"}
+        return {"ok": False, "message": "Подходящий сервер для замены не найден. Попробуйте позже"}
+    options = current.get("all")
+    if not isinstance(options, list) or len(options) < 2:
+        return {"ok": False, "message": "В группе нет другого сервера для замены"}
+    expected_snapshot = {"type": current.get("type"), "now": current.get("now"), "all": list(options)}
+    endpoint = {"url": current.get("testUrl") or "https://www.gstatic.com/generate_204", "expected": "200-299"}
+    names = list(dict.fromkeys(name for name in options if isinstance(name, str)
+                              and name != current.get("now") and name.upper() not in RESOURCE_MONITOR_BUILTINS
+                              and str(proxies.get(name, {}).get("type") or "").casefold().replace("-", "")
+                              not in {"direct", "reject", "rejectdrop", "pass", "compatible", "dns"}))
+    candidates = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {name: executor.submit(resource_monitor_delay, app_dir, name, endpoint, 5000) for name in names}
+        for name, future in futures.items():
+            try:
+                delay = future.result()
+                if 0 < delay < 65535:
+                    candidates.append((delay, name))
+            except Exception:
+                pass
+    if not candidates:
+        return {"ok": False, "message": "Подходящий сервер для замены не найден. Попробуйте позже"}
+    _, selected = min(candidates)
+    result = select_proxy_group(app_dir, group, selected, expected_snapshot=expected_snapshot)
+    if not result["ok"]:
+        if result.get("drift"):
+            return result
+        return {"ok": False, "uncertain": bool(result.get("uncertain")), "unavailable": bool(result.get("unavailable")),
+                "message": "Не удалось подтвердить смену сервера. Попробуйте снова"}
+    if not result.get("changed"):
+        return {"ok": False, "message": "Состояние группы изменилось. Обновите список и попробуйте снова"}
+    return {**result, "message": "Сервер сменён"}
+
+
+def replace_runtime_group(app_dir, group):
+    try:
+        proxies = load_proxy_groups(app_dir)
+        current = proxies.get(group)
+        kind = str(current.get("type") or "").casefold() if isinstance(current, dict) else ""
+        if kind == "smart":
+            return replace_smart_group(app_dir, group, proxies)
+        if kind in {"select", "selector"}:
+            return replace_selector_group(app_dir, group, current, proxies)
+        return {"ok": False, "message": "Группа недоступна для смены сервера. Обновите список групп"}
+    except ValueError as error:
+        return {"ok": False, "message": str(error)}
+    except Exception:
+        return {"ok": False, "unavailable": True, "message": "Не удалось связаться с сервером. Попробуйте снова"}
+
+
+def resource_monitor_mode(item):
+    if not item.get("enabled", True) or item.get("mode") == "off":
+        return "off"
+    return item.get("mode", "mihui")
+
+
+def get_resource_smart_support(app_dir):
+    binary = find_mihomo_binary(app_dir)
+    if not binary:
+        return {"supported": False, "message": "Ядро не найдено"}
+    try:
+        stat = Path(binary).stat()
+        identity = (binary, stat.st_mtime_ns, stat.st_size)
+        with resource_smart_support_lock:
+            if resource_smart_support_cache.get("identity") != identity:
+                with tempfile.TemporaryDirectory(prefix="mihui-smart-") as directory:
+                    probe_path = Path(directory) / "config.yaml"
+                    probe_path.write_text("proxy-groups:\n  - name: MIHUI-SMART-CHECK\n    type: smart\n    uselightgbm: false\n    collectdata: false\n    proxies: [DIRECT]\nrules:\n  - MATCH,MIHUI-SMART-CHECK\n", encoding="utf-8")
+                    check = subprocess.run([binary, "-t", "-d", directory, "-f", str(probe_path)],
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=15, check=False)
+                supported = check.returncode == 0
+                resource_smart_support_cache.update(identity=identity, result={
+                    "supported": supported,
+                    "message": "Поддержка Smart подтверждена" if supported else "Установленное ядро не подтвердило поддержку Smart",
+                })
+            return dict(resource_smart_support_cache["result"])
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"supported": False, "message": str(error)}
+
+
+def has_config_smart_groups(text):
+    in_groups = False
+    for line in text.splitlines():
+        clean = strip_yaml_comment(line)
+        if re.match(r"^proxy-groups\s*:", clean):
+            in_groups = True
+        elif re.match(r"^[\w-]+\s*:", clean):
+            in_groups = False
+        if in_groups and re.search(r"(?:^\s*(?:-\s*)?|[{,]\s*)['\"]?type['\"]?\s*:\s*['\"]?smart['\"]?\s*(?:[,}]|$)", clean, re.I):
+            return True
+    return False
 
 
 def default_resource_monitor_settings():
@@ -3493,12 +5050,7 @@ def read_json_file(path, fallback):
 def write_json_atomic(path, payload):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(str(temporary), str(target))
+    write_text_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
 
 def load_resource_monitor_settings(app_dir):
@@ -3526,7 +5078,7 @@ def load_resource_monitor_settings(app_dir):
         for key, service_defaults in defaults["services"].items():
             item = saved_services.get(key)
             services[key] = dict(service_defaults)
-            if key == "instagram" and key not in saved_services:
+            if key in ("instagram", "twitter", "tiktok") and key not in saved_services:
                 services[key]["enabled"] = False
             if isinstance(item, dict):
                 if "enabled" in item:
@@ -3535,6 +5087,8 @@ def load_resource_monitor_settings(app_dir):
                     services[key]["group"] = item["group"]
                 if "sources" in item:
                     services[key]["sources"] = item["sources"]
+                if "mode" in item:
+                    services[key]["mode"] = item["mode"]
         merged["services"] = services
 
     try:
@@ -3545,7 +5099,7 @@ def load_resource_monitor_settings(app_dir):
 
 def validate_resource_monitor_settings(payload):
     if not isinstance(payload, dict):
-        raise TypeError("settings must be an object")
+        raise TypeError("Настройки должны быть объектом")
 
     ranges = {
         "intervalSeconds": (60, 3600),
@@ -3564,46 +5118,54 @@ def validate_resource_monitor_settings(payload):
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+            raise ValueError(f"Значение {key} должно быть от {minimum} до {maximum}")
         result[key] = value
 
     if result["proactiveLatencyThresholdMs"] >= result["latencyThresholdMs"]:
-        raise ValueError("proactiveLatencyThresholdMs must be below latencyThresholdMs")
+        raise ValueError("Порог упреждающего переключения proactiveLatencyThresholdMs должен быть меньше latencyThresholdMs")
 
     services = payload.get("services")
     if not isinstance(services, dict):
-        raise ValueError("services must be an object")
+        raise ValueError("Список ресурсов services должен быть объектом")
     unknown = set(services) - set(RESOURCE_MONITOR_SERVICES)
     if unknown:
-        raise ValueError("unknown services: " + ", ".join(sorted(unknown)))
+        raise ValueError("Неизвестные ресурсы: " + ", ".join(sorted(unknown)))
 
     normalized_services = {}
+    explicit_modes = any(isinstance(item, dict) and "mode" in item for item in services.values())
     for key, definition in RESOURCE_MONITOR_SERVICES.items():
         item = services.get(key)
         if not isinstance(item, dict):
-            raise ValueError(f"service {key} is required")
+            raise ValueError(f"Не указаны настройки ресурса {key}")
         group = str(item.get("group") or "").strip()
         if not group:
-            raise ValueError(f"group is required for {key}")
+            raise ValueError(f"Не указана группа для ресурса {key}")
         sources = item.get("sources", [])
         if not isinstance(sources, list):
-            raise ValueError(f"sources must be an array for {key}")
+            raise ValueError(f"Группы-источники ресурса {key} должны быть списком")
         normalized_sources = []
         for source in sources:
             if not isinstance(source, str):
-                raise ValueError(f"source names must be strings for {key}")
+                raise ValueError(f"Имена групп-источников ресурса {key} должны быть строками")
             name = source.strip()
             if not name:
-                raise ValueError(f"source names must not be empty for {key}")
+                raise ValueError(f"Имена групп-источников ресурса {key} не должны быть пустыми")
             if name not in normalized_sources:
                 normalized_sources.append(name)
+        mode = item.get("mode", "mihui")
+        if mode not in {"off", "mihui", "prizrak"}:
+            raise ValueError(f"Некорректный режим ресурса {key}")
+        enabled = bool(item.get("enabled", True)) and mode != "off" and (explicit_modes or result["enabled"])
         normalized_services[key] = {
-            "enabled": bool(item.get("enabled", True)),
+            "mode": mode if enabled else "off",
+            "enabled": enabled,
             "group": group,
             "sources": normalized_sources,
         }
+    if explicit_modes:
+        result["enabled"] = any(item["enabled"] for item in normalized_services.values())
     if result["enabled"] and not any(item["enabled"] for item in normalized_services.values()):
-        raise ValueError("at least one service must be enabled")
+        raise ValueError("Необходимо включить хотя бы один ресурс")
     result["services"] = normalized_services
     return result
 
@@ -3628,6 +5190,8 @@ def default_resource_monitor_runtime():
                 "message": "Проверка ещё не выполнялась",
                 "lastSwitch": None,
                 "quarantine": {},
+                "reserve": [],
+                "reserveCheckedAt": None,
                 "historyInitialized": False,
             }
             for key in RESOURCE_MONITOR_SERVICES
@@ -3751,7 +5315,7 @@ def snapshot_resource_monitor_job():
         return dict(resource_monitor_job_state)
 
 
-def get_resource_monitor_readiness(app_dir, settings=None):
+def get_resource_monitor_readiness(app_dir, settings=None, detect_smart=False):
     config = settings or load_resource_monitor_settings(app_dir)
     items = {}
     try:
@@ -3772,15 +5336,21 @@ def get_resource_monitor_readiness(app_dir, settings=None):
 
     ready = True
     for key, item in config["services"].items():
-        if not item["enabled"]:
+        if not item["enabled"] and not detect_smart:
             continue
         group_name = item["group"]
         group = proxies.get(group_name)
         group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+        if detect_smart and group_type == "smart":
+            item.update(mode="prizrak", enabled=True)
+            config["enabled"] = True
+        if not item["enabled"]:
+            continue
         options = group.get("all") if isinstance(group, dict) else None
-        allowed = resource_monitor_source_nodes(item, proxies)
+        smart = resource_monitor_mode(item) == "prizrak"
+        allowed = None if smart else resource_monitor_source_nodes(item, proxies)
         item_ready = (
-            group_type in {"select", "selector"}
+            group_type in ({"smart"} if smart else {"select", "selector"})
             and isinstance(options, list)
             and any(
                 is_resource_monitor_node_candidate(option, proxies)
@@ -3793,19 +5363,21 @@ def get_resource_monitor_readiness(app_dir, settings=None):
         items[key] = {
             "ready": item_ready,
             "group": group_name,
-            "message": "" if item_ready else "Нужна непустая группа select",
+            "message": "" if item_ready else ("Нужна непустая группа smart" if smart else "Нужна непустая группа select"),
         }
     return {"ready": ready, "message": "" if ready else "Не все группы готовы", "services": items}
 
 
 def get_resource_monitor_status(app_dir):
     config = load_resource_monitor_settings(app_dir)
+    readiness = get_resource_monitor_readiness(app_dir, config, detect_smart=True)
     return {
         "ok": True,
         "config": config,
+        "smartSupport": get_resource_smart_support(app_dir),
         "runtime": load_resource_monitor_runtime(app_dir),
         "events": read_resource_monitor_events(app_dir),
-        "readiness": get_resource_monitor_readiness(app_dir, config),
+        "readiness": readiness,
         "job": snapshot_resource_monitor_job(),
     }
 
@@ -3814,7 +5386,7 @@ def load_resource_monitor_proxy_snapshot(app_dir):
     data = mihomo_api_request(app_dir, "/proxies", timeout=5)
     proxies = data.get("proxies", data)
     if not isinstance(proxies, dict):
-        raise RuntimeError("Mihomo returned an invalid proxy list")
+        raise RuntimeError("Mihomo вернул некорректный список нод")
     proxies = dict(proxies)
     providers = {}
 
@@ -3872,7 +5444,7 @@ def resource_monitor_delay(app_dir, node, endpoint, timeout_ms, proxy=None):
     )
     delay = data.get("delay") if isinstance(data, dict) else None
     if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
-        raise RuntimeError("Mihomo did not return a valid delay")
+        raise RuntimeError("Mihomo не вернул корректный результат измерения задержки")
     return int(delay)
 
 
@@ -3968,7 +5540,7 @@ def resource_monitor_node_tier_index(node, tiers):
     return None
 
 
-def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit, tiers):
+def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit, tiers, reserve=None):
     if tiers is None:
         return [
             {
@@ -3980,6 +5552,7 @@ def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit,
                     current,
                     quarantine,
                     limit,
+                    reserve=reserve,
                 ),
             }
         ]
@@ -3994,14 +5567,16 @@ def resource_monitor_candidate_tiers(group, proxies, current, quarantine, limit,
                 quarantine,
                 limit,
                 tier["nodes"],
+                reserve=reserve,
             ),
         }
         for tier in tiers
     ]
 
 
-def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None):
+def resource_monitor_candidates(group, proxies, current, quarantine, limit, allowed=None, reserve=None):
     now = int(time.time())
+    checked = {entry["node"]: entry for entry in (reserve or [])}
     candidates = []
     options = group.get("all") if isinstance(group, dict) else []
     if not isinstance(options, list):
@@ -4019,26 +5594,87 @@ def resource_monitor_candidates(group, proxies, current, quarantine, limit, allo
             continue
         proxy = proxies.get(name, {})
         known_delay = get_proxy_delay(proxy)
-        candidates.append((known_delay if known_delay is not None else 10**9, order, name))
+        result = checked.get(name)
+        rank = 0 if result and result["ok"] else 2 if result else 1
+        if result and result["ok"]:
+            known_delay = result["delay"]
+        candidates.append((rank, known_delay if known_delay is not None else 10**9, order, name))
     candidates.sort()
-    return [name for _, _, name in candidates[:limit]]
+    return [name for _, _, _, name in candidates[:limit]]
+
+
+def start_resource_monitor_reserve_refresh(app_dir, services=None, group=None):
+    threading.Thread(
+        target=refresh_resource_monitor_reserve,
+        args=(Path(app_dir), services, group),
+        daemon=True,
+    ).start()
+
+
+def refresh_resource_monitor_reserve(app_dir, services=None, group=None):
+    with resource_monitor_lock:
+        settings = load_resource_monitor_settings(app_dir)
+        selected = [
+            service for service, config in settings["services"].items()
+            if resource_monitor_mode(config) == "mihui" and (services is None or service in services)
+            and (group is None or config["group"] == group)
+        ]
+        if not selected:
+            return
+        runtime = load_resource_monitor_runtime(app_dir)
+        try:
+            proxies = load_resource_monitor_proxies(app_dir)
+            for service in selected:
+                config = settings["services"][service]
+                item = runtime["services"][service]
+                proxy_group = proxies.get(config["group"], {})
+                if str(proxy_group.get("type") or "").casefold() not in {"select", "selector"}:
+                    continue
+                current = str(proxy_group.get("now") or "")
+                tiers = resource_monitor_candidate_tiers(
+                    proxy_group, proxies, current, item["quarantine"],
+                    settings["maxAlternatives"], resource_monitor_source_tiers(config, proxies),
+                )
+                results = []
+                seen = set()
+                for priority, tier in enumerate(tiers):
+                    for node in tier["candidates"]:
+                        if node in seen or len(results) >= settings["maxAlternatives"]:
+                            continue
+                        seen.add(node)
+                        result = probe_resource_node(app_dir, service, node, settings["timeoutMs"], proxies)
+                        results.append({"node": node, "priority": priority,
+                                        "checkedAt": int(time.time()), **result})
+                results.sort(key=lambda entry: (
+                    entry["priority"], not entry["ok"],
+                    entry["delay"] if entry["delay"] is not None else 10**9,
+                ))
+                item["reserve"] = results
+                item["reserveCheckedAt"] = int(time.time())
+                save_resource_monitor_runtime(app_dir, runtime)
+        except Exception as error:
+            for service in selected:
+                append_resource_monitor_event(app_dir, service, "reserve_failed", str(error))
 
 
 def select_resource_monitor_fastest_nodes(app_dir, settings, proxies):
+    runtime = load_resource_monitor_runtime(app_dir)
     results = {}
     ok = True
     for service, service_settings in settings["services"].items():
-        if not service_settings["enabled"]:
+        if resource_monitor_mode(service_settings) != "mihui":
             continue
         group_name = service_settings["group"]
         group = proxies.get(group_name)
-        options = group.get("all") if isinstance(group, dict) else []
+        if not isinstance(group, dict) or str(group.get("type") or "").casefold() not in {"select", "selector"}:
+            continue
+        options = group.get("all")
         tiers = resource_monitor_source_tiers(service_settings, proxies)
         candidate_tiers = resource_monitor_candidate_tiers(
             group,
             proxies,
             "",
-            {},
+            runtime["services"][service]["quarantine"],
             len(options) if isinstance(options, list) else 0,
             tiers,
         )
@@ -4078,10 +5714,12 @@ def refresh_resource_monitor_provider_delays(
     selected_services = set(services or settings["services"])
     monitored_nodes = set()
     for service, service_settings in settings["services"].items():
-        if service not in selected_services or not service_settings["enabled"]:
+        if service not in selected_services or resource_monitor_mode(service_settings) != "mihui":
             continue
         group = proxies.get(service_settings["group"])
-        options = group.get("all") if isinstance(group, dict) else None
+        if not isinstance(group, dict) or str(group.get("type") or "").casefold() not in {"select", "selector"}:
+            continue
+        options = group.get("all")
         allowed = resource_monitor_source_nodes(service_settings, proxies)
         if isinstance(options, list):
             monitored_nodes.update(
@@ -4094,7 +5732,7 @@ def refresh_resource_monitor_provider_delays(
         data = mihomo_api_request(app_dir, "/providers/proxies", timeout=5)
         providers = data.get("providers", data)
         if not isinstance(providers, dict):
-            raise RuntimeError("Mihomo returned an invalid provider list")
+            raise RuntimeError("Mihomo вернул некорректный список подписок")
 
     checked = []
     timeout = max(10, int(settings["timeoutMs"] / 1000) + 10)
@@ -4124,7 +5762,7 @@ def refresh_resource_monitor_provider_delays(
 
 def run_resource_monitor_startup_cycle(app_dir):
     settings = load_resource_monitor_settings(app_dir)
-    if not settings["enabled"]:
+    if not settings["enabled"] or not any(resource_monitor_mode(item) == "mihui" for item in settings["services"].values()):
         return {"ok": True, "selection": {"ok": True, "services": {}}, "runtime": None}
 
     proxies, providers = load_resource_monitor_proxy_snapshot(app_dir)
@@ -4248,11 +5886,15 @@ def switch_resource_monitor_node(
     return True
 
 
-def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
+def run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=False):
     service_settings = settings["services"][service]
+    if resource_monitor_mode(service_settings) != "mihui":
+        return
     group_name = service_settings["group"]
     group = proxies.get(group_name)
     group_type = str(group.get("type") or "").strip().casefold() if isinstance(group, dict) else ""
+    if group_type == "smart":
+        return
     options = group.get("all") if isinstance(group, dict) else None
     tiers = resource_monitor_source_tiers(service_settings, proxies)
     allowed = resource_monitor_source_nodes(service_settings, proxies)
@@ -4292,18 +5934,28 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
 
     previous_state = item.get("state")
     previous_slow_checks = int(item.get("consecutiveSlowChecks") or 0)
+    if force_switch:
+        quarantine[current] = now + settings["quarantineSeconds"]
+        item.update({"state": "error", "delay": None, "consecutiveSlowChecks": 0})
+        append_resource_monitor_event(
+            app_dir, service, "excluded", "Нода исключена пользователем",
+            node=current, quarantineUntil=quarantine[current],
+        )
     result = (
         probe_resource_node(app_dir, service, current, settings["timeoutMs"], proxies)
-        if allowed is None or current in allowed
+        if not force_switch and (allowed is None or current in allowed)
         else {
             "ok": False,
             "delay": None,
-            "message": "Текущая нода не входит в выбранные группы-источники",
+            "message": (
+                "Смена ноды по запросу пользователя" if force_switch
+                else "Текущая нода не входит в выбранные группы-источники"
+            ),
         }
     )
     failover_timeout_ms = min(settings["timeoutMs"], RESOURCE_MONITOR_FAILOVER_TIMEOUT_MS)
     failures = int(item.get("consecutiveFailures") or 0)
-    while not result["ok"]:
+    while not result["ok"] and not force_switch:
         item["consecutiveSlowChecks"] = 0
         failures = min(settings["failureThreshold"], failures + 1)
         item.update(
@@ -4523,7 +6175,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
             else f"Высокая задержка: {current_delay} мс"
         )
 
-    if not result["ok"]:
+    if not result["ok"] and not force_switch:
         try:
             refresh_resource_monitor_provider_delays(
                 app_dir,
@@ -4548,6 +6200,7 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         quarantine,
         settings["maxAlternatives"],
         tiers,
+        reserve=item.get("reserve"),
     )
     if latency_switch and tiers is not None:
         refreshed_tier_index = resource_monitor_node_tier_index(current, tiers)
@@ -4635,19 +6288,29 @@ def run_resource_monitor_service(app_dir, settings, runtime, service, proxies):
         item["consecutiveSlowChecks"] = 0
 
 
-def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
+def run_resource_monitor_cycle(app_dir, services=None, proxies=None, force_switch=False, expected_group=None):
     with resource_monitor_lock:
         settings = load_resource_monitor_settings(app_dir)
         selected_services = services or [
-            key for key, item in settings["services"].items() if item["enabled"]
+            key for key, item in settings["services"].items() if resource_monitor_mode(item) == "mihui"
         ]
+        if expected_group is not None and (not settings["enabled"] or any(
+            settings["services"].get(service, {}).get("group") != expected_group
+            or resource_monitor_mode(settings["services"].get(service, {})) != "mihui"
+            for service in selected_services
+        )):
+            raise ValueError("Состояние группы изменилось. Обновите список и попробуйте снова")
         runtime = load_resource_monitor_runtime(app_dir)
+        previous_switches = {
+            service: dict(item.get("lastSwitch") or {})
+            for service, item in runtime["services"].items()
+        }
         try:
             if proxies is None:
                 proxies = load_resource_monitor_proxies(app_dir)
             for service in selected_services:
-                if service in RESOURCE_MONITOR_SERVICES and settings["services"][service]["enabled"]:
-                    run_resource_monitor_service(app_dir, settings, runtime, service, proxies)
+                if service in RESOURCE_MONITOR_SERVICES and resource_monitor_mode(settings["services"][service]) == "mihui":
+                    run_resource_monitor_service(app_dir, settings, runtime, service, proxies, force_switch=force_switch)
         except Exception as error:
             for service in selected_services:
                 if service in RESOURCE_MONITOR_SERVICES:
@@ -4660,15 +6323,23 @@ def run_resource_monitor_cycle(app_dir, services=None, proxies=None):
                     )
         runtime["lastCycleAt"] = int(time.time())
         save_resource_monitor_runtime(app_dir, runtime)
+        if force_switch:
+            switched_services = [
+                service for service in selected_services
+                if runtime["services"][service].get("lastSwitch")
+                and runtime["services"][service]["lastSwitch"] != previous_switches[service]
+            ]
+            if switched_services:
+                start_resource_monitor_reserve_refresh(app_dir, services=switched_services)
         return runtime
 
 
-def run_resource_monitor_job(app_dir, services=None, startup=False):
+def run_resource_monitor_job(app_dir, services=None, startup=False, force_switch=False):
     try:
         if startup:
             run_resource_monitor_startup_cycle(app_dir)
         else:
-            run_resource_monitor_cycle(app_dir, services)
+            run_resource_monitor_cycle(app_dir, services, force_switch=force_switch)
     finally:
         with resource_monitor_state_lock:
             resource_monitor_job_state.update(
@@ -4680,10 +6351,17 @@ def run_resource_monitor_job(app_dir, services=None, startup=False):
             )
 
 
-def start_resource_monitor_check(app_dir, services=None, startup=False):
+def start_resource_monitor_check(app_dir, services=None, startup=False, force_switch=False):
+    settings = load_resource_monitor_settings(app_dir)
+    if not settings["enabled"]:
+        return {"ok": False, "message": "Управление ресурсами выключено"}
+    services = [key for key, item in settings["services"].items()
+                if resource_monitor_mode(item) == "mihui" and (services is None or key in services)]
+    if not services:
+        return {"ok": False, "message": "Нет ресурсов под управлением MihUI"}
     with resource_monitor_state_lock:
         if resource_monitor_job_state["running"]:
-            return {"ok": False, "message": "resource check already running", "job": dict(resource_monitor_job_state)}
+            return {"ok": False, "message": "Проверка ресурсов уже выполняется", "job": dict(resource_monitor_job_state)}
         resource_monitor_job_state.update(
             {
                 "running": True,
@@ -4694,7 +6372,7 @@ def start_resource_monitor_check(app_dir, services=None, startup=False):
         )
     thread = threading.Thread(
         target=run_resource_monitor_job,
-        args=(Path(app_dir), services, startup),
+        args=(Path(app_dir), services, startup, force_switch),
         daemon=True,
     )
     thread.start()
@@ -4707,7 +6385,9 @@ def resource_monitor_worker(app_dir):
     while True:
         time.sleep(5)
         settings = load_resource_monitor_settings(app_dir)
-        if not settings["enabled"] or snapshot_resource_monitor_job()["running"]:
+        if not settings["enabled"] or snapshot_resource_monitor_job()["running"] or not any(
+            resource_monitor_mode(item) == "mihui" for item in settings["services"].values()
+        ):
             continue
         if startup_pending:
             if time.monotonic() < startup_due_at:
@@ -4720,7 +6400,7 @@ def resource_monitor_worker(app_dir):
         now = int(time.time())
         due = []
         for service, item in settings["services"].items():
-            if not item["enabled"]:
+            if resource_monitor_mode(item) != "mihui":
                 continue
             checked_at = runtime["services"][service].get("checkedAt")
             if not isinstance(checked_at, (int, float)) or now - int(checked_at) >= settings["intervalSeconds"]:
@@ -4741,6 +6421,7 @@ def default_whitelist_monitor_settings():
         "actionMode": "observe",
         "intervalSeconds": 300,
         "confirmationThreshold": 3,
+        "recoveryThreshold": 3,
         "controlFailureThreshold": 2,
         "timeoutMs": 5000,
         "proxyGroup": "PROXY",
@@ -4779,21 +6460,264 @@ def whitelist_monitor_log_path(app_dir):
     )
 
 
+def whitelist_domain_list_snapshot_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_DOMAIN_SNAPSHOT_PATH",
+            str(Path(app_dir) / "whitelist-domains.json"),
+        )
+    )
+
+
+def whitelist_domain_list_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(
+        env.get(
+            "MIHUI_WHITELIST_DOMAIN_RUNTIME_PATH",
+            str(Path(app_dir) / "whitelist-domains-runtime.json"),
+        )
+    )
+
+
+def normalize_whitelist_domain(value):
+    domain = str(value or "").strip().lower().rstrip(".")
+    if not domain or len(domain) > 253 or "." not in domain:
+        raise ValueError("Некорректное доменное имя")
+    if domain.startswith("*."):
+        raise ValueError("Доменные маски с символом * не поддерживаются")
+    try:
+        ascii_domain = domain.encode("idna").decode("ascii")
+    except UnicodeError as error:
+        raise ValueError("Некорректное международное доменное имя") from error
+    labels = ascii_domain.split(".")
+    if any(
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+        for label in labels
+    ):
+        raise ValueError("Некорректная часть доменного имени")
+    try:
+        ipaddress.ip_address(ascii_domain)
+    except ValueError:
+        return ascii_domain
+    raise ValueError("Укажите доменное имя, а не IP-адрес")
+
+
+def parse_whitelist_domain_list(
+    text,
+    minimum=WHITELIST_DOMAIN_MIN_COUNT,
+    maximum=WHITELIST_DOMAIN_MAX_COUNT,
+):
+    domains = []
+    seen = set()
+    for line_number, line in enumerate(str(text or "").splitlines(), 1):
+        value = line.strip()
+        if not value or value.startswith("#"):
+            continue
+        try:
+            domain = normalize_whitelist_domain(value)
+        except ValueError as error:
+            raise ValueError(f"Некорректный домен белого списка в строке {line_number}: {error}") from error
+        if domain not in seen:
+            seen.add(domain)
+            domains.append(domain)
+    if not minimum <= len(domains) <= maximum:
+        raise ValueError(
+            f"Количество доменов белого списка должно быть от {minimum} до {maximum}"
+        )
+    return domains
+
+
+def default_whitelist_domain_list_runtime():
+    return {
+        "lastAttemptAt": None,
+        "lastSuccessAt": None,
+        "lastError": "",
+    }
+
+
+def load_whitelist_domain_list_runtime(app_dir):
+    defaults = default_whitelist_domain_list_runtime()
+    saved = read_json_file(whitelist_domain_list_runtime_path(app_dir), {})
+    return {
+        key: saved.get(key, value)
+        for key, value in defaults.items()
+    }
+
+
+def save_whitelist_domain_list_runtime(app_dir, runtime):
+    write_json_atomic(whitelist_domain_list_runtime_path(app_dir), runtime)
+
+
+def load_whitelist_domain_list_snapshot(app_dir):
+    saved = read_json_file(whitelist_domain_list_snapshot_path(app_dir), {})
+    domains = saved.get("domains")
+    updated_at = saved.get("updatedAt")
+    if not isinstance(domains, list) or not isinstance(updated_at, (int, float)):
+        return None
+    try:
+        normalized = parse_whitelist_domain_list("\n".join(str(item) for item in domains))
+    except ValueError:
+        return None
+    digest = hashlib.sha256("\n".join(normalized).encode("utf-8")).hexdigest()
+    if saved.get("sha256") and saved.get("sha256") != digest:
+        return None
+    return {
+        "source": WHITELIST_DOMAIN_SOURCE_NAME,
+        "sourceUrl": WHITELIST_DOMAIN_SOURCE_URL,
+        "updatedAt": int(updated_at),
+        "count": len(normalized),
+        "sha256": digest,
+        "domains": normalized,
+    }
+
+
+def fetch_whitelist_domain_list_text():
+    request = urllib.request.Request(
+        WHITELIST_DOMAIN_SOURCE_URL,
+        headers={
+            "Accept": "text/plain",
+            "User-Agent": "MihUI whitelist updater",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > WHITELIST_DOMAIN_MAX_BYTES:
+            raise ValueError("Список доменов белого списка слишком большой")
+        payload = response.read(WHITELIST_DOMAIN_MAX_BYTES + 1)
+    if len(payload) > WHITELIST_DOMAIN_MAX_BYTES:
+        raise ValueError("Список доменов белого списка слишком большой")
+    return payload.decode("utf-8-sig")
+
+
+def snapshot_whitelist_domain_list_job():
+    with whitelist_domain_list_state_lock:
+        return dict(whitelist_domain_list_job_state)
+
+
+def refresh_whitelist_domain_list(app_dir, now=None):
+    checked_at = int(time.time() if now is None else now)
+    with whitelist_domain_list_lock:
+        runtime = load_whitelist_domain_list_runtime(app_dir)
+        previous_snapshot = load_whitelist_domain_list_snapshot(app_dir)
+        previous_error = str(runtime.get("lastError") or "")
+        runtime["lastAttemptAt"] = checked_at
+        try:
+            domains = parse_whitelist_domain_list(fetch_whitelist_domain_list_text())
+            digest = hashlib.sha256("\n".join(domains).encode("utf-8")).hexdigest()
+            snapshot = {
+                "source": WHITELIST_DOMAIN_SOURCE_NAME,
+                "sourceUrl": WHITELIST_DOMAIN_SOURCE_URL,
+                "updatedAt": checked_at,
+                "count": len(domains),
+                "sha256": digest,
+                "domains": domains,
+            }
+            write_json_atomic(whitelist_domain_list_snapshot_path(app_dir), snapshot)
+            runtime.update(
+                {
+                    "lastSuccessAt": checked_at,
+                    "lastError": "",
+                }
+            )
+            if (
+                previous_snapshot is None
+                or previous_snapshot.get("sha256") != digest
+                or previous_error
+            ):
+                append_whitelist_monitor_event(
+                    app_dir,
+                    "domain_list_updated",
+                    "Локальный список разрешённых доменов обновлён",
+                    domainCount=len(domains),
+                    source=WHITELIST_DOMAIN_SOURCE_NAME,
+                )
+            result = {"ok": True, "snapshot": snapshot, "message": ""}
+        except Exception as error:
+            message = str(error)
+            runtime["lastError"] = message
+            if message != previous_error:
+                append_whitelist_monitor_event(
+                    app_dir,
+                    "domain_list_failed",
+                    "Не удалось обновить локальный список разрешённых доменов",
+                    error=message,
+                    usingLastKnownGood=previous_snapshot is not None,
+                )
+            result = {
+                "ok": False,
+                "snapshot": previous_snapshot,
+                "message": message,
+            }
+        save_whitelist_domain_list_runtime(app_dir, runtime)
+        return result
+
+
+def get_whitelist_domain_list_status(app_dir, include_domains=False, now=None):
+    checked_at = int(time.time() if now is None else now)
+    runtime = load_whitelist_domain_list_runtime(app_dir)
+    snapshot = load_whitelist_domain_list_snapshot(app_dir)
+    updated_at = snapshot.get("updatedAt") if snapshot else None
+    last_attempt_at = runtime.get("lastAttemptAt")
+    if updated_at is None:
+        next_update_at = (
+            int(last_attempt_at) + WHITELIST_DOMAIN_RETRY_SECONDS
+            if isinstance(last_attempt_at, (int, float))
+            else checked_at
+        )
+    elif checked_at - int(updated_at) >= WHITELIST_DOMAIN_REFRESH_SECONDS:
+        next_update_at = (
+            int(last_attempt_at) + WHITELIST_DOMAIN_RETRY_SECONDS
+            if isinstance(last_attempt_at, (int, float))
+            else checked_at
+        )
+    else:
+        next_update_at = int(updated_at) + WHITELIST_DOMAIN_REFRESH_SECONDS
+    status = {
+        "ready": snapshot is not None,
+        "source": WHITELIST_DOMAIN_SOURCE_NAME,
+        "sourceUrl": WHITELIST_DOMAIN_SOURCE_PAGE,
+        "updatedAt": updated_at,
+        "count": snapshot.get("count", 0) if snapshot else 0,
+        "sha256": snapshot.get("sha256", "") if snapshot else "",
+        "stale": bool(
+            updated_at is not None
+            and checked_at - int(updated_at) >= WHITELIST_DOMAIN_STALE_SECONDS
+        ),
+        "lastAttemptAt": last_attempt_at,
+        "lastSuccessAt": runtime.get("lastSuccessAt"),
+        "lastError": str(runtime.get("lastError") or ""),
+        "nextUpdateAt": next_update_at,
+        "refreshSeconds": WHITELIST_DOMAIN_REFRESH_SECONDS,
+        "job": snapshot_whitelist_domain_list_job(),
+    }
+    if include_domains:
+        status["domains"] = list(snapshot.get("domains", [])) if snapshot else []
+    return status
+
+
+def get_whitelist_routing_hosts(app_dir, settings):
+    snapshot = load_whitelist_domain_list_snapshot(app_dir)
+    if snapshot is None:
+        raise RuntimeError("локальный список разрешённых доменов ещё не загружен")
+    return list(dict.fromkeys([*snapshot["domains"], *get_whitelist_allowed_hosts(settings)]))
+
+
 def validate_whitelist_monitor_endpoint(item, kind, index):
     if not isinstance(item, dict):
-        raise ValueError(f"{kind} endpoint {index + 1} must be an object")
+        raise ValueError(f"Адрес {kind} № {index + 1} должен быть задан объектом")
     endpoint_id = str(item.get("id") or "").strip()
     name = str(item.get("name") or "").strip()
     url = str(item.get("url") or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", endpoint_id):
-        raise ValueError(f"{kind} endpoint {index + 1} has an invalid id")
+        raise ValueError(f"У адреса {kind} № {index + 1} некорректный идентификатор")
     if not name or len(name) > 80:
-        raise ValueError(f"{kind} endpoint {index + 1} must have a name")
+        raise ValueError(f"Укажите название адреса {kind} № {index + 1} длиной до 80 символов")
     if len(url) > 2048:
-        raise ValueError(f"{kind} endpoint {index + 1} URL is too long")
+        raise ValueError(f"Ссылка адреса {kind} № {index + 1} слишком длинная")
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme.casefold() != "https" or not parsed.hostname or parsed.username or parsed.password:
-        raise ValueError(f"{kind} endpoint {index + 1} must use an HTTPS URL")
+        raise ValueError(f"Адрес {kind} № {index + 1} должен содержать ссылку HTTPS без имени пользователя и пароля")
     return {
         "id": endpoint_id,
         "name": name,
@@ -4804,11 +6728,12 @@ def validate_whitelist_monitor_endpoint(item, kind, index):
 
 def validate_whitelist_monitor_settings(payload):
     if not isinstance(payload, dict):
-        raise TypeError("settings must be an object")
+        raise TypeError("Настройки должны быть объектом")
 
     ranges = {
         "intervalSeconds": (60, 3600),
         "confirmationThreshold": (2, 6),
+        "recoveryThreshold": (2, 6),
         "controlFailureThreshold": (1, 5),
         "timeoutMs": (1000, 15000),
     }
@@ -4817,18 +6742,18 @@ def validate_whitelist_monitor_settings(payload):
         "yandexRelayEnabled": bool(payload.get("yandexRelayEnabled", False)),
     }
     action_mode = str(payload.get("actionMode") or "observe").strip()
-    if action_mode not in {"observe", "suggest"}:
-        raise ValueError("actionMode must be observe or suggest")
+    if action_mode not in {"observe", "suggest", "automatic"}:
+        raise ValueError("Режим actionMode должен быть observe, suggest или automatic")
     result["actionMode"] = action_mode
     for key, (minimum, maximum) in ranges.items():
         value = payload.get(key)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
-            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+            raise ValueError(f"Значение {key} должно быть от {minimum} до {maximum}")
         result[key] = value
 
     proxy_group = str(payload.get("proxyGroup") or "").strip()
     if not proxy_group or len(proxy_group) > 128:
-        raise ValueError("proxyGroup is required")
+        raise ValueError("Не указана прокси-группа или её имя длиннее 128 символов")
     result["proxyGroup"] = proxy_group
 
     all_ids = set()
@@ -4839,13 +6764,13 @@ def validate_whitelist_monitor_settings(payload):
         items = payload.get(source_key)
         if not isinstance(items, list) or not 1 <= len(items) <= WHITELIST_MONITOR_ENDPOINT_LIMIT:
             raise ValueError(
-                f"{source_key} must contain between 1 and {WHITELIST_MONITOR_ENDPOINT_LIMIT} endpoints"
+                f"Список {source_key} должен содержать от 1 до {WHITELIST_MONITOR_ENDPOINT_LIMIT} адресов"
             )
         normalized = []
         for index, item in enumerate(items):
             endpoint = validate_whitelist_monitor_endpoint(item, kind, index)
             if endpoint["id"] in all_ids:
-                raise ValueError("endpoint ids must be unique")
+                raise ValueError("Идентификаторы адресов должны быть уникальными")
             all_ids.add(endpoint["id"])
             normalized.append(endpoint)
         result[source_key] = normalized
@@ -4853,9 +6778,9 @@ def validate_whitelist_monitor_settings(payload):
     enabled_positive = sum(item["enabled"] for item in result["positiveEndpoints"])
     enabled_controls = sum(item["enabled"] for item in result["controlEndpoints"])
     if enabled_positive < 1:
-        raise ValueError("at least one positive endpoint must be enabled")
+        raise ValueError("Необходимо включить хотя бы один разрешённый адрес")
     if enabled_controls < result["controlFailureThreshold"]:
-        raise ValueError("not enough control endpoints are enabled")
+        raise ValueError("Включено недостаточно контрольных адресов для выбранного порога подтверждения")
     return result
 
 
@@ -4869,6 +6794,7 @@ def load_whitelist_monitor_settings(app_dir):
         "actionMode",
         "intervalSeconds",
         "confirmationThreshold",
+        "recoveryThreshold",
         "controlFailureThreshold",
         "timeoutMs",
         "proxyGroup",
@@ -4894,12 +6820,21 @@ def default_whitelist_monitor_runtime():
         "checkedAt": None,
         "consecutiveSuspicions": 0,
         "consecutiveInconclusive": 0,
+        "consecutiveNormals": 0,
         "evidenceState": "none",
         "accessMode": "unknown",
         "positiveDirectSuccesses": 0,
         "controlDirectFailures": 0,
         "controlProxyRecoveries": 0,
         "controlYandexRecoveries": 0,
+        "fallbackActive": False,
+        "automaticActionPending": "",
+        "lastConfigAction": "",
+        "lastConfigActionAt": None,
+        "lastConfigActionOk": None,
+        "lastConfigActionMessage": "",
+        "lastConfigRevision": "",
+        "lastProxyGroupHealth": {},
         "endpoints": {},
     }
 
@@ -4913,6 +6848,8 @@ def load_whitelist_monitor_runtime(app_dir, settings=None):
             runtime[field] = saved[field]
     if not isinstance(runtime.get("endpoints"), dict):
         runtime["endpoints"] = {}
+    if not isinstance(runtime.get("lastProxyGroupHealth"), dict):
+        runtime["lastProxyGroupHealth"] = {}
 
     config = settings or load_whitelist_monitor_settings(app_dir)
     current_urls = {
@@ -4982,10 +6919,15 @@ def snapshot_whitelist_monitor_job():
 
 def get_whitelist_monitor_status(app_dir):
     config = load_whitelist_monitor_settings(app_dir)
+    runtime = load_whitelist_monitor_runtime(app_dir, config)
+    runtime["fallbackActive"] = has_whitelist_fallback_config(
+        read_config_text(get_config_path(app_dir))
+    )
     return {
         "ok": True,
         "config": config,
-        "runtime": load_whitelist_monitor_runtime(app_dir, config),
+        "runtime": runtime,
+        "domainList": get_whitelist_domain_list_status(app_dir),
         "events": read_whitelist_monitor_events(app_dir),
         "job": snapshot_whitelist_monitor_job(),
     }
@@ -5008,7 +6950,7 @@ def probe_whitelist_monitor_endpoint(app_dir, route, endpoint, timeout_ms):
         )
         delay = data.get("delay") if isinstance(data, dict) else None
         if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
-            raise RuntimeError("Mihomo did not return a valid delay")
+            raise RuntimeError("Mihomo не вернул корректный результат измерения задержки")
         return {"ok": True, "delay": int(delay), "message": ""}
     except Exception as error:
         return {"ok": False, "delay": None, "message": str(error)}
@@ -5037,6 +6979,65 @@ def run_whitelist_probe_batch(app_dir, route, endpoints, timeout_ms):
     return results
 
 
+def refresh_whitelist_proxy_group_health(app_dir, group, timeout_ms):
+    group_name = str(group or "").strip()
+    result = {
+        "ok": False,
+        "group": group_name,
+        "healthCheckTriggered": False,
+        "stateRead": False,
+        "now": "",
+        "direct": False,
+        "message": "",
+    }
+    if not group_name:
+        result["message"] = "Не указана прокси-группа для проверки"
+        return result
+
+    encoded_group = urllib.parse.quote(group_name, safe="")
+    timeout = max(10, min(60, int(timeout_ms / 1000) + 10))
+    errors = []
+    try:
+        mihomo_api_request(
+            app_dir,
+            f"/providers/proxies/{encoded_group}/healthcheck",
+            timeout=timeout,
+        )
+        result["healthCheckTriggered"] = True
+    except Exception as error:
+        errors.append(str(error))
+
+    try:
+        current = mihomo_api_request(
+            app_dir,
+            f"/proxies/{encoded_group}",
+            timeout=5,
+        )
+        if not isinstance(current, dict):
+            raise RuntimeError("Mihomo вернул некорректное состояние прокси-группы")
+        now = str(current.get("now") or "").strip()
+        result.update(
+            {
+                "stateRead": True,
+                "now": now,
+                "direct": now.casefold() == "direct",
+            }
+        )
+    except Exception as error:
+        errors.append(str(error))
+
+    result["ok"] = result["healthCheckTriggered"] and result["stateRead"]
+    if errors:
+        result["message"] = "; ".join(dict.fromkeys(errors))
+    elif result["direct"]:
+        result["message"] = "Проверка завершена, группа использует DIRECT"
+    elif result["now"]:
+        result["message"] = f"Проверка завершена, выбран маршрут {result['now']}"
+    else:
+        result["message"] = "Проверка завершена, выбранный маршрут не указан"
+    return result
+
+
 def build_whitelist_yandex_relay_endpoint(endpoint):
     relay_endpoint = dict(endpoint)
     relay_endpoint["url"] = (
@@ -5044,6 +7045,189 @@ def build_whitelist_yandex_relay_endpoint(endpoint):
         + urllib.parse.urlencode({"url": endpoint["url"], "lang": "de-de"})
     )
     return relay_endpoint
+
+
+def split_whitelist_config_lines(text):
+    value = str(text or "")
+    newline = "\r\n" if "\r\n" in value else "\n"
+    return value.splitlines(), newline, value.endswith(("\n", "\r"))
+
+
+def join_whitelist_config_lines(lines, newline, trailing_newline):
+    result = newline.join(lines)
+    return result + newline if trailing_newline and lines else result
+
+
+def find_whitelist_rules_section(lines):
+    for start, line in enumerate(lines):
+        cleaned = line.split("#", 1)[0].rstrip()
+        match = re.match(r"^rules\s*:\s*(\[\s*\])?\s*$", cleaned)
+        if not match:
+            continue
+        end = len(lines)
+        for index in range(start + 1, len(lines)):
+            candidate = lines[index]
+            stripped = candidate.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if len(candidate) == len(candidate.lstrip(" ")):
+                end = index
+                break
+        item_indent = "  "
+        for candidate in lines[start + 1:end]:
+            item_match = re.match(r"^(\s+)-\s*", candidate)
+            if item_match:
+                item_indent = item_match.group(1)
+                break
+        return {
+            "start": start,
+            "end": end,
+            "inlineEmpty": bool(match.group(1)),
+            "itemIndent": item_indent,
+        }
+    return None
+
+
+def parse_whitelist_rule_line(line):
+    match = re.match(r"^\s*-\s*(.+?)\s*$", line)
+    if not match:
+        return []
+    value = match.group(1).split("#", 1)[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
+    return [part.strip() for part in value.split(",")]
+
+
+def is_whitelist_fallback_safety_rule(parts):
+    if len(parts) < 3 or parts[2].upper() != "DIRECT":
+        return False
+    rule_type = parts[0].upper()
+    value = parts[1].strip().lower().lstrip(".")
+    if rule_type == "DOMAIN":
+        return True
+    if rule_type == "DOMAIN-SUFFIX":
+        return "." in value
+    if rule_type in {"IP-CIDR", "IP-CIDR6", "SRC-IP-CIDR"}:
+        return bool(
+            re.match(
+                r"^(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1/|f[cd][0-9a-f]{2}:|fe80:)",
+                value,
+                re.IGNORECASE,
+            )
+        )
+    if rule_type in {"GEOIP", "GEOSITE"}:
+        return value in {"lan", "private"}
+    if rule_type == "RULE-SET":
+        return bool(re.search(r"(^|[-_])(lan|local|private)([-_]|$)", value, re.IGNORECASE))
+    return False
+
+
+def has_whitelist_fallback_config(text):
+    lines, _, _ = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        return False
+    for line in lines[section["start"] + 1:section["end"]]:
+        if WHITELIST_FALLBACK_MARKER not in line.lower():
+            continue
+        parts = parse_whitelist_rule_line(line)
+        if parts and parts[0].upper() == "MATCH":
+            return True
+    return False
+
+
+def get_whitelist_allowed_hosts(settings):
+    hosts = []
+    for endpoint in settings["positiveEndpoints"]:
+        if not endpoint["enabled"]:
+            continue
+        host = (urllib.parse.urlsplit(endpoint["url"]).hostname or "").lower().rstrip(".")
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
+
+
+def prepare_whitelist_fallback_text(text, settings, allowed_hosts=None):
+    if has_whitelist_fallback_config(text):
+        return text
+    source_hosts = (
+        get_whitelist_allowed_hosts(settings)
+        if allowed_hosts is None
+        else allowed_hosts
+    )
+    hosts = list(dict.fromkeys(source_hosts))
+    if not hosts:
+        raise ValueError("Нет включённых адресов белого списка")
+    proxy_group = str(settings["proxyGroup"]).strip()
+    if not proxy_group or any(character in proxy_group for character in ",#\r\n"):
+        raise ValueError("Имя прокси-группы нельзя безопасно записать в правило")
+
+    lines, newline, trailing_newline = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        if any(re.match(r"^rules\s*:", line.split("#", 1)[0].rstrip()) for line in lines):
+            raise ValueError("Формат раздела rules не поддерживается")
+        lines.append(f"rules: # {WHITELIST_FALLBACK_MARKER} created-rules-section")
+        section = {
+            "start": len(lines) - 1,
+            "end": len(lines),
+            "inlineEmpty": False,
+            "itemIndent": "  ",
+        }
+    elif section["inlineEmpty"]:
+        if "#" in lines[section["start"]]:
+            raise ValueError("Пустой раздел rules в одну строку с комментарием не поддерживается")
+        lines[section["start"]] = f"rules: # {WHITELIST_FALLBACK_MARKER} expanded-empty-rules"
+        section["end"] = section["start"] + 1
+
+    insert_at = section["end"]
+    for index in range(section["start"] + 1, section["end"]):
+        parts = parse_whitelist_rule_line(lines[index])
+        if parts and not is_whitelist_fallback_safety_rule(parts):
+            insert_at = index
+            break
+
+    indent = section["itemIndent"]
+    generated = [
+        f"{indent}- DOMAIN-SUFFIX,{host},DIRECT # {WHITELIST_FALLBACK_MARKER} direct {host}"
+        for host in hosts
+    ]
+    generated.append(
+        f"{indent}- MATCH,{proxy_group} # {WHITELIST_FALLBACK_MARKER} catch-all"
+    )
+    lines[insert_at:insert_at] = generated
+    return join_whitelist_config_lines(lines, newline, trailing_newline)
+
+
+def remove_whitelist_fallback_text(text):
+    lines, newline, trailing_newline = split_whitelist_config_lines(text)
+    section = find_whitelist_rules_section(lines)
+    if not section:
+        return text
+    start = section["start"]
+    header = lines[start]
+    header_created = f"{WHITELIST_FALLBACK_MARKER} created-rules-section" in header.lower()
+    header_expanded = f"{WHITELIST_FALLBACK_MARKER} expanded-empty-rules" in header.lower()
+    kept = [
+        line
+        for line in lines[start + 1:section["end"]]
+        if WHITELIST_FALLBACK_MARKER not in line.lower()
+    ]
+    if len(kept) == section["end"] - start - 1 and not header_created and not header_expanded:
+        return text
+    has_rules = any(parse_whitelist_rule_line(line) for line in kept)
+    if header_created and not has_rules:
+        replacement = kept
+    else:
+        if header_expanded and not has_rules:
+            restored_header = "rules: []"
+        elif header_created or header_expanded:
+            restored_header = "rules:"
+        else:
+            restored_header = header
+        replacement = [restored_header, *kept]
+    lines[start:section["end"]] = replacement
+    return join_whitelist_config_lines(lines, newline, trailing_newline)
 
 
 def classify_whitelist_monitor_results(settings, runtime, positive_results, control_results):
@@ -5077,9 +7261,12 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
     )
     previous_suspicions = int(runtime.get("consecutiveSuspicions") or 0)
     previous_inconclusive = int(runtime.get("consecutiveInconclusive") or 0)
+    previous_normals = int(runtime.get("consecutiveNormals") or 0)
     confirmation_threshold = settings["confirmationThreshold"]
+    recovery_threshold = settings["recoveryThreshold"]
     failure_threshold = settings["controlFailureThreshold"]
     inconclusive = 0
+    normals = 0
     evidence_state = "none"
     access_mode = "unknown"
 
@@ -5149,16 +7336,28 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
             evidence_state = retained["evidence"]
             access_mode = retained["access"]
     else:
-        state = "normal"
-        message = "Признаки режима белых списков не обнаружены"
-        consecutive = 0
+        recovering = runtime.get("state") == "confirmed" or bool(runtime.get("fallbackActive"))
+        normals = previous_normals + 1 if recovering else recovery_threshold
         access_mode = "direct"
+        if recovering and normals < recovery_threshold:
+            state = "confirmed"
+            message = (
+                "Прямой доступ восстанавливается, ожидается подтверждение "
+                f"({normals}/{recovery_threshold})"
+            )
+            consecutive = max(previous_suspicions, confirmation_threshold)
+            evidence_state = "previous"
+        else:
+            state = "normal"
+            message = "Признаки режима белых списков не обнаружены"
+            consecutive = 0
 
     return {
         "state": state,
         "message": message,
         "consecutiveSuspicions": consecutive,
         "consecutiveInconclusive": inconclusive,
+        "consecutiveNormals": normals,
         "evidenceState": evidence_state,
         "accessMode": access_mode,
         "positiveDirectSuccesses": positive_successes,
@@ -5168,10 +7367,112 @@ def classify_whitelist_monitor_results(settings, runtime, positive_results, cont
     }
 
 
+def reconcile_automatic_whitelist_config(app_dir, settings, runtime, now=None):
+    config_path = get_config_path(app_dir)
+    current_text = read_config_text(config_path)
+    active = has_whitelist_fallback_config(current_text)
+    runtime["fallbackActive"] = active
+    runtime["automaticActionPending"] = ""
+    if settings["actionMode"] != "automatic":
+        return None
+
+    proxy_ready = runtime["controlProxyRecoveries"] >= settings["controlFailureThreshold"]
+    action = ""
+    if (
+        not active
+        and runtime["state"] == "confirmed"
+        and runtime["evidenceState"] == "current"
+        and proxy_ready
+    ):
+        action = "activate"
+    elif active and runtime["state"] == "normal":
+        action = "restore"
+    if not action:
+        return None
+
+    checked_now = int(time.time() if now is None else now)
+    previous_action_at = runtime.get("lastConfigActionAt")
+    if (
+        isinstance(previous_action_at, (int, float))
+        and checked_now - int(previous_action_at) < WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS
+    ):
+        runtime["automaticActionPending"] = action
+        return None
+
+    proxy_group_health = None
+    try:
+        allowed_hosts = get_whitelist_routing_hosts(app_dir, settings) if action == "activate" else None
+        next_text = (
+            prepare_whitelist_fallback_text(
+                current_text,
+                settings,
+                allowed_hosts,
+            )
+            if action == "activate"
+            else remove_whitelist_fallback_text(current_text)
+        )
+        if next_text == current_text:
+            return None
+        result = save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts)
+        action_ok = bool(result.get("ok") and result.get("applied"))
+        if action == "activate" and action_ok:
+            try:
+                proxy_group_health = refresh_whitelist_proxy_group_health(
+                    app_dir,
+                    settings["proxyGroup"],
+                    settings["timeoutMs"],
+                )
+            except Exception as error:
+                proxy_group_health = {
+                    "ok": False,
+                    "group": settings["proxyGroup"],
+                    "now": "",
+                    "direct": False,
+                    "message": str(error),
+                }
+            result["proxyGroupHealth"] = proxy_group_health
+        message = (
+            "Временная маршрутизация автоматически применена"
+            if action == "activate" and action_ok
+            else "Исходная маршрутизация автоматически восстановлена"
+            if action_ok
+            else str(result.get("message") or "Не удалось автоматически изменить конфигурацию")
+        )
+    except Exception as error:
+        result = {"ok": False, "message": str(error)}
+        action_ok = False
+        message = str(error)
+
+    applied_text = read_config_text(config_path)
+    runtime.update(
+        {
+            "fallbackActive": has_whitelist_fallback_config(applied_text),
+            "automaticActionPending": "" if action_ok else action,
+            "lastConfigAction": action,
+            "lastConfigActionAt": checked_now,
+            "lastConfigActionOk": action_ok,
+            "lastConfigActionMessage": message,
+            "lastConfigRevision": config_revision(applied_text),
+        }
+    )
+    if proxy_group_health is not None:
+        runtime["lastProxyGroupHealth"] = proxy_group_health
+    return {
+        "action": action,
+        "ok": action_ok,
+        "message": message,
+        "result": result,
+        "proxyGroupHealth": proxy_group_health,
+    }
+
+
 def run_whitelist_monitor_cycle(app_dir):
     with whitelist_monitor_lock:
         settings = load_whitelist_monitor_settings(app_dir)
         runtime = load_whitelist_monitor_runtime(app_dir, settings)
+        runtime["fallbackActive"] = has_whitelist_fallback_config(
+            read_config_text(get_config_path(app_dir))
+        )
         if not settings["enabled"]:
             return runtime
 
@@ -5267,6 +7568,12 @@ def run_whitelist_monitor_cycle(app_dir):
         runtime.update(classification)
         runtime["checkedAt"] = checked_at
         runtime["endpoints"] = endpoint_runtime
+        automatic_action = reconcile_automatic_whitelist_config(
+            app_dir,
+            settings,
+            runtime,
+            now=checked_at,
+        )
         save_whitelist_monitor_runtime(app_dir, runtime)
 
         if (
@@ -5284,8 +7591,22 @@ def run_whitelist_monitor_cycle(app_dir):
                 controlYandexRecoveries=runtime["controlYandexRecoveries"],
                 consecutiveSuspicions=runtime["consecutiveSuspicions"],
                 consecutiveInconclusive=runtime["consecutiveInconclusive"],
+                consecutiveNormals=runtime["consecutiveNormals"],
                 evidenceState=runtime["evidenceState"],
                 accessMode=runtime["accessMode"],
+            )
+        if automatic_action:
+            append_whitelist_monitor_event(
+                app_dir,
+                (
+                    f"config_{automatic_action['action']}d"
+                    if automatic_action["ok"]
+                    else "config_failed"
+                ),
+                automatic_action["message"],
+                action=automatic_action["action"],
+                fallbackActive=runtime["fallbackActive"],
+                proxyGroupHealth=automatic_action.get("proxyGroupHealth"),
             )
         return runtime
 
@@ -5309,14 +7630,14 @@ def start_whitelist_monitor_check(app_dir):
         return {
             "ok": False,
             "disabled": True,
-            "message": "whitelist monitor is disabled",
+            "message": "Наблюдение за белыми списками выключено",
             "job": snapshot_whitelist_monitor_job(),
         }
     with whitelist_monitor_state_lock:
         if whitelist_monitor_job_state["running"]:
             return {
                 "ok": False,
-                "message": "whitelist check already running",
+                "message": "Проверка белых списков уже выполняется",
                 "job": dict(whitelist_monitor_job_state),
             }
         whitelist_monitor_job_state.update(
@@ -5348,8 +7669,3616 @@ def whitelist_monitor_worker(app_dir):
             start_whitelist_monitor_check(app_dir)
 
 
+def run_whitelist_domain_list_job(app_dir):
+    try:
+        refresh_whitelist_domain_list(app_dir)
+    finally:
+        with whitelist_domain_list_state_lock:
+            whitelist_domain_list_job_state.update(
+                {
+                    "running": False,
+                    "finishedAt": int(time.time()),
+                }
+            )
+
+
+def start_whitelist_domain_list_refresh(app_dir):
+    with whitelist_domain_list_state_lock:
+        if whitelist_domain_list_job_state["running"]:
+            return False
+        whitelist_domain_list_job_state.update(
+            {
+                "running": True,
+                "startedAt": int(time.time()),
+                "finishedAt": None,
+            }
+        )
+    thread = threading.Thread(
+        target=run_whitelist_domain_list_job,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    thread.start()
+    return True
+
+
+def whitelist_domain_list_worker(app_dir):
+    while True:
+        time.sleep(5)
+        if snapshot_whitelist_domain_list_job()["running"]:
+            continue
+        now = int(time.time())
+        runtime = load_whitelist_domain_list_runtime(app_dir)
+        snapshot = load_whitelist_domain_list_snapshot(app_dir)
+        updated_at = snapshot.get("updatedAt") if snapshot else None
+        last_attempt_at = runtime.get("lastAttemptAt")
+        if (
+            isinstance(updated_at, (int, float))
+            and now - int(updated_at) < WHITELIST_DOMAIN_REFRESH_SECONDS
+        ):
+            continue
+        if (
+            isinstance(last_attempt_at, (int, float))
+            and now - int(last_attempt_at) < WHITELIST_DOMAIN_RETRY_SECONDS
+        ):
+            continue
+        start_whitelist_domain_list_refresh(app_dir)
+
+
 def initialize_whitelist_monitor(app_dir):
-    thread = threading.Thread(target=whitelist_monitor_worker, args=(Path(app_dir),), daemon=True)
+    monitor_thread = threading.Thread(
+        target=whitelist_monitor_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    domain_list_thread = threading.Thread(
+        target=whitelist_domain_list_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    monitor_thread.start()
+    domain_list_thread.start()
+
+
+def dns_protection_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_RUNTIME_PATH", str(Path(app_dir) / "dns-protection.json")))
+
+
+def dns_operation_path(app_dir):
+    return Path(app_dir) / "dns-operation.json"
+
+
+def get_dns_operation(app_dir, operation_id=""):
+    operation = read_json_file(dns_operation_path(app_dir), {})
+    return operation if operation.get("id") and (not operation_id or operation.get("id") == operation_id) else None
+
+
+def run_dns_protection_operation(app_dir, request_data):
+    operation_id = request_data.get("operationId", "")
+    if not operation_id:
+        return apply_dns_protection_action(app_dir, request_data)
+    fingerprint = config_revision(json.dumps(request_data, sort_keys=True))
+    with dns_operation_lock:
+        previous = get_dns_operation(app_dir)
+        if previous and previous["id"] == operation_id:
+            if previous.get("fingerprint") != fingerprint:
+                return {"ok": False, "stage": "conflict", "message": "Этот идентификатор уже использован для другой операции DNS"}
+            return previous.get("body") or {"ok": True, "pending": True, "operationId": operation_id}
+        if previous and previous.get("running"):
+            return {"ok": False, "stage": "conflict", "message": "Предыдущая операция DNS ещё выполняется"}
+        operation = {"id": operation_id, "fingerprint": fingerprint, "action": request_data["action"],
+                     "running": True, "startedAt": int(time.time())}
+        write_json_atomic(dns_operation_path(app_dir), operation)
+    try:
+        result = apply_dns_protection_action(app_dir, request_data)
+    except Exception as error:
+        result = {"ok": False, "stage": "apply", "uncertain": True,
+                  "message": f"Операция DNS прервана; проверьте текущее состояние: {str(error)[:300]}"}
+    with dns_operation_lock:
+        write_json_atomic(dns_operation_path(app_dir),
+                          {**operation, "running": False, "finishedAt": int(time.time()), "body": result})
+    return result
+
+
+def dns_protection_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LOG_PATH", str(Path(app_dir) / "dns-protection.jsonl")))
+
+
+def default_dns_protection_runtime():
+    return {
+        "requestedMode": "system",
+        "profile": "resilient",
+        "proxyGroup": "PROXY",
+        "upstreams": list(DNS_PROTECTION_UPSTREAMS),
+        "whitelistDns": False,
+        "whitelistDnsHash": "",
+        "whitelistDnsCount": 0,
+        "managedRevision": "",
+        "managedBlockRevision": "",
+        "fallbackPending": False,
+        "ipv6": False,
+        "lanInterfaces": [],
+        "addresses": {"ipv4": [], "ipv6": []},
+        "updatedAt": None,
+    }
+
+
+def load_dns_protection_runtime(app_dir):
+    defaults = default_dns_protection_runtime()
+    saved = read_json_file(dns_protection_runtime_path(app_dir), {})
+    if not isinstance(saved, dict):
+        return defaults
+    runtime = {key: saved.get(key, value) for key, value in defaults.items()}
+    if runtime["requestedMode"] not in {"system", "test", "active"}:
+        runtime["requestedMode"] = "system"
+    if runtime["profile"] not in {"resilient", "strict"}:
+        runtime["profile"] = "resilient"
+    runtime["fallbackPending"] = runtime.get("fallbackPending") is True
+    runtime["whitelistDns"] = runtime.get("whitelistDns") is True
+    if not isinstance(runtime.get("lanInterfaces"), list):
+        runtime["lanInterfaces"] = []
+    if not isinstance(runtime.get("addresses"), dict):
+        runtime["addresses"] = {"ipv4": [], "ipv6": []}
+    for family in ("ipv4", "ipv6"):
+        values = runtime["addresses"].get(family)
+        runtime["addresses"][family] = values if isinstance(values, list) else []
+    return runtime
+
+
+def save_dns_protection_runtime(app_dir, runtime):
+    write_json_atomic(dns_protection_runtime_path(app_dir), runtime)
+
+
+def append_dns_protection_event(app_dir, event_type, message, **details):
+    event = {
+        "timestamp": int(time.time()),
+        "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "type": str(event_type),
+        "message": str(message)[:500],
+        **details,
+    }
+    path = dns_protection_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(lines) > DNS_PROTECTION_EVENT_LIMIT:
+            path.write_text(
+                "\n".join(lines[-DNS_PROTECTION_EVENT_LIMIT:]) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+    return event
+
+
+def read_dns_protection_events(app_dir, limit=20):
+    try:
+        lines = dns_protection_log_path(app_dir).read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+    except OSError:
+        return []
+    events = []
+    for line in lines[-max(1, min(DNS_PROTECTION_EVENT_LIMIT, int(limit))):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def validate_dns_protection_upstreams(value):
+    if not isinstance(value, list) or not 1 <= len(value) <= 4:
+        raise ValueError("Укажите от 1 до 4 защищённых DNS-серверов в поле upstreams")
+    normalized = []
+    for item in value:
+        if not isinstance(item, str) or not item or len(item) > 2048 or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in item):
+            raise ValueError("Каждый DNS-сервер должен содержать адрес https:// или tls:// без пробелов")
+        try:
+            parsed = urllib.parse.urlsplit(item)
+            port = parsed.port
+            hostname = parsed.hostname
+        except ValueError as error:
+            raise ValueError("Некорректный адрес защищённого DNS-сервера") from error
+        if (parsed.scheme not in {"https", "tls"} or not hostname or not parsed.netloc
+                or parsed.username is not None or parsed.password is not None or "#" in item
+                or "\\" in item or "%" in parsed.netloc or parsed.netloc.endswith(":")
+                or (port is not None and not 1 <= port <= 65535)):
+            raise ValueError("Разрешены только адреса https:// и tls:// без учётных данных и параметров после #")
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", hostname):
+                raise ValueError("Некорректное имя защищённого DNS-сервера")
+        if parsed.scheme == "tls" and (parsed.path or parsed.query or "?" in item):
+            raise ValueError("Адрес DNS-over-TLS не должен содержать путь или параметры запроса")
+        unsafe_parameters = {"skip-cert-verify", "insecure", "allowinsecure", "allow-insecure", "proxy", "interface", "dialer-proxy"}
+        if any(key.casefold().replace("_", "-") in unsafe_parameters
+               for key, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)):
+            raise ValueError("Параметры обхода DNS-маршрута и отключения проверки TLS запрещены")
+        canonical = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.casefold(), parsed.path, parsed.query, ""))
+        if canonical in normalized:
+            raise ValueError("Список upstreams должен содержать уникальные DNS-серверы")
+        normalized.append(canonical)
+    return normalized
+
+
+def dns_protection_request_upstreams(app_dir, request_data):
+    selected = request_data.get("upstreams")
+    return validate_dns_protection_upstreams(
+        load_dns_protection_runtime(app_dir)["upstreams"] if selected is None else selected
+    )
+
+
+def dns_protection_upstreams_need_test(runtime, request_data, upstreams):
+    return (upstreams != runtime["upstreams"]
+            or (request_data.get("upstreams") is not None and runtime["requestedMode"] not in {"test", "active"}))
+
+
+def validate_dns_protection_request(payload, require_action=False):
+    if not isinstance(payload, dict):
+        raise TypeError("Запрос должен быть объектом")
+    allowed = {
+        "action",
+        "profile",
+        "proxyGroup",
+        "upstreams",
+        "whitelistDns",
+        "lanInterfaces",
+        "confirmations",
+        "expectedRevision",
+        "revision",
+        "operationId",
+    }
+    if set(payload) - allowed:
+        raise ValueError("Неизвестное поле в запросе настройки DNS")
+
+    action = str(payload.get("action") or "").strip().casefold()
+    if require_action and action not in {"test", "activate", "system", "switch"}:
+        raise ValueError("Поле action должно иметь значение test, activate, system или switch")
+    if not require_action and action:
+        raise ValueError("Предварительная проверка не принимает поле action")
+    if action == "switch" and set(payload) - {"action", "proxyGroup", "expectedRevision", "operationId"}:
+        raise ValueError("Смена DNS-группы принимает только proxyGroup, expectedRevision и operationId")
+    operation_id = payload.get("operationId", "")
+    if not isinstance(operation_id, str) or (operation_id and not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", operation_id)):
+        raise ValueError("Некорректный идентификатор операции DNS")
+
+    profile = str(payload.get("profile") or "resilient").strip().casefold()
+    if profile not in {"resilient", "strict"}:
+        raise ValueError("Поле profile должно иметь значение resilient или strict")
+
+    proxy_group = str(payload.get("proxyGroup") or "").strip()
+    if len(proxy_group) > 128 or any(char in proxy_group for char in "\r\n#&"):
+        raise ValueError("Некорректное имя прокси-группы в поле proxyGroup")
+    if action == "switch" and not proxy_group:
+        raise ValueError("Выберите новую прокси-группу для DNS")
+    if not isinstance(payload.get("whitelistDns", False), bool):
+        raise ValueError("Поле whitelistDns должно быть логическим значением")
+    upstreams = validate_dns_protection_upstreams(payload["upstreams"]) if "upstreams" in payload else None
+
+    lan_interfaces = payload.get("lanInterfaces")
+    if "lanInterfaces" in payload and (
+        not isinstance(lan_interfaces, list)
+        or len(lan_interfaces) > 16
+        or any(not isinstance(item, str) or not valid_dns_interface_name(item) for item in lan_interfaces)
+        or len(set(lan_interfaces)) != len(lan_interfaces)
+    ):
+        raise ValueError("Поле lanInterfaces должно содержать не более 16 уникальных имён интерфейсов локальных сетей")
+
+    expected_revision = payload.get("expectedRevision")
+    revision_alias = payload.get("revision")
+    if expected_revision is not None and revision_alias is not None and expected_revision != revision_alias:
+        raise ValueError("Поля ревизии конфигурации не совпадают")
+    expected_revision = expected_revision if expected_revision is not None else revision_alias
+    if expected_revision is not None and (
+        not isinstance(expected_revision, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_revision)
+    ):
+        raise ValueError("Поле expectedRevision должно содержать ревизию конфигурации")
+    if require_action and expected_revision is None:
+        raise ValueError("Требуется поле expectedRevision с ревизией конфигурации")
+
+    confirmations = payload.get("confirmations", {})
+    if not isinstance(confirmations, dict):
+        raise TypeError("Поле confirmations должно быть объектом")
+    confirmation_keys = {"providerDns", "transitDns", "wanReconnect"}
+    if set(confirmations) - confirmation_keys:
+        raise ValueError("Неизвестное подтверждение")
+    normalized_confirmations = {
+        key: confirmations.get(key) is True for key in sorted(confirmation_keys)
+    }
+    return {
+        "action": action,
+        "profile": profile,
+        "proxyGroup": proxy_group,
+        "upstreams": upstreams,
+        "whitelistDns": payload.get("whitelistDns", False),
+        "lanInterfaces": lan_interfaces,
+        "expectedRevision": expected_revision,
+        "confirmations": normalized_confirmations,
+        "operationId": operation_id,
+    }
+
+
+def dns_protection_managed_range(text):
+    lines = str(text or "").splitlines(keepends=True)
+    starts = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == DNS_PROTECTION_MARKER_BEGIN]
+    ends = [index for index, line in enumerate(lines) if line.rstrip("\r\n") == DNS_PROTECTION_MARKER_END]
+    if not starts and not ends:
+        return lines, None
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError("Нарушены границы DNS-блока, управляемого MihUI")
+    return lines, (starts[0], ends[0] + 1)
+
+
+def has_top_level_dns_config(text, ignore_range=None):
+    for index, line in enumerate(str(text or "").splitlines()):
+        if ignore_range and ignore_range[0] <= index < ignore_range[1]:
+            continue
+        if re.match(r"^dns\s*:", strip_yaml_comment(line)):
+            return True
+    return False
+
+
+def has_managed_dns_config(text):
+    try:
+        _, managed_range = dns_protection_managed_range(text)
+    except ValueError:
+        return False
+    return managed_range is not None
+
+
+def dns_managed_block_revision(text):
+    try:
+        lines, managed_range = dns_protection_managed_range(text)
+    except ValueError:
+        return ""
+    if not managed_range:
+        return ""
+    block = "".join(lines[managed_range[0]:managed_range[1]])
+    return config_revision(block)
+
+
+def yaml_single_quote(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def normalize_dns_whitelist_domains(hosts):
+    domains = set()
+    for host in hosts:
+        try:
+            ipaddress.ip_address(host)
+            continue  # IP-only control endpoints do not need DNS.
+        except ValueError:
+            pass
+        if "." not in host:
+            continue  # Single-label home names retain their existing DNS path.
+        domain = normalize_whitelist_domain(host)
+        # Never send private zones to a public resolver, even if listed as controls.
+        if any(domain == zone or domain.endswith("." + zone)
+               for zone in ("lan", "local", "localdomain", "home.arpa")):
+            continue
+        domains.add(domain)
+    if not domains:
+        raise ValueError("Нет публичных доменов для DNS белых списков")
+    return sorted(domains)
+
+
+def get_dns_whitelist_domains(app_dir, config_text):
+    if has_whitelist_fallback_config(config_text):
+        # While temporary routing is active, use its actual DIRECT domains,
+        # not a newer downloaded list that has not been applied to routing yet.
+        hosts = []
+        for line in str(config_text).splitlines():
+            parts = parse_whitelist_rule_line(line)
+            if (f"# {WHITELIST_FALLBACK_MARKER} direct " in line and parts
+                    and len(parts) >= 3 and parts[0] == "DOMAIN-SUFFIX" and parts[2] == "DIRECT"):
+                hosts.append(parts[1])
+    else:
+        try:
+            hosts = get_whitelist_routing_hosts(app_dir, load_whitelist_monitor_settings(app_dir))
+        except RuntimeError as error:
+            raise ValueError("Сначала загрузите список доменов в разделе «Белые списки»") from error
+    return normalize_dns_whitelist_domains(hosts)
+
+
+def dns_whitelist_metadata(domains):
+    return {"count": len(domains), "hash": config_revision("\n".join(domains)) if domains else ""}
+
+
+def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts=None):
+    # Called under whitelist_monitor_lock. Do not take dns_protection_lock here:
+    # DNS actions acquire it before the whitelist lock. The config lock makes
+    # the combined YAML save and ownership-hash update one transition.
+    with config_write_lock:
+        runtime = load_dns_protection_runtime(app_dir)
+        domains = None
+        if allowed_hosts is not None and runtime["whitelistDns"]:
+            if (not runtime["managedBlockRevision"]
+                    or dns_managed_block_revision(current_text) != runtime["managedBlockRevision"]):
+                raise ValueError("DNS-блок изменён вручную. Повторно проверьте DNS до изменения белых списков")
+            if next_text.count(DNS_WHITELIST_BEGIN) != 1 or next_text.count(DNS_WHITELIST_END) != 1:
+                raise ValueError("Служебный блок DNS белых списков повреждён")
+            domains = normalize_dns_whitelist_domains(allowed_hosts)
+            start = next_text.index(DNS_WHITELIST_BEGIN)
+            end = next_text.index(DNS_WHITELIST_END, start) + len(DNS_WHITELIST_END)
+            next_text = next_text[:start] + build_dns_whitelist_policy(domains) + next_text[end:]
+        result = save_checked_config(app_dir, next_text, expected_revision=config_revision(current_text))
+        if domains is not None and result.get("ok") and result.get("applied"):
+            metadata = dns_whitelist_metadata(domains)
+            save_dns_protection_runtime(app_dir, {
+                **runtime,
+                "managedRevision": result["revision"],
+                "managedBlockRevision": dns_managed_block_revision(next_text),
+                "whitelistDnsHash": metadata["hash"],
+                "whitelistDnsCount": metadata["count"],
+                "updatedAt": int(time.time()),
+            })
+            append_dns_protection_event(app_dir, "whitelist_dns_synced",
+                                        "Яндекс DoT обновлён вместе с временными правилами белых списков",
+                                        whitelistDnsCount=metadata["count"])
+        return result
+
+
+def build_dns_whitelist_policy(domains):
+    return "\n".join([
+        DNS_WHITELIST_BEGIN,
+        *[line for domain in domains for line in (
+            f"    {yaml_single_quote('+.' + domain)}:",
+            *[f"      - {yaml_single_quote(server)}" for server in DNS_WHITELIST_SERVERS],
+        )],
+        DNS_WHITELIST_END,
+    ])
+
+
+def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None, upstreams=None):
+    upstreams = [f"{url}#{proxy_group}" for url in validate_dns_protection_upstreams(
+        list(DNS_PROTECTION_UPSTREAMS) if upstreams is None else upstreams)]
+    lines = [
+        DNS_PROTECTION_MARKER_BEGIN,
+        "dns:",
+        "  enable: true",
+        f"  listen: {yaml_single_quote(f':{DNS_PROTECTION_PORT}')}",
+        f"  ipv6: {'true' if ipv6_enabled else 'false'}",
+        "  enhanced-mode: redir-host",
+        "  use-hosts: true",
+        "  use-system-hosts: true",
+        "  default-nameserver:",
+        *[f"    - {address}" for address in DNS_PROTECTION_BOOTSTRAP],
+        "  proxy-server-nameserver:",
+        f"    - {yaml_single_quote(DNS_PROTECTION_PROXY_RESOLVER)}",
+        "  nameserver:",
+        *[f"    - {yaml_single_quote(url)}" for url in upstreams],
+    ]
+    if local_resolver or whitelist_domains:
+        lines.append("  nameserver-policy:")
+    if local_resolver:
+        for domain in DNS_PROTECTION_LOCAL_NAMES:
+            lines.extend([
+                f"    {yaml_single_quote(domain)}:",
+                f"      - 'udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}'",
+            ])
+    if whitelist_domains:
+        lines.append(build_dns_whitelist_policy(whitelist_domains))
+    lines.append(DNS_PROTECTION_MARKER_END)
+    return "\n".join(lines) + "\n"
+
+
+def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None, upstreams=None):
+    lines, managed_range = dns_protection_managed_range(text)
+    if has_top_level_dns_config(text, ignore_range=managed_range):
+        raise ValueError("Конфигурация уже содержит раздел dns верхнего уровня, не управляемый MihUI")
+    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver, whitelist_domains, upstreams)
+    if managed_range:
+        return "".join(lines[:managed_range[0]]) + block + "".join(lines[managed_range[1]:])
+    prefix = str(text or "")
+    if prefix and not prefix.endswith(("\n", "\r")):
+        prefix += "\n"
+    if prefix and not prefix.endswith("\n\n"):
+        prefix += "\n"
+    return prefix + block
+
+
+def remove_dns_protection_text(text):
+    lines, managed_range = dns_protection_managed_range(text)
+    if not managed_range:
+        return str(text or "")
+    before = "".join(lines[:managed_range[0]])
+    after = "".join(lines[managed_range[1]:])
+    if before.endswith("\r\n\r\n"):
+        before = before[:-2]
+    elif before.endswith("\n\n"):
+        before = before[:-1]
+    return before + after
+
+
+def find_dns_tool(app_dir, name):
+    env_key = f"MIHUI_DNS_{name.upper()}_BIN"
+    configured = get_env(app_dir).get(env_key, "")
+    candidates = [
+        configured,
+        f"/usr/sbin/{name}",
+        f"/sbin/{name}",
+        f"/usr/bin/{name}",
+        f"/bin/{name}",
+        f"/opt/sbin/{name}",
+        f"/opt/bin/{name}",
+        shutil.which(name) or "",
+    ]
+    for candidate in candidates:
+        if candidate and (Path(candidate).is_file() or shutil.which(candidate)):
+            return str(candidate)
+    return ""
+
+
+def run_dns_tool(binary, arguments, timeout=5):
+    if not binary:
+        return {"ok": False, "returncode": None, "message": "Системная утилита недоступна"}
+    try:
+        result = subprocess.run(
+            [binary, *list(arguments)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+            check=False,
+        )
+        output = result.stdout.decode("utf-8", "replace").strip()
+        return {
+            "ok": result.returncode == 0,
+            "returncode": result.returncode,
+            "output": output,
+            "message": output[-300:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "returncode": None, "message": "Превышено время ожидания команды", "output": ""}
+    except Exception as error:
+        return {"ok": False, "returncode": None, "message": str(error)[:300], "output": ""}
+
+
+def valid_dns_interface_name(value):
+    return bool(re.fullmatch(r"[A-Za-z0-9_.:-]{1,32}", str(value or "")))
+
+
+def discover_dns_lan_addresses(app_dir, ip_binary=None, lan_interfaces=None):
+    ip_binary = ip_binary or find_dns_tool(app_dir, "ip")
+    result = run_dns_tool(ip_binary, ["-o", "addr", "show"])
+    if not result["ok"]:
+        return {
+            "ok": False,
+            "interfaces": [],
+            "candidateInterfaces": [],
+            "candidates": [],
+            "selection": {"state": "unavailable", "message": "Не удалось получить адреса локальных сетей."},
+            "bindings": [],
+            "ipv4": [],
+            "ipv6": [],
+            "message": result["message"],
+        }
+
+    configured = get_env(app_dir).get("MIHUI_DNS_LAN_INTERFACES", "")
+    configured_interfaces = [value.strip() for value in configured.split(",")] if configured.strip() else []
+    explicit_empty_selection = lan_interfaces == []
+    if lan_interfaces is None:
+        lan_interfaces = load_dns_protection_runtime(app_dir).get("lanInterfaces", [])
+    selected_interfaces = lan_interfaces or configured_interfaces
+    records = []
+    for raw_line in result.get("output", "").splitlines():
+        match = re.match(r"^\d+:\s+([^\s]+)\s+(inet6?)\s+([^/\s]+)/", raw_line)
+        if not match:
+            continue
+        interface = match.group(1).split("@", 1)[0]
+        if not valid_dns_interface_name(interface):
+            continue
+        is_bridge = (Path("/sys/class/net") / interface / "bridge").is_dir()
+        if not is_bridge and not interface.startswith("br") and interface not in configured_interfaces:
+            continue
+        try:
+            address = ipaddress.ip_address(match.group(3))
+        except ValueError:
+            continue
+        if address.is_loopback or address.is_unspecified or address.is_multicast:
+            continue
+        records.append((interface, match.group(2), str(address)))
+
+    detected_interfaces = list(dict.fromkeys(item[0] for item in records))
+    candidates = [
+        {
+            "interface": interface,
+            "ipv4": list(dict.fromkeys(item[2] for item in records if item[0] == interface and item[1] == "inet")),
+            "ipv6": list(dict.fromkeys(item[2] for item in records if item[0] == interface and item[1] == "inet6")),
+        }
+        for interface in detected_interfaces
+    ]
+    if explicit_empty_selection:
+        selection = {"state": "required", "message": "Локальные сети не выбраны. Выберите хотя бы одну сеть."}
+        records = []
+    elif selected_interfaces and (
+        any(not valid_dns_interface_name(item) for item in selected_interfaces)
+        or not set(selected_interfaces).issubset(detected_interfaces)
+    ):
+        selection = {"state": "invalid", "message": "Выбранные интерфейсы недоступны или не относятся к локальным сетям. Повторно выберите все нужные локальные сети."}
+        records = []
+    elif selected_interfaces:
+        selection = {"state": "ready", "message": "Выбранные интерфейсы локальных сетей обнаружены."}
+        records = [item for item in records if item[0] in selected_interfaces]
+    elif len(detected_interfaces) > 1:
+        selection = {"state": "required", "message": "Обнаружено несколько сетевых мостов. Выберите локальные сети или явно задайте MIHUI_DNS_LAN_INTERFACES."}
+        records = []
+    elif records:
+        selection = {"state": "ready", "message": "Единственный мост локальной сети выбран автоматически."}
+    else:
+        selection = {"state": "unavailable", "message": "Адреса мостов локальных сетей не обнаружены."}
+
+    return {
+        "ok": bool(records),
+        "interfaces": list(dict.fromkeys(item[0] for item in records)),
+        "candidateInterfaces": detected_interfaces,
+        "candidates": candidates,
+        "selection": selection,
+        "bindings": [
+            {
+                "interface": item[0],
+                "family": "ipv6" if item[1] == "inet6" else "ipv4",
+                "address": item[2],
+            }
+            for item in records
+        ],
+        "ipv4": list(dict.fromkeys(item[2] for item in records if item[1] == "inet")),
+        "ipv6": list(dict.fromkeys(item[2] for item in records if item[1] == "inet6")),
+        "message": selection["message"],
+    }
+
+
+def get_dns_proxy_groups(app_dir):
+    try:
+        proxies, _ = load_resource_monitor_proxy_snapshot(app_dir)
+    except Exception as error:
+        return {"ok": False, "groups": [], "message": str(error)[:300]}
+    groups = []
+    for name, item in proxies.items():
+        if not isinstance(item, dict) or not isinstance(item.get("all"), list):
+            continue
+        normalized = str(item.get("name") or name or "").strip()
+        if normalized and len(normalized) <= 128 and not any(char in normalized for char in "\r\n#&"):
+            groups.append(normalized)
+    return {"ok": True, "groups": list(dict.fromkeys(groups)), "proxies": proxies, "message": ""}
+
+
+def validate_dns_smart_group_request(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("Запрос должен быть объектом")
+    if set(payload) != {"sourceGroup", "expectedRevision"}:
+        raise ValueError("Укажите sourceGroup и expectedRevision")
+    source = payload["sourceGroup"]
+    revision = payload["expectedRevision"]
+    if not isinstance(source, str) or not source.strip() or len(source) > 128 or any(char in source for char in "\r\n#&"):
+        raise ValueError("Некорректное имя группы-источника")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{64}", revision):
+        raise ValueError("Требуется ревизия конфигурации")
+    return {"sourceGroup": source.strip(), "expectedRevision": revision}
+
+
+def dns_smart_config_groups(text):
+    lines, newline, trailing = split_whitelist_config_lines(text)
+    start = next((i for i, line in enumerate(lines) if re.fullmatch(r"proxy-groups\s*:\s*", strip_yaml_comment(line))), None)
+    if start is None:
+        raise ValueError("Раздел proxy-groups должен быть записан обычным YAML-списком")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() and not lines[i].startswith((" ", "#"))), len(lines))
+    headers = [(i, re.match(r"^( +)-\s+(.+)$", strip_yaml_comment(lines[i]))) for i in range(start + 1, end)]
+    headers = [(i, match) for i, match in headers if match]
+    if headers:
+        headers = [(i, match) for i, match in headers if len(match.group(1)) == len(headers[0][1].group(1))]
+    groups = {}
+    for index, (position, match) in enumerate(headers):
+        stop = headers[index + 1][0] if index + 1 < len(headers) else end
+        indent = len(match.group(1)) + 2
+        fields = {}
+        current = None
+        for line in [" " * indent + match.group(2), *lines[position + 1:stop]]:
+            field = re.match(rf"^ {{{indent}}}([\w-]+|<<)\s*:", line)
+            if field:
+                current = field.group(1)
+                fields[current] = []
+            if current:
+                fields[current].append(line)
+        name_line = fields.get("name", [""])[0]
+        name_match = re.match(r"^\s*name\s*:\s*(.+)$", strip_yaml_comment(name_line))
+        if not name_match:
+            raise ValueError("Группы proxy-groups должны быть записаны обычными YAML-блоками с name")
+        name = clean_yaml_key(name_match.group(1))
+        if name in groups:
+            raise ValueError("В конфигурации повторяется имя прокси-группы")
+        groups[name] = {"fields": fields, "indent": indent}
+    return lines, newline, trailing, end, groups
+
+
+def dns_smart_source_pool(source, groups, proxies, visiting=None):
+    visiting = set(visiting or ())
+    item = proxies.get(source, {})
+    configured = groups.get(source)
+    members = item.get("all")
+    if source in visiting or len(visiting) >= 32 or not configured or not isinstance(members, list) or not members:
+        raise ValueError("Выберите группу с собственными нодами или подписками")
+    fields = configured["fields"]
+    declared = dns_config_list_values(fields.get("proxies", []), "proxies")
+    if "proxies" in fields and not declared and not re.fullmatch(r"\s*proxies\s*:\s*\[\s*\]\s*", strip_yaml_comment(fields["proxies"][0])):
+        raise ValueError("Список proxies группы-источника не удалось прочитать")
+    members = list(dict.fromkeys([*members, *declared]))
+    if not check_dns_proxy_route({**proxies, "__mihui_dns_pool__": {"type": "Smart", "all": members}}, "__mihui_dns_pool__")["ok"]:
+        raise ValueError("В группе-источнике есть DIRECT либо неподтверждённый прокси-путь")
+    if "<<" in fields:
+        raise ValueError("Для создания DNS-SMART выберите группу без YAML merge")
+    keys = {"proxies", "use", "include-all", "include-all-proxies", "include-all-providers", "filter", "exclude-filter", "exclude-type"}
+    pool = [line[configured["indent"]:] for key, block in fields.items() if key in keys for line in block]
+    pool = [line.rstrip() for line in pool]
+    while pool and (not pool[-1] or pool[-1].lstrip().startswith("#")):
+        pool.pop()
+    children = [member for member in members if isinstance(proxies.get(member, {}).get("all"), list)]
+    if not children:
+        if not any(key in fields for key in ("proxies", "use", "include-all", "include-all-proxies", "include-all-providers")):
+            raise ValueError("Источники нод группы не удалось прочитать из конфигурации")
+        return pool
+    if len(children) != len(members) or set(fields).intersection(keys) != {"proxies"}:
+        raise ValueError("Выберите вложенную группу с собственными нодами или подписками, например FASTEST")
+    child_pools = [dns_smart_source_pool(child, groups, proxies, visiting | {source}) for child in children]
+    if any(child != child_pools[0] for child in child_pools[1:]):
+        raise ValueError("Вложенные группы имеют разные источники или фильтры; выберите одну из них")
+    return child_pools[0]
+
+
+def get_dns_smart_group_status(app_dir, config_text=None):
+    text = config_text if config_text is not None else read_config_text(get_config_path(app_dir))
+    status = {"name": DNS_SMART_GROUP, "available": False, "exists": False, "sources": [], "message": "Для DNS-SMART установите Prizrak-Core"}
+    if get_mihomo_core(app_dir) != "prizrak":
+        return status
+    support = get_resource_smart_support(app_dir)
+    status.update(available=support["supported"], message=support["message"])
+    if not status["available"]:
+        return status
+    try:
+        _, _, _, _, groups = dns_smart_config_groups(text)
+        snapshot = get_dns_proxy_groups(app_dir)
+        proxies = snapshot.get("proxies", {})
+        status["exists"] = DNS_SMART_GROUP in groups or DNS_SMART_GROUP in proxies
+        for name in snapshot.get("groups", []):
+            if name == DNS_SMART_GROUP:
+                continue
+            try:
+                dns_smart_source_pool(name, groups, proxies)
+                status["sources"].append(name)
+            except ValueError:
+                pass
+        status["message"] = "DNS-SMART уже существует" if status["exists"] else (
+            "Prizrak выберет ноды для DNS из выбранного источника" if status["sources"] else
+            snapshot.get("message") or "Не найдена безопасная группа с собственными нодами или подписками"
+        )
+    except ValueError as error:
+        status["message"] = str(error)
+    return status
+
+
+def create_dns_smart_group(app_dir, request_data):
+    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+        text = read_config_text(get_config_path(app_dir))
+        revision = config_revision(text)
+        if request_data["expectedRevision"] != revision:
+            return {"ok": False, "stage": "conflict", "currentRevision": revision, "message": "Конфигурация изменилась после загрузки настроек"}
+        runtime = load_dns_protection_runtime(app_dir)
+        active = runtime["requestedMode"] == "active"
+        if runtime["requestedMode"] not in {"system", "active"} or runtime.get("fallbackPending"):
+            return {"ok": False, "stage": "preflight", "message": "Создание DNS-SMART доступно в системном режиме или при работающем защищённом DNS"}
+        if get_mihomo_core(app_dir) != "prizrak":
+            return {"ok": False, "stage": "unsupported", "message": "Для DNS-SMART установите Prizrak-Core"}
+        support = get_resource_smart_support(app_dir)
+        if not support["supported"]:
+            return {"ok": False, "stage": "unsupported", "message": support["message"]}
+        try:
+            lines, newline, trailing, end, groups = dns_smart_config_groups(text)
+            snapshot = get_dns_proxy_groups(app_dir)
+            proxies = snapshot.get("proxies", {})
+            if DNS_SMART_GROUP in groups or DNS_SMART_GROUP in proxies:
+                return {"ok": False, "stage": "conflict", "message": "Группа DNS-SMART уже существует; существующая группа не изменена"}
+            pool = dns_smart_source_pool(request_data["sourceGroup"], groups, proxies)
+        except ValueError as error:
+            return {"ok": False, "stage": "preflight", "message": str(error)}
+        item_indent = " " * (next(iter(groups.values()))["indent"] - 2)
+        field_indent = item_indent + "  "
+        block = [f"{item_indent}- name: {DNS_SMART_GROUP}", f"{field_indent}type: smart", f"{field_indent}uselightgbm: true", f"{field_indent}collectdata: false", *[field_indent + line if line else "" for line in pool]]
+        lines[end:end] = block
+        proposed = join_whitelist_config_lines(lines, newline, trailing)
+        if active:
+            if not runtime.get("managedBlockRevision") or dns_managed_block_revision(text) != runtime["managedBlockRevision"]:
+                return {"ok": False, "stage": "preflight", "message": "Активный DNS-блок изменён или его владение не подтверждено"}
+            try:
+                check = check_mihomo_config(app_dir, proposed)
+                if not check["ok"]:
+                    return {"ok": False, "stage": "check", "check": check, "message": check.get("message", "Конфигурация DNS-SMART не прошла проверку")}
+                paused = pause_active_dns_for_change(app_dir, text, runtime)
+            except Exception as error:
+                paused = {"ok": False, "stage": "preflight", "message": str(error)[:300]}
+            if not paused["ok"]:
+                return dns_change_failure(paused, restore_active_dns_after_change(app_dir, text, runtime, revision)) if paused.get("suspended") else paused
+        try:
+            result = save_checked_config(app_dir, proposed, expected_revision=revision)
+        except Exception as error:
+            result = {"ok": False, "stage": "apply", "message": f"Создание DNS-SMART прервано: {str(error)[:300]}"}
+        if result.get("ok") and result.get("applied"):
+            if active:
+                restored = restore_active_dns_after_change(app_dir, proposed, runtime, result["revision"], config_applied=True)
+                if not restored["ok"]:
+                    recovered = restore_active_dns_after_change(app_dir, text, runtime, config_revision(proposed))
+                    return dns_change_failure({"ok": False, "stage": "restore", "message": "После создания DNS-SMART прежний активный DNS не был подтверждён", "creation": result}, recovered)
+                return {**result, **{key: restored[key] for key in ("mode", "runtime", "proxyGroup", "revision", "text")},
+                        "group": DNS_SMART_GROUP, "restoration": restored,
+                        "message": "DNS-SMART создана. Текущая DNS-группа сохранена; новую группу можно применить отдельно"}
+            return {**result, "group": DNS_SMART_GROUP, "text": proposed, "message": "DNS-SMART создана. Выберите её для DNS и выполните обычную проверку настроек"}
+        if active:
+            expected = result.get("revision", config_revision(proposed))
+            return dns_change_failure(result, restore_active_dns_after_change(app_dir, text, runtime, expected))
+        return {**result, "ok": False}
+
+
+def check_dns_proxy_route(proxies, group):
+    def check(name, visiting):
+        if not isinstance(name, str) or name in visiting or len(visiting) >= 32:
+            return False
+        item = proxies.get(name)
+        if not isinstance(item, dict):
+            return False
+        kind = str(item.get("type") or "").casefold().replace("-", "")
+        if not kind or kind in {"direct", "compatible", "pass", "reject", "rejectdrop", "dns"}:
+            return False
+        members = item.get("all")
+        if members is None:
+            return True
+        if not isinstance(members, list):
+            return False
+        if not members:
+            members = [item.get("emptyFallback")]
+        elif kind == "selector":
+            selected = item.get("now")
+            if selected not in members:
+                return False
+            members = [selected]
+        elif kind not in {"urltest", "fallback", "loadbalance", "smart"}:
+            return False
+        return all(check(member, visiting | {name}) for member in members)
+
+    ok = isinstance(proxies, dict) and check(group, set())
+    return {"ok": ok, "message": "Выбранная DNS-группа ведёт в прокси" if ok else
+            "DNS-группа ведёт в DIRECT либо её прокси-путь не подтверждён. Выберите группу с прокси без прямого выхода"}
+
+
+def probe_dns_endpoint(
+    address,
+    port,
+    protocol,
+    timeout_ms=1000,
+    query_name=DNS_LAB_QUERY_NAME,
+    accepted_rcodes=(0,),
+):
+    started = time.monotonic()
+    result = {
+        "address": address,
+        "port": int(port),
+        "transport": protocol,
+        "ok": False,
+        "latencyMs": None,
+    }
+    query_id, packet = build_dns_query(query_name)
+    family = socket.AF_INET6 if ":" in address else socket.AF_INET
+    endpoint = (address, int(port))
+    try:
+        if protocol == "udp":
+            with socket.socket(family, socket.SOCK_DGRAM) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendto(packet, endpoint)
+                payload, _ = stream.recvfrom(4096)
+        elif protocol == "tcp":
+            with socket.create_connection(endpoint, timeout=timeout_ms / 1000) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, size)
+        else:
+            raise ValueError("Неподдерживаемый транспорт DNS")
+        parsed = parse_dns_response(payload, query_id)
+        result.update(parsed)
+        result["ok"] = parsed["rcode"] in accepted_rcodes
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def probe_mihomo_dns_listener(ipv6_enabled, timeout_ms=2000):
+    addresses = ["127.0.0.1", "::1"] if ipv6_enabled else ["127.0.0.1"]
+    query_name = f"mihui-{uuid.uuid4().hex}.example.com"
+    probes = [
+        probe_dns_endpoint(
+            address,
+            DNS_PROTECTION_PORT,
+            protocol,
+            timeout_ms,
+            query_name=query_name,
+            accepted_rcodes=(0, 3),
+        )
+        for address in addresses
+        for protocol in ("udp", "tcp")
+    ]
+    return {
+        "ok": bool(probes) and all(item["ok"] for item in probes),
+        "queryName": query_name,
+        "probes": probes,
+    }
+
+
+def probe_dns_local_resolver():
+    probes = [
+        probe_dns_endpoint("127.0.0.1", DNS_PROTECTION_LOCAL_PORT, protocol, 700)
+        for protocol in ("udp", "tcp")
+    ]
+    udp_ok = probes[0]["ok"]
+    return {
+        "ok": udp_ok,
+        "udp": probes[0],
+        "tcp": probes[1],
+        "tcpDiagnosticOk": probes[1]["ok"],
+        "address": "127.0.0.1",
+        "port": DNS_PROTECTION_LOCAL_PORT,
+    }
+
+
+def probe_system_dns_fallback(bindings, timeout_ms=1200):
+    query_name = f"mihui-system-{uuid.uuid4().hex}.example.com"
+    probes = []
+    normalized_bindings = []
+    for binding in bindings:
+        address = str(binding.get("address") or "")
+        interface = str(binding.get("interface") or "")
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        target = f"{address}%{interface}" if parsed.version == 6 and parsed.is_link_local and interface else address
+        normalized_bindings.append({"address": address, "interface": interface, "target": target})
+        for protocol in ("udp", "tcp"):
+            probe = probe_dns_endpoint(
+                target,
+                53,
+                protocol,
+                timeout_ms,
+                query_name=query_name,
+                accepted_rcodes=(0, 3),
+            )
+            probe["lanAddress"] = address
+            probe["interface"] = interface
+            probes.append(probe)
+    udp_probes = [item for item in probes if item["transport"] == "udp"]
+    tcp_probes = [item for item in probes if item["transport"] == "tcp"]
+    udp_ready = bool(normalized_bindings) and len(udp_probes) == len(normalized_bindings) and all(item["ok"] for item in udp_probes)
+    state = "ready" if udp_ready else ("failed" if normalized_bindings else "not-tested")
+    messages = {
+        "ready": "Системный DNS ответил на новые UDP-запросы по всем адресам выбранных локальных сетей.",
+        "failed": "Системный DNS не ответил на новый UDP-запрос хотя бы по одному адресу выбранных локальных сетей.",
+        "not-tested": "Системный DNS не проверен: сначала выберите локальные сети.",
+    }
+    return {
+        "ok": udp_ready,
+        "state": state,
+        "message": messages[state],
+        "queryName": query_name,
+        "bindings": normalized_bindings,
+        "probes": probes,
+        "udpReady": udp_ready,
+        "tcpDiagnosticOk": bool(tcp_probes) and all(item["ok"] for item in tcp_probes),
+    }
+
+
+def dns_chain_is_safe(binary, chain):
+    result = run_dns_tool(binary, ["-t", "nat", "-S", chain])
+    if result["returncode"] not in {0, 1}:
+        return False
+    if result["returncode"] == 1:
+        return True
+    for line in result.get("output", "").splitlines():
+        if line.startswith(f"-N {chain}"):
+            continue
+        if DNS_PROTECTION_COMMENT not in line:
+            return False
+    return True
+
+
+def parse_router_dns_settings(running_config, available=True):
+    if not available:
+        return {
+            "provider": {
+                "ignoreIpv4": None,
+                "ignoreIpv6": None,
+                "servers": [],
+                "state": "unknown",
+                "changed": False,
+            },
+            "transit": {"blocked": None, "state": "unknown", "changed": False},
+            "system": {"servers": [], "state": "unknown"},
+        }
+    lines = [line.strip() for line in str(running_config or "").splitlines() if line.strip()]
+    ignore4_on = any(
+        re.search(r"\b(?:ip dhcp client|ipcp) no name-servers\b", line)
+        for line in lines
+    )
+    ignore4_off = any(
+        re.search(r"\b(?:ip dhcp client|ipcp) name-servers\b", line)
+        and " no name-servers" not in line
+        for line in lines
+    )
+    ignore6_on = any(
+        re.fullmatch(r"no interface \S+ ipv6 name-servers auto", line)
+        for line in lines
+    )
+    ignore6_off = any(
+        re.fullmatch(r"interface \S+ ipv6 name-servers auto", line)
+        for line in lines
+    )
+    transit_on = "dns-proxy intercept enable" in lines
+    transit_off = "no dns-proxy intercept enable" in lines
+    system_servers = []
+    for line in lines:
+        match = re.match(r"^(?:ip|ipv6) name-server\s+([^\s]+)", line)
+        if not match:
+            continue
+        try:
+            system_servers.append(str(ipaddress.ip_address(match.group(1))))
+        except ValueError:
+            continue
+    provider_state = "detected" if any((ignore4_on, ignore4_off, ignore6_on, ignore6_off)) else "unknown"
+    return {
+        "provider": {
+            "ignoreIpv4": True if ignore4_on else (False if ignore4_off else None),
+            "ignoreIpv6": True if ignore6_on else (False if ignore6_off else None),
+            "servers": [],
+            "state": provider_state,
+            "changed": False,
+        },
+        "transit": {
+            "blocked": True if transit_on else (False if transit_off else None),
+            "state": "detected" if transit_on or transit_off else "unknown",
+            "changed": False,
+        },
+        "system": {
+            "servers": list(dict.fromkeys(system_servers)),
+            "state": "detected" if system_servers else "unknown",
+        },
+    }
+
+
+def parse_provider_dns_servers(payload):
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("Некорректный ответ локального API роутера.")
+    details = []
+    seen = set()
+    recognized = payload == []
+    pending = [payload]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            pending.extend(reversed(value))
+            continue
+        if not isinstance(value, dict):
+            continue
+        if value.get("status") == "error":
+            raise ValueError("Локальный API роутера не смог прочитать DNS-серверы.")
+        if "server" in value:
+            if not isinstance(value["server"], (dict, list)):
+                raise ValueError("Некорректный список DNS-серверов в ответе роутера.")
+            recognized = True
+        service = value.get("service")
+        if isinstance(service, str) and "address" in value:
+            recognized = True
+        if isinstance(service, str) and service.casefold().startswith("dhcp"):
+            address = value.get("address")
+            if not isinstance(address, str):
+                raise ValueError("Некорректный адрес DNS провайдера в ответе роутера.")
+            try:
+                address = str(ipaddress.ip_address(address))
+            except ValueError:
+                raise ValueError("Некорректный адрес DNS провайдера в ответе роутера.") from None
+            interface = value.get("interface", "")
+            interface = interface if isinstance(interface, str) else ""
+            key = (address, interface, service)
+            if key not in seen:
+                seen.add(key)
+                details.append({"address": address, "interface": interface, "service": service})
+        pending.extend(reversed(list(value.values())))
+    if not recognized:
+        raise ValueError("В ответе роутера не найден список DNS-серверов.")
+    return {
+        "servers": list(dict.fromkeys(item["address"] for item in details)),
+        "details": details,
+        "serversState": "detected" if details else "empty",
+    }
+
+
+def discover_provider_dns_servers():
+    request = urllib.request.Request(
+        "http://127.0.0.1:79/rci/show/ip/name-server", headers={"Accept": "application/json"}
+    )
+    try:
+        # The local RCI request must not pass through an environment HTTP proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=2) as response:
+            data = response.read(256 * 1024 + 1)
+        if len(data) > 256 * 1024:
+            raise ValueError("Ответ локального API роутера слишком большой.")
+        return parse_provider_dns_servers(json.loads(data))
+    except urllib.error.HTTPError as error:
+        message = f"Локальный API роутера недоступен (HTTP {error.code})."
+    except (urllib.error.URLError, OSError, TimeoutError):
+        message = "Не удалось получить DNS провайдера через локальный API роутера."
+    except (ValueError, RecursionError):
+        message = "Локальный API роутера вернул некорректные данные DNS."
+    return {"servers": [], "details": [], "serversState": "unknown", "error": message}
+
+
+def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=None):
+    app_dir = Path(app_dir)
+    config_text = read_config_text(get_config_path(app_dir))
+    runtime = load_dns_protection_runtime(app_dir)
+    managed = has_managed_dns_config(config_text)
+    try:
+        _, managed_range = dns_protection_managed_range(config_text)
+        unmanaged_dns = has_top_level_dns_config(config_text, ignore_range=managed_range)
+        markers_ok = True
+    except ValueError:
+        unmanaged_dns = True
+        markers_ok = False
+
+    tools = {
+        name: find_dns_tool(app_dir, name)
+        for name in ("ndmc", "ip", "iptables", "ip6tables", "ipset")
+    }
+    root = bool(hasattr(os, "geteuid") and os.geteuid() == 0)
+    lan = discover_dns_lan_addresses(app_dir, tools["ip"], lan_interfaces=lan_interfaces)
+    ipv6_client_dns = bool(lan.get("ipv6"))
+    groups = get_dns_proxy_groups(app_dir)
+    selected_group = proxy_group or runtime.get("proxyGroup") or "PROXY"
+    if not proxy_group and selected_group not in groups.get("groups", []):
+        selected_group = "PROXY" if "PROXY" in groups.get("groups", []) else next(iter(groups.get("groups", [])), "")
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), selected_group)
+
+    ndmc = run_dns_tool(tools["ndmc"], ["-c", "show running-config"])
+    running_config = ndmc.get("output", "") if ndmc["ok"] else ""
+    router_dns = parse_router_dns_settings(running_config, available=ndmc["ok"])
+    router_dns["provider"].update(discover_provider_dns_servers())
+    dns_override = any(
+        strip_yaml_comment(line).strip() == "opkg dns-override"
+        for line in running_config.splitlines()
+    )
+    port53 = get_port_listeners(53)
+    ndnproxy_protocols = {
+        item["protocol"]
+        for item in port53["listeners"]
+        if "ndnproxy" in {owner.casefold() for owner in item.get("owners", [])}
+    }
+    ndnproxy_ready = {"udp", "tcp"}.issubset(ndnproxy_protocols)
+    if ipv6_client_dns:
+        ndnproxy_ready = ndnproxy_ready and {"udp6", "tcp6"}.issubset(ndnproxy_protocols)
+    system_fallback = probe_system_dns_fallback(lan.get("bindings", []))
+
+    port1053 = get_port_listeners(DNS_PROTECTION_PORT)
+    listener_owners = {
+        owner.casefold()
+        for item in port1053["listeners"]
+        for owner in item.get("owners", [])
+    }
+    port1053_ready = not port1053["listeners"] or (managed and listener_owners and listener_owners <= {"mihomo", "clash-meta"})
+
+    iptables_version = run_dns_tool(tools["iptables"], ["--version"])
+    iptables_nat = run_dns_tool(tools["iptables"], ["-t", "nat", "-S"])
+    iptables_set = run_dns_tool(tools["iptables"], ["-m", "set", "-h"])
+    iptables_comment = run_dns_tool(tools["iptables"], ["-m", "comment", "-h"])
+    iptables_set_ready = iptables_set["ok"] or "--match-set" in iptables_set.get("output", "")
+    iptables_comment_ready = iptables_comment["ok"] or "--comment" in iptables_comment.get("output", "")
+    ipset_help = run_dns_tool(tools["ipset"], ["help", "hash:ip"])
+    ipset_output = ipset_help.get("output", "").casefold()
+    ipset_timeout = ipset_help["ok"] and "timeout" in ipset_output
+    ipset_ipv6 = ipset_timeout and "inet6" in ipset_output
+    chain4_safe = bool(tools["iptables"] and dns_chain_is_safe(tools["iptables"], DNS_PROTECTION_CHAIN4))
+
+    ip6tables_ready = True
+    chain6_safe = True
+    if ipv6_client_dns:
+        version6 = run_dns_tool(tools["ip6tables"], ["--version"])
+        nat6 = run_dns_tool(tools["ip6tables"], ["-t", "nat", "-S"])
+        set6 = run_dns_tool(tools["ip6tables"], ["-m", "set", "-h"])
+        comment6 = run_dns_tool(tools["ip6tables"], ["-m", "comment", "-h"])
+        set6_ready = set6["ok"] or "--match-set" in set6.get("output", "")
+        comment6_ready = comment6["ok"] or "--comment" in comment6.get("output", "")
+        ip6tables_ready = version6["ok"] and nat6["ok"] and set6_ready and comment6_ready and ipset_ipv6
+        chain6_safe = bool(tools["ip6tables"] and dns_chain_is_safe(tools["ip6tables"], DNS_PROTECTION_CHAIN6))
+
+    local_resolver = probe_dns_local_resolver()
+    checks = []
+
+    def add_check(check_id, ok, message, required=True):
+        checks.append({"id": check_id, "ok": bool(ok), "required": bool(required), "message": message})
+
+    add_check("root", root, "MihUI работает с правами root" if root else "Для MihUI требуются права root")
+    add_check("mihomo-binary", bool(find_mihomo_binary(app_dir)), "Доступность исполняемого файла Mihomo")
+    add_check("mihomo-api", groups["ok"], "API Mihomo доступен" if groups["ok"] else "API Mihomo недоступен")
+    add_check("proxy-group", bool(selected_group and selected_group in groups.get("groups", [])), "Наличие выбранной прокси-группы")
+    add_check("proxy-route", proxy_route["ok"], proxy_route["message"])
+    add_check("config-ownership", markers_ok and not unmanaged_dns, "Отсутствие конфликтов с DNS-блоком, управляемым MihUI")
+    add_check("ndmc", ndmc["ok"], "Чтение настроек роутера через ndmc")
+    add_check("dns-override", not dns_override, "Отключение dns-override в XKeen")
+    add_check("ndnproxy", ndnproxy_ready, "Использование системного DNS-порта 53 службой ndnproxy")
+    add_check("system-fallback", system_fallback["ok"], system_fallback["message"])
+    add_check("lan-selection", lan["selection"]["state"] == "ready", lan["selection"]["message"])
+    add_check("lan-ipv4", lan["ok"] and bool(lan.get("ipv4")), "IPv4-адрес моста локальной сети обнаружен" if lan.get("ipv4") else lan["message"])
+    add_check("port-1053", port1053_ready, "Порт 1053 свободен или занят DNS-службой Mihomo под управлением MihUI" if port1053_ready else "Порт 1053 занят другой службой")
+    add_check("iptables", iptables_version["ok"] and iptables_nat["ok"] and iptables_set_ready and iptables_comment_ready, "Поддержка IPv4 NAT, ipset и проверки комментариев правил")
+    add_check("ipset-timeout", ipset_timeout, "Ядро поддерживает срок действия записей ipset" if ipset_timeout else "Срок действия записей ipset не поддерживается")
+    add_check("firewall-chain4", chain4_safe, "Имя цепочки IPv4 не конфликтует с чужими правилами" if chain4_safe else "Не подтверждена безопасность имени цепочки IPv4")
+    add_check("ip6tables", ip6tables_ready, "Путь IPv6 NAT доступен" if ip6tables_ready else "Путь IPv6 NAT недоступен", required=ipv6_client_dns)
+    add_check("firewall-chain6", chain6_safe, "Имя цепочки IPv6 не конфликтует с чужими правилами" if chain6_safe else "Не подтверждена безопасность имени цепочки IPv6", required=ipv6_client_dns)
+    add_check("local-resolver", local_resolver["ok"], "Локальный UDP-резолвер 127.0.0.1:41100 доступен" if local_resolver["ok"] else "Локальный UDP-резолвер 127.0.0.1:41100 недоступен", required=False)
+
+    activation_ready = all(item["ok"] for item in checks if item["required"])
+    test_ids = {"root", "mihomo-binary", "mihomo-api", "proxy-group", "proxy-route", "config-ownership", "port-1053", "lan-selection"}
+    test_ready = all(item["ok"] for item in checks if item["id"] in test_ids)
+    return {
+        "ready": activation_ready,
+        "activationReady": activation_ready,
+        "testReady": test_ready,
+        "strictSupported": False,
+        "checks": checks,
+        "tools": {key: bool(value) for key, value in tools.items()},
+        "lanInterfaces": lan.get("interfaces", []),
+        "candidateLanInterfaces": lan.get("candidateInterfaces", []),
+        "lanCandidates": lan["candidates"],
+        "lanSelection": lan["selection"],
+        "addresses": {"ipv4": lan.get("ipv4", []), "ipv6": lan.get("ipv6", [])},
+        "ipv6ClientDns": ipv6_client_dns,
+        "proxyGroups": groups.get("groups", []),
+        "selectedProxyGroup": selected_group,
+        "proxyRoute": proxy_route,
+        "localResolver": local_resolver,
+        "dnsOverride": dns_override,
+        "ndnproxy": {"ready": ndnproxy_ready, "protocols": sorted(ndnproxy_protocols)},
+        "systemFallback": system_fallback,
+        "port1053": {"ready": port1053_ready, "listeners": port1053["listeners"]},
+        "managedConfig": managed,
+        "routerDns": router_dns,
+    }
+
+
+def dns_protection_confirmation_plan(profile, confirmations=None):
+    confirmations = confirmations or {}
+    if profile != "strict":
+        return []
+    labels = {
+        "providerDns": "Игнорировать DNS провайдера",
+        "transitDns": "Перехватывать транзитный DNS",
+        "wanReconnect": "Допустить переподключение WAN",
+    }
+    return [
+        {"id": key, "label": label, "confirmed": confirmations.get(key) is True}
+        for key, label in labels.items()
+    ]
+
+
+def dns_config_check_log_summary(config_check):
+    summary = {
+        "ok": bool(config_check.get("ok")),
+        "available": bool(config_check.get("available")),
+    }
+    if isinstance(config_check.get("returncode"), int):
+        summary["returncode"] = config_check["returncode"]
+    if not summary["ok"]:
+        # Validator output can contain config values or subscription URLs. Only
+        # persist a recognized geodata error; detailed output stays in the response.
+        missing = re.search(r"list ([A-Za-z0-9_.-]{1,80}) not found in (GeoSite|GeoIP)\.dat", str(config_check.get("message", "")))
+        summary["message"] = f"Проверка DNS-конфигурации Mihomo не пройдена: {missing.group(0)}" if missing else "Проверка DNS-конфигурации Mihomo не пройдена. Подробности доступны в результатах предварительной проверки."
+    return summary
+
+
+def dns_resolver_warnings(capabilities):
+    warnings = []
+    if not capabilities["localResolver"]["ok"]:
+        warnings.append({"code": "local-resolver", "message": "Локальный UDP-резолвер 127.0.0.1:41100 не прошёл DNS-проверку; его доступность не подтверждена."})
+    elif not capabilities["localResolver"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "local-resolver-tcp", "message": "Локальный резолвер доступен по UDP. DNS-проверка TCP/41100 не пройдена; она диагностическая и не блокирует включение."})
+    if not capabilities["systemFallback"]["ok"]:
+        warnings.append({
+            "code": "system-fallback-not-tested" if capabilities["systemFallback"].get("state") == "not-tested" else "system-fallback",
+            "message": capabilities["systemFallback"]["message"],
+        })
+    elif not capabilities["systemFallback"].get("tcpDiagnosticOk"):
+        warnings.append({"code": "system-fallback-tcp", "message": "Системный DNS-резерв доступен по UDP. DNS-проверка TCP/53 не пройдена; она диагностическая и не блокирует включение."})
+    return warnings
+
+
+def preview_dns_protection(app_dir, request_data, record_event=True, proposed_text_override=None):
+    app_dir = Path(app_dir)
+    upstreams = dns_protection_request_upstreams(app_dir, request_data)
+    upstreams_need_test = dns_protection_upstreams_need_test(load_dns_protection_runtime(app_dir), request_data, upstreams)
+    capabilities = collect_dns_protection_capabilities(
+        app_dir, request_data["proxyGroup"], lan_interfaces=request_data.get("lanInterfaces")
+    )
+    proxy_group = capabilities["selectedProxyGroup"]
+    config_text = read_config_text(get_config_path(app_dir))
+    revision = config_revision(config_text)
+    warnings = []
+    proposed_text = None
+    whitelist_domains = []
+    config_check = {"ok": False, "available": bool(find_mihomo_binary(app_dir)), "message": "Предварительная проверка недоступна"}
+    try:
+        if not proxy_group:
+            raise ValueError("Совместимая прокси-группа Mihomo не обнаружена")
+        if request_data.get("whitelistDns"):
+            whitelist_domains = get_dns_whitelist_domains(app_dir, config_text)
+        proposed_text = proposed_text_override if proposed_text_override is not None else prepare_dns_protection_text(
+            config_text,
+            proxy_group,
+            capabilities["ipv6ClientDns"],
+            capabilities["localResolver"]["ok"],
+            whitelist_domains,
+            upstreams,
+        )
+        config_check = check_mihomo_config(app_dir, proposed_text)
+        if not config_check.get("available"):
+            config_check = {**config_check, "ok": False, "message": "Проверка конфигурации Mihomo недоступна"}
+    except ValueError as error:
+        config_check = {**config_check, "ok": False, "message": str(error)}
+        warnings.append({"code": "config-conflict", "message": str(error)})
+
+    confirmations = dns_protection_confirmation_plan(
+        request_data["profile"], request_data["confirmations"]
+    )
+    if request_data["profile"] == "strict":
+        warnings.append({
+            "code": "strict-unsupported",
+            "message": "Строгий режим пока доступен только для предварительного просмотра: настройки провайдера и транзита не будут изменены.",
+        })
+    if capabilities["ipv6ClientDns"] and not next(
+        (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
+    ):
+        warnings.append({"code": "ipv6-unprotected", "message": "DNS по IPv6 обнаружен, но перехват IPv6 недоступен."})
+    warnings.extend(dns_resolver_warnings(capabilities))
+    if upstreams_need_test and request_data["profile"] == "resilient":
+        warnings.append({"code": "upstreams-test-required", "message": "Перед включением защиты выполните проверку выбранных основных DNS-серверов без перехвата клиентов."})
+
+    config_ready = bool(proposed_text is not None and config_check.get("ok"))
+    result = {
+        "ok": config_ready,
+        "message": "Конфигурация DNS прошла проверку." if config_ready else str(config_check.get("message") or "Проверка конфигурации DNS не пройдена")[-2000:],
+        "stage": "preview",
+        "mode": get_dns_protection_mode(app_dir),
+        "profile": request_data["profile"],
+        "whitelistDns": request_data.get("whitelistDns", False),
+        "upstreams": upstreams,
+        "proxyGroup": proxy_group,
+        "revision": revision,
+        "capabilities": capabilities,
+        "canTest": bool(config_ready and capabilities["testReady"] and request_data["profile"] == "resilient"),
+        "canActivate": bool(config_ready and capabilities["activationReady"] and request_data["profile"] == "resilient" and not upstreams_need_test),
+        "configCheck": config_check,
+        "fallback": {
+            "preserved": capabilities["systemFallback"]["ok"],
+            "ndnproxyPort": 53,
+            "providerDns": {**capabilities["routerDns"]["provider"], "changed": False},
+            "transitDns": {**capabilities["routerDns"]["transit"], "changed": False},
+            "leaseSeconds": DNS_PROTECTION_LEASE_SECONDS,
+        },
+        "plan": {
+            "listener": f":{DNS_PROTECTION_PORT}",
+            "enhancedMode": "redir-host",
+            "ipv6": capabilities["ipv6ClientDns"],
+            "upstreams": upstreams,
+            "upstreamRoute": proxy_group,
+            "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
+            "localPrivateResolver": capabilities["localResolver"]["ok"],
+            "localNames": list(DNS_PROTECTION_LOCAL_NAMES) if capabilities["localResolver"]["ok"] else [],
+            "whitelistDns": {"enabled": request_data.get("whitelistDns", False), **dns_whitelist_metadata(whitelist_domains)},
+            "providerDnsChange": request_data["profile"] == "strict",
+            "transitDnsChange": request_data["profile"] == "strict",
+        },
+        "confirmations": confirmations,
+        "warnings": warnings,
+        "exclusions": [
+            {"id": "application-doh", "message": "DoH и защищённый DNS внутри приложений не используют порт 53 роутера."},
+            {"id": "tailscale-dns", "message": "Устройства с DNS Tailscale могут обходить DNS локальной сети."},
+            {"id": "external-dns", "message": "Отказоустойчивый профиль не перехватывает прямые DNS-запросы к внешним адресам. Для этого нужен отдельный строгий режим."},
+        ],
+    }
+    if record_event:
+        failed_checks = [item["id"] for item in capabilities["checks"] if item["required"] and not item["ok"]][:32]
+        passed = config_ready and not failed_checks
+        result["event"] = append_dns_protection_event(
+            app_dir,
+            "preview" if passed else "preview_failed",
+            "Предварительная проверка DNS выполнена" if passed else "Предварительная проверка DNS выявила препятствия для запуска",
+            profile=request_data["profile"],
+            diagnostics={"failedChecks": failed_checks, "configCheck": dns_config_check_log_summary(config_check)},
+        )
+        result["events"] = read_dns_protection_events(app_dir)
+    return result
+
+
+def dns_firewall_family_spec(capabilities, ipv6=False):
+    return {
+        "chain": DNS_PROTECTION_CHAIN6 if ipv6 else DNS_PROTECTION_CHAIN4,
+        "set": DNS_PROTECTION_SET6 if ipv6 else DNS_PROTECTION_SET4,
+        "family": "inet6" if ipv6 else "inet",
+        "addresses": capabilities["addresses"]["ipv6" if ipv6 else "ipv4"],
+        "interfaces": capabilities["lanInterfaces"],
+    }
+
+
+def dns_ipset_is_compatible(ipset_binary, set_name, family):
+    listed = run_dns_tool(ipset_binary, ["list", set_name])
+    if listed["returncode"] != 0:
+        return True
+    output = listed.get("output", "").casefold()
+    return "type: hash:ip" in output and f"family {family}" in output and "timeout" in output
+
+
+def dns_firewall_redirect_rule(spec, protocol):
+    return [
+        "-p", protocol, "--dport", "53",
+        "-m", "set", "--match-set", spec["set"], "dst",
+        "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+        "-j", "REDIRECT", "--to-ports", str(DNS_PROTECTION_PORT),
+    ]
+
+
+def dns_firewall_jump_rule(spec, interface, protocol):
+    return [
+        "-i", interface,
+        "-p", protocol, "--dport", "53",
+        "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+        "-j", spec["chain"],
+    ]
+
+
+def ensure_dns_firewall_family(ipset_binary, spec):
+    binary = spec["binary"]
+    if not binary or not ipset_binary:
+        return {"ok": False, "message": "Утилиты межсетевого экрана недоступны"}
+    if not dns_ipset_is_compatible(ipset_binary, spec["set"], spec["family"]):
+        return {"ok": False, "message": f"Конфликт имени набора ipset: {spec['set']}"}
+    created_set = run_dns_tool(
+        ipset_binary,
+        [
+            "create",
+            spec["set"],
+            "hash:ip",
+            "family",
+            spec["family"],
+            "timeout",
+            str(DNS_PROTECTION_LEASE_SECONDS),
+            "-exist",
+        ],
+    )
+    if not created_set["ok"]:
+        return {"ok": False, "message": created_set["message"]}
+    cleared_set = run_dns_tool(ipset_binary, ["flush", spec["set"]])
+    if not cleared_set["ok"]:
+        return {"ok": False, "message": cleared_set["message"]}
+    if not dns_chain_is_safe(binary, spec["chain"]):
+        return {"ok": False, "message": f"Конфликт имени цепочки межсетевого экрана: {spec['chain']}"}
+
+    chain = run_dns_tool(binary, ["-t", "nat", "-S", spec["chain"]])
+    if chain["returncode"] != 0:
+        created_chain = run_dns_tool(binary, ["-t", "nat", "-N", spec["chain"]])
+        if not created_chain["ok"]:
+            return {"ok": False, "message": created_chain["message"]}
+    flushed = run_dns_tool(binary, ["-t", "nat", "-F", spec["chain"]])
+    if not flushed["ok"]:
+        return {"ok": False, "message": flushed["message"]}
+
+    for protocol in ("udp", "tcp"):
+        rule = ["-t", "nat", "-A", spec["chain"], *dns_firewall_redirect_rule(spec, protocol)]
+        added = run_dns_tool(binary, rule)
+        if not added["ok"]:
+            return {"ok": False, "message": added["message"]}
+
+    for interface in spec["interfaces"]:
+        if not valid_dns_interface_name(interface):
+            return {"ok": False, "message": "Некорректный интерфейс локальной сети"}
+        for protocol in ("udp", "tcp"):
+            rule = dns_firewall_jump_rule(spec, interface, protocol)
+            exists = run_dns_tool(binary, ["-t", "nat", "-C", "PREROUTING", *rule])
+            if exists["returncode"] == 0:
+                continue
+            inserted = run_dns_tool(binary, ["-t", "nat", "-I", "PREROUTING", "1", *rule])
+            if not inserted["ok"]:
+                return {"ok": False, "message": inserted["message"]}
+    return {"ok": True}
+
+
+def ensure_dns_firewall(app_dir, capabilities):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    specs = [
+        {
+            **dns_firewall_family_spec(capabilities, ipv6=False),
+            "binary": find_dns_tool(app_dir, "iptables"),
+        }
+    ]
+    if capabilities["ipv6ClientDns"]:
+        specs.append({
+            **dns_firewall_family_spec(capabilities, ipv6=True),
+            "binary": find_dns_tool(app_dir, "ip6tables"),
+        })
+    for spec in specs:
+        result = ensure_dns_firewall_family(ipset_binary, spec)
+        if not result["ok"]:
+            remove_dns_firewall(app_dir, {
+                "lanInterfaces": capabilities["lanInterfaces"],
+                "addresses": capabilities["addresses"],
+                "ipv6": capabilities["ipv6ClientDns"],
+            })
+            return result
+    with dns_protection_health_lock:
+        dns_protection_health.update({"firewallReady": True, "lastFirewallCheckAt": int(time.time())})
+    return {"ok": True}
+
+
+def dns_firewall_family_state(ipset_binary, spec):
+    if not spec["binary"] or not ipset_binary or not spec["interfaces"] or not spec["addresses"]:
+        return "unknown"
+    listed = run_dns_tool(ipset_binary, ["list", spec["set"]])
+    output = listed.get("output", "").casefold()
+    if not listed["ok"]:
+        return "missing" if listed.get("returncode") == 1 and "does not exist" in output else "unknown"
+    if "type: hash:ip" not in output or f"family {spec['family']}" not in output:
+        return "unknown"
+    chain = run_dns_tool(spec["binary"], ["-t", "nat", "-S", spec["chain"]])
+    if not chain["ok"]:
+        chain_output = chain.get("output", "").casefold()
+        return (
+            "missing"
+            if chain.get("returncode") == 1 and ("no chain" in chain_output or "does not exist" in chain_output)
+            else "unknown"
+        )
+    for line in chain.get("output", "").splitlines():
+        if line.startswith(f"-N {spec['chain']}"):
+            continue
+        if DNS_PROTECTION_COMMENT not in line:
+            return "unknown"
+    for protocol in ("udp", "tcp"):
+        redirect = run_dns_tool(
+            spec["binary"],
+            ["-t", "nat", "-C", spec["chain"], *dns_firewall_redirect_rule(spec, protocol)],
+        )
+        if not redirect["ok"]:
+            return "missing" if redirect.get("returncode") == 1 else "unknown"
+    for interface in spec["interfaces"]:
+        if not valid_dns_interface_name(interface):
+            return "unknown"
+        for protocol in ("udp", "tcp"):
+            jump = run_dns_tool(
+                spec["binary"],
+                ["-t", "nat", "-C", "PREROUTING", *dns_firewall_jump_rule(spec, interface, protocol)],
+            )
+            if not jump["ok"]:
+                return "missing" if jump.get("returncode") == 1 else "unknown"
+    return "installed"
+
+
+def dns_firewall_installed(app_dir, runtime):
+    capabilities = {
+        "lanInterfaces": list(runtime.get("lanInterfaces", [])),
+        "addresses": {
+            "ipv4": list(runtime.get("addresses", {}).get("ipv4", [])),
+            "ipv6": list(runtime.get("addresses", {}).get("ipv6", [])),
+        },
+    }
+    ipv6_enabled = bool(runtime.get("ipv6ClientDns", runtime.get("ipv6", False)))
+    specs = [{
+        **dns_firewall_family_spec(capabilities, ipv6=False),
+        "binary": find_dns_tool(app_dir, "iptables"),
+    }]
+    if ipv6_enabled:
+        specs.append({
+            **dns_firewall_family_spec(capabilities, ipv6=True),
+            "binary": find_dns_tool(app_dir, "ip6tables"),
+        })
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    family_states = {
+        spec["family"]: dns_firewall_family_state(ipset_binary, spec)
+        for spec in specs
+    }
+    states = set(family_states.values())
+    if states == {"installed"}:
+        state = "installed"
+    elif states == {"missing"}:
+        state = "missing"
+    elif "unknown" in states:
+        state = "unknown"
+    else:
+        state = "partial"
+    return {"ok": state == "installed", "state": state, "families": family_states}
+
+
+def refresh_dns_firewall_lease(app_dir, capabilities):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    families = [(DNS_PROTECTION_SET4, capabilities["addresses"]["ipv4"])]
+    if capabilities["ipv6ClientDns"]:
+        families.append((DNS_PROTECTION_SET6, capabilities["addresses"]["ipv6"]))
+    for set_name, addresses in families:
+        if not addresses:
+            return {"ok": False, "message": f"Нет адресов для набора {set_name}"}
+        for address in addresses:
+            try:
+                normalized = str(ipaddress.ip_address(address))
+            except ValueError:
+                return {"ok": False, "message": "Некорректный адрес в разрешении на перехват"}
+            result = run_dns_tool(
+                ipset_binary,
+                ["add", set_name, normalized, "timeout", str(DNS_PROTECTION_LEASE_SECONDS), "-exist"],
+            )
+            if not result["ok"]:
+                return {"ok": False, "message": result["message"]}
+    return {"ok": True}
+
+
+def remove_dns_firewall(app_dir, runtime):
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    interfaces = [
+        str(item) for item in runtime.get("lanInterfaces", [])
+        if valid_dns_interface_name(item)
+    ]
+    families = [
+        (find_dns_tool(app_dir, "iptables"), DNS_PROTECTION_CHAIN4, DNS_PROTECTION_SET4),
+        (find_dns_tool(app_dir, "ip6tables"), DNS_PROTECTION_CHAIN6, DNS_PROTECTION_SET6),
+    ]
+    errors = []
+    for binary, chain, set_name in families:
+        if ipset_binary:
+            flushed_set = run_dns_tool(ipset_binary, ["flush", set_name])
+            if flushed_set["returncode"] not in {0, 1}:
+                errors.append(flushed_set["message"])
+        if not binary:
+            continue
+        for interface in interfaces:
+            for protocol in ("udp", "tcp"):
+                rule = [
+                    "-i", interface,
+                    "-p", protocol, "--dport", "53",
+                    "-m", "comment", "--comment", DNS_PROTECTION_COMMENT,
+                    "-j", chain,
+                ]
+                for _ in range(4):
+                    exists = run_dns_tool(binary, ["-t", "nat", "-C", "PREROUTING", *rule])
+                    if exists["returncode"] != 0:
+                        break
+                    deleted = run_dns_tool(binary, ["-t", "nat", "-D", "PREROUTING", *rule])
+                    if not deleted["ok"]:
+                        errors.append(deleted["message"])
+                        break
+        chain_state = run_dns_tool(binary, ["-t", "nat", "-S", chain])
+        if chain_state["returncode"] == 0:
+            if not dns_chain_is_safe(binary, chain):
+                errors.append(f"Удаление чужой цепочки {chain} запрещено")
+                continue
+            flushed = run_dns_tool(binary, ["-t", "nat", "-F", chain])
+            deleted = run_dns_tool(binary, ["-t", "nat", "-X", chain]) if flushed["ok"] else flushed
+            if not deleted["ok"]:
+                errors.append(deleted["message"])
+        if ipset_binary:
+            destroyed = run_dns_tool(ipset_binary, ["destroy", set_name])
+            if destroyed["returncode"] not in {0, 1}:
+                errors.append(destroyed["message"])
+    with dns_protection_health_lock:
+        dns_protection_health.update({"firewallReady": False, "leaseHealthy": False})
+    return {"ok": not errors, "errors": [item for item in errors if item]}
+
+
+def dns_capture_lease_state(app_dir, runtime=None):
+    runtime = runtime or load_dns_protection_runtime(app_dir)
+    ipset_binary = find_dns_tool(app_dir, "ipset")
+    if not ipset_binary:
+        return {"known": False, "active": None, "complete": False}
+    families = [(DNS_PROTECTION_SET4, runtime.get("addresses", {}).get("ipv4", []))]
+    if runtime.get("ipv6"):
+        families.append((DNS_PROTECTION_SET6, runtime.get("addresses", {}).get("ipv6", [])))
+    results = []
+    for set_name, addresses in families:
+        if not addresses:
+            results.append(None)
+            continue
+        for address in addresses:
+            result = run_dns_tool(ipset_binary, ["test", set_name, str(address)])
+            if result["returncode"] == 0:
+                results.append(True)
+                continue
+            message = " ".join(
+                str(result.get(key, "")) for key in ("output", "message")
+            ).casefold()
+            explicitly_absent = (
+                "is not in set" in message
+                or "does not exist" in message
+            )
+            results.append(False if result["returncode"] == 1 and explicitly_absent else None)
+    fully_known = bool(results) and all(item is not None for item in results)
+    return {
+        "known": fully_known,
+        "active": True if any(item is True for item in results) else (False if fully_known else None),
+        "complete": fully_known and all(item is True for item in results),
+    }
+
+
+def dns_capture_lease_active(app_dir, runtime=None):
+    return dns_capture_lease_state(app_dir, runtime)["active"] is True
+
+
+def dns_runtime_topology_matches(runtime, interfaces, addresses):
+    return (
+        bool(interfaces)
+        and set(runtime.get("lanInterfaces", [])) == set(interfaces)
+        and set(runtime.get("addresses", {}).get("ipv4", [])) == set(addresses.get("ipv4", []))
+        and set(runtime.get("addresses", {}).get("ipv6", [])) == set(addresses.get("ipv6", []))
+        and bool(runtime.get("ipv6")) == bool(addresses.get("ipv6"))
+    )
+
+
+def get_dns_protection_mode(
+    app_dir,
+    runtime=None,
+    lease_state=None,
+    firewall_state=None,
+    topology_matches=True,
+    managed_matches=None,
+    proxy_route_ok=True,
+):
+    runtime = runtime or load_dns_protection_runtime(app_dir)
+    config_text = read_config_text(get_config_path(app_dir))
+    managed = has_managed_dns_config(config_text)
+    if runtime.get("fallbackPending"):
+        lease_state = lease_state or dns_capture_lease_state(app_dir, runtime)
+        if not lease_state["known"] or lease_state["active"] is True:
+            return "fallback"
+    if runtime["requestedMode"] == "active":
+        if managed_matches is None:
+            managed_matches = (
+                bool(runtime.get("managedBlockRevision"))
+                and dns_managed_block_revision(config_text) == runtime["managedBlockRevision"]
+            )
+        lease_state = lease_state or dns_capture_lease_state(app_dir, runtime)
+        firewall_state = firewall_state or dns_firewall_installed(app_dir, runtime)
+        return "active" if lease_state["complete"] and firewall_state["ok"] and topology_matches and managed_matches and proxy_route_ok else "fallback"
+    if runtime["requestedMode"] == "test" and managed:
+        return "test"
+    return "system"
+
+
+def get_dns_protection_status(app_dir):
+    runtime = load_dns_protection_runtime(app_dir)
+    capabilities = collect_dns_protection_capabilities(app_dir, runtime.get("proxyGroup", ""))
+    config_text = read_config_text(get_config_path(app_dir))
+    capture_state_relevant = runtime["requestedMode"] == "active" or runtime.get("fallbackPending")
+    lease_state = dns_capture_lease_state(app_dir, runtime) if capture_state_relevant else None
+    firewall_state = dns_firewall_installed(app_dir, runtime) if runtime["requestedMode"] == "active" else None
+    topology_matches = dns_runtime_topology_matches(
+        runtime,
+        capabilities["lanInterfaces"],
+        capabilities["addresses"],
+    ) if runtime["requestedMode"] == "active" else True
+    managed_matches = (
+        bool(runtime.get("managedBlockRevision"))
+        and dns_managed_block_revision(config_text) == runtime["managedBlockRevision"]
+    ) if runtime["requestedMode"] == "active" else True
+    mode = get_dns_protection_mode(
+        app_dir,
+        runtime,
+        lease_state,
+        firewall_state,
+        topology_matches,
+        managed_matches,
+        capabilities.get("proxyRoute", {"ok": True})["ok"],
+    )
+    warnings = []
+    if capabilities.get("proxyRoute", {}).get("ok") is False:
+        warnings.append({"code": "proxy-route", "message": capabilities["proxyRoute"]["message"] +
+                         ". Продление перехвата прекращается; оставшийся срок — не более 30 секунд."})
+    if mode == "fallback":
+        warnings.append({"code": "fail-open", "message": "Защищённый режим не подтверждён полностью. Системный DNS сохранён как резерв; его доступность проверяется отдельно."})
+    elif lease_state and not lease_state["complete"]:
+        warnings.append({"code": "partial-capture", "message": "Перехват DNS действует только для части обнаруженных адресов роутера."})
+    if firewall_state and not firewall_state["ok"]:
+        if firewall_state.get("state") == "unknown":
+            warnings.append({"code": "firewall-unknown", "message": "Не удалось проверить состояние правил межсетевого экрана MihUI. Переход на системный DNS-резерв не подтверждён."})
+        else:
+            warnings.append({"code": "firewall-missing", "message": "Правила перехвата DNS MihUI установлены не полностью. Защищённый режим не действует."})
+    if runtime["requestedMode"] == "active" and not topology_matches:
+        warnings.append({"code": "topology-changed", "message": "Состав или адреса локальных сетей изменились. Разрешение на перехват не продлевается; повторно проверьте настройки и включите защиту."})
+    if runtime.get("fallbackPending"):
+        warnings.append({"code": "fallback-pending", "message": "Отключение перехвата DNS ещё не завершено или не подтверждено. DNS-служба Mihomo под управлением MihUI сохранена."})
+    if runtime["requestedMode"] == "active" and not managed_matches:
+        warnings.append({"code": "managed-config-changed", "message": "DNS-блок, управляемый MihUI, изменён. Разрешение на его перехват больше не продлевается."})
+    warnings.extend(dns_resolver_warnings(capabilities))
+    if capabilities["ipv6ClientDns"] and not next(
+        (item["ok"] for item in capabilities["checks"] if item["id"] == "ip6tables"), False
+    ):
+        warnings.append({"code": "ipv6-unprotected", "message": "IPv6 DNS обнаружен, но защищённый IPv6-путь недоступен."})
+    if runtime["whitelistDns"]:
+        try:
+            current_whitelist = dns_whitelist_metadata(get_dns_whitelist_domains(app_dir, config_text))
+            if current_whitelist["hash"] != runtime["whitelistDnsHash"]:
+                warnings.append({"code": "whitelist-dns-changed", "message": "Список белых доменов изменился. Повторно примените DNS-настройку; при автоматическом включении временной маршрутизации DNS обновится вместе с ней."})
+        except ValueError as error:
+            warnings.append({"code": "whitelist-dns-unavailable", "message": str(error) + ". Применённые DNS-правила сохранены."})
+    with dns_protection_health_lock:
+        health = dict(dns_protection_health)
+    return {
+        "ok": True,
+        "mode": mode,
+        "profile": runtime["profile"],
+        "whitelistDns": runtime["whitelistDns"],
+        "proxyGroup": capabilities["selectedProxyGroup"],
+        "upstreams": runtime["upstreams"],
+        "proxyGroups": capabilities["proxyGroups"],
+        "smartGroup": get_dns_smart_group_status(app_dir, config_text),
+        "revision": config_revision(config_text),
+        "runtime": runtime,
+        "health": health,
+        "capabilities": capabilities,
+        "fallback": {
+            "preserved": capabilities["systemFallback"]["ok"],
+            "active": (
+                mode in {"system", "fallback"}
+                and capabilities["systemFallback"]["ok"]
+                and (not lease_state or (lease_state["known"] and lease_state["active"] is False))
+            ),
+            "pending": runtime.get("fallbackPending") is True,
+            "ndnproxyPort": 53,
+            "providerDns": {**capabilities["routerDns"]["provider"], "changed": False},
+            "transitDns": {**capabilities["routerDns"]["transit"], "changed": False},
+            "leaseSeconds": DNS_PROTECTION_LEASE_SECONDS,
+        },
+        "warnings": warnings,
+        "exclusions": [
+            {"id": "application-doh", "message": "DoH и защищённый DNS внутри приложений не используют порт 53 роутера."},
+            {"id": "tailscale-dns", "message": "Устройства с DNS Tailscale могут обходить DNS локальной сети."},
+            {"id": "external-dns", "message": "Отказоустойчивый профиль не перехватывает прямые DNS-запросы к внешним адресам. Для этого нужен отдельный строгий режим."},
+        ],
+        "events": read_dns_protection_events(app_dir),
+    }
+
+
+def wait_for_mihomo_dns(ipv6_enabled, attempts=3):
+    latest = {"ok": False, "probes": []}
+    for attempt in range(max(1, attempts)):
+        latest = probe_mihomo_dns_listener(ipv6_enabled)
+        if latest["ok"]:
+            return latest
+        if attempt + 1 < attempts:
+            time.sleep(0.25)
+    return latest
+
+
+def rollback_dns_protection_config(app_dir, previous_text, applied_revision):
+    return save_checked_config(app_dir, previous_text, expected_revision=applied_revision)
+
+
+def cleanup_dns_capture_before_config_rollback(app_dir, runtime):
+    stopped_runtime = {
+        **runtime,
+        "requestedMode": "test",
+        "fallbackPending": True,
+        "updatedAt": int(time.time()),
+    }
+    save_dns_protection_runtime(app_dir, stopped_runtime)
+    firewall = remove_dns_firewall(app_dir, runtime)
+    lease_state = dns_capture_lease_state(app_dir, runtime)
+    safe = lease_state["known"] and lease_state["active"] is False
+    if safe:
+        save_dns_protection_runtime(app_dir, {**stopped_runtime, "fallbackPending": False})
+    return {
+        "ok": bool(safe),
+        "safeForRollback": bool(safe),
+        "firewall": firewall,
+        "lease": lease_state,
+        "runtime": {**stopped_runtime, "fallbackPending": not safe},
+    }
+
+
+def dns_runtime_has_capture_scope(runtime):
+    addresses = runtime.get("addresses", {})
+    return bool(addresses.get("ipv4") or addresses.get("ipv6"))
+
+
+def pause_active_dns_for_change(app_dir, text, runtime):
+    if (runtime["requestedMode"] != "active" or runtime.get("fallbackPending")
+            or not runtime.get("managedBlockRevision")
+            or dns_managed_block_revision(text) != runtime["managedBlockRevision"]):
+        return {"ok": False, "stage": "preflight", "message": "Активный DNS-блок изменён или его владение не подтверждено"}
+    capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"], lan_interfaces=runtime["lanInterfaces"])
+    lease = dns_capture_lease_state(app_dir, runtime)
+    firewall = dns_firewall_installed(app_dir, runtime)
+    if (not capabilities["activationReady"] or capabilities["ipv6ClientDns"] != runtime["ipv6"]
+            or not dns_runtime_topology_matches(runtime, capabilities["lanInterfaces"], capabilities["addresses"])
+            or not lease["known"] or not lease["complete"] or not firewall["ok"]):
+        return {"ok": False, "stage": "preflight", "message": "Действующий DNS-перехват, его LAN-сегменты или системный резерв не подтверждены"}
+    if runtime["whitelistDns"]:
+        metadata = dns_whitelist_metadata(get_dns_whitelist_domains(app_dir, text))
+        if metadata != {"count": runtime["whitelistDnsCount"], "hash": runtime["whitelistDnsHash"]}:
+            return {"ok": False, "stage": "preflight", "message": "Список DNS белых доменов изменился. Сначала обновите настройки DNS"}
+    if not probe_mihomo_dns_listener(runtime["ipv6"])["ok"]:
+        return {"ok": False, "stage": "preflight", "message": "Текущий активный DNS не прошёл проверку. Вернитесь к системному DNS"}
+    stopped = {**runtime, "requestedMode": "system", "fallbackPending": True, "updatedAt": int(time.time())}
+    try:
+        save_dns_protection_runtime(app_dir, stopped)
+        removed = remove_dns_firewall(app_dir, runtime)
+        lease = dns_capture_lease_state(app_dir, runtime)
+        if not lease["known"] or lease["active"] is not False:
+            return {"ok": False, "stage": "firewall", "mode": "fallback", "suspended": True,
+                    "runtime": stopped, "message": "Отключение действующего DNS-перехвата не подтверждено", "firewall": removed}
+        save_dns_protection_runtime(app_dir, {**stopped, "fallbackPending": False})
+    except Exception as error:
+        return {"ok": False, "stage": "firewall", "suspended": True, "message": f"Отключение DNS-перехвата прервано: {str(error)[:300]}"}
+    return {"ok": True, "suspended": True}
+
+
+def restore_active_dns_after_change(app_dir, text, runtime, expected_revision, config_applied=False):
+    outcome = {"ok": False, "mode": "system", "proxyGroup": runtime["proxyGroup"]}
+    try:
+        cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+        stopped = {**runtime, "requestedMode": "system", "fallbackPending": not cleanup["safeForRollback"], "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, stopped)
+        outcome.update(runtime=stopped, mode="fallback" if stopped["fallbackPending"] else "system", cleanup=cleanup)
+        if not cleanup["safeForRollback"]:
+            outcome["message"] = "Не удалось подтвердить отключение перехвата; системный резерв ещё не подтверждён"
+            return outcome
+        current_text = read_config_text(get_config_path(app_dir))
+        current_revision = config_revision(current_text)
+        outcome["revision"] = current_revision
+        if current_revision not in {expected_revision, config_revision(text)}:
+            outcome["message"] = "Конфигурация изменилась во время операции; автоматическое восстановление остановлено"
+            return outcome
+        if current_text != text or not config_applied:
+            saved = save_checked_config(app_dir, text, expected_revision=current_revision)
+            outcome["config"] = saved
+            if not saved.get("ok") or not saved.get("applied"):
+                outcome["message"] = "Не удалось подтвердить применение прежней DNS-конфигурации"
+                outcome["revision"] = saved.get("revision", current_revision)
+                return outcome
+        outcome.update(text=text, revision=config_revision(text))
+        capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"], lan_interfaces=runtime["lanInterfaces"])
+        if (not capabilities["activationReady"] or capabilities["ipv6ClientDns"] != runtime["ipv6"]
+                or not dns_runtime_topology_matches(runtime, capabilities["lanInterfaces"], capabilities["addresses"])
+                or dns_managed_block_revision(text) != runtime["managedBlockRevision"]):
+            outcome["message"] = "Прежний DNS-маршрут или его LAN-сегменты не прошли проверку"
+            return outcome
+        probe = wait_for_mihomo_dns(runtime["ipv6"])
+        outcome["probe"] = probe
+        if not probe["ok"]:
+            outcome["message"] = "Прежний DNS не ответил после восстановления; действует системный DNS"
+            return outcome
+        firewall = ensure_dns_firewall(app_dir, capabilities)
+        lease = refresh_dns_firewall_lease(app_dir, capabilities) if firewall["ok"] else {"ok": False}
+        outcome.update(firewall=firewall, lease=lease)
+        confirmed = dns_capture_lease_state(app_dir, runtime) if firewall["ok"] and lease["ok"] else {"known": False}
+        if not firewall["ok"] or not lease["ok"] or not confirmed["known"] or not confirmed.get("complete") or not dns_firewall_installed(app_dir, runtime)["ok"]:
+            cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+            stopped.update(fallbackPending=not cleanup["safeForRollback"])
+            save_dns_protection_runtime(app_dir, stopped)
+            outcome.update(runtime=stopped, mode="fallback" if stopped["fallbackPending"] else "system", cleanup=cleanup,
+                           message="Не удалось восстановить прежний DNS-перехват")
+            return outcome
+        restored = {**runtime, "requestedMode": "active", "fallbackPending": False,
+                    "managedRevision": outcome["revision"], "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, restored)
+        with dns_protection_health_lock:
+            dns_protection_health.update(leaseHealthy=True, firewallReady=True, lastProbeAt=int(time.time()), consecutiveFailures=0,
+                                         message="Прежний защищённый DNS восстановлен")
+        outcome.update(ok=True, mode="active", runtime=restored, message="Прежний защищённый DNS восстановлен")
+    except Exception as error:
+        outcome["message"] = f"Восстановление прежнего DNS не подтверждено: {str(error)[:300]}"
+        try:
+            cleanup = cleanup_dns_capture_before_config_rollback(app_dir, runtime)
+            pending = not cleanup["safeForRollback"]
+            outcome["cleanup"] = cleanup
+        except Exception:
+            pending = True
+        stopped = {**runtime, "requestedMode": "system", "fallbackPending": pending, "updatedAt": int(time.time())}
+        save_dns_protection_runtime(app_dir, stopped)
+        outcome.update(mode="fallback" if pending else "system", runtime=stopped)
+    finally:
+        if not outcome["ok"]:
+            with dns_protection_health_lock:
+                dns_protection_health.update(leaseHealthy=False, firewallReady=False, message=outcome.get("message", "Действует системный DNS"))
+    return outcome
+
+
+def dns_change_failure(result, restoration):
+    return {**result, **{key: restoration[key] for key in ("mode", "runtime", "proxyGroup", "revision", "text") if key in restoration},
+            "ok": False, "restoration": restoration,
+            "message": str(result.get("message") or "Изменение DNS не выполнено") + ". " + restoration["message"]}
+
+
+def prepare_dns_group_switch_text(text, old_group, new_group, upstreams=None):
+    upstreams = validate_dns_protection_upstreams(list(DNS_PROTECTION_UPSTREAMS) if upstreams is None else upstreams)
+    lines, managed_range = dns_protection_managed_range(text)
+    if not managed_range:
+        raise ValueError("DNS-блок MihUI не найден")
+    changed = 0
+    for index in range(*managed_range):
+        for url in upstreams:
+            old = yaml_single_quote(f"{url}#{old_group}")
+            if lines[index].strip() == f"- {old}":
+                lines[index] = lines[index].replace(old, yaml_single_quote(f"{url}#{new_group}"), 1)
+                changed += 1
+    if changed != len(upstreams):
+        raise ValueError("Маршрут основных DNS-серверов не совпадает с сохранённой группой")
+    return "".join(lines)
+
+
+def switch_dns_proxy_group(app_dir, request_data):
+    with dns_protection_lock, whitelist_monitor_lock, config_write_lock:
+        text = read_config_text(get_config_path(app_dir))
+        revision = config_revision(text)
+        runtime = load_dns_protection_runtime(app_dir)
+        if request_data["expectedRevision"] != revision:
+            return {"ok": False, "stage": "conflict", "currentRevision": revision, "message": "Конфигурация изменилась после загрузки настроек DNS"}
+        if runtime["requestedMode"] != "active" or runtime.get("fallbackPending"):
+            return {"ok": False, "stage": "preflight", "message": "Смена группы доступна только при работающем защищённом DNS"}
+        retained = {**request_data, "action": "activate", "profile": runtime["profile"], "whitelistDns": runtime["whitelistDns"],
+                    "upstreams": runtime["upstreams"], "lanInterfaces": runtime["lanInterfaces"], "confirmations": {}}
+        try:
+            proposed = prepare_dns_group_switch_text(text, runtime["proxyGroup"], request_data["proxyGroup"], runtime["upstreams"])
+            preview = preview_dns_protection(app_dir, retained, record_event=False, proposed_text_override=proposed)
+            if not preview["canActivate"]:
+                return {"ok": False, "stage": "preflight", "message": "Новая DNS-группа не прошла предварительную проверку", "preview": preview}
+            paused = pause_active_dns_for_change(app_dir, text, runtime)
+        except Exception as error:
+            paused = {"ok": False, "stage": "preflight", "message": str(error)[:300]}
+        if not paused["ok"]:
+            if paused.get("suspended"):
+                return dns_change_failure(paused, restore_active_dns_after_change(app_dir, text, runtime, revision))
+            return paused
+        try:
+            result = apply_dns_protection_action(app_dir, retained, _locks_held=True, _proposed_text=proposed, _retained_runtime=runtime)
+            if result.get("ok"):
+                lease = dns_capture_lease_state(app_dir, result["runtime"])
+                if not lease["known"] or not lease["complete"] or not dns_firewall_installed(app_dir, result["runtime"])["ok"]:
+                    raise RuntimeError("Новый DNS-перехват не подтверждён после применения")
+                next_runtime = {**runtime, "proxyGroup": request_data["proxyGroup"], "managedRevision": result["revision"],
+                                "managedBlockRevision": dns_managed_block_revision(proposed), "updatedAt": int(time.time())}
+                save_dns_protection_runtime(app_dir, next_runtime)
+                return {**result, "mode": "active", "runtime": next_runtime, "text": proposed}
+        except Exception as error:
+            result = {"ok": False, "stage": "apply", "message": f"Смена DNS-группы прервана: {str(error)[:300]}"}
+        expected = result.get("revision", config_revision(proposed))
+        return dns_change_failure(result, restore_active_dns_after_change(app_dir, text, runtime, expected))
+
+
+@contextmanager
+def suspend_dns_capture(app_dir, resume=True):
+    with dns_protection_lock:
+        runtime = load_dns_protection_runtime(app_dir)
+        if runtime["requestedMode"] == "active" or runtime.get("fallbackPending"):
+            lan = discover_dns_lan_addresses(app_dir, lan_interfaces=runtime["lanInterfaces"])
+            if not lan["ok"] or not probe_system_dns_fallback(lan.get("bindings", []))["ok"]:
+                raise RuntimeError("Остановка ядра отменена: системный резерв DNS не подтверждён")
+            save_dns_protection_runtime(app_dir, {**runtime, "fallbackPending": True,
+                                       "requestedMode": runtime["requestedMode"] if resume else "test",
+                                       "updatedAt": int(time.time())})
+            remove_dns_firewall(app_dir, runtime)
+            lease = dns_capture_lease_state(app_dir, runtime)
+            if not lease["known"] or lease["active"] is not False:
+                raise RuntimeError("Остановка ядра отменена: отключение перехвата DNS не подтверждено")
+        yield
+
+
+def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
+    stopped_runtime = {
+        **runtime,
+        "requestedMode": "system",
+        "fallbackPending": dns_runtime_has_capture_scope(runtime),
+        "updatedAt": int(time.time()),
+    }
+    save_dns_protection_runtime(app_dir, stopped_runtime)
+    firewall = remove_dns_firewall(app_dir, runtime)
+    lease_state = dns_capture_lease_state(app_dir, runtime)
+    if dns_runtime_has_capture_scope(runtime) and (
+        not lease_state["known"] or lease_state["active"] is True
+    ):
+        return {
+            "ok": False,
+            "stage": "firewall",
+            "mode": "fallback",
+            "message": "Не удалось подтвердить отключение перехвата. DNS-служба Mihomo сохранена до истечения срока действия перехвата",
+            "firewall": firewall,
+            "fallbackPending": True,
+            "runtime": stopped_runtime,
+        }
+    save_dns_protection_runtime(app_dir, {**stopped_runtime, "fallbackPending": False})
+    cleared_runtime = {**stopped_runtime, "fallbackPending": False}
+    current_revision = config_revision(current_text)
+    if request_data["expectedRevision"] != current_revision:
+        event = append_dns_protection_event(
+            app_dir,
+            "fallback",
+            "Перехват DNS отключён; управляемый блок не удалён из-за новой ревизии конфигурации",
+            profile="resilient",
+        )
+        return {
+            "ok": False,
+            "stage": "conflict",
+            "mode": "system",
+            "captureDisabled": True,
+            "currentRevision": current_revision,
+            "message": "Перехват отключён, но конфигурация изменилась после загрузки настроек DNS",
+            "firewall": firewall,
+            "runtime": cleared_runtime,
+            "event": event,
+        }
+    restored_text = remove_dns_protection_text(current_text)
+    if restored_text != current_text:
+        saved = save_checked_config(
+            app_dir,
+            restored_text,
+            expected_revision=config_revision(current_text),
+        )
+        if not saved.get("ok") or not saved.get("applied"):
+            return {**saved, "ok": False, "stage": saved.get("stage", "apply")}
+        revision = saved["revision"]
+    else:
+        revision = config_revision(current_text)
+    final_runtime = default_dns_protection_runtime()
+    final_runtime.update({"upstreams": runtime["upstreams"], "updatedAt": int(time.time())})
+    save_dns_protection_runtime(app_dir, final_runtime)
+    event = append_dns_protection_event(app_dir, "system", "Системный DNS восстановлен", profile="resilient")
+    return {"ok": True, "mode": "system", "revision": revision, "upstreams": final_runtime["upstreams"],
+            "runtime": final_runtime, "firewall": firewall, "event": event}
+
+
+def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _proposed_text=None, _retained_runtime=None):
+    app_dir = Path(app_dir)
+    if request_data["action"] == "switch":
+        return switch_dns_proxy_group(app_dir, request_data)
+    with ExitStack() as locks:
+        if not _locks_held:
+            for lock in (dns_protection_lock, whitelist_monitor_lock, config_write_lock):
+                locks.enter_context(lock)
+        config_path = get_config_path(app_dir)
+        current_text = read_config_text(config_path)
+        current_revision = config_revision(current_text)
+        runtime = load_dns_protection_runtime(app_dir)
+        if request_data["action"] == "system":
+            return apply_dns_system_mode(app_dir, request_data, current_text, runtime)
+        if runtime.get("fallbackPending"):
+            pending_lease = dns_capture_lease_state(app_dir, runtime)
+            if not pending_lease["known"] or pending_lease["active"] is True:
+                return {
+                    "ok": False,
+                    "stage": "preflight",
+                    "mode": "fallback",
+                    "message": "Отключение предыдущего перехвата DNS ещё не завершено",
+                    "fallbackPending": True,
+                    "runtime": runtime,
+                    "lease": pending_lease,
+                }
+            runtime = {**runtime, "fallbackPending": False, "updatedAt": int(time.time())}
+            save_dns_protection_runtime(app_dir, runtime)
+        if request_data["expectedRevision"] != current_revision:
+            return {
+                "ok": False,
+                "stage": "conflict",
+                "message": "Конфигурация изменилась после загрузки настроек DNS",
+                "currentRevision": current_revision,
+            }
+
+        upstreams = dns_protection_request_upstreams(app_dir, request_data)
+        if runtime["requestedMode"] == "active" and upstreams != runtime["upstreams"]:
+            return {"ok": False, "stage": "preflight",
+                    "message": "Для изменения основных DNS-серверов сначала верните системный DNS, затем выполните проверку"}
+        if (request_data["action"] == "activate" and _retained_runtime is None
+                and dns_protection_upstreams_need_test(runtime, request_data, upstreams)):
+            return {"ok": False, "stage": "preflight",
+                    "message": "Сначала выполните проверку выбранных основных DNS-серверов без перехвата клиентов"}
+
+        if request_data["profile"] == "strict":
+            confirmations = dns_protection_confirmation_plan("strict", request_data["confirmations"])
+            missing = [item["id"] for item in confirmations if not item["confirmed"]]
+            if missing:
+                return {
+                    "ok": False,
+                    "stage": "validation",
+                    "message": "Для строгого режима необходимо явно подтвердить все изменения",
+                    "missingConfirmations": missing,
+                }
+            return {
+                "ok": False,
+                "stage": "unsupported",
+                "message": "Строгий режим пока не включается автоматически. Настройки DNS провайдера и транзитных запросов не изменены",
+            }
+
+        preview = preview_dns_protection(app_dir, request_data, record_event=False, proposed_text_override=_proposed_text) if _proposed_text is not None else preview_dns_protection(app_dir, request_data, record_event=False)
+        capabilities = preview["capabilities"]
+        if _retained_runtime is not None and (
+                capabilities["ipv6ClientDns"] != _retained_runtime["ipv6"]
+                or not dns_runtime_topology_matches(_retained_runtime, capabilities["lanInterfaces"], capabilities["addresses"])):
+            return {"ok": False, "stage": "preflight", "message": "LAN-сегменты или IPv6 изменились во время смены DNS-группы"}
+        if _retained_runtime is not None and _retained_runtime["whitelistDns"] and (
+                {key: preview["plan"]["whitelistDns"][key] for key in ("count", "hash")}
+                != {"count": _retained_runtime["whitelistDnsCount"], "hash": _retained_runtime["whitelistDnsHash"]}):
+            return {"ok": False, "stage": "preflight", "message": "Список DNS белых доменов изменился во время смены группы"}
+        readiness_key = "testReady" if request_data["action"] == "test" else "activationReady"
+        if not preview["ok"] or not capabilities[readiness_key]:
+            event = append_dns_protection_event(
+                app_dir, "preflight_failed", "Запуск DNS остановлен предварительной проверкой",
+                diagnostics={
+                    "failedChecks": [item["id"] for item in capabilities["checks"] if item["required"] and not item["ok"]][:32],
+                    "configCheck": dns_config_check_log_summary(preview["configCheck"]),
+                },
+            )
+            return {
+                "ok": False,
+                "stage": "preflight",
+                "message": preview["message"] if not preview["ok"] else "Предварительная проверка DNS не пройдена",
+                "preview": preview,
+                "event": event,
+                "events": read_dns_protection_events(app_dir),
+            }
+
+        whitelist_domains = []
+        if request_data.get("whitelistDns"):
+            try:
+                whitelist_domains = get_dns_whitelist_domains(app_dir, current_text)
+                if dns_whitelist_metadata(whitelist_domains) != {
+                    key: preview["plan"]["whitelistDns"][key] for key in ("count", "hash")
+                }:
+                    raise ValueError("Белый список изменился во время проверки. Повторите проверку DNS")
+            except ValueError as error:
+                return {"ok": False, "stage": "preflight", "message": str(error)}
+
+        if runtime["requestedMode"] == "active":
+            stopped_runtime = {
+                **runtime,
+                "requestedMode": "system",
+                "fallbackPending": True,
+                "updatedAt": int(time.time()),
+            }
+            save_dns_protection_runtime(app_dir, stopped_runtime)
+            removed = remove_dns_firewall(app_dir, runtime)
+            lease_state = dns_capture_lease_state(app_dir, runtime)
+            if not lease_state["known"] or lease_state["active"] is True:
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback",
+                    "message": "Не удалось подтвердить отключение действующего перехвата",
+                    "firewall": removed,
+                    "fallbackPending": True,
+                    "runtime": stopped_runtime,
+                }
+            runtime = {**stopped_runtime, "fallbackPending": False}
+            save_dns_protection_runtime(app_dir, runtime)
+
+        proposed_text = _proposed_text if _proposed_text is not None else prepare_dns_protection_text(
+            current_text,
+            preview["proxyGroup"],
+            capabilities["ipv6ClientDns"],
+            capabilities["localResolver"]["ok"],
+            whitelist_domains,
+            upstreams,
+        )
+        saved = save_checked_config(app_dir, proposed_text, expected_revision=current_revision)
+        if not saved.get("ok") or not saved.get("applied"):
+            return {**saved, "ok": False, "stage": saved.get("stage", "apply")}
+
+        probe = wait_for_mihomo_dns(capabilities["ipv6ClientDns"])
+        if not probe["ok"]:
+            rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+            return {
+                "ok": False,
+                "stage": "probe",
+                "message": "DNS-служба Mihomo не прошла сквозную проверку запросов по UDP/TCP",
+                "probe": probe,
+                "rollback": rollback,
+                "revision": rollback.get("revision", saved["revision"]),
+            }
+
+        next_runtime = {
+            **default_dns_protection_runtime(),
+            "requestedMode": "test",
+            "profile": "resilient",
+            "proxyGroup": preview["proxyGroup"],
+            "upstreams": upstreams,
+            "whitelistDns": request_data.get("whitelistDns", False),
+            "whitelistDnsHash": dns_whitelist_metadata(whitelist_domains)["hash"],
+            "whitelistDnsCount": len(whitelist_domains),
+            "managedRevision": saved["revision"],
+            "managedBlockRevision": dns_managed_block_revision(proposed_text),
+            "ipv6": capabilities["ipv6ClientDns"],
+            "lanInterfaces": capabilities["lanInterfaces"],
+            "addresses": capabilities["addresses"],
+            "updatedAt": int(time.time()),
+        }
+        if request_data["action"] == "activate":
+            firewall = ensure_dns_firewall(app_dir, capabilities)
+            if not firewall["ok"]:
+                cleanup = cleanup_dns_capture_before_config_rollback(app_dir, next_runtime)
+                if cleanup["safeForRollback"]:
+                    rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+                    revision = rollback.get("revision", saved["revision"])
+                else:
+                    rollback = {"ok": False, "applied": False, "message": "DNS-служба Mihomo сохранена до истечения срока действия перехвата"}
+                    revision = saved["revision"]
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback" if not cleanup["safeForRollback"] else "system",
+                    "message": firewall["message"],
+                    "cleanup": cleanup,
+                    "rollback": rollback,
+                    "revision": revision,
+                    "fallbackPending": not cleanup["safeForRollback"],
+                    "runtime": cleanup["runtime"],
+                }
+            lease = refresh_dns_firewall_lease(app_dir, capabilities)
+            if not lease["ok"]:
+                cleanup = cleanup_dns_capture_before_config_rollback(app_dir, next_runtime)
+                if cleanup["safeForRollback"]:
+                    rollback = rollback_dns_protection_config(app_dir, current_text, saved["revision"])
+                    revision = rollback.get("revision", saved["revision"])
+                else:
+                    rollback = {"ok": False, "applied": False, "message": "DNS-служба Mihomo сохранена до истечения срока действия перехвата"}
+                    revision = saved["revision"]
+                return {
+                    "ok": False,
+                    "stage": "firewall",
+                    "mode": "fallback" if not cleanup["safeForRollback"] else "system",
+                    "message": lease["message"],
+                    "cleanup": cleanup,
+                    "rollback": rollback,
+                    "revision": revision,
+                    "fallbackPending": not cleanup["safeForRollback"],
+                    "runtime": cleanup["runtime"],
+                }
+            next_runtime["requestedMode"] = "active"
+            with dns_protection_health_lock:
+                dns_protection_health.update({
+                    "firewallReady": True,
+                    "leaseHealthy": True,
+                    "lastProbeAt": int(time.time()),
+                    "consecutiveFailures": 0,
+                    "message": "DNS-служба Mihomo работает",
+                })
+        save_dns_protection_runtime(app_dir, next_runtime)
+        event = append_dns_protection_event(
+            app_dir,
+            next_runtime["requestedMode"],
+            "Защищённый DNS включён" if next_runtime["requestedMode"] == "active" else "Mihomo DNS проверен без перехвата клиентов",
+            profile="resilient",
+            proxyGroup=preview["proxyGroup"],
+            whitelistDns=next_runtime["whitelistDns"],
+            whitelistDnsCount=len(whitelist_domains),
+            ipv6=capabilities["ipv6ClientDns"],
+        )
+        return {
+            "ok": True,
+            "mode": next_runtime["requestedMode"],
+            "profile": "resilient",
+            "whitelistDns": next_runtime["whitelistDns"],
+            "proxyGroup": preview["proxyGroup"],
+            "upstreams": upstreams,
+            "revision": saved["revision"],
+            "capabilities": capabilities,
+            "warnings": [item for item in preview["warnings"] if item.get("code") != "upstreams-test-required"],
+            "plan": preview["plan"],
+            "configCheck": preview["configCheck"],
+            "canTest": preview["canTest"],
+            "canActivate": bool(capabilities["activationReady"] and request_data["profile"] == "resilient"),
+            "runtime": next_runtime,
+            "probe": probe,
+            "fallback": preview["fallback"],
+            "event": event,
+        }
+
+
+def run_dns_protection_lease_cycle(app_dir):
+    runtime = load_dns_protection_runtime(app_dir)
+    if runtime.get("fallbackPending"):
+        lease_state = dns_capture_lease_state(app_dir, runtime)
+        if lease_state["known"] and lease_state["active"] is False:
+            save_dns_protection_runtime(
+                app_dir,
+                {**runtime, "fallbackPending": False, "updatedAt": int(time.time())},
+            )
+            append_dns_protection_event(
+                app_dir,
+                "fallback_ready",
+                "Подтверждено отключение перехвата DNS. Доступность системного DNS проверяется отдельно",
+            )
+        return
+    if runtime["requestedMode"] != "active":
+        return
+    config_text = read_config_text(get_config_path(app_dir))
+    managed_block_revision = dns_managed_block_revision(config_text)
+    if not runtime.get("managedBlockRevision") or managed_block_revision != runtime["managedBlockRevision"]:
+        with dns_protection_health_lock:
+            dns_protection_health.update({"leaseHealthy": False, "message": "DNS-блок, управляемый MihUI, изменён или отсутствует"})
+        return
+    lan = discover_dns_lan_addresses(app_dir, lan_interfaces=runtime["lanInterfaces"])
+    if not lan["ok"] or not dns_runtime_topology_matches(
+        runtime,
+        lan["interfaces"],
+        {"ipv4": lan["ipv4"], "ipv6": lan["ipv6"]},
+    ):
+        with dns_protection_health_lock:
+            dns_protection_health.update({"leaseHealthy": False, "message": "Состав или адреса локальных сетей изменились либо недоступны"})
+        return
+
+    runtime_capabilities = {
+        "ipv6ClientDns": bool(runtime["ipv6"]),
+        "lanInterfaces": list(runtime["lanInterfaces"]),
+        "addresses": {
+            "ipv4": list(runtime["addresses"].get("ipv4", [])),
+            "ipv6": list(runtime["addresses"].get("ipv6", [])),
+        },
+    }
+    groups = get_dns_proxy_groups(app_dir)
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), runtime["proxyGroup"])
+    probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800) if proxy_route["ok"] else {"ok": False}
+    firewall_state = None
+    failed_checks = []
+    if not proxy_route["ok"]:
+        lease = {"ok": False, "message": groups.get("message") or proxy_route["message"]}
+    elif not probe["ok"]:
+        lease = {"ok": False, "message": "Проверка DNS не пройдена"}
+    else:
+        firewall_state = dns_firewall_installed(app_dir, runtime)
+        with dns_protection_health_lock:
+            dns_protection_health.update({
+                "firewallReady": firewall_state["ok"],
+                "lastFirewallCheckAt": int(time.time()),
+            })
+        capabilities = runtime_capabilities
+        if not firewall_state["ok"]:
+            capabilities = collect_dns_protection_capabilities(app_dir, runtime["proxyGroup"])
+            failed_checks = [check for check in capabilities.get("checks", []) if check.get("required") and not check.get("ok")]
+        with config_write_lock:
+            current_block_revision = dns_managed_block_revision(
+                read_config_text(get_config_path(app_dir))
+            )
+            if current_block_revision != runtime["managedBlockRevision"]:
+                lease = {"ok": False, "message": "DNS-блок, управляемый MihUI, изменился во время проверки работоспособности"}
+            elif not firewall_state["ok"] and not capabilities["activationReady"]:
+                lease = {"ok": False, "message": "Предварительная проверка DNS больше не проходит"}
+            elif not firewall_state["ok"]:
+                firewall = ensure_dns_firewall(app_dir, capabilities)
+                lease = (
+                    refresh_dns_firewall_lease(app_dir, capabilities)
+                    if firewall["ok"]
+                    else {"ok": False, "message": firewall["message"]}
+                )
+            else:
+                lease = refresh_dns_firewall_lease(app_dir, capabilities)
+        if not lease["ok"]:
+            with dns_protection_health_lock:
+                dns_protection_health["firewallReady"] = False
+
+    now = int(time.time())
+    message = "DNS-служба Mihomo работает" if lease["ok"] else lease.get("message", "Не удалось продлить разрешение на перехват DNS")
+    with dns_protection_health_lock:
+        previous_healthy = dns_protection_health["leaseHealthy"]
+        failures = 0 if lease["ok"] else int(dns_protection_health["consecutiveFailures"] or 0) + 1
+        dns_protection_health.update({
+            "leaseHealthy": lease["ok"],
+            "lastProbeAt": now,
+            "consecutiveFailures": failures,
+            "message": message,
+        })
+    if previous_healthy != lease["ok"]:
+        append_dns_protection_event(
+            app_dir,
+            "lease_recovered" if lease["ok"] else "lease_degraded",
+            "Разрешение на перехват DNS восстановлено" if lease["ok"] else "Разрешение на перехват DNS больше не продлевается. После истечения его срока новые запросы пойдут к системному DNS; доступность резерва проверяется отдельно",
+            ok=lease["ok"],
+            proxyGroup=runtime["proxyGroup"],
+            consecutiveFailures=failures,
+            diagnostics={
+                "reason": message,
+                "proxyApi": {"ok": groups["ok"], "message": groups.get("message", "")},
+                "proxyRoute": proxy_route,
+                "dnsProbe": probe if proxy_route["ok"] else None,
+                "firewall": firewall_state,
+                "failedChecks": failed_checks,
+                "lease": lease,
+            },
+        )
+
+
+def dns_protection_worker(app_dir):
+    while True:
+        time.sleep(DNS_PROTECTION_REFRESH_SECONDS)
+        with dns_protection_lock:
+            try:
+                run_dns_protection_lease_cycle(Path(app_dir))
+            except Exception as error:
+                with dns_protection_health_lock:
+                    dns_protection_health.update({"leaseHealthy": False, "message": str(error)[:300]})
+
+
+def initialize_dns_protection(app_dir):
+    operation = get_dns_operation(app_dir)
+    if operation and operation.get("running"):
+        write_json_atomic(dns_operation_path(app_dir), {**operation, "running": False,
+            "finishedAt": int(time.time()), "body": {"ok": False, "uncertain": True,
+            "message": "Панель перезапущена во время операции DNS; проверьте текущее состояние"}})
+    thread = threading.Thread(
+        target=dns_protection_worker,
+        args=(Path(app_dir),),
+        daemon=True,
+    )
+    thread.start()
+
+
+def discover_observation_resolvers(directory=Path("/var")):
+    """Read firmware-generated ports; finding a file is not a health check."""
+    candidates = {}
+    unreadable = 0
+    for path in sorted(Path(directory).glob("ndnproxy_*.conf"))[:32]:
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                text = handle.read(131072)
+        except OSError:
+            unreadable += 1
+            continue
+        match = re.search(r"^\s*dns_udp_port\s*=\s*(\d{1,5})\s*(?:#.*)?$", text, re.MULTILINE)
+        port = int(match.group(1)) if match else 0
+        if 1 <= port <= 65535 and port not in {53, DNS_PROTECTION_PORT}:
+            candidates.setdefault(port, []).append(path.name)
+    return {
+        "candidates": [{"address": "127.0.0.1", "port": port, "sources": sources}
+                       for port, sources in sorted(candidates.items())],
+        "unreadableFiles": unreadable,
+    }
+
+
+def read_observation_dns_name(packet, offset):
+    labels, visited, end = [], set(), None
+    while True:
+        if offset in visited or len(visited) >= 128 or offset >= len(packet):
+            raise ValueError("Повреждённое DNS-имя")
+        visited.add(offset)
+        size = packet[offset]
+        if size & 0xC0 == 0xC0:
+            if offset + 1 >= len(packet):
+                raise ValueError("Оборванный указатель DNS")
+            if end is None:
+                end = offset + 2
+            offset = ((size & 0x3F) << 8) | packet[offset + 1]
+            continue
+        if size > 63 or offset + 1 + size > len(packet):
+            raise ValueError("Некорректная длина DNS-имени")
+        offset += 1
+        if not size:
+            return ".".join(labels).lower(), end if end is not None else offset
+        labels.append(packet[offset:offset + size].decode("ascii"))
+        if sum(len(label) + 1 for label in labels) > 254:
+            raise ValueError("Слишком длинное DNS-имя")
+        offset += size
+
+
+def parse_observation_dns_response(packet, query_id, name, qtype):
+    result = parse_dns_response(packet, query_id)
+    if result["questionCount"] != 1 or result["answerCount"] > 128:
+        raise ValueError("Неожиданное количество записей DNS")
+    if struct.unpack_from("!H", packet, 2)[0] & 0x7800:
+        raise ValueError("Неожиданный тип DNS-ответа")
+    question, offset = read_observation_dns_name(packet, 12)
+    if offset + 4 > len(packet) or question != name or struct.unpack_from("!HH", packet, offset) != (qtype, 1):
+        raise ValueError("DNS-ответ относится к другому запросу")
+    offset += 4
+    records, aliases = [], {}
+    for _ in range(result["answerCount"]):
+        owner, offset = read_observation_dns_name(packet, offset)
+        if offset + 10 > len(packet):
+            raise ValueError("Оборванная запись DNS")
+        kind, klass, _, size = struct.unpack_from("!HHIH", packet, offset)
+        offset += 10
+        end = offset + size
+        if end > len(packet):
+            raise ValueError("Оборванные данные DNS")
+        if klass == 1:
+            if kind in {1, 28} and size == (4 if kind == 1 else 16):
+                records.append((owner, kind, str(ipaddress.ip_address(packet[offset:end]))))
+            elif kind == 5:
+                alias, consumed = read_observation_dns_name(packet, offset)
+                if consumed != end:
+                    raise ValueError("Некорректная запись CNAME")
+                aliases[owner] = alias
+        offset = end
+    owners = {name}
+    for _ in range(128):
+        expanded = owners | {aliases[owner] for owner in owners if owner in aliases}
+        if expanded == owners:
+            break
+        owners = expanded
+    result["addresses"] = sorted({address for owner, kind, address in records if owner in owners and kind == qtype})
+    return result
+
+
+def probe_observation_dns(target, entry, qtype, protocol, timeout_ms):
+    started = time.monotonic()
+    deadline = started + timeout_ms / 1000
+    result = {"resolver": target["id"], "port": target["port"], "name": entry["name"],
+              "type": "A" if qtype == 1 else "AAAA", "transport": protocol,
+              "ok": False, "addresses": []}
+    if protocol == "tcp":
+        result["connected"] = False
+    query_id, packet = build_dns_query(entry["name"], qtype=qtype)
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM if protocol == "udp" else socket.SOCK_STREAM) as stream:
+            stream.settimeout(max(0.001, deadline - time.monotonic()))
+            stream.connect(("127.0.0.1", target["port"]))
+            if protocol == "tcp":
+                result["connected"] = True
+            if protocol == "udp":
+                stream.send(packet)
+                response = stream.recv(8192)
+            else:
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+
+                def read_count(size):
+                    chunks = bytearray()
+                    while len(chunks) < size:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError("Истёк тайм-аут запроса DNS")
+                        stream.settimeout(remaining)
+                        chunk = stream.recv(size - len(chunks))
+                        if not chunk:
+                            raise ConnectionError("DNS закрыл соединение до ответа")
+                        chunks.extend(chunk)
+                    return bytes(chunks)
+
+                size = struct.unpack("!H", read_count(2))[0]
+                if size > 8192:
+                    raise ValueError("DNS-ответ превышает предел наблюдения 8 КиБ")
+                response = read_count(size)
+            result.update(parse_observation_dns_response(response, query_id, entry["name"], qtype))
+            result["ok"] = result["rcode"] == 0 and not result["truncated"] and bool(result["addresses"])
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def observation_comparison(probe, baseline, expected):
+    if "error" in probe or probe.get("truncated"):
+        return "incomplete"
+    if expected:
+        return "expected" if probe["ok"] and set(probe["addresses"]) <= set(expected) else "different"
+    if not baseline or not baseline.get("ok"):
+        return "no_baseline"
+    return "same" if probe["ok"] and probe["addresses"] == baseline["addresses"] else "different"
+
+
+def collect_observation_route_context(app_dir):
+    """Only inspect rules. A router-originated probe cannot validate LAN ingress."""
+    tables = {}
+    for family, binary_name in (("ipv4", "iptables"), ("ipv6", "ip6tables")):
+        result = run_dns_tool(find_dns_tool(app_dir, binary_name), ["-t", "nat", "-S"])
+        output = result.get("output", "")
+        lines = [line[:500] for line in output.splitlines()
+                 if line.startswith("-A PREROUTING ") or "MIHUI_DNS" in line or "_DNS" in line]
+        tables[family] = {"available": result["ok"], "rules": lines[:64],
+                          "truncated": len(lines) > 64, "revision": config_revision(output)[:12] if result["ok"] else ""}
+    router = run_dns_tool(find_dns_tool(app_dir, "ndmc"), ["-c", "show running-config"])
+    lines = {line.strip() for line in router.get("output", "").splitlines()}
+    disabled = bool(lines & {"dns-proxy no filter engine", "no dns-proxy filter engine"})
+    configured = any(line.startswith("dns-proxy filter engine ") for line in lines)
+    return {"tables": tables, "filterEngine": "disabled" if router["ok"] and disabled
+            else "configured" if router["ok"] and configured else "unknown",
+            "lanPathVerified": False}
+
+
+def collect_local_dns_observation(app_dir, settings, config_text, previous):
+    discovered = discover_observation_resolvers()
+    runtime = load_dns_protection_runtime(app_dir)
+    summary = summarize_dns_config(config_text)
+    # Keep the applied built-in candidate even when the firmware no longer lists it.
+    applied = DNS_PROTECTION_LOCAL_PORT if has_managed_dns_config(config_text) and f"udp://127.0.0.1:{DNS_PROTECTION_LOCAL_PORT}" in "\n".join(extract_dns_config_block(config_text)) else None
+    ports = sorted({item["port"] for item in discovered["candidates"]})
+    sampled = ([applied] if applied else []) + [port for port in ports if port != applied]
+    sampled = sampled[:3]
+    targets = [{"id": "system", "port": 53}]
+    mihomo_configured = summary.get("enable") == "true" and summary.get("listen") in {":1053", "0.0.0.0:1053", "127.0.0.1:1053", "[::]:1053"}
+    if mihomo_configured:
+        targets.append({"id": "mihomo", "port": DNS_PROTECTION_PORT})
+    targets.extend({"id": f"firmware:{port}", "port": port} for port in sampled)
+    jobs = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for target in targets:
+            for entry in settings["localNames"]:
+                for qtype in (1, 28):
+                    for protocol in ("udp", "tcp"):
+                        jobs.append(pool.submit(probe_observation_dns, target, entry, qtype, protocol, settings["timeoutMs"]))
+        probes = [job.result() for job in jobs]
+    for probe in probes:
+        baseline = next((item for item in probes if item["resolver"] == "system" and
+                         all(item[key] == probe[key] for key in ("name", "type", "transport"))), None)
+        entry = next(item for item in settings["localNames"] if item["name"] == probe["name"])
+        expected = [value for value in entry["expectedAddresses"] if ipaddress.ip_address(value).version == (4 if probe["type"] == "A" else 6)]
+        probe["comparison"] = observation_comparison(probe, baseline, expected)
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()[:64]
+    except OSError:
+        boot_id = ""
+    previous = previous or {}
+    return {
+        "firmware": discovered, "sampledPorts": sampled, "appliedLocalPort": applied,
+        "candidatePorts": ports, "candidatesChanged": "candidatePorts" in previous and previous["candidatePorts"] != ports,
+        "bootId": boot_id, "rebootDetected": bool(boot_id and previous.get("bootId") and previous["bootId"] != boot_id),
+        "requestedMode": runtime["requestedMode"], "mihomoConfigured": mihomo_configured,
+        "names": settings["localNames"], "probes": probes,
+        "route": collect_observation_route_context(app_dir),
+        "notice": "Запросы выполняет роутер, не LAN-клиент. Проверены только A/AAAA. PTR, mDNS и доступность самих сервисов не проверяются.",
+    }
+
+
+def default_dns_lab_settings():
+    return {
+        "enabled": False,
+        "intervalSeconds": 300,
+        "timeoutMs": 4000,
+        "localObservation": False,
+        "localNames": [],
+    }
+
+
+def validate_dns_lab_settings(payload):
+    if not isinstance(payload, dict):
+        raise TypeError("Настройки наблюдения должны быть объектом")
+    interval = payload.get("intervalSeconds")
+    timeout = payload.get("timeoutMs")
+    if isinstance(interval, bool) or not isinstance(interval, int) or not 60 <= interval <= 3600:
+        raise ValueError("Интервал наблюдения должен быть от 60 до 3600 секунд")
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1000 <= timeout <= 10000:
+        raise ValueError("Тайм-аут должен быть от 1000 до 10000 мс")
+    for key in ("enabled", "localObservation"):
+        if key in payload and not isinstance(payload[key], bool):
+            raise ValueError("Переключатели наблюдения должны быть логическими значениями")
+    names = payload.get("localNames", [])
+    if not isinstance(names, list) or len(names) > 4:
+        raise ValueError("Укажите не более четырёх домашних имён")
+    normalized = []
+    for item in names:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError("Для каждой проверки необходимо DNS-имя")
+        try:
+            name = item["name"].strip().rstrip(".").encode("idna").decode("ascii").lower()
+        except UnicodeError as error:
+            raise ValueError("Некорректное DNS-имя") from error
+        if len(name) > 253 or not all(re.fullmatch(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?", label) for label in name.split(".")):
+            raise ValueError("Введите DNS-имя без схемы, порта и пути")
+        expected = item.get("expectedAddresses", [])
+        if not isinstance(expected, list) or len(expected) > 8:
+            raise ValueError("Для имени допустимо не более восьми ожидаемых IP-адресов")
+        try:
+            addresses = sorted({str(ipaddress.ip_address(value)) for value in expected if isinstance(value, str)})
+        except ValueError as error:
+            raise ValueError("Некорректный ожидаемый IP-адрес") from error
+        if any(not isinstance(value, str) for value in expected):
+            raise ValueError("Ожидаемые IP-адреса должны быть строками")
+        if name in {entry["name"] for entry in normalized}:
+            raise ValueError("DNS-имена в списке не должны повторяться")
+        normalized.append({"name": name, "expectedAddresses": addresses})
+    return {
+        "enabled": bool(payload.get("enabled", False)),
+        "intervalSeconds": interval,
+        "timeoutMs": timeout,
+        "localObservation": payload.get("localObservation", False),
+        "localNames": normalized,
+    }
+
+
+def dns_lab_settings_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_SETTINGS_PATH", str(Path(app_dir) / "dns-lab.json")))
+
+
+def dns_lab_runtime_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_RUNTIME_PATH", str(Path(app_dir) / "dns-lab-runtime.json")))
+
+
+def dns_lab_log_path(app_dir):
+    env = get_env(app_dir)
+    return Path(env.get("MIHUI_DNS_LAB_LOG_PATH", str(Path(app_dir) / "dns-lab.jsonl")))
+
+
+def load_dns_lab_settings(app_dir):
+    defaults = default_dns_lab_settings()
+    saved = read_json_file(dns_lab_settings_path(app_dir), {})
+    merged = {key: saved.get(key, value) for key, value in defaults.items()}
+    try:
+        return validate_dns_lab_settings(merged)
+    except (TypeError, ValueError):
+        return defaults
+
+
+def save_dns_lab_settings(app_dir, settings):
+    write_json_atomic(dns_lab_settings_path(app_dir), settings)
+
+
+def default_dns_lab_runtime():
+    return {
+        "state": "idle",
+        "rawState": "idle",
+        "message": "Проверка ещё не выполнялась",
+        "checkedAt": None,
+        "durationMs": None,
+        "consecutiveRawState": 0,
+        "consecutiveHealthy": 0,
+        "consecutiveUnstable": 0,
+        "consecutiveDnsIssue": 0,
+        "whitelistContext": {},
+        "observation": None,
+    }
+
+
+def load_dns_lab_runtime(app_dir):
+    defaults = default_dns_lab_runtime()
+    saved = read_json_file(dns_lab_runtime_path(app_dir), {})
+    return {key: saved.get(key, value) for key, value in defaults.items()}
+
+
+def save_dns_lab_runtime(app_dir, runtime):
+    write_json_atomic(dns_lab_runtime_path(app_dir), runtime)
+
+
+def read_dns_lab_events(app_dir, limit=DNS_LAB_STATUS_EVENT_LIMIT):
+    try:
+        lines = dns_lab_log_path(app_dir).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    events = []
+    for line in lines[-max(1, int(limit)):]:
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def append_dns_lab_event(app_dir, event):
+    path = dns_lab_log_path(app_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if len(lines) > DNS_LAB_EVENT_LIMIT or path.stat().st_size > DNS_LAB_LOG_MAX_BYTES:
+            retained = []
+            retained_bytes = 0
+            for line in reversed(lines[-DNS_LAB_EVENT_LIMIT:]):
+                line_bytes = len(line.encode("utf-8")) + 1
+                if retained and retained_bytes + line_bytes > DNS_LAB_LOG_MAX_BYTES:
+                    break
+                retained.append(line)
+                retained_bytes += line_bytes
+            path.write_text(
+                "\n".join(reversed(retained)) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+
+
+def snapshot_dns_lab_job():
+    with dns_lab_state_lock:
+        return dict(dns_lab_job_state)
+
+
+def get_dns_lab_whitelist_context(app_dir):
+    settings = load_whitelist_monitor_settings(app_dir)
+    runtime = load_whitelist_monitor_runtime(app_dir, settings)
+    fallback_active = has_whitelist_fallback_config(read_config_text(get_config_path(app_dir)))
+    if fallback_active:
+        context_state = "active"
+    elif runtime.get("state") in {"suspected", "confirmed"}:
+        context_state = str(runtime.get("state"))
+    elif settings.get("enabled"):
+        context_state = "normal"
+    else:
+        context_state = "disabled"
+    return {
+        "state": context_state,
+        "monitorEnabled": bool(settings.get("enabled")),
+        "monitorState": str(runtime.get("state") or "idle"),
+        "evidenceState": str(runtime.get("evidenceState") or "none"),
+        "accessMode": str(runtime.get("accessMode") or "unknown"),
+        "fallbackActive": bool(fallback_active),
+        "automaticActionPending": str(runtime.get("automaticActionPending") or ""),
+        "lastConfigAction": str(runtime.get("lastConfigAction") or ""),
+        "lastConfigActionAt": runtime.get("lastConfigActionAt"),
+        "lastConfigActionOk": runtime.get("lastConfigActionOk"),
+    }
+
+
+def extract_dns_config_block(text):
+    lines = str(text or "").splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^(\s*)dns\s*:\s*(?:#.*)?$", line)
+        if not match:
+            continue
+        indent = len(match.group(1))
+        block = []
+        for candidate in lines[index + 1:]:
+            if candidate.strip():
+                candidate_indent = len(candidate) - len(candidate.lstrip(" "))
+                if candidate_indent <= indent:
+                    break
+            block.append(candidate)
+        return block
+    return []
+
+
+def dns_config_scalar(block, key):
+    pattern = re.compile(rf"^\s+{re.escape(key)}\s*:\s*([^#]+?)\s*$")
+    for line in block:
+        match = pattern.match(line)
+        if match:
+            return match.group(1).strip().strip("'\"")
+    return ""
+
+
+def dns_config_list_values(block, key):
+    values = []
+    key_pattern = re.compile(rf"^(\s+){re.escape(key)}\s*:\s*(.*?)\s*$")
+    for index, line in enumerate(block):
+        match = key_pattern.match(line.split("#", 1)[0])
+        if not match:
+            continue
+        indent = len(match.group(1))
+        inline = match.group(2).strip()
+        if inline.startswith("[") and inline.endswith("]"):
+            values.extend(item.strip().strip("'\"") for item in inline[1:-1].split(",") if item.strip())
+        for candidate in block[index + 1:]:
+            clean = candidate.split("#", 1)[0].rstrip()
+            if not clean.strip():
+                continue
+            candidate_indent = len(clean) - len(clean.lstrip(" "))
+            if candidate_indent <= indent:
+                break
+            item = re.match(r"^\s*-\s*(.+?)\s*$", clean)
+            if item:
+                values.append(item.group(1).strip().strip("'\""))
+        break
+    return values
+
+
+def summarize_dns_config(text):
+    block = extract_dns_config_block(text)
+    if not block:
+        return {
+            "hasDns": False,
+            "revision": config_revision(text)[:12],
+            "upstreams": {},
+        }
+    upstreams = {}
+    transports = {}
+    for key in ("default-nameserver", "nameserver", "fallback", "proxy-server-nameserver"):
+        values = dns_config_list_values(block, key)
+        upstreams[key] = len(values)
+        for value in values:
+            scheme = urllib.parse.urlsplit(value).scheme.casefold() if "://" in value else "udp"
+            transports[scheme or "udp"] = transports.get(scheme or "udp", 0) + 1
+    return {
+        "hasDns": True,
+        "revision": config_revision(text)[:12],
+        "enable": dns_config_scalar(block, "enable"),
+        "listen": dns_config_scalar(block, "listen"),
+        "enhancedMode": dns_config_scalar(block, "enhanced-mode"),
+        "preferH3": dns_config_scalar(block, "prefer-h3"),
+        "fallbackLazyQuery": dns_config_scalar(block, "fallback-lazy-query"),
+        "upstreams": upstreams,
+        "transports": transports,
+    }
+
+
+def dns_lab_system_resolver():
+    try:
+        lines = Path("/etc/resolv.conf").read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        match = re.match(r"^\s*nameserver\s+([^\s#]+)", line)
+        if not match:
+            continue
+        try:
+            return str(ipaddress.ip_address(match.group(1)))
+        except ValueError:
+            continue
+    return "127.0.0.1"
+
+
+def dns_lab_decode_proc_address(value):
+    address_hex = value.split(":", 1)[0]
+    try:
+        if len(address_hex) == 8:
+            return socket.inet_ntop(socket.AF_INET, bytes.fromhex(address_hex)[::-1])
+        if address_hex == "0" * 32:
+            return "::"
+    except (OSError, ValueError):
+        pass
+    return "ipv6" if len(address_hex) == 32 else "unknown"
+
+
+def get_port_listeners(port):
+    listeners = []
+    inodes = set()
+    target_port = f"{int(port):04X}"
+    sources = (("udp", "/proc/net/udp"), ("udp6", "/proc/net/udp6"), ("tcp", "/proc/net/tcp"), ("tcp6", "/proc/net/tcp6"))
+    for protocol, source in sources:
+        try:
+            lines = Path(source).read_text(encoding="utf-8", errors="replace").splitlines()[1:]
+        except OSError:
+            continue
+        for line in lines:
+            fields = line.split()
+            if len(fields) < 10 or ":" not in fields[1]:
+                continue
+            local_port = fields[1].rsplit(":", 1)[1]
+            if local_port.upper() != target_port or (protocol.startswith("tcp") and fields[3] != "0A"):
+                continue
+            inode = fields[9]
+            inodes.add(inode)
+            listeners.append({
+                "protocol": protocol,
+                "address": dns_lab_decode_proc_address(fields[1]),
+                "owners": [],
+                "inode": inode,
+            })
+    owners = {inode: set() for inode in inodes}
+    if inodes:
+        for proc_dir in Path("/proc").glob("[0-9]*"):
+            try:
+                name = (proc_dir / "comm").read_text(encoding="utf-8", errors="replace").strip()
+                for fd in (proc_dir / "fd").iterdir():
+                    target = os.readlink(fd)
+                    match = re.fullmatch(r"socket:\[(\d+)\]", target)
+                    if match and match.group(1) in owners:
+                        owners[match.group(1)].add(name or proc_dir.name)
+            except OSError:
+                continue
+    for item in listeners:
+        item["owners"] = sorted(owners.get(item.pop("inode"), set()))
+    return {
+        "available": any(Path(source).is_file() for _, source in sources),
+        "listeners": listeners,
+    }
+
+
+def get_dns_port_listeners():
+    return get_port_listeners(53)
+
+
+def get_dns_lab_system_health(app_dir):
+    health = {"hostname": socket.gethostname()}
+    try:
+        health["loadAverage"] = [round(value, 2) for value in os.getloadavg()]
+    except (AttributeError, OSError):
+        health["loadAverage"] = []
+    try:
+        health["uptimeSeconds"] = int(float(Path("/proc/uptime").read_text().split()[0]))
+    except (OSError, ValueError, IndexError):
+        health["uptimeSeconds"] = None
+    try:
+        memory = {}
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            key, value = line.split(":", 1)
+            if key in {"MemTotal", "MemAvailable"}:
+                memory[key] = int(value.strip().split()[0]) * 1024
+        health["memory"] = {
+            "total": memory.get("MemTotal"),
+            "available": memory.get("MemAvailable"),
+        }
+    except (OSError, ValueError, IndexError):
+        health["memory"] = {}
+    try:
+        disk = shutil.disk_usage(str(app_dir))
+        health["disk"] = {"total": disk.total, "free": disk.free}
+    except OSError:
+        health["disk"] = {}
+    return health
+
+
+def get_dns_lab_services(app_dir):
+    nodes = get_current_nodes(app_dir)
+    node_items = nodes.get("nodes", []) if nodes.get("ok") else []
+    group_items = nodes.get("groups", []) if nodes.get("ok") else []
+    key_groups = []
+    for name in ("PROXY", "FALLBACK", "FASTEST"):
+        group = next((item for item in group_items if item.get("name") == name), None)
+        if group:
+            key_groups.append({
+                "name": name,
+                "type": str(group.get("type") or ""),
+                "candidateCount": len(group.get("all") or []),
+                "hasSelection": bool(group.get("now")),
+                "selectedAlive": group.get("selected", {}).get("alive"),
+            })
+    return {
+        "mihomo": get_mihomo_service_status(app_dir),
+        "xkeen": {key: value for key, value in get_xkeen_service_status(app_dir).items() if key != "detail"},
+        "nodes": {
+            "available": bool(nodes.get("ok")),
+            "total": len(node_items),
+            "alive": sum(item.get("alive") is True for item in node_items),
+            "dead": sum(item.get("alive") is False for item in node_items),
+            "unknown": sum(item.get("alive") is None for item in node_items),
+            "providerCount": len(nodes.get("providers", [])) if nodes.get("ok") else 0,
+        },
+        "groups": key_groups,
+    }
+
+
+def build_dns_query(name=DNS_LAB_QUERY_NAME, qtype=1):
+    query_id = uuid.uuid4().int & 0xFFFF
+    labels = str(name).strip(".").split(".")
+    qname = b"".join(bytes([len(label.encode("idna"))]) + label.encode("idna") for label in labels) + b"\x00"
+    return query_id, struct.pack("!HHHHHH", query_id, 0x0100, 1, 0, 0, 0) + qname + struct.pack("!HH", qtype, 1)
+
+
+def parse_dns_response(payload, query_id):
+    if len(payload) < 12:
+        raise ValueError("short DNS response")
+    response_id, flags, questions, answers, _, _ = struct.unpack("!HHHHHH", payload[:12])
+    if response_id != query_id:
+        raise ValueError("DNS response id mismatch")
+    if not flags & 0x8000:
+        raise ValueError("not a DNS response")
+    return {
+        "rcode": flags & 0x000F,
+        "answerCount": answers,
+        "questionCount": questions,
+        "truncated": bool(flags & 0x0200),
+    }
+
+
+def receive_exact(stream, size):
+    chunks = []
+    remaining = size
+    while remaining:
+        chunk = stream.recv(remaining)
+        if not chunk:
+            raise ConnectionError("connection closed")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def dns_lab_error(error):
+    if isinstance(error, (socket.timeout, TimeoutError)):
+        category = "timeout"
+    elif isinstance(error, ssl.SSLCertVerificationError):
+        category = "certificate"
+    elif isinstance(error, ssl.SSLError):
+        category = "tls"
+    elif isinstance(error, ConnectionRefusedError):
+        category = "refused"
+    elif isinstance(error, OSError) and getattr(error, "errno", None) in {101, 113}:
+        category = "no_route"
+    elif isinstance(error, ConnectionResetError):
+        category = "reset"
+    else:
+        category = "network"
+    return {"category": category, "detail": str(error)[:240]}
+
+
+def probe_dns_lab_plain(target, protocol, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": protocol,
+        "ok": False,
+        "latencyMs": None,
+    }
+    if protocol == "tcp":
+        result["connected"] = False
+    query_id, packet = build_dns_query()
+    family = socket.AF_INET6 if ":" in target["address"] else socket.AF_INET
+    try:
+        if protocol == "udp":
+            with socket.socket(family, socket.SOCK_DGRAM) as stream:
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendto(packet, (target["address"], 53))
+                payload, _ = stream.recvfrom(4096)
+        else:
+            with socket.create_connection((target["address"], 53), timeout=timeout_ms / 1000) as stream:
+                result["connected"] = True
+                stream.settimeout(timeout_ms / 1000)
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                payload_size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, payload_size)
+        parsed = parse_dns_response(payload, query_id)
+        result.update(parsed)
+        result["ok"] = parsed["rcode"] == 0
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+        if protocol == "tcp":
+            result["failureStage"] = "response" if result["connected"] else "connect"
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def probe_dns_lab_dot(target, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": "dot",
+        "ok": False,
+        "latencyMs": None,
+    }
+    query_id, packet = build_dns_query()
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target["address"], 853), timeout=timeout_ms / 1000) as raw:
+            raw.settimeout(timeout_ms / 1000)
+            with context.wrap_socket(raw, server_hostname=target["hostname"]) as stream:
+                stream.sendall(struct.pack("!H", len(packet)) + packet)
+                payload_size = struct.unpack("!H", receive_exact(stream, 2))[0]
+                payload = receive_exact(stream, payload_size)
+                parsed = parse_dns_response(payload, query_id)
+                result.update(parsed)
+                result.update({
+                    "ok": parsed["rcode"] == 0,
+                    "tlsVersion": stream.version() or "",
+                    "cipher": (stream.cipher() or ("",))[0],
+                })
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def decode_http_chunked_body(body):
+    decoded = bytearray()
+    position = 0
+    while True:
+        line_end = body.find(b"\r\n", position)
+        if line_end < 0:
+            raise ValueError("invalid chunked response")
+        try:
+            size = int(body[position:line_end].split(b";", 1)[0], 16)
+        except ValueError as error:
+            raise ValueError("invalid chunk size") from error
+        position = line_end + 2
+        if size == 0:
+            return bytes(decoded)
+        chunk_end = position + size
+        if chunk_end + 2 > len(body) or body[chunk_end:chunk_end + 2] != b"\r\n":
+            raise ValueError("incomplete chunked response")
+        decoded.extend(body[position:chunk_end])
+        position = chunk_end + 2
+
+
+def probe_dns_lab_doh(target, timeout_ms):
+    started = time.monotonic()
+    result = {
+        "id": target["id"],
+        "label": target["label"],
+        "address": target["address"],
+        "transport": "doh",
+        "ok": False,
+        "latencyMs": None,
+    }
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target["address"], 443), timeout=timeout_ms / 1000) as raw:
+            raw.settimeout(timeout_ms / 1000)
+            with context.wrap_socket(raw, server_hostname=target["hostname"]) as stream:
+                request = (
+                    f"GET {target['dohPath']} HTTP/1.1\r\n"
+                    f"Host: {target['hostname']}\r\n"
+                    "Accept: application/dns-json\r\n"
+                    "Connection: close\r\n\r\n"
+                ).encode("ascii")
+                stream.sendall(request)
+                response = b""
+                while len(response) < 65536:
+                    chunk = stream.recv(4096)
+                    if not chunk:
+                        break
+                    response += chunk
+                header_bytes, separator, body = response.partition(b"\r\n\r\n")
+                if not separator:
+                    raise ValueError("incomplete DoH HTTP response")
+                header_text = header_bytes.decode("iso-8859-1", "replace")
+                status_line = header_text.split("\r\n", 1)[0]
+                headers = {}
+                for line in header_text.split("\r\n")[1:]:
+                    if ":" in line:
+                        key, value = line.split(":", 1)
+                        headers[key.strip().casefold()] = value.strip()
+                match = re.match(r"^HTTP/\d(?:\.\d)?\s+(\d{3})", status_line)
+                if not match:
+                    raise ValueError("invalid DoH HTTP response")
+                status = int(match.group(1))
+                if "chunked" in headers.get("transfer-encoding", "").casefold():
+                    body = decode_http_chunked_body(body)
+                try:
+                    payload = json.loads(body.decode("utf-8", "replace"))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("invalid DoH JSON response") from error
+                dns_status = payload.get("Status") if isinstance(payload, dict) else None
+                answers = payload.get("Answer") if isinstance(payload, dict) else None
+                result.update({
+                    "ok": status == 200 and dns_status == 0,
+                    "httpStatus": status,
+                    "dnsStatus": dns_status,
+                    "answerCount": len(answers) if isinstance(answers, list) else 0,
+                    "tlsVersion": stream.version() or "",
+                    "cipher": (stream.cipher() or ("",))[0],
+                })
+    except Exception as error:
+        result["error"] = dns_lab_error(error)
+    result["latencyMs"] = max(1, round((time.monotonic() - started) * 1000))
+    return result
+
+
+def run_dns_lab_network_probes(timeout_ms):
+    system_target = {
+        "id": "system",
+        "label": "Системный DNS",
+        "address": dns_lab_system_resolver(),
+    }
+    plain_targets = [system_target, *DNS_LAB_PLAIN_TARGETS]
+    jobs = []
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        for target in plain_targets:
+            for protocol in ("udp", "tcp"):
+                jobs.append(("plain", pool.submit(probe_dns_lab_plain, target, protocol, timeout_ms)))
+        for target in DNS_LAB_ENCRYPTED_TARGETS:
+            jobs.append(("encrypted", pool.submit(probe_dns_lab_dot, target, timeout_ms)))
+            jobs.append(("encrypted", pool.submit(probe_dns_lab_doh, target, timeout_ms)))
+        plain = []
+        encrypted = []
+        for kind, future in jobs:
+            result = future.result()
+            (plain if kind == "plain" else encrypted).append(result)
+    return {"plain": plain, "encrypted": encrypted}
+
+
+def classify_dns_lab_cycle(probes, previous_runtime):
+    plain = probes.get("plain", [])
+    encrypted = probes.get("encrypted", [])
+    system = [item for item in plain if item.get("id") == "system"]
+    public_plain = [item for item in plain if item.get("id") != "system"]
+    dot = [item for item in encrypted if item.get("transport") == "dot"]
+    doh = [item for item in encrypted if item.get("transport") == "doh"]
+    system_ok = sum(item.get("ok") is True for item in system)
+    public_plain_ok = sum(item.get("ok") is True for item in public_plain)
+    dot_ok = sum(item.get("ok") is True for item in dot)
+    doh_ok = sum(item.get("ok") is True for item in doh)
+    public_ok = public_plain_ok + dot_ok + doh_ok
+    system_udp = next((item for item in system if item.get("transport") == "udp"), None)
+    system_tcp = next((item for item in system if item.get("transport") == "tcp"), None)
+
+    if public_ok <= 1:
+        raw_state = "link_unstable"
+        raw_message = "Одновременно недоступны разные DNS-транспорты: вероятнее нестабильность канала"
+    elif system_ok == 0 and doh_ok >= 1:
+        raw_state = "dns_issue"
+        raw_message = "Системный DNS не отвечает, хотя DNS-over-HTTPS доступен"
+    elif (
+        system_udp
+        and system_udp.get("ok") is True
+        and system_tcp
+        and system_tcp.get("ok") is not True
+        and system_tcp.get("connected") is True
+        and public_plain_ok >= 4
+        and (dot_ok >= 1 or doh_ok >= 1)
+    ):
+        raw_state = "upstream_limited"
+        raw_message = (
+            "Системный DNS принимает TCP-соединение, но внешний запрос остаётся без ответа; "
+            "вероятно, upstream не обслуживает TCP"
+        )
+    elif system_ok == 2 and public_plain_ok >= 4 and (dot_ok == 0 or doh_ok == 0):
+        raw_state = "selective"
+        if dot_ok == 0 and doh_ok >= 1:
+            raw_message = "Обычный DNS и DoH работают, а DNS-over-TLS недоступен"
+        elif doh_ok == 0 and dot_ok >= 1:
+            raw_message = "Обычный DNS и DoT работают, а DNS-over-HTTPS недоступен"
+        else:
+            raw_message = "Обычный DNS работает, а зашифрованные DNS-транспорты недоступны"
+    elif system_ok == 2 and public_plain_ok >= 4:
+        raw_state = "healthy"
+        raw_message = "Системный и публичный DNS отвечают"
+    else:
+        raw_state = "degraded"
+        raw_message = "Часть DNS-проверок завершилась сбоем"
+
+    previous_raw = str(previous_runtime.get("rawState") or "idle")
+    consecutive = int(previous_runtime.get("consecutiveRawState") or 0) + 1 if previous_raw == raw_state else 1
+    if raw_state in {"link_unstable", "dns_issue", "upstream_limited", "selective", "degraded"} and consecutive < 2:
+        state = "observing"
+        message = f"Единичное наблюдение: {raw_message.lower()}. Нужен повторный цикл"
+    else:
+        state = raw_state
+        message = raw_message
+    return {
+        "state": state,
+        "rawState": raw_state,
+        "message": message,
+        "consecutiveRawState": consecutive,
+        "consecutiveHealthy": int(previous_runtime.get("consecutiveHealthy") or 0) + 1 if raw_state == "healthy" else 0,
+        "consecutiveUnstable": int(previous_runtime.get("consecutiveUnstable") or 0) + 1 if raw_state == "link_unstable" else 0,
+        "consecutiveDnsIssue": int(previous_runtime.get("consecutiveDnsIssue") or 0) + 1 if raw_state in {"dns_issue", "upstream_limited", "selective"} else 0,
+        "counts": {
+            "systemOk": system_ok,
+            "systemTotal": len(system),
+            "publicPlainOk": public_plain_ok,
+            "publicPlainTotal": len(public_plain),
+            "dotOk": dot_ok,
+            "dotTotal": len(dot),
+            "dohOk": doh_ok,
+            "dohTotal": len(doh),
+        },
+    }
+
+
+def run_dns_lab_cycle(app_dir):
+    with dns_lab_lock:
+        started = time.monotonic()
+        checked_at = int(time.time())
+        settings = load_dns_lab_settings(app_dir)
+        previous_runtime = load_dns_lab_runtime(app_dir)
+        whitelist_context = get_dns_lab_whitelist_context(app_dir)
+        probes = run_dns_lab_network_probes(settings["timeoutMs"])
+        classification = classify_dns_lab_cycle(probes, previous_runtime)
+        config_text = read_config_text(get_config_path(app_dir))
+        event = {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "timestamp": checked_at,
+            "type": "measurement",
+            "state": classification["state"],
+            "rawState": classification["rawState"],
+            "message": classification["message"],
+            "consecutiveRawState": classification["consecutiveRawState"],
+            "counts": classification["counts"],
+            "routeContext": "system",
+            "routeWarning": "Системный маршрут роутера может перехватываться XKeen; результат не доказывает DIRECT",
+            "queryName": DNS_LAB_QUERY_NAME,
+            "probes": probes,
+            "whitelist": {
+                **whitelist_context,
+                "changed": whitelist_context.get("state") != previous_runtime.get("whitelistContext", {}).get("state"),
+                "previousState": previous_runtime.get("whitelistContext", {}).get("state"),
+            },
+            "config": summarize_dns_config(config_text),
+            "port53": get_dns_port_listeners(),
+            "services": get_dns_lab_services(app_dir),
+            "system": get_dns_lab_system_health(app_dir),
+        }
+        event["durationMs"] = max(1, round((time.monotonic() - started) * 1000))
+        if settings["localObservation"]:
+            event["observation"] = collect_local_dns_observation(app_dir, settings, config_text, previous_runtime.get("observation"))
+            event["finishedTimestamp"] = int(time.time())
+            event["whitelistEnd"] = get_dns_lab_whitelist_context(app_dir)
+            event["contextChangedDuringMeasurement"] = (
+                any(event["whitelistEnd"].get(key) != whitelist_context.get(key)
+                    for key in ("state", "fallbackActive", "accessMode"))
+                or config_revision(read_config_text(get_config_path(app_dir))) != config_revision(config_text)
+            )
+            event["durationMs"] = max(1, round((time.monotonic() - started) * 1000))
+        runtime = {
+            "state": classification["state"],
+            "rawState": classification["rawState"],
+            "message": classification["message"],
+            "checkedAt": checked_at,
+            "durationMs": event["durationMs"],
+            "consecutiveRawState": classification["consecutiveRawState"],
+            "consecutiveHealthy": classification["consecutiveHealthy"],
+            "consecutiveUnstable": classification["consecutiveUnstable"],
+            "consecutiveDnsIssue": classification["consecutiveDnsIssue"],
+            "whitelistContext": whitelist_context,
+            "observation": {key: event["observation"][key] for key in ("candidatePorts", "bootId")}
+            if "observation" in event else None,
+        }
+        append_dns_lab_event(app_dir, event)
+        save_dns_lab_runtime(app_dir, runtime)
+        return event
+
+
+def run_dns_lab_job(app_dir):
+    error_message = ""
+    try:
+        run_dns_lab_cycle(app_dir)
+    except Exception as error:
+        error_message = str(error)[:500]
+        checked_at = int(time.time())
+        runtime = load_dns_lab_runtime(app_dir)
+        runtime.update({
+            "state": "error",
+            "rawState": "error",
+            "message": error_message,
+            "checkedAt": checked_at,
+        })
+        save_dns_lab_runtime(app_dir, runtime)
+        append_dns_lab_event(app_dir, {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "timestamp": checked_at,
+            "type": "internal_error",
+            "state": "error",
+            "rawState": "error",
+            "message": error_message,
+            "routeContext": "system",
+            "whitelist": get_dns_lab_whitelist_context(app_dir),
+        })
+    finally:
+        with dns_lab_state_lock:
+            dns_lab_job_state.update({
+                "running": False,
+                "finishedAt": int(time.time()),
+                "error": error_message,
+            })
+
+
+def start_dns_lab_check(app_dir):
+    with dns_lab_state_lock:
+        if dns_lab_job_state["running"]:
+            return {"ok": False, "message": "Замер DNS уже выполняется", "job": dict(dns_lab_job_state)}
+        dns_lab_job_state.update({
+            "running": True,
+            "startedAt": int(time.time()),
+            "finishedAt": None,
+            "error": "",
+        })
+    thread = threading.Thread(target=run_dns_lab_job, args=(Path(app_dir),), daemon=True)
+    thread.start()
+    return {"ok": True, "job": snapshot_dns_lab_job()}
+
+
+def get_dns_lab_status(app_dir, event_limit=DNS_LAB_STATUS_EVENT_LIMIT):
+    events = read_dns_lab_events(app_dir, limit=event_limit)
+    return {
+        "ok": True,
+        "config": load_dns_lab_settings(app_dir),
+        "runtime": load_dns_lab_runtime(app_dir),
+        "events": events,
+        "latest": events[-1] if events else None,
+        "job": snapshot_dns_lab_job(),
+    }
+
+
+def dns_lab_worker(app_dir):
+    while True:
+        time.sleep(5)
+        settings = load_dns_lab_settings(app_dir)
+        if not settings["enabled"] or not settings["localObservation"] or snapshot_dns_lab_job()["running"]:
+            continue
+        runtime = load_dns_lab_runtime(app_dir)
+        checked_at = runtime.get("checkedAt")
+        now = int(time.time())
+        if not isinstance(checked_at, (int, float)) or checked_at > now or now - int(checked_at) >= settings["intervalSeconds"]:
+            start_dns_lab_check(app_dir)
+
+
+def initialize_dns_lab(app_dir):
+    thread = threading.Thread(target=dns_lab_worker, args=(Path(app_dir),), daemon=True)
     thread.start()
 
 
@@ -5374,6 +11303,8 @@ def normalize_current_group_selections(proxies):
                 "now": now,
                 "all": [str(option) for option in options] if isinstance(options, list) else [],
                 "selected": normalize_selected_group_proxy(selected),
+                **({"fixed": item["fixed"]} if str(item.get("type") or "").casefold() == "smart"
+                   and isinstance(item.get("fixed"), str) else {}),
             }
         )
 
@@ -5523,8 +11454,20 @@ def reload_mihomo(app_dir, config_path):
             "stage": "prepare",
             "uncertain": False,
             "path": current_path,
-            "message": f"Mihomo uses a different config path: {current_path}",
+            "message": f"Mihomo использует другой путь конфигурации: {current_path}",
         }
+
+    previous_select_groups = set()
+    if has_config_smart_groups(read_config_text(config_path)):
+        try:
+            previous = load_proxy_groups(app_dir)
+            previous_select_groups = {
+                name for name, proxy in previous.items()
+                if isinstance(proxy, dict) and str(proxy.get("type") or "").casefold() in {"select", "selector"}
+            }
+        except Exception as error:
+            return {"ok": False, "method": "mihomo-api", "stage": "prepare", "uncertain": False,
+                    "message": f"Не удалось проверить группы перед применением: {error}"}
 
     try:
         mihomo_api_request(
@@ -5571,10 +11514,10 @@ def reload_mihomo(app_dir, config_path):
             "stage": "verify",
             "uncertain": True,
             "path": confirmed_path,
-            "message": "Mihomo did not confirm the applied config path",
+            "message": "Mihomo не подтвердил путь применённой конфигурации",
         }
 
-    return {
+    result = {
         "ok": True,
         "verified": True,
         "method": "mihomo-api",
@@ -5582,6 +11525,26 @@ def reload_mihomo(app_dir, config_path):
         "pathConfirmed": bool(confirmed_path),
         "version": str(version.get("version") or "") if isinstance(version, dict) else "",
     }
+    if previous_select_groups:
+        cleared = []
+        errors = []
+        try:
+            proxies = load_proxy_groups(app_dir)
+            for group in sorted(previous_select_groups):
+                proxy = proxies.get(group)
+                if not isinstance(proxy, dict) or str(proxy.get("type") or "").casefold() != "smart":
+                    continue
+                reset = reset_smart_proxy_group(app_dir, group)
+                if reset["ok"]:
+                    cleared.append(group)
+                else:
+                    errors.append(f"{group}: {reset['message']}")
+        except Exception as error:
+            errors.append(str(error))
+        result["smartReset"] = {"ok": not errors, "groups": cleared}
+        if errors:
+            result["smartReset"]["message"] = "Не удалось включить автовыбор Smart. В разделе «Ноды» нажмите «Включить автовыбор». " + "; ".join(errors)
+    return result
 
 
 def same_config_path(left, right):
@@ -5703,9 +11666,16 @@ def run_update_script(app_dir):
             update_state["phase"] = phase
             update_state["progress"] = progress
 
-    status, headers, body, returncode = run_cgi_script(app_dir, progress_callback=report_progress)
-    message = body.decode("utf-8", "replace").strip()
-    success = returncode == 0 and 200 <= int(status) < 300
+    try:
+        status, headers, body, returncode = run_cgi_script(app_dir, progress_callback=report_progress)
+        message = body.decode("utf-8", "replace").strip()
+        success = returncode == 0 and 200 <= int(status) < 300
+    except subprocess.TimeoutExpired:
+        success = False
+        message = "Обновление остановлено: превышено время ожидания (5 минут)"
+    except Exception as error:
+        success = False
+        message = f"Не удалось выполнить обновление: {error}"
 
     with update_lock:
         update_state.update(
@@ -5714,7 +11684,7 @@ def run_update_script(app_dir):
                 "ok": success,
                 "phase": "complete" if success else "failed",
                 "progress": 100 if success else update_state["progress"],
-                "message": message or ("updated" if returncode == 0 else "failed"),
+                "message": message or ("Обновление завершено" if returncode == 0 else "Обновление не выполнено"),
                 "finishedAt": int(time.time()),
                 "output": message,
             }
@@ -5724,7 +11694,7 @@ def run_update_script(app_dir):
 def run_cgi_script(app_dir, progress_callback=None):
     script = app_dir / "www" / "cgi-bin" / "mihui-update"
     if not script.is_file():
-        body = b'{"ok":false,"message":"update script not found"}\n'
+        body = '{"ok":false,"message":"Скрипт обновления не найден"}\n'.encode("utf-8")
         return HTTPStatus.INTERNAL_SERVER_ERROR, [("Content-Type", "application/json")], body, 1
 
     env = os.environ.copy()
@@ -5748,22 +11718,25 @@ def run_cgi_script(app_dir, progress_callback=None):
         f"mihui-update-progress-{os.getpid()}-{threading.get_ident()}"
     )
     env["MIHUI_PROGRESS_FILE"] = str(progress_file)
+    process_options = {}
+    if os.name == "posix":
+        process_options["start_new_session"] = True
     process = subprocess.Popen(
         command,
         cwd=str(app_dir),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        **process_options,
     )
-    deadline = time.monotonic() + 300
+    deadline = time.monotonic() + MIHUI_UPDATE_TIMEOUT
     last_progress = ""
     try:
         while process.poll() is None:
             last_progress = report_update_progress(progress_file, progress_callback, last_progress)
             if time.monotonic() >= deadline:
-                process.kill()
-                output, _ = process.communicate()
-                raise subprocess.TimeoutExpired(command, 300, output=output)
+                output = terminate_update_process(process)
+                raise subprocess.TimeoutExpired(command, MIHUI_UPDATE_TIMEOUT, output=output)
             time.sleep(0.2)
         output, _ = process.communicate()
         report_update_progress(progress_file, progress_callback, last_progress)
@@ -5775,6 +11748,31 @@ def run_cgi_script(app_dir, progress_callback=None):
 
     status, headers, body = parse_cgi_response(output)
     return status, headers, body, process.returncode
+
+
+def terminate_update_process(process):
+    if process.poll() is None:
+        try:
+            if os.name == "posix":
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except ProcessLookupError:
+            pass
+
+    try:
+        output, _ = process.communicate(timeout=3)
+        return output
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        else:
+            process.kill()
+        output, _ = process.communicate()
+        return output
 
 
 def report_update_progress(progress_file, callback, previous=""):
@@ -5837,7 +11835,7 @@ def initialize_update_state(app_dir):
         return
 
     version = read_version(app_dir)
-    message = f"MihUI updated to {version}" if version else "MihUI updated"
+    message = f"MihUI обновлён до {version}" if version else "MihUI обновлён"
     with update_lock:
         update_state.update(
             {
@@ -5865,6 +11863,8 @@ def main():
     initialize_update_state(app_dir)
     initialize_resource_monitor(app_dir)
     initialize_whitelist_monitor(app_dir)
+    initialize_dns_protection(app_dir)
+    initialize_dns_lab(app_dir)
 
     handler = lambda *handler_args, **handler_kwargs: MihuiHandler(
         *handler_args,

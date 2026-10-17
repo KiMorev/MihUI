@@ -7,7 +7,7 @@ INSTALL_DIR="${MIHUI_DIR:-/opt/etc/mihui}"
 INIT_DIR="${MIHUI_INIT_DIR:-/opt/etc/init.d}"
 INIT_SCRIPT="$INIT_DIR/S99mihui"
 LOG_DIR="${MIHUI_LOG_DIR:-/opt/var/log/mihui}"
-RUN_DIR="${MIHUI_RUN_DIR:-/opt/var/run}"
+RUN_DIR="${MIHUI_RUN_DIR:-/var/run}"
 ENV_FILE="$INSTALL_DIR/mihui.env"
 PID_FILE="$RUN_DIR/mihui.pid"
 PYTHON_BIN="${MIHUI_PYTHON_BIN:-/opt/bin/python3}"
@@ -226,13 +226,14 @@ package_from_source_tree() {
   [ -f "$source_dir/app.js" ] || return 1
   [ -f "$source_dir/mihomo-editor.html" ] || return 1
   [ -f "$source_dir/router/cgi-bin/mihui-update" ] || return 1
+  [ -f "$source_dir/router/cgi-bin/mihui-service" ] || return 1
   [ -f "$source_dir/router/mihui_server.py" ] || return 1
   [ -f "$source_dir/router/uninstall.sh" ] || return 1
 
   mkdir -p "$target_dir/www" "$target_dir/cgi-bin"
   cp "$source_dir/index.html" "$source_dir/styles.css" "$source_dir/app.js" "$source_dir/mihomo-editor.html" "$target_dir/www/"
   [ -d "$source_dir/happ-decryptor" ] && cp -R "$source_dir/happ-decryptor" "$target_dir/www/"
-  cp "$source_dir/router/cgi-bin/mihui-update" "$target_dir/cgi-bin/"
+  cp "$source_dir/router/cgi-bin/mihui-update" "$source_dir/router/cgi-bin/mihui-service" "$target_dir/cgi-bin/"
   cp "$source_dir/router/mihui_server.py" "$target_dir/"
   cp "$source_dir/router/uninstall.sh" "$target_dir/"
   if [ -d "$source_dir/bin" ]; then
@@ -355,6 +356,7 @@ validate_package() {
   [ -f "$PACKAGE_DIR/www/styles.css" ] || fail "package does not contain www/styles.css"
   [ -f "$PACKAGE_DIR/www/app.js" ] || fail "package does not contain www/app.js"
   [ -f "$PACKAGE_DIR/cgi-bin/mihui-update" ] || fail "package does not contain cgi-bin/mihui-update"
+  [ -f "$PACKAGE_DIR/cgi-bin/mihui-service" ] || fail "package does not contain cgi-bin/mihui-service"
   [ -f "$PACKAGE_DIR/mihui_server.py" ] || fail "package does not contain mihui_server.py"
   [ -f "$PACKAGE_DIR/uninstall.sh" ] || fail "package does not contain uninstall.sh"
 }
@@ -366,6 +368,7 @@ MIHUI_RELEASE_URL="$RELEASE_URL"
 MIHUI_DOWNLOAD_URLS="$DOWNLOAD_URLS"
 MIHUI_MONITOR_LOG_PATH="$LOG_DIR/resource-monitor.jsonl"
 MIHUI_PYTHON_BIN="$PYTHON_BIN"
+MIHUI_INIT_SCRIPT="$INIT_SCRIPT"
 EOF
 }
 
@@ -386,16 +389,59 @@ PYTHON_BIN="$PYTHON_BIN"
 PORT="$SELECTED_PORT"
 LOG_FILE="\$LOG_DIR/server.log"
 RESTART_DELAY=5
+SERVICE_SCRIPT="\${0##*/}"
 
 [ -f /opt/etc/profile ] && . /opt/etc/profile
 [ -f "\$ENV_FILE" ] && . "\$ENV_FILE"
 [ -n "\${MIHUI_PORT:-}" ] && PORT="\$MIHUI_PORT"
 [ -n "\${MIHUI_PYTHON_BIN:-}" ] && PYTHON_BIN="\$MIHUI_PYTHON_BIN"
 
+pid_matches() (
+  pid="\$1"
+  expected="\$2"
+  case "\$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  kill -0 "\$pid" 2>/dev/null || return 1
+  [ -r "/proc/\$pid/cmdline" ] || return 1
+  command_line=\$(tr '\\000' '\\n' < "/proc/\$pid/cmdline" 2>/dev/null || true)
+  if [ "\$expected" = "\$SERVER_PY" ]; then
+    command_prefix="\$PYTHON_BIN
+\$SERVER_PY"
+  else
+    executable=\${command_line%%'
+'*}
+    case "\$executable" in sh|/bin/sh|/opt/bin/sh) ;; *) return 1 ;; esac
+    command_prefix="\$executable
+\$0
+supervise"
+  fi
+  case "\$command_line" in
+    "\$command_prefix"|"\$command_prefix
+"*) return 0 ;;
+  esac
+  return 1
+)
+
+pid_file_matches() {
+  [ -f "\$1" ] || return 1
+  pid_matches "\$(cat "\$1" 2>/dev/null || true)" "\$2"
+}
+
+process_pids() {
+  for command_file in /proc/[0-9]*/cmdline; do
+    process_pid=\${command_file#/proc/}
+    process_pid=\${process_pid%/cmdline}
+    pid_matches "\$process_pid" "\$1" && printf '%s\\n' "\$process_pid"
+  done
+}
+
 is_running() {
-  [ -f "\$PID_FILE" ] || return 1
-  pid=\$(cat "\$PID_FILE" 2>/dev/null || true)
-  [ -n "\$pid" ] && kill -0 "\$pid" 2>/dev/null
+  pid_file_matches "\$PID_FILE" "\$SERVICE_SCRIPT supervise"
+}
+
+server_is_running() {
+  pid_file_matches "\$CHILD_PID_FILE" "\$SERVER_PY"
 }
 
 supervise() {
@@ -452,10 +498,10 @@ start() {
     exit 1
   }
 
-  if is_running; then
+  if is_running && server_is_running; then
     exit 0
   fi
-  rm -f "\$PID_FILE"
+  stop
 
   if command -v nohup >/dev/null 2>&1; then
     nohup sh "\$0" supervise >> "\$LOG_FILE" 2>&1 &
@@ -466,32 +512,33 @@ start() {
 
   echo \$! > "\$PID_FILE"
   sleep 1
-  is_running || {
-    rm -f "\$PID_FILE"
+  { is_running && server_is_running; } || {
+    stop
     printf 'MihUI server failed to start\n' >> "\$LOG_FILE"
     exit 1
   }
 }
 
 stop() {
-  supervisor_pid=""
-  child_pid=""
-  if is_running; then
-    supervisor_pid=\$(cat "\$PID_FILE")
-  fi
-  if [ -f "\$CHILD_PID_FILE" ]; then
-    child_pid=\$(cat "\$CHILD_PID_FILE" 2>/dev/null || true)
-  fi
-  if [ -n "\$supervisor_pid" ]; then
-    kill "\$supervisor_pid" 2>/dev/null || true
-  fi
-  if [ -n "\$child_pid" ]; then
-    kill "\$child_pid" 2>/dev/null || true
-  fi
-  if [ -n "\$supervisor_pid" ] || [ -n "\$child_pid" ]; then
+  supervisor_pids=\$(process_pids "\$SERVICE_SCRIPT supervise")
+  for supervisor_pid in \$supervisor_pids; do
+    pid_matches "\$supervisor_pid" "\$SERVICE_SCRIPT supervise" && kill "\$supervisor_pid" 2>/dev/null || true
+  done
+  if [ -n "\$supervisor_pids" ]; then
     sleep 1
-    [ -n "\$child_pid" ] && kill -0 "\$child_pid" 2>/dev/null && kill -9 "\$child_pid" 2>/dev/null || true
-    [ -n "\$supervisor_pid" ] && kill -0 "\$supervisor_pid" 2>/dev/null && kill -9 "\$supervisor_pid" 2>/dev/null || true
+    for supervisor_pid in \$supervisor_pids; do
+      pid_matches "\$supervisor_pid" "\$SERVICE_SCRIPT supervise" && kill -9 "\$supervisor_pid" 2>/dev/null || true
+    done
+  fi
+  child_pids=\$(process_pids "\$SERVER_PY")
+  for child_pid in \$child_pids; do
+    pid_matches "\$child_pid" "\$SERVER_PY" && kill "\$child_pid" 2>/dev/null || true
+  done
+  if [ -n "\$child_pids" ]; then
+    sleep 1
+    for child_pid in \$child_pids; do
+      pid_matches "\$child_pid" "\$SERVER_PY" && kill -9 "\$child_pid" 2>/dev/null || true
+    done
   fi
   rm -f "\$PID_FILE" "\$CHILD_PID_FILE"
 }
@@ -502,7 +549,7 @@ case "\${1:-start}" in
   restart) stop; start ;;
   supervise) supervise ;;
   status)
-    if is_running; then
+    if is_running && server_is_running; then
       echo "MihUI is running on port \$PORT"
     else
       echo "MihUI is stopped"

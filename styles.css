@@ -4256,6 +4256,10 @@ body.component-manager-open {
   white-space: nowrap;
 }
 
+.resource-monitor-actions .button + .button {
+  margin-left: 6px;
+}
+
 .resource-monitor-table td:last-child .button {
   opacity: 0;
 }
@@ -4354,7 +4358,7 @@ body.component-manager-open {
 .resource-monitor-dialog-surface {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  max-height: calc(100vh - 30px);
+  max-height: min(798px, calc(100vh - 30px));
 }
 
 .resource-monitor-dialog-head,
@@ -4444,6 +4448,13 @@ body.component-manager-open {
 }
 
 .resource-monitor-source-head > strong {
+  font-size: 12px;
+}
+
+.resource-monitor-mode {
+  width: auto;
+  max-width: 65%;
+  min-height: 36px;
   font-size: 12px;
 }
 
@@ -4850,6 +4861,63 @@ body.component-manager-open {
   padding: 18px;
 }
 
+.whitelist-domain-list-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 18px;
+}
+
+.whitelist-domain-list-copy {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+.whitelist-domain-list-copy h3,
+.whitelist-domain-list-copy p {
+  margin: 0;
+}
+
+.whitelist-domain-list-copy h3 {
+  font-size: 14px;
+}
+
+.whitelist-domain-list-copy p,
+.whitelist-domain-list-copy a {
+  font-size: 11px;
+}
+
+.whitelist-domain-list-copy p {
+  color: var(--muted);
+}
+
+.whitelist-domain-list-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(100px, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+.whitelist-domain-list-metrics div {
+  display: grid;
+  gap: 2px;
+}
+
+.whitelist-domain-list-metrics dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.whitelist-domain-list-metrics dd {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
 .whitelist-monitor-state-copy {
   display: grid;
   justify-items: start;
@@ -5114,6 +5182,829 @@ body.component-manager-open {
   color: var(--danger);
   font-size: 12px;
   font-weight: 650;
+}
+
+.dns-protection-section {
+  display: grid;
+  gap: 14px;
+}
+
+.dns-protection-section .dns-protection-status-card {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.dns-disclosure > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 0;
+}
+
+.dns-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+.dns-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+
+.dns-status-details {
+  border-top: 1px solid var(--line);
+}
+
+.dns-protection-section > details.dns-disclosure {
+  display: block;
+  padding: 4px 18px;
+}
+
+.dns-diagnostics > .panel {
+  border: 0;
+  box-shadow: none;
+  padding: 16px 0;
+}
+
+.dns-protection-section .dns-protection-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 20px;
+}
+
+.dns-protection-actions > div {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.dns-flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dns-flow-steps [aria-current='step'] {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.dns-protection-actions .dns-flow-hint {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.dns-protection-actions button[hidden] {
+  display: none;
+}
+
+.dns-protection-page-head,
+.dns-protection-block-head,
+.dns-protection-actions,
+.dns-protection-actions > div,
+.dns-protection-journal-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dns-protection-page-head h2,
+.dns-protection-page-head p,
+.dns-protection-block-head h3,
+.dns-protection-block-head p,
+.dns-protection-state-copy h3,
+.dns-protection-state-copy p,
+.dns-protection-strict-options p,
+.dns-protection-warning-list p {
+  margin: 0;
+}
+
+.dns-protection-page-head h2 {
+  font-size: 20px;
+}
+
+.dns-protection-page-head p,
+.dns-protection-block-head p,
+.dns-protection-state-copy p,
+.dns-protection-strict-options p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-block-head {
+  align-items: flex-start;
+}
+
+.dns-protection-block-head h3,
+.dns-protection-state-copy h3 {
+  font-size: 14px;
+}
+
+.dns-protection-status-card {
+  display: grid;
+  grid-template-columns: minmax(260px, .85fr) minmax(380px, 1.15fr);
+  gap: 18px 24px;
+  padding: 18px;
+}
+
+.dns-protection-state-copy {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 6px;
+}
+
+.dns-protection-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.dns-protection-state,
+.dns-protection-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--panel-soft);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.dns-protection-state::before,
+.dns-protection-context::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  content: "";
+}
+
+.dns-protection-state.is-active,
+.dns-protection-context.is-ready {
+  color: #157347;
+  background: #edf9f1;
+}
+
+.dns-protection-state.is-active::before,
+.dns-protection-context.is-ready::before {
+  background: var(--success);
+}
+
+.dns-protection-state.is-test,
+.dns-protection-state.is-fallback {
+  color: var(--warning);
+  background: #fff8e8;
+}
+
+.dns-protection-state.is-test::before,
+.dns-protection-state.is-fallback::before {
+  background: var(--warning);
+}
+
+.dns-protection-state.is-error,
+.dns-protection-context.is-error {
+  color: var(--danger);
+  background: #fff1f1;
+}
+
+.dns-protection-state.is-error::before,
+.dns-protection-context.is-error::before {
+  background: var(--danger);
+}
+
+.dns-protection-route {
+  display: grid;
+  align-content: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #bfe4e3;
+  border-radius: 11px;
+  background: #f2fbfa;
+}
+
+.dns-protection-route-main {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto minmax(120px, 1.25fr) auto minmax(105px, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.dns-protection-route-main span {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #d5e9e8;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 750;
+  text-align: center;
+}
+
+.dns-protection-route-main b {
+  color: var(--accent);
+}
+
+.dns-protection-route-fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-route-fallback strong {
+  color: var(--warning);
+}
+
+.dns-protection-metrics {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(6, minmax(95px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.dns-protection-metrics div,
+.dns-protection-router-grid div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dns-protection-metrics dt,
+.dns-protection-router-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dns-protection-metrics dd,
+.dns-protection-router-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.dns-protection-profile-card,
+.dns-protection-preflight-card,
+.dns-protection-router-card,
+.dns-protection-exclusions-card,
+.dns-protection-journal {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.dns-protection-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dns-protection-profile {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.dns-protection-profile:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  background: #f3fbfa;
+}
+
+.dns-protection-profile input[type='radio'] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.dns-protection-profile > span {
+  display: grid;
+  gap: 5px;
+}
+
+.dns-protection-profile strong {
+  font-size: 13px;
+}
+
+.dns-protection-profile strong small {
+  margin-left: 5px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #157347;
+  background: #eaf8ef;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.dns-protection-profile:not(.is-recommended) strong small {
+  color: var(--warning);
+  background: #fff3d5;
+}
+
+.dns-protection-profile em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.dns-protection-settings-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(260px, 1fr);
+  gap: 10px;
+}
+
+.dns-upstream-editor {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#dnsUpstreamServers {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+#dnsUpstreamHelp,
+#dnsUpstreamStatus {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+#dnsUpstreamStatus.is-error {
+  color: var(--danger);
+}
+
+.dns-smart-group-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dns-smart-group-controls label {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 220px;
+  max-width: 320px;
+  min-width: 0;
+}
+
+.dns-observation-results {
+  max-height: 320px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+#dnsObservationNames {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.dns-observation-actions {
+  flex-wrap: wrap;
+}
+
+.dns-whitelist-toggle,
+.dns-observation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#dnsWhitelistDns,
+#dnsObservationEnabled {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 18px;
+}
+
+.dns-protection-settings-grid > label,
+.dns-protection-settings-grid > div {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.dns-protection-settings-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dns-protection-settings-grid strong {
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  font-size: 12px;
+}
+
+.dns-protection-lan-selector {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcfe;
+}
+
+.dns-protection-lan-selector > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.dns-protection-lan-selector > div:first-child strong {
+  font-size: 12px;
+}
+
+.dns-protection-lan-selector > div:first-child span,
+.dns-protection-lan-selector > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-lan-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 7px;
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.dns-protection-lan-list.empty-state {
+  display: block;
+  min-height: 0;
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-lan-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dns-protection-lan-list label.is-missing {
+  border-color: #f0c77c;
+  background: #fffaf0;
+}
+
+.dns-protection-lan-list input[type='checkbox'] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.dns-protection-lan-list label > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dns-protection-lan-list strong {
+  font: 700 12px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.dns-protection-lan-list em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.dns-protection-lan-selector > p.is-ready {
+  color: #157347;
+}
+
+.dns-protection-lan-selector > p.is-required,
+.dns-protection-lan-selector > p.is-invalid,
+.dns-protection-lan-selector > p.is-unavailable {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.dns-protection-strict-options {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid #f0c77c;
+  border-radius: 10px;
+  background: #fffaf0;
+}
+
+.dns-protection-strict-options[hidden] {
+  display: none;
+}
+
+.dns-protection-strict-options legend {
+  padding: 0 5px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.dns-protection-strict-options label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dns-protection-strict-options input[type='checkbox'] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.dns-protection-capability-list,
+.dns-protection-router-grid,
+.dns-protection-exclusion-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 8px;
+}
+
+.dns-protection-capability-list.empty-state,
+.dns-protection-exclusion-list.empty-state {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-capability,
+.dns-protection-exclusion-list article {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.dns-protection-capability.is-ok {
+  border-left-color: var(--success);
+}
+
+.dns-protection-capability.is-warning {
+  border-left-color: var(--warning);
+}
+
+.dns-protection-capability.is-error {
+  border-left-color: var(--danger);
+}
+
+.dns-protection-capability strong,
+.dns-protection-exclusion-list strong {
+  font-size: 12px;
+}
+
+.dns-protection-capability span,
+.dns-protection-exclusion-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-config-check {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.dns-protection-config-check[hidden] {
+  display: none;
+}
+
+.dns-protection-config-check.is-ok {
+  border-left-color: var(--success);
+}
+
+.dns-protection-config-check.is-warning {
+  border-left-color: var(--warning);
+}
+
+.dns-protection-config-check.is-error {
+  border-left-color: var(--danger);
+}
+
+.dns-protection-config-check summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.dns-protection-config-check summary strong {
+  color: var(--muted);
+  text-align: right;
+}
+
+.dns-protection-config-check.is-ok summary strong {
+  color: #157347;
+}
+
+.dns-protection-config-check.is-error summary strong {
+  color: var(--danger);
+}
+
+.dns-protection-config-check pre {
+  max-height: 300px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: #111827;
+  color: #e5e7eb;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.dns-protection-plan {
+  display: grid;
+  gap: 7px;
+  padding: 12px 14px;
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.dns-protection-plan[hidden],
+.dns-protection-warning-list[hidden] {
+  display: none;
+}
+
+.dns-protection-plan > strong {
+  font-size: 12px;
+}
+
+.dns-protection-plan ol {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dns-protection-warning-list {
+  display: grid;
+  gap: 7px;
+}
+
+.dns-protection-warning-list p {
+  padding: 10px 12px;
+  border: 1px solid #f0c77c;
+  border-radius: 9px;
+  color: #8a5b08;
+  background: #fffaf0;
+  font-size: 12px;
+}
+
+.dns-protection-router-grid {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.dns-protection-router-grid div {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfcfe;
+}
+
+.dns-protection-actions {
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+
+.dns-protection-actions > p {
+  margin: 0;
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.dns-protection-actions > p.is-error {
+  color: var(--danger);
+}
+
+.dns-protection-actions > p.is-success {
+  color: #157347;
+}
+
+.dns-protection-event-list {
+  display: grid;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.dns-protection-event {
+  border-bottom: 1px solid var(--line);
+}
+
+.dns-protection-event summary {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dns-protection-event summary::-webkit-details-marker {
+  display: none;
+}
+
+.dns-protection-event-heading,
+.dns-protection-event time,
+.dns-protection-journal-tools {
+  font-size: 12px;
+}
+
+.dns-protection-event-heading {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dns-protection-event time,
+.dns-protection-journal-tools {
+  color: var(--muted);
+}
+
+.dns-protection-event pre {
+  max-height: 360px;
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #111827;
+  color: #e5e7eb;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
 }
 
 .node-inventory-list {
@@ -8525,6 +9416,24 @@ button.review-check-card:focus-visible {
   background: #fbfcfe;
 }
 
+.configuration-error {
+  padding: 12px 16px;
+  border-bottom: 1px solid #efc5c5;
+  background: #fff4f4;
+  color: #a32929;
+}
+
+.configuration-error p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.output-viewer .yaml-line.is-error {
+  background: #ffdfdf;
+  box-shadow: inset 3px 0 #c63737;
+}
+
 #outputCodeView,
 #outputPreview {
   display: block;
@@ -10016,8 +10925,13 @@ button.review-check-card:focus-visible {
   }
 
   .whitelist-monitor-status-card,
+  .whitelist-domain-list-card,
   .whitelist-monitor-policy-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .whitelist-domain-list-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .whitelist-monitor-metrics {
@@ -10111,4 +11025,301 @@ button.review-check-card:focus-visible {
   .xkeen-file-meta strong {
     text-align: left;
   }
+}
+
+@media (max-width: 760px) {
+  .dns-protection-page-head,
+  .dns-protection-block-head,
+  .dns-protection-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dns-protection-status-card,
+  .dns-protection-profile-grid,
+  .dns-protection-settings-grid,
+  .dns-protection-router-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dns-protection-route-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dns-protection-route-main b {
+    transform: rotate(90deg);
+    text-align: center;
+  }
+
+  .dns-protection-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dns-protection-actions > div {
+    display: grid;
+    width: 100%;
+  }
+
+  .dns-protection-actions .button,
+  .dns-protection-page-head > .button,
+  .dns-protection-block-head > .button {
+    width: 100%;
+  }
+
+  .dns-protection-journal-tools {
+    align-items: flex-start;
+  }
+
+  .dns-protection-event summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dns-protection-event time {
+    grid-column: 1 / -1;
+  }
+
+}
+
+.interface-mode-switch {
+  order: 3;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.interface-mode-switch button {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.interface-mode-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.interface-mode-switch button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.simple-mode-brand {
+  display: none;
+}
+
+.is-simple-mode .app-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.is-simple-mode .app-main {
+  width: 100%;
+  max-width: 1488px;
+  margin: 0 auto;
+  padding: 0 56px 40px;
+}
+
+.is-simple-mode .app-sidebar,
+.is-simple-mode .app-section,
+.is-simple-mode #mobileFlowActions,
+.is-simple-mode #messageBox,
+.is-simple-mode .topbar > :not(.simple-mode-brand):not(.interface-mode-switch) {
+  display: none !important;
+}
+
+.is-simple-mode .topbar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-height: 80px;
+  margin: 0;
+  padding: 12px 0;
+}
+
+.is-simple-mode .simple-mode-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--text);
+  font-size: 32px;
+  font-weight: 750;
+}
+
+.simple-mode-panel {
+  padding-top: 32px;
+}
+
+.simple-mode-panel h1 {
+  margin: 0;
+  font-size: 48px;
+  line-height: 1.2;
+}
+
+.simple-mode-description {
+  margin: 8px 0 24px;
+  color: var(--muted);
+  font-size: 24px;
+}
+
+.simple-groups-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.simple-group-card {
+  min-width: 0;
+  padding: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.simple-group-head {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  min-width: 0;
+}
+
+.simple-group-head h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.simple-group-icon {
+  display: grid;
+  flex: 0 0 84px;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 10px;
+  background: #eaf5f5;
+  color: var(--accent);
+}
+
+.simple-group-icon svg,
+.simple-group-replace svg {
+  width: 72px;
+  height: 72px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.simple-group-icon.is-twitter { background: #080808; color: #fff; }
+.simple-group-icon.is-youtube { background: #ff0033; color: #fff; }
+.simple-group-icon.is-telegram { background: #08a6e0; color: #fff; }
+.simple-group-icon.is-ai { background: #fff; color: #111; border: 1px solid var(--line); }
+
+.simple-group-replace {
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 76px;
+  margin-top: 32px;
+  box-shadow: none;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.simple-group-replace svg {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+}
+
+.is-simple-mode .interface-mode-switch button {
+  min-height: 44px;
+  padding: 8px 20px;
+  font-size: 16px;
+}
+
+.simple-group-feedback,
+.simple-groups-status {
+  margin: 16px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.simple-group-feedback.is-error,
+.simple-groups-status.is-error {
+  color: var(--danger);
+}
+
+@media (min-width: 561px) and (max-width: 980px) {
+  .is-simple-mode .app-main { padding-inline: 24px; }
+  .simple-group-card { padding: 24px; }
+  .simple-group-head { gap: 18px; }
+  .simple-group-head h2 { font-size: 24px; }
+  .simple-group-icon { flex-basis: 56px; width: 56px; height: 56px; }
+  .simple-group-icon svg { width: 36px; height: 36px; }
+  .simple-group-replace { min-height: 52px; margin-top: 24px; font-size: 16px; }
+}
+
+@media (max-width: 560px) {
+  .interface-mode-switch {
+    width: max-content;
+    max-width: 100%;
+    margin-block: 8px;
+  }
+
+  .interface-mode-switch button {
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .is-simple-mode .interface-mode-switch button {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .is-simple-mode .app-main {
+    padding: 0 20px 28px;
+  }
+
+  .is-simple-mode .topbar {
+    gap: 8px;
+    flex-wrap: wrap;
+    min-height: 68px;
+    padding: 8px 0;
+  }
+
+  .is-simple-mode .simple-mode-brand {
+    gap: 8px;
+    font-size: 22px;
+  }
+
+  .is-simple-mode .app-brand-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .simple-mode-panel { padding-top: 24px; }
+  .simple-mode-panel h1 { font-size: 30px; }
+  .simple-mode-description { margin-bottom: 24px; font-size: 15px; }
+  .simple-groups-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .simple-group-card { padding: 24px; }
+  .simple-group-head { gap: 18px; }
+  .simple-group-head h2 { font-size: 24px; }
+  .simple-group-icon { flex-basis: 56px; width: 56px; height: 56px; }
+  .simple-group-icon svg { width: 36px; height: 36px; }
+  .simple-group-replace { min-height: 52px; margin-top: 24px; font-size: 16px; }
 }

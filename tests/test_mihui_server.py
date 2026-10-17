@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -30,6 +31,18 @@ class ProviderPayloadHandler(BaseHTTPRequestHandler):
         self.server.received_user_agent = self.headers.get("User-Agent")
         self.server.received_hwid = self.headers.get("x-hwid")
         self.server.received_hwid_query = urllib.parse.parse_qs(parsed.query).get("hwid", [""])[0]
+        if parsed.path == "/happ-xray-encrypted":
+            body = (
+                b"oS/iqqIyUhAKUeW5tDj3i4xh4boBFy3hyfwbFLPbRiQeH8bK9fKRKLvnJ94QvPWoT1su17CS/x92I2/k7mCKdSZWLjOikEstFPAXzFgwr7x1cm/lgoAFJh0SmMbnK3U7l8BbTOGtwszRV23fE/X3hJmKZOU6EarMr6e/DKoPwsNr+7z67NBr60MysM7kZFrQoyW8R6pfvHNj98+kCSFUlGa1FxobWjgOY6ShrXg5c+H/OiAf62zomQDYFz/+tu/CFJ/LXdZOkavVWZlCmOS0nvcfIfVh63fo3IbWmbq5LNI5pd1Y0+L3SO6Lj8cOa7daxvHV6nfU3aPxt+SfN21szCjnf1or2J/hK7mCOpOmm/J2wKhPbQPK3gmxn4NbQaO4wITNnEMT/lYrrqBzOL/QI9pffkLd6cDotE8xIDGuYVQLYZ+KbzmHRqOKOZ/AJWRnyuOjhhzD+d8BJYNd07IDyEeVAxVUKzBerX+Cn+/Faixlc0QX6EAH/sj+PIxsdrQFyUl4zkaq3opHzJENrWskE2iUqDO11A=="
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Encrypt-Tag", "ynxkhMQfLZ15yDx7ixkCqA==")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if parsed.path == "/xray.json":
             body = json.dumps(
                 {
@@ -163,6 +176,60 @@ class ProviderAdapterTests(unittest.TestCase):
         with mihui_server.xray_provider_adapter_status_lock:
             mihui_server.xray_provider_adapter_statuses.clear()
 
+    def test_config_check_own_messages_are_russian_and_external_output_is_preserved(self):
+        with mock.patch.object(mihui_server, "find_mihomo_binary", return_value=None):
+            result = mihui_server.check_mihomo_config(Path("."), "")
+        self.assertEqual(result["message"], "Исполняемый файл Mihomo не найден; проверка конфигурации пропущена")
+
+        for returncode, output, expected in (
+            (0, b"", "Конфигурация корректна"),
+            (1, b"", "Проверка конфигурации не пройдена"),
+            (1, b"external parser detail", "external parser detail"),
+        ):
+            with self.subTest(returncode=returncode, output=output), \
+                tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(mihui_server, "find_mihomo_binary", return_value="mihomo"), \
+                mock.patch.object(mihui_server, "write_temp_config_for_check", return_value=Path(temp_dir) / "check.yaml"), \
+                mock.patch.object(mihui_server.subprocess, "run", return_value=mock.Mock(returncode=returncode, stdout=output)):
+                result = mihui_server.check_mihomo_config(Path(temp_dir), "")
+            self.assertEqual(result["message"], expected)
+
+    def test_whitelist_domain_validation_messages_are_russian(self):
+        for domain, expected in (
+            ("", "Некорректное доменное имя"),
+            ("*.example.com", "Доменные маски с символом * не поддерживаются"),
+            ("-invalid.example", "Некорректная часть доменного имени"),
+            ("127.0.0.1", "Укажите доменное имя, а не IP-адрес"),
+        ):
+            with self.subTest(domain=domain), self.assertRaisesRegex(ValueError, expected.replace("*", r"\*")):
+                mihui_server.normalize_whitelist_domain(domain)
+        with self.assertRaisesRegex(ValueError, "Количество доменов белого списка должно быть от 2 до 3"):
+            mihui_server.parse_whitelist_domain_list("example.com", minimum=2, maximum=3)
+
+    def test_missing_update_script_returns_utf8_russian_message(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status, headers, body, returncode = mihui_server.run_cgi_script(Path(temp_dir))
+        self.assertEqual(status, 500)
+        self.assertEqual(returncode, 1)
+        self.assertIn(("Content-Type", "application/json"), headers)
+        self.assertEqual(json.loads(body.decode("utf-8"))["message"], "Скрипт обновления не найден")
+
+    def save_whitelist_domain_snapshot(self, app_dir, updated_at=1000, prefix="allowed"):
+        domains = [f"{prefix}-{index}.example.com" for index in range(100)]
+        digest = mihui_server.hashlib.sha256("\n".join(domains).encode("utf-8")).hexdigest()
+        mihui_server.write_json_atomic(
+            mihui_server.whitelist_domain_list_snapshot_path(app_dir),
+            {
+                "source": mihui_server.WHITELIST_DOMAIN_SOURCE_NAME,
+                "sourceUrl": mihui_server.WHITELIST_DOMAIN_SOURCE_URL,
+                "updatedAt": updated_at,
+                "count": len(domains),
+                "sha256": digest,
+                "domains": domains,
+            },
+        )
+        return domains
+
     def test_update_progress_file_reports_phase_and_percentage(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "progress"
@@ -190,6 +257,31 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(state["ok"])
         self.assertEqual(state["phase"], "complete")
         self.assertEqual(state["progress"], 100)
+
+    def test_run_update_script_clears_running_state_after_timeout(self):
+        with mihui_server.update_lock:
+            mihui_server.update_state.update(
+                {
+                    "running": True,
+                    "ok": None,
+                    "phase": "download",
+                    "progress": 100,
+                    "message": "Запуск обновления",
+                }
+            )
+
+        with mock.patch.object(
+            mihui_server,
+            "run_cgi_script",
+            side_effect=subprocess.TimeoutExpired(["mihui-update"], 300),
+        ):
+            mihui_server.run_update_script(Path("."))
+
+        state = mihui_server.snapshot_update_state()
+        self.assertFalse(state["running"])
+        self.assertFalse(state["ok"])
+        self.assertEqual(state["phase"], "failed")
+        self.assertIn("5 минут", state["message"])
 
     def start_provider_server(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), ProviderPayloadHandler)
@@ -287,6 +379,29 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(content_type, "text/yaml; charset=utf-8")
         self.assertIn(b"name: incy", body)
 
+    def test_incy_import_accepts_case_insensitive_import_and_double_encoding(self):
+        target = "https://example.com/sub?token=abc"
+        encoded = urllib.parse.quote(urllib.parse.quote(target, safe=""), safe="")
+
+        payload = mihui_server.extract_incy_import_payload(f"incy://import?Import={encoded}")
+
+        self.assertEqual(payload, ("url", target))
+
+    def test_happ_link_normalization_accepts_escaped_schemes(self):
+        self.assertEqual(
+            mihui_server.normalize_happ_crypt_url(r"happ\:\/\/crypt5/demo-token"),
+            "happ://crypt5/demo-token",
+        )
+        self.assertEqual(
+            mihui_server.normalize_landing_url("happ%253A%252F%252Fcrypt4%252Ftoken", ""),
+            "happ://crypt4/token",
+        )
+        landing = br'<html><a href="happ\:\/\/crypt5/demo-token">Open</a></html>'
+        self.assertEqual(
+            mihui_server.extract_landing_provider_url(landing, "text/html", "https://example.com"),
+            "happ://crypt5/demo-token",
+        )
+
     def test_fetch_provider_payload_retries_happ_landing_with_happ_headers(self):
         server, thread = self.start_provider_server()
         try:
@@ -342,7 +457,7 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(server.received_hwid_query, "ABC123")
 
     def test_fetch_provider_payload_rejects_happ_crypt_url(self):
-        with self.assertRaisesRegex(ValueError, "only http/https and incy"):
+        with self.assertRaisesRegex(ValueError, "только ссылки HTTP/HTTPS и incy"):
             mihui_server.fetch_provider_payload("happ://crypt/example")
 
     def test_build_provider_request_headers_drops_hop_by_hop_headers(self):
@@ -428,7 +543,7 @@ class ProviderAdapterTests(unittest.TestCase):
                             }
                         ]
                     },
-                    "streamSettings": {"network": "ws", "security": "reality"},
+                    "streamSettings": {"network": "quic", "security": "reality"},
                 }
             ]
         }
@@ -438,6 +553,222 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.source_count, 1)
         self.assertEqual(raised.exception.skipped[0]["code"], "unsupported_network")
+
+    def test_convert_xray_json_provider_supports_base64_nested_ws_without_tls(self):
+        document = {
+            "profiles": [
+                {
+                    "name": "WS node",
+                    "outbounds": [
+                        {
+                            "protocol": "vless",
+                            "settings": {
+                                "vnext": [
+                                    {
+                                        "address": "ws.example",
+                                        "port": 80,
+                                        "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                    }
+                                ]
+                            },
+                            "streamSettings": {
+                                "network": "ws",
+                                "security": "none",
+                                "wsSettings": {"path": "/socket", "headers": {"Host": "cdn.example"}},
+                            },
+                        }
+                    ],
+                }
+            ]
+        }
+        encoded = base64.urlsafe_b64encode(json.dumps(document).encode()).rstrip(b"=")
+
+        body, status = mihui_server.convert_xray_json_provider(encoded, "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 1)
+        self.assertIn('name: "WS node"', text)
+        self.assertIn("network: ws", text)
+        self.assertIn("ws-opts:", text)
+        self.assertIn('path: "/socket"', text)
+        self.assertNotIn("tls: true", text)
+
+    def test_convert_xray_json_provider_supports_xhttp_and_hysteria2(self):
+        document = {
+            "configs": [
+                {
+                    "remarks": "XHTTP",
+                    "outbounds": [
+                        {
+                            "protocol": "vless",
+                            "settings": {
+                                "vnext": [
+                                    {
+                                        "address": "xhttp.example",
+                                        "port": 443,
+                                        "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                    }
+                                ]
+                            },
+                            "streamSettings": {
+                                "network": "xhttp",
+                                "security": "tls",
+                                "xhttpSettings": {
+                                    "path": "/x",
+                                    "host": "edge.example",
+                                    "mode": "auto",
+                                    "noGrpcHeader": True,
+                                    "reuseSettings": {"maxConcurrency": 2},
+                                    "downloadSettings": {"serverName": "down.example", "skipCertVerify": True},
+                                },
+                                "tlsSettings": {"serverName": "xhttp.example", "fingerprint": "chrome"},
+                            },
+                        }
+                    ],
+                },
+                {
+                    "remarks": "Hysteria",
+                    "outbounds": [
+                        {
+                            "protocol": "hysteria2",
+                            "settings": {"address": "hy.example", "port": 8443, "password": "secret"},
+                            "streamSettings": {"tlsSettings": {"serverName": "hy.example"}},
+                        }
+                    ],
+                },
+            ]
+        }
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(document).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn("network: xhttp", text)
+        self.assertIn("xhttp-opts:", text)
+        self.assertIn('mode: "auto"', text)
+        self.assertIn('reuse-settings: {"max-concurrency": 2}', text)
+        self.assertIn('download-settings: {"servername": "down.example", "skip-cert-verify": true}', text)
+        self.assertIn("type: hysteria2", text)
+        self.assertIn('password: "secret"', text)
+
+    def test_convert_xray_json_provider_supports_grpc_and_httpupgrade(self):
+        def vless_outbound(address, user_id, network, settings_key, settings):
+            return {
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": address,
+                            "port": 443,
+                            "users": [{"id": user_id}],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": network,
+                    "security": "tls",
+                    settings_key: settings,
+                    "tlsSettings": {"serverName": address, "fingerprint": "chrome"},
+                },
+            }
+
+        document = {
+            "outbounds": [
+                vless_outbound(
+                    "grpc.example",
+                    "550e8400-e29b-41d4-a716-446655440000",
+                    "grpc",
+                    "grpcSettings",
+                    {"serviceName": "proxy-service"},
+                ),
+                vless_outbound(
+                    "upgrade.example",
+                    "550e8400-e29b-41d4-a716-446655440001",
+                    "httpupgrade",
+                    "httpupgradeSettings",
+                    {"path": "/upgrade", "host": "edge.example"},
+                ),
+            ]
+        }
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(document).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn("network: grpc", text)
+        self.assertIn('grpc-service-name: "proxy-service"', text)
+        self.assertIn("network: ws", text)
+        self.assertIn("ws-opts:", text)
+        self.assertIn('path: "/upgrade"', text)
+        self.assertIn("v2ray-http-upgrade: true", text)
+
+    def test_convert_xray_json_provider_supports_array_with_raw_tls_and_reality(self):
+        documents = [
+            {
+                "remarks": "Reality node",
+                "outbounds": [
+                    {
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [
+                                {
+                                    "address": "reality.example",
+                                    "port": 443,
+                                    "users": [{"id": "550e8400-e29b-41d4-a716-446655440000"}],
+                                }
+                            ]
+                        },
+                        "streamSettings": {
+                            "network": "raw",
+                            "security": "reality",
+                            "rawSettings": {"header": {"type": "none"}},
+                            "realitySettings": {
+                                "serverName": "reality.example",
+                                "fingerprint": "chrome",
+                                "publicKey": "public-key",
+                                "shortId": "0a",
+                            },
+                        },
+                    }
+                ],
+            },
+            {
+                "remarks": "TLS node",
+                "outbounds": [
+                    {
+                        "protocol": "vless",
+                        "settings": {
+                            "vnext": [
+                                {
+                                    "address": "tls.example",
+                                    "port": 443,
+                                    "users": [{"id": "550e8400-e29b-41d4-a716-446655440001"}],
+                                }
+                            ]
+                        },
+                        "streamSettings": {
+                            "network": "raw",
+                            "security": "tls",
+                            "rawSettings": {"header": {"type": "none"}},
+                            "tlsSettings": {
+                                "serverName": "tls.example",
+                                "fingerprint": "chrome",
+                                "alpn": ["h2"],
+                            },
+                        },
+                    }
+                ],
+            },
+        ]
+
+        body, status = mihui_server.convert_xray_json_provider(json.dumps(documents).encode(), "Provider")
+        text = body.decode("utf-8")
+
+        self.assertEqual(status["convertedCount"], 2)
+        self.assertIn('name: "Reality node · 1"', text)
+        self.assertIn('name: "TLS node · 2"', text)
+        self.assertIn("reality-opts:", text)
+        self.assertIn('      - "h2"', text)
 
     def test_xray_provider_endpoint_converts_payload_and_records_safe_status(self):
         provider_server, provider_thread = self.start_provider_server()
@@ -468,6 +799,33 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(adapter["state"], "ok")
         self.assertNotIn("secret", json.dumps(adapter, ensure_ascii=False))
         self.assertNotIn("secret", access_log.getvalue())
+
+    def test_xray_provider_endpoint_handles_happ_headers_and_encrypted_body(self):
+        provider_server, provider_thread = self.start_provider_server()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mihui, mihui_thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                source_url = f"http://127.0.0.1:{provider_server.server_address[1]}/happ-xray-encrypted?key=key01"
+                path = (
+                    f"{mihui_server.XRAY_PROVIDER_ADAPTER_PATH}?provider=Happ"
+                    f"&url={urllib.parse.quote(source_url, safe='')}&source=happ"
+                )
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{mihui.server_address[1]}{path}",
+                    headers={"x-hwid": "ABC123", "User-Agent": "MihomoTest/1.0"},
+                )
+                with urllib.request.urlopen(request, timeout=3) as response:
+                    status_code = response.status
+                    body = response.read().decode("utf-8")
+            finally:
+                self.stop_provider_server(mihui, mihui_thread)
+                self.stop_provider_server(provider_server, provider_thread)
+
+        self.assertEqual(status_code, 200)
+        self.assertIn('name: "Happ encrypted"', body)
+        self.assertEqual(provider_server.received_user_agent, "Happ/1.0")
+        self.assertEqual(provider_server.received_hwid, "ABC123")
+        self.assertEqual(provider_server.received_hwid_query, "ABC123")
 
     def test_xray_provider_endpoint_enforces_dedicated_payload_limit(self):
         provider_server, provider_thread = self.start_provider_server()
@@ -693,7 +1051,104 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(len(catalog_flags), len(set(catalog_flags)))
         self.assertEqual(set(catalog_flags), mihui_server.XKEEN_COMMAND_FLAGS)
+        self.assertNotIn("-rrk", catalog_flags)
         self.assertTrue({"-i", "-restart", "-diag", "-remove"}.issubset(catalog_flags))
+
+    def test_component_metadata_retries_dns_failure_using_ipv4(self):
+        request = urllib.request.Request("https://api.github.com/repos/test/test/releases",
+                                         headers={"User-Agent": "MihUI"})
+        error = urllib.error.URLError(mihui_server.socket.gaierror(-2, "DNS failure"))
+        with mock.patch.object(urllib.request, "urlopen", side_effect=error), mock.patch.object(
+            mihui_server.subprocess, "run",
+            return_value=mock.Mock(returncode=0, stdout=b"[]", stderr=b""),
+        ) as run:
+            self.assertEqual(mihui_server.fetch_component_metadata(request, 1024), b"[]")
+        command = run.call_args.args[0]
+        self.assertEqual(command[:2], ["curl", "-4"])
+        self.assertIn("User-agent: MihUI", command)
+        self.assertEqual(command[-1], request.full_url)
+
+    def test_component_metadata_does_not_retry_http_or_tls_errors(self):
+        request = urllib.request.Request("https://api.github.com/")
+        errors = [urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None),
+                  urllib.error.URLError(mihui_server.ssl.SSLError("TLS failure"))]
+        for error in errors:
+            with self.subTest(error=error), mock.patch.object(
+                urllib.request, "urlopen", side_effect=error
+            ), mock.patch.object(mihui_server.subprocess, "run") as run:
+                with self.assertRaises(urllib.error.URLError):
+                    mihui_server.fetch_component_metadata(request, 1024)
+                run.assert_not_called()
+
+    def test_component_metadata_success_does_not_use_curl(self):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"[]"
+        with mock.patch.object(urllib.request, "urlopen", return_value=response), mock.patch.object(
+            mihui_server.subprocess, "run"
+        ) as run:
+            self.assertEqual(mihui_server.fetch_component_metadata(
+                urllib.request.Request("https://api.github.com/"), 1024), b"[]")
+            run.assert_not_called()
+
+    def test_component_update_ipv4_config_is_scoped_and_preserves_curl_settings(self):
+        with tempfile.TemporaryDirectory() as home:
+            original = Path(home, ".curlrc")
+            original.write_text("silent\n", encoding="utf-8")
+            paths = []
+            def run(command, **kwargs):
+                config = Path(kwargs["env"]["CURL_HOME"], ".curlrc")
+                self.assertEqual(kwargs["env"]["RES_OPTIONS"], "timeout:5 attempts:2")
+                self.assertEqual(config.read_text(), "silent\n\nipv4\n")
+                paths.append(config)
+                return mock.Mock(returncode=0, stdout=b"ok")
+            with mock.patch.object(mihui_server, "_xkeen_command_environment", return_value={"HOME": home}), \
+                 mock.patch.object(mihui_server.subprocess, "run", side_effect=run):
+                for flag in ("-uk", "-um"):
+                    self.assertEqual(mihui_server.run_component_command(["xkeen", flag]), (0, "ok"))
+            self.assertTrue(all(not path.exists() for path in paths))
+            self.assertEqual(original.read_text(), "silent\n")
+
+    def test_component_dns_options_do_not_affect_other_commands_or_server(self):
+        with mock.patch.dict(os.environ, {"RES_OPTIONS": "timeout:1 attempts:1"}), \
+             mock.patch.object(mihui_server.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=b"ok")) as run:
+            for flag in ("-uk", "-um"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertEqual(run.call_args.kwargs["env"]["RES_OPTIONS"], "timeout:5 attempts:2")
+                self.assertEqual(os.environ["RES_OPTIONS"], "timeout:1 attempts:1")
+            for flag in ("-start", "-stop", "-restart"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertEqual(run.call_args.kwargs["env"]["RES_OPTIONS"], "timeout:1 attempts:1")
+                self.assertEqual(os.environ["RES_OPTIONS"], "timeout:1 attempts:1")
+            for flag in ("-kb", "-kbr", "-pr"):
+                mihui_server.run_component_command(["xkeen", flag])
+                self.assertIsNone(run.call_args.kwargs["env"])
+
+    def test_command_worker_cleans_up_process_on_error_stop_and_timeout(self):
+        for scenario in ("error", "stop", "timeout"):
+            with self.subTest(scenario=scenario), mock.patch.dict(
+                mihui_server.xkeen_command_jobs, {}, clear=True
+            ), mock.patch.object(mihui_server.threading.Thread, "start"):
+                job = mihui_server.start_xkeen_command_job(Path("."), "-pr")
+                stored = mihui_server.xkeen_command_jobs[job["id"]]
+                stored["stopRequested"] = scenario == "stop"
+                process = mock.Mock()
+                process.poll.return_value = None
+                def terminate(proc):
+                    proc.poll.return_value = -15
+                    proc.wait.return_value = -15
+                with mock.patch.object(mihui_server, "pty", mock.Mock(openpty=lambda: (11, 12))), \
+                     mock.patch.object(mihui_server, "find_xkeen_binary", return_value="/opt/sbin/xkeen"), \
+                     mock.patch.object(mihui_server.subprocess, "Popen", return_value=process), \
+                     mock.patch.object(mihui_server.os, "close"), \
+                     mock.patch.object(mihui_server.select, "select", side_effect=OSError("PTY failed")), \
+                     mock.patch.object(mihui_server, "XKEEN_COMMAND_TIMEOUT", -1 if scenario == "timeout" else 1800), \
+                     mock.patch.object(mihui_server, "_terminate_xkeen_command_process", side_effect=terminate) as stop:
+                    mihui_server._run_xkeen_command_job(Path("."), job["id"])
+                stop.assert_called_once_with(process)
+                self.assertIsNone(mihui_server.snapshot_active_xkeen_command_job())
+                self.assertIsNone(stored["masterFd"])
+                self.assertIsNotNone(stored["finishedAt"])
+                self.assertEqual(stored["status"], "stopped" if scenario == "stop" else "error")
 
     def test_xkeen_commands_endpoint_returns_native_catalog(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -734,6 +1189,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertIsNotNone(first)
             self.assertIsNone(second)
+            self.assertEqual(mihui_server.snapshot_active_xkeen_command_job()["id"], first["id"])
             with mihui_server.xkeen_command_jobs_lock:
                 job = mihui_server.xkeen_command_jobs[first["id"]]
                 job.update({"status": "running", "masterFd": 17})
@@ -742,6 +1198,10 @@ class ProviderAdapterTests(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             write.assert_called_once_with(17, b"1\n")
+            self.assertTrue(mihui_server.stop_xkeen_command_job(first["id"])["ok"])
+            self.assertTrue(job["stopRequested"])
+            job["status"] = "stopped"
+            self.assertIsNone(mihui_server.snapshot_active_xkeen_command_job())
         finally:
             with mihui_server.xkeen_command_jobs_lock:
                 mihui_server.xkeen_command_jobs.clear()
@@ -766,6 +1226,21 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(result, payload)
+
+    def test_services_status_reports_running_instance_after_version_file_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(mihui_server, "get_xkeen_service_status", return_value={}), \
+                mock.patch.object(mihui_server, "get_mihomo_service_status", return_value={}):
+            app_dir = Path(temp_dir)
+            version_file = app_dir / "VERSION"
+            version_file.write_text("v0.2.154\n", encoding="utf-8")
+            before = mihui_server.get_services_status(app_dir)
+            version_file.write_text("v0.2.155\n", encoding="utf-8")
+            after = mihui_server.get_services_status(app_dir)
+
+        self.assertRegex(before["instanceId"], r"^[0-9a-f]{32}$")
+        self.assertEqual(after["instanceId"], before["instanceId"])
+        self.assertEqual(after["instanceId"], mihui_server.MIHUI_INSTANCE_ID)
 
     def test_components_status_marks_newer_versions(self):
         catalog = {
@@ -895,6 +1370,143 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
 
+    def test_mihui_restart_requires_custom_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(server, "/api/mihui/restart", {})
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
+    def test_mihui_restart_schedules_service_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(mihui_server, "schedule_mihui_restart") as restart:
+                    status, result = self.post_json(
+                        server,
+                        "/api/mihui/restart",
+                        {},
+                        headers={"X-Mihui-Action": "mihui-restart"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 202)
+        self.assertTrue(result["ok"])
+        restart.assert_called_once_with(app_dir)
+
+    def test_mihui_repair_requires_custom_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            server, thread = self.start_mihui_server(Path(temp_dir))
+            try:
+                status, result = self.post_json(server, "/api/mihui/repair", {})
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 403)
+        self.assertFalse(result["ok"])
+
+    def test_mihui_service_repair_is_required_only_for_old_owned_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_INIT_SCRIPT="{init_script}"\n', encoding="utf-8"
+            )
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nis_running() { kill -0 "$pid"; }\n',
+                encoding="utf-8",
+            )
+            old_status = mihui_server.get_mihui_service_repair_status(app_dir)
+
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\n'
+                'pid_file_matches() { return 0; }\n'
+                'is_running() { pid_file_matches "$PID_FILE" "$SERVICE_SCRIPT supervise"; }\n'
+                'server_is_running() { pid_file_matches "$CHILD_PID_FILE" "$SERVER_PY"; }\n'
+                'process_pids() { return 0; }\n',
+                encoding="utf-8",
+            )
+            fixed_status = mihui_server.get_mihui_service_repair_status(app_dir)
+
+        self.assertTrue(old_status["managed"])
+        self.assertTrue(old_status["repairRequired"])
+        self.assertTrue(fixed_status["managed"])
+        self.assertFalse(fixed_status["repairRequired"])
+
+    def test_mihui_repair_replaces_owned_service_and_schedules_restart(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nold-service\n', encoding="utf-8"
+            )
+            env_text = f'MIHUI_INIT_SCRIPT="{init_script}"\nMIHUI_PORT=9878\n'
+            (app_dir / "mihui.env").write_text(env_text, encoding="utf-8")
+            template_dir = app_dir / "www" / "cgi-bin"
+            template_dir.mkdir(parents=True)
+            (template_dir / "mihui-service").write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\nAPP_DIR=__MIHUI_APP_DIR__\n',
+                encoding="utf-8",
+            )
+
+            with mock.patch.object(mihui_server, "schedule_mihui_restart") as restart:
+                backup = mihui_server.repair_mihui_service(app_dir)
+
+            rendered = init_script.read_text(encoding="utf-8")
+            self.assertIn(f"APP_DIR={mihui_server.shlex.quote(str(app_dir.resolve()))}", rendered)
+            self.assertNotIn("__MIHUI_APP_DIR__", rendered)
+            if os.name != "nt":
+                self.assertTrue(init_script.stat().st_mode & 0o111)
+            self.assertTrue((app_dir / "backups" / backup).is_file())
+            self.assertEqual((app_dir / "mihui.env").read_text(encoding="utf-8"), env_text)
+        restart.assert_called_once_with(app_dir)
+
+    def test_mihui_repair_endpoint_runs_fixed_operation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "repair_mihui_service", return_value="S99mihui-backup.bak"
+                ) as repair:
+                    status, result = self.post_json(
+                        server,
+                        "/api/mihui/repair",
+                        {},
+                        headers={"X-Mihui-Action": "mihui-repair"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 202)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["backup"], "S99mihui-backup.bak")
+        repair.assert_called_once_with(app_dir)
+
+    def test_schedule_mihui_restart_uses_owned_init_script(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            init_script = app_dir / "S99mihui"
+            init_script.write_text(
+                '#!/bin/sh\nMIHUI_INIT_OWNER="KiMorev/MihUI"\n', encoding="utf-8"
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_INIT_SCRIPT="{init_script}"\n', encoding="utf-8"
+            )
+            with mock.patch.object(mihui_server.subprocess, "Popen") as start:
+                mihui_server.schedule_mihui_restart(app_dir)
+
+        command = start.call_args.args[0]
+        self.assertEqual(command[-1], str(init_script))
+        self.assertEqual(command[:2], ["/bin/sh", "-c"])
+        self.assertTrue(start.call_args.kwargs["start_new_session"])
+
     def test_validate_mihomo_action_accepts_only_checked_release(self):
         status = {
             "components": {
@@ -905,7 +1517,7 @@ class ProviderAdapterTests(unittest.TestCase):
             result = mihui_server.validate_component_action(
                 Path("."), {"component": "mihomo", "action": "update", "target": "1.19.27"}
             )
-            with self.assertRaisesRegex(ValueError, "checked release list"):
+            with self.assertRaisesRegex(ValueError, "проверенном списке релизов"):
                 mihui_server.validate_component_action(
                     Path("."), {"component": "mihomo", "action": "update", "target": "1.18.0"}
                 )
@@ -922,11 +1534,11 @@ class ProviderAdapterTests(unittest.TestCase):
         geo_update = mihui_server.validate_component_action(
             Path("."), {"component": "xkeen", "action": "geo-update"}
         )
-        with self.assertRaisesRegex(ValueError, "invalid XKeen channel"):
+        with self.assertRaisesRegex(ValueError, "Некорректный канал обновлений XKeen"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "xkeen", "action": "channel", "target": "nightly"}
             )
-        with self.assertRaisesRegex(ValueError, "target is not supported"):
+        with self.assertRaisesRegex(ValueError, "Выбор целевой версии Mihomo не поддерживается"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "mihomo", "action": "restart", "target": "shell"}
             )
@@ -957,7 +1569,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 {"component": "mihomo", "target": "v1.19.29"},
             ],
         )
-        with self.assertRaisesRegex(ValueError, "unsupported all-components action"):
+        with self.assertRaisesRegex(ValueError, "не поддерживается для всех компонентов сразу"):
             mihui_server.validate_component_action(
                 Path("."), {"component": "all", "action": "restart"}
             )
@@ -998,7 +1610,7 @@ class ProviderAdapterTests(unittest.TestCase):
             [
                 mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
                 mock.call(["/opt/bin/xkeen", "-channel"], input_text="1\n", timeout=180),
-                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
+                mock.call(["/opt/bin/xkeen", "-uk", "auto"], input_text="1\n", timeout=600),
             ],
         )
 
@@ -1090,9 +1702,8 @@ class ProviderAdapterTests(unittest.TestCase):
             run.call_args_list,
             [
                 mock.call(["/opt/bin/xkeen", "-kb"], input_text=None, timeout=180),
-                mock.call(["/opt/bin/xkeen", "-uk"], input_text=None, timeout=600),
-                mock.call(["/opt/bin/xkeen", "-kbr"], timeout=180),
-                mock.call(["/opt/bin/xkeen", "-rrk"], timeout=180),
+                mock.call(["/opt/bin/xkeen", "-uk", "auto"], input_text="1\n", timeout=600),
+                mock.call(["/opt/bin/xkeen", "-kbr"], input_text="1\n", timeout=180),
                 mock.call(["/opt/bin/xkeen", "-start"], timeout=180),
             ],
         )
@@ -1549,7 +2160,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 422)
         self.assertFalse(result["ok"])
-        self.assertEqual(result["message"], "group is not selectable")
+        self.assertEqual(result["message"], "Группа не поддерживает ручной выбор ноды")
 
     def test_resource_monitor_settings_are_validated_and_persisted(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1568,6 +2179,7 @@ class ProviderAdapterTests(unittest.TestCase):
             self.assertEqual(validated["services"]["ai"]["group"], "AI")
             self.assertEqual(validated["services"]["instagram"]["group"], "INSTAGRAM")
             self.assertEqual(validated["services"]["youtube"]["sources"], ["FASTEST", "FALLBACK"])
+            self.assertEqual(validated["services"]["tiktok"]["group"], "TIKTOK")
             self.assertTrue(validated["proactiveSwitchEnabled"])
 
             invalid = dict(settings)
@@ -1600,6 +2212,8 @@ class ProviderAdapterTests(unittest.TestCase):
             app_dir = Path(temp_dir)
             settings = mihui_server.default_resource_monitor_settings()
             settings["services"].pop("instagram")
+            settings["services"].pop("twitter")
+            settings["services"].pop("tiktok")
             mihui_server.write_json_atomic(
                 mihui_server.resource_monitor_settings_path(app_dir),
                 settings,
@@ -1607,6 +2221,10 @@ class ProviderAdapterTests(unittest.TestCase):
 
             loaded = mihui_server.load_resource_monitor_settings(app_dir)
 
+        self.assertFalse(loaded["services"]["tiktok"]["enabled"])
+        self.assertEqual(loaded["services"]["tiktok"]["group"], "TIKTOK")
+        self.assertFalse(loaded["services"]["twitter"]["enabled"])
+        self.assertEqual(loaded["services"]["twitter"]["group"], "TWITTER")
         self.assertFalse(loaded["services"]["instagram"]["enabled"])
         self.assertEqual(loaded["services"]["instagram"]["group"], "INSTAGRAM")
         self.assertEqual(
@@ -1712,9 +2330,259 @@ class ProviderAdapterTests(unittest.TestCase):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
 
             invalid = mihui_server.default_whitelist_monitor_settings()
-            invalid["actionMode"] = "automatic"
+            invalid["actionMode"] = "replace"
             with self.assertRaises(ValueError):
                 mihui_server.validate_whitelist_monitor_settings(invalid)
+
+    def test_dns_lab_settings_are_validated_and_persisted(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = {"enabled": True, "intervalSeconds": 120, "timeoutMs": 5000}
+            validated = mihui_server.validate_dns_lab_settings(settings)
+            mihui_server.save_dns_lab_settings(app_dir, validated)
+
+            self.assertEqual(mihui_server.load_dns_lab_settings(app_dir), validated)
+            with self.assertRaises(ValueError):
+                mihui_server.validate_dns_lab_settings({**settings, "intervalSeconds": 30})
+            with self.assertRaises(ValueError):
+                mihui_server.validate_dns_lab_settings({**settings, "timeoutMs": 11000})
+
+    def test_dns_lab_requires_repeated_failures_on_unstable_link(self):
+        failed = {"ok": False, "error": {"category": "timeout"}}
+        probes = {
+            "plain": [
+                {**failed, "id": "system", "transport": "udp"},
+                {**failed, "id": "system", "transport": "tcp"},
+                {**failed, "id": "cloudflare", "transport": "udp"},
+                {**failed, "id": "cloudflare", "transport": "tcp"},
+            ],
+            "encrypted": [
+                {**failed, "id": "cloudflare", "transport": "dot"},
+                {**failed, "id": "cloudflare", "transport": "doh"},
+            ],
+        }
+
+        first = mihui_server.classify_dns_lab_cycle(
+            probes,
+            mihui_server.default_dns_lab_runtime(),
+        )
+        second = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), **first},
+        )
+
+        self.assertEqual(first["rawState"], "link_unstable")
+        self.assertEqual(first["state"], "observing")
+        self.assertEqual(second["state"], "link_unstable")
+        self.assertEqual(second["consecutiveUnstable"], 2)
+
+    def test_dns_lab_distinguishes_selective_dot_failure_from_link_loss(self):
+        ok = {"ok": True}
+        failed = {"ok": False, "error": {"category": "no_route"}}
+        probes = {
+            "plain": [
+                {**ok, "id": "system", "transport": "udp"},
+                {**ok, "id": "system", "transport": "tcp"},
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("yandex", "cloudflare", "google")
+                    for protocol in ("udp", "tcp")
+                ],
+            ],
+            "encrypted": [
+                {**failed, "id": "cloudflare", "transport": "dot"},
+                {**failed, "id": "google", "transport": "dot"},
+                {**ok, "id": "cloudflare", "transport": "doh"},
+                {**ok, "id": "google", "transport": "doh"},
+            ],
+        }
+
+        result = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), "rawState": "selective", "consecutiveRawState": 1},
+        )
+
+        self.assertEqual(result["state"], "selective")
+        self.assertEqual(result["counts"]["dotOk"], 0)
+        self.assertEqual(result["counts"]["dohOk"], 2)
+
+    def test_dns_lab_distinguishes_upstream_tcp_limit_from_listener_failure(self):
+        ok = {"ok": True}
+        timeout = {"ok": False, "error": {"category": "timeout"}}
+        probes = {
+            "plain": [
+                {**ok, "id": "system", "transport": "udp"},
+                {**timeout, "id": "system", "transport": "tcp", "connected": True, "failureStage": "response"},
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("yandex", "cloudflare", "google")
+                    for protocol in ("udp", "tcp")
+                ],
+            ],
+            "encrypted": [
+                *[
+                    {**ok, "id": target, "transport": protocol}
+                    for target in ("cloudflare", "google")
+                    for protocol in ("dot", "doh")
+                ],
+            ],
+        }
+
+        result = mihui_server.classify_dns_lab_cycle(
+            probes,
+            {**mihui_server.default_dns_lab_runtime(), "rawState": "upstream_limited", "consecutiveRawState": 1},
+        )
+
+        self.assertEqual(result["state"], "upstream_limited")
+        self.assertIn("upstream", result["message"])
+        self.assertEqual(result["consecutiveDnsIssue"], 1)
+
+    def test_dns_lab_tcp_probe_records_accepted_connection_before_timeout(self):
+        stream = mock.MagicMock()
+        stream.recv.side_effect = mihui_server.socket.timeout("timed out")
+        context = mock.MagicMock()
+        context.__enter__.return_value = stream
+
+        with mock.patch.object(mihui_server.socket, "create_connection", return_value=context):
+            result = mihui_server.probe_dns_lab_plain(
+                {"id": "system", "label": "Системный DNS", "address": "127.0.0.1"},
+                "tcp",
+                100,
+            )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["connected"])
+        self.assertEqual(result["failureStage"], "response")
+        self.assertEqual(result["error"]["category"], "timeout")
+
+    def test_dns_lab_decodes_chunked_doh_payload(self):
+        body = b"4\r\n{\"St\r\n8\r\natus\":0}\r\n0\r\n\r\n"
+
+        decoded = mihui_server.decode_http_chunked_body(body)
+
+        self.assertEqual(decoded, b'{"Status":0}')
+
+    def test_dns_lab_cycle_logs_sanitized_config_and_whitelist_context(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            config_path.write_text(
+                "dns:\n"
+                "  enable: true\n"
+                "  nameserver:\n"
+                "    - https://user:secret@dns.example.test/dns-query\n"
+                "  fallback:\n"
+                "    - tls://dns.example.test:853\n",
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            probes = {
+                "plain": [
+                    {"id": "system", "transport": "udp", "ok": True},
+                    {"id": "system", "transport": "tcp", "ok": True},
+                    *[
+                        {"id": target, "transport": protocol, "ok": True}
+                        for target in ("yandex", "cloudflare", "google")
+                        for protocol in ("udp", "tcp")
+                    ],
+                ],
+                "encrypted": [
+                    {"id": "cloudflare", "transport": "dot", "ok": True},
+                    {"id": "cloudflare", "transport": "doh", "ok": True},
+                    {"id": "google", "transport": "dot", "ok": True},
+                    {"id": "google", "transport": "doh", "ok": True},
+                ],
+            }
+            whitelist = {"state": "active", "fallbackActive": True}
+            with mock.patch.object(
+                mihui_server, "run_dns_lab_network_probes", return_value=probes
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_whitelist_context", return_value=whitelist
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_services", return_value={"mihomo": {"state": "ok"}}
+            ), mock.patch.object(
+                mihui_server, "get_dns_port_listeners", return_value={"available": True, "listeners": []}
+            ), mock.patch.object(
+                mihui_server, "get_dns_lab_system_health", return_value={"hostname": "router"}
+            ):
+                event = mihui_server.run_dns_lab_cycle(app_dir)
+
+            stored = mihui_server.read_dns_lab_events(app_dir)
+            serialized = json.dumps(event)
+
+        self.assertEqual(event["state"], "healthy")
+        self.assertEqual(event["whitelist"]["state"], "active")
+        self.assertEqual(event["routeContext"], "system")
+        self.assertEqual(event["config"]["upstreams"]["nameserver"], 1)
+        self.assertEqual(event["config"]["transports"], {"https": 1, "tls": 1})
+        self.assertNotIn("secret", serialized)
+        self.assertNotIn("dns.example.test", serialized)
+        self.assertEqual(len(stored), 1)
+
+    def test_dns_lab_manual_check_is_available_while_periodic_mode_is_disabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            mihui_server.threading, "Thread"
+        ) as thread_class:
+            app_dir = Path(temp_dir)
+            with mihui_server.dns_lab_state_lock:
+                mihui_server.dns_lab_job_state.update(
+                    {"running": False, "startedAt": None, "finishedAt": None, "error": ""}
+                )
+            result = mihui_server.start_dns_lab_check(app_dir)
+            with mihui_server.dns_lab_state_lock:
+                mihui_server.dns_lab_job_state["running"] = False
+
+        self.assertTrue(result["ok"])
+        thread_class.return_value.start.assert_called_once_with()
+
+    def test_whitelist_domain_list_parser_validates_and_deduplicates(self):
+        domains = mihui_server.parse_whitelist_domain_list(
+            "# source\nExample.com\nexample.com\nпример.рф\n",
+            minimum=2,
+            maximum=10,
+        )
+
+        self.assertEqual(domains, ["example.com", "xn--e1afmkfd.xn--p1ai"])
+        with self.assertRaisesRegex(ValueError, "строке 2"):
+            mihui_server.parse_whitelist_domain_list(
+                "example.com\nnot-a-domain\n",
+                minimum=1,
+                maximum=10,
+            )
+
+    def test_whitelist_domain_list_refresh_keeps_last_known_good_on_failure(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            domains = [f"fresh-{index}.example.com" for index in range(100)]
+            with mock.patch.object(
+                mihui_server,
+                "fetch_whitelist_domain_list_text",
+                return_value="\n".join(domains),
+            ):
+                refreshed = mihui_server.refresh_whitelist_domain_list(app_dir, now=1000)
+            first_snapshot = mihui_server.load_whitelist_domain_list_snapshot(app_dir)
+
+            with mock.patch.object(
+                mihui_server,
+                "fetch_whitelist_domain_list_text",
+                return_value="only.example.com\n",
+            ):
+                failed = mihui_server.refresh_whitelist_domain_list(app_dir, now=2000)
+            retained_snapshot = mihui_server.load_whitelist_domain_list_snapshot(app_dir)
+            status = mihui_server.get_whitelist_domain_list_status(
+                app_dir,
+                now=1000 + mihui_server.WHITELIST_DOMAIN_STALE_SECONDS + 1,
+            )
+
+        self.assertTrue(refreshed["ok"])
+        self.assertEqual(first_snapshot["domains"], domains)
+        self.assertFalse(failed["ok"])
+        self.assertEqual(retained_snapshot["sha256"], first_snapshot["sha256"])
+        self.assertTrue(status["ready"])
+        self.assertTrue(status["stale"])
+        self.assertTrue(status["lastError"])
 
     def test_whitelist_monitor_requires_repeated_direct_failures_recovered_by_proxy(self):
         settings = mihui_server.default_whitelist_monitor_settings()
@@ -1822,6 +2690,192 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(third["state"], "unknown")
         self.assertEqual(third["consecutiveInconclusive"], 3)
 
+    def test_whitelist_monitor_requires_repeated_normal_results_before_recovery(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        runtime = mihui_server.default_whitelist_monitor_runtime()
+        runtime.update({"state": "confirmed", "consecutiveSuspicions": 3})
+        controls = {
+            "control-truenetwork": {"direct": {"ok": False}, "proxy": {"ok": True}},
+            "control-neftm": {"direct": {"ok": True}, "proxy": None},
+            "control-selectel": {"direct": {"ok": True}, "proxy": None},
+        }
+
+        states = []
+        for _ in range(3):
+            result = mihui_server.classify_whitelist_monitor_results(
+                settings, runtime, {"allowed-ya": {"ok": True}}, controls
+            )
+            runtime.update(result)
+            states.append((result["state"], result["consecutiveNormals"]))
+
+        self.assertEqual(states, [("confirmed", 1), ("confirmed", 2), ("normal", 3)])
+
+    def test_whitelist_fallback_text_is_reversible(self):
+        settings = mihui_server.default_whitelist_monitor_settings()
+        original = (
+            "proxy-groups:\n"
+            "  - name: PROXY\n"
+            "    type: select\n"
+            "rules:\n"
+            "  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve\n"
+            "  - DOMAIN,plex.tv,DIRECT\n"
+            "  - DOMAIN-SUFFIX,ru,DIRECT\n"
+            "  - MATCH,PROXY\n"
+        )
+
+        prepared = mihui_server.prepare_whitelist_fallback_text(original, settings)
+
+        catch_all = prepared.index("MATCH,PROXY # webmihomo-whitelist: catch-all")
+        self.assertLess(prepared.index("DOMAIN,plex.tv,DIRECT"), catch_all)
+        self.assertLess(catch_all, prepared.index("DOMAIN-SUFFIX,ru,DIRECT"))
+        self.assertTrue(mihui_server.has_whitelist_fallback_config(prepared))
+        self.assertEqual(mihui_server.remove_whitelist_fallback_text(prepared), original)
+
+    def test_whitelist_automatic_config_honors_cooldown_and_restores(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            config_path.write_text(original, encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            domains = self.save_whitelist_domain_snapshot(app_dir)
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["actionMode"] = "automatic"
+            runtime = mihui_server.default_whitelist_monitor_runtime()
+            runtime.update(
+                {
+                    "state": "confirmed",
+                    "evidenceState": "current",
+                    "controlProxyRecoveries": 2,
+                }
+            )
+            saved_texts = []
+
+            def save_config(_app_dir, text, expected_revision=None):
+                self.assertEqual(
+                    expected_revision,
+                    mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
+                )
+                saved_texts.append(text)
+                config_path.write_text(text, encoding="utf-8")
+                return {"ok": True, "applied": True}
+
+            health_result = {
+                "ok": True,
+                "group": "PROXY",
+                "healthCheckTriggered": True,
+                "stateRead": True,
+                "now": "DIRECT",
+                "direct": True,
+                "message": "Проверка завершена, группа использует DIRECT",
+            }
+            with mock.patch.object(
+                mihui_server, "save_checked_config", side_effect=save_config
+            ) as save, mock.patch.object(
+                mihui_server, "fetch_whitelist_domain_list_text"
+            ) as fetch, mock.patch.object(
+                mihui_server,
+                "refresh_whitelist_proxy_group_health",
+                return_value=health_result,
+            ) as refresh_health:
+                activated = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir, settings, runtime, now=1000
+                )
+                runtime["state"] = "normal"
+                waiting = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000 + mihui_server.WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS - 1,
+                )
+                restored = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000 + mihui_server.WHITELIST_AUTO_ACTION_COOLDOWN_SECONDS,
+                )
+                final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertTrue(activated["ok"])
+        self.assertTrue(activated["proxyGroupHealth"]["direct"])
+        self.assertTrue(runtime["lastProxyGroupHealth"]["direct"])
+        self.assertIn(
+            f"DOMAIN-SUFFIX,{domains[0]},DIRECT # webmihomo-whitelist: direct {domains[0]}",
+            saved_texts[0],
+        )
+        self.assertIsNone(waiting)
+        self.assertTrue(restored["ok"])
+        self.assertEqual(save.call_count, 2)
+        refresh_health.assert_called_once_with(app_dir, "PROXY", 5000)
+        fetch.assert_not_called()
+        self.assertEqual(final_text, original)
+
+    def test_whitelist_group_health_check_accepts_direct_fallback(self):
+        requests = []
+
+        def request(_app_dir, path, **kwargs):
+            requests.append((path, kwargs))
+            if path == "/proxies/PROXY":
+                return {"name": "PROXY", "type": "Fallback", "now": "DIRECT"}
+            return {}
+
+        with mock.patch.object(mihui_server, "mihomo_api_request", side_effect=request):
+            result = mihui_server.refresh_whitelist_proxy_group_health(
+                Path("."),
+                "PROXY",
+                5000,
+            )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["direct"])
+        self.assertEqual(result["now"], "DIRECT")
+        self.assertEqual(
+            [path for path, _kwargs in requests],
+            [
+                "/providers/proxies/PROXY/healthcheck",
+                "/proxies/PROXY",
+            ],
+        )
+
+    def test_whitelist_automatic_config_does_not_fetch_during_activation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            config_path.write_text(original, encoding="utf-8")
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings["actionMode"] = "automatic"
+            runtime = mihui_server.default_whitelist_monitor_runtime()
+            runtime.update(
+                {
+                    "state": "confirmed",
+                    "evidenceState": "current",
+                    "controlProxyRecoveries": 2,
+                }
+            )
+
+            with mock.patch.object(
+                mihui_server, "fetch_whitelist_domain_list_text"
+            ) as fetch, mock.patch.object(mihui_server, "save_checked_config") as save:
+                result = mihui_server.reconcile_automatic_whitelist_config(
+                    app_dir,
+                    settings,
+                    runtime,
+                    now=1000,
+                )
+                final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("ещё не загружен", result["message"])
+        fetch.assert_not_called()
+        save.assert_not_called()
+        self.assertEqual(final_text, original)
+
     def test_whitelist_monitor_yandex_probe_wraps_only_proxy_failures(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
@@ -1888,6 +2942,166 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(result["state"], "unknown")
         self.assertEqual(result["controlProxyRecoveries"], 0)
+
+    def test_resource_monitor_manual_switch_excludes_current_and_preserves_other_services(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "node-a", "all": ["node-a", "node-c", "node-b"]},
+            **{name: {"type": "VLESS", "history": [{"delay": delay}]}
+               for name, delay in [("node-a", 10), ("node-b", 20), ("node-c", 30)]},
+        }
+        for available, expected in [(True, "node-b"), (False, "node-a")]:
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as temp_dir:
+                app_dir = Path(temp_dir)
+                runtime = mihui_server.default_resource_monitor_runtime()
+                other_service = dict(runtime["services"]["telegram"])
+                with mock.patch.object(mihui_server, "probe_resource_node", return_value={
+                    "ok": available, "delay": 20 if available else None, "message": "timeout",
+                }) as probe, mock.patch.object(mihui_server, "select_proxy_group", return_value={"ok": True}) as select:
+                    mihui_server.run_resource_monitor_service(
+                        app_dir, settings, runtime, "youtube", proxies, force_switch=True,
+                    )
+                item = runtime["services"]["youtube"]
+                self.assertEqual(item["currentNode"], expected)
+                self.assertGreater(item["quarantine"]["node-a"], time.time())
+                self.assertEqual(probe.call_args_list[0].args[2], "node-b")
+                self.assertNotIn("node-a", [call.args[2] for call in probe.call_args_list])
+                self.assertEqual(runtime["services"]["telegram"], other_service)
+                if available:
+                    select.assert_called_once_with(app_dir, "YOUTUBE", "node-b")
+                else:
+                    select.assert_not_called()
+                    self.assertEqual(item["message"], "Подходящая нода не найдена")
+                mihui_server.save_resource_monitor_runtime(app_dir, runtime)
+                self.assertEqual(mihui_server.load_resource_monitor_runtime(app_dir)["services"]["youtube"]["quarantine"], item["quarantine"])
+
+    def test_resource_monitor_initial_selection_respects_quarantine_until_expiry(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["services"] = {"youtube": settings["services"]["youtube"]}
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "node-b", "all": ["node-a", "node-b"]},
+            "node-a": {"type": "VLESS", "history": [{"delay": 10}]},
+            "node-b": {"type": "VLESS", "history": [{"delay": 20}]},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            runtime = mihui_server.default_resource_monitor_runtime()
+            runtime["services"]["youtube"]["quarantine"] = {"node-a": 2000}
+            mihui_server.save_resource_monitor_runtime(app_dir, runtime)
+            with mock.patch.object(mihui_server.time, "time", return_value=1000), mock.patch.object(mihui_server, "select_proxy_group") as select:
+                mihui_server.select_resource_monitor_fastest_nodes(app_dir, settings, proxies)
+                select.assert_not_called()
+            with mock.patch.object(mihui_server.time, "time", return_value=2001), mock.patch.object(mihui_server, "select_proxy_group", return_value={"ok": True}) as select:
+                mihui_server.select_resource_monitor_fastest_nodes(app_dir, settings, proxies)
+                select.assert_called_once_with(app_dir, "YOUTUBE", "node-a")
+
+    def test_resource_monitor_reserve_refresh_is_scoped_and_does_not_switch(self):
+        settings = mihui_server.default_resource_monitor_settings()
+        settings["maxAlternatives"] = 2
+        settings["services"]["youtube"]["sources"] = []
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "active", "all": ["active", "old", "a", "b", "c"]},
+            **{name: {"type": "VLESS", "history": [{"delay": delay}]}
+               for name, delay in [("active", 1), ("old", 2), ("a", 3), ("b", 4), ("c", 5)]},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            runtime = mihui_server.default_resource_monitor_runtime()
+            runtime["services"]["youtube"].update({
+                "currentNode": "active", "quarantine": {"old": int(time.time()) + 1000},
+            })
+            mihui_server.save_resource_monitor_runtime(app_dir, runtime)
+            with mock.patch.object(mihui_server, "load_resource_monitor_settings", return_value=settings), \
+                    mock.patch.object(mihui_server, "load_resource_monitor_proxies", return_value=proxies), \
+                    mock.patch.object(mihui_server, "select_proxy_group") as select, \
+                    mock.patch.object(mihui_server, "probe_resource_node", side_effect=[
+                        {"ok": False, "delay": None, "message": "timeout"},
+                        {"ok": True, "delay": 40, "message": ""},
+                    ]) as probe:
+                mihui_server.refresh_resource_monitor_reserve(app_dir, group="YOUTUBE")
+            select.assert_not_called()
+            self.assertEqual([call.args[2] for call in probe.call_args_list], ["a", "b"])
+            saved = mihui_server.load_resource_monitor_runtime(app_dir)
+            item = saved["services"]["youtube"]
+            self.assertEqual(item["currentNode"], "active")
+            self.assertEqual(item["quarantine"], runtime["services"]["youtube"]["quarantine"])
+            self.assertEqual(saved["services"]["telegram"], runtime["services"]["telegram"])
+            self.assertEqual([entry["node"] for entry in item["reserve"]], ["b", "a"])
+            self.assertTrue(item["reserveCheckedAt"])
+            self.assertTrue(all(entry["checkedAt"] for entry in item["reserve"]))
+            self.assertEqual(mihui_server.resource_monitor_candidates(
+                proxies["YOUTUBE"], proxies, "active", item["quarantine"], 3, reserve=item["reserve"],
+            ), ["b", "c", "a"])
+
+    def test_resource_monitor_reserve_keeps_source_priority(self):
+        group = {"all": ["a", "b"]}
+        proxies = {"a": {"type": "VLESS"}, "b": {"type": "VLESS"}}
+        tiers = mihui_server.resource_monitor_candidate_tiers(
+            group, proxies, "", {}, 2,
+            [{"name": "primary", "nodes": ["a"]}, {"name": "secondary", "nodes": ["b"]}],
+            reserve=[{"node": "a", "ok": True, "delay": 100}, {"node": "b", "ok": True, "delay": 10}],
+        )
+        self.assertEqual([tier["candidates"] for tier in tiers], [["a"], ["b"]])
+
+    def test_resource_monitor_manual_cycle_refreshes_only_after_success(self):
+        proxies = {
+            "YOUTUBE": {"type": "Selector", "now": "a", "all": ["a", "b"]},
+            "a": {"type": "VLESS"}, "b": {"type": "VLESS"},
+        }
+        for available in (True, False):
+            with self.subTest(available=available), tempfile.TemporaryDirectory() as temp_dir:
+                app_dir = Path(temp_dir)
+                settings = mihui_server.default_resource_monitor_settings()
+                settings["enabled"] = True
+                mihui_server.save_resource_monitor_settings(app_dir, settings)
+                with mock.patch.object(mihui_server, "probe_resource_node", return_value={
+                    "ok": available, "delay": 20 if available else None, "message": "",
+                }), mock.patch.object(mihui_server, "select_proxy_group", return_value={"ok": True}), \
+                        mock.patch.object(mihui_server, "start_resource_monitor_reserve_refresh") as refresh:
+                    mihui_server.run_resource_monitor_cycle(app_dir, ["youtube"], proxies, force_switch=True)
+                if available:
+                    refresh.assert_called_once_with(app_dir, services=["youtube"])
+                    self.assertEqual(mihui_server.load_resource_monitor_runtime(app_dir)["services"]["youtube"]["currentNode"], "b")
+                else:
+                    refresh.assert_not_called()
+
+    def test_group_select_refreshes_reserve_only_when_changed(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                for changed in (True, False):
+                    with mock.patch.object(mihui_server, "select_proxy_group", return_value={
+                        "ok": True, "changed": changed, "now": "node-b",
+                    }), mock.patch.object(mihui_server, "start_resource_monitor_reserve_refresh") as refresh:
+                        status, _ = self.post_json(server, "/api/groups/select", {"group": "YOUTUBE", "name": "node-b"})
+                        self.assertEqual(status, 200)
+                        if changed:
+                            refresh.assert_called_once_with(app_dir, group="YOUTUBE")
+                        else:
+                            refresh.assert_not_called()
+            finally:
+                self.stop_provider_server(server, thread)
+
+    def test_resource_monitor_manual_switch_endpoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            settings = mihui_server.default_resource_monitor_settings()
+            settings["enabled"] = True
+            mihui_server.save_resource_monitor_settings(app_dir, settings)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(mihui_server, "start_resource_monitor_check", return_value={"ok": True}) as start:
+                    status, _ = self.post_json(server, "/api/resource-monitor/switch", {"service": "youtube"})
+                    self.assertEqual(status, 403)
+                    status, _ = self.post_json(server, "/api/resource-monitor/switch", {}, headers={"X-Mihui-Action": "resource-monitor"})
+                    self.assertEqual(status, 400)
+                    start.assert_not_called()
+                    status, _ = self.post_json(server, "/api/resource-monitor/switch", {"service": "youtube"}, headers={"X-Mihui-Action": "resource-monitor"})
+                    self.assertEqual(status, 202)
+                    start.assert_called_once_with(app_dir, ["youtube"], force_switch=True)
+            finally:
+                self.stop_provider_server(server, thread)
 
     def test_resource_monitor_immediately_switches_to_first_ranked_working_candidate(self):
         settings = mihui_server.default_resource_monitor_settings()
@@ -2147,7 +3361,7 @@ class ProviderAdapterTests(unittest.TestCase):
                 "now": "provider-node",
                 "all": ["provider-node", "provider-node-2"],
             }
-            for name in ("YOUTUBE", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "AI")
+            for name in ("YOUTUBE", "TIKTOK", "TELEGRAM", "WHATSAPP", "INSTAGRAM", "TWITTER", "AI")
         }
 
         with mock.patch.object(
@@ -2504,7 +3718,7 @@ class ProviderAdapterTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertTrue(result["ok"])
-        select_fastest.assert_called_once_with(app_dir, settings, proxies)
+        select_fastest.assert_called_once_with(app_dir, mihui_server.validate_resource_monitor_settings(settings), proxies)
 
     def test_resource_monitor_startup_refreshes_ranking_before_selection(self):
         settings = mihui_server.default_resource_monitor_settings()
@@ -2705,6 +3919,57 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertFalse(result["ok"])
 
+    def test_dns_lab_endpoints_save_settings_and_require_action_header(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            settings = {"enabled": True, "intervalSeconds": 120, "timeoutMs": 5000}
+            try:
+                forbidden_status, forbidden = self.post_json(
+                    server, "/api/dns-lab/settings", settings
+                )
+                status, result = self.post_json(
+                    server,
+                    "/api/dns-lab/settings",
+                    settings,
+                    headers={"X-Mihui-Action": "dns-lab"},
+                )
+                get_status, loaded = self.get_json(server, "/api/dns-lab")
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(forbidden_status, 403)
+        self.assertFalse(forbidden["ok"])
+        self.assertEqual(status, 200)
+        self.assertEqual(result["config"], {**settings, "localObservation": False, "localNames": []})
+        self.assertEqual(get_status, 200)
+        self.assertEqual(loaded["config"], {**settings, "localObservation": False, "localNames": []})
+
+    def test_dns_observation_api_only_saves_settings_without_network_or_activation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            server, thread = self.start_mihui_server(app_dir)
+            settings = {**mihui_server.default_dns_lab_settings(), "enabled": True,
+                        "localObservation": True, "localNames": [{"name": "nas.lan", "expectedAddresses": []}]}
+            try:
+                with mock.patch.object(mihui_server, "apply_dns_protection_action", side_effect=AssertionError), mock.patch.object(
+                    mihui_server, "collect_local_dns_observation", side_effect=AssertionError
+                ), mock.patch.object(mihui_server, "mihomo_api_request", side_effect=AssertionError):
+                    forbidden, _ = self.post_json(server, "/api/dns/observation/settings", settings)
+                    unconfigured, _ = self.post_json(server, "/api/dns/observation/check", {},
+                                                     headers={"X-Mihui-Action": "dns-observation"})
+                    status, saved = self.post_json(server, "/api/dns/observation/settings", settings,
+                                                  headers={"X-Mihui-Action": "dns-observation"})
+                    read_status, loaded = self.get_json(server, "/api/dns/observation?limit=576")
+            finally:
+                self.stop_provider_server(server, thread)
+        self.assertEqual(forbidden, 403)
+        self.assertEqual(unconfigured, 400)
+        self.assertEqual(status, 200)
+        self.assertEqual(read_status, 200)
+        self.assertEqual(saved["config"], settings)
+        self.assertEqual(loaded["config"], settings)
+
     def test_whitelist_monitor_endpoint_saves_settings_without_checking_mihomo(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             app_dir = Path(temp_dir)
@@ -2726,6 +3991,74 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["config"]["intervalSeconds"], 120)
         request.assert_not_called()
+
+    def test_whitelist_domain_list_endpoint_returns_only_local_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            domains = self.save_whitelist_domain_snapshot(app_dir, updated_at=1000)
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "fetch_whitelist_domain_list_text"
+                ) as fetch:
+                    status, result = self.get_json(
+                        server,
+                        "/api/whitelist-monitor/domain-list",
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["domains"], domains)
+        fetch.assert_not_called()
+
+    def test_whitelist_monitor_disable_restores_automatic_config_first(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app_dir = Path(temp_dir)
+            config_path = app_dir / "config.yaml"
+            original = "proxy-groups:\n  - name: PROXY\n    type: select\nrules:\n  - MATCH,DIRECT\n"
+            settings = mihui_server.default_whitelist_monitor_settings()
+            settings.update({"enabled": True, "actionMode": "automatic"})
+            config_path.write_text(
+                mihui_server.prepare_whitelist_fallback_text(original, settings),
+                encoding="utf-8",
+            )
+            (app_dir / "mihui.env").write_text(
+                f'MIHUI_CONFIG_PATH="{config_path}"\n', encoding="utf-8"
+            )
+            mihui_server.save_whitelist_monitor_settings(app_dir, settings)
+            disabled = dict(settings)
+            disabled["enabled"] = False
+
+            def save_config(_app_dir, text, expected_revision=None):
+                self.assertEqual(
+                    expected_revision,
+                    mihui_server.config_revision(config_path.read_text(encoding="utf-8")),
+                )
+                config_path.write_text(text, encoding="utf-8")
+                return {"ok": True, "applied": True}
+
+            server, thread = self.start_mihui_server(app_dir)
+            try:
+                with mock.patch.object(
+                    mihui_server, "save_checked_config", side_effect=save_config
+                ) as save:
+                    status, result = self.post_json(
+                        server,
+                        "/api/whitelist-monitor/settings",
+                        disabled,
+                        headers={"X-Mihui-Action": "whitelist-monitor"},
+                    )
+            finally:
+                self.stop_provider_server(server, thread)
+
+            final_text = config_path.read_text(encoding="utf-8")
+
+        self.assertEqual(status, 200)
+        self.assertFalse(result["config"]["enabled"])
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(final_text, original)
 
     def test_whitelist_monitor_proxy_check_uses_saved_group_and_endpoint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
