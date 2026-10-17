@@ -92,6 +92,10 @@ const RESOURCE_MONITOR_RULES = {
   ],
   instagram: [
     ['RULE-SET', 'instagram@domain', 'INSTAGRAM'],
+    ['DOMAIN-KEYWORD', 'instagram', 'INSTAGRAM'],
+    ['DOMAIN', 'api.facebook.com', 'INSTAGRAM'],
+    ['DOMAIN', 'graph.facebook.com', 'INSTAGRAM'],
+    ['DOMAIN', 'edge-mqtt.facebook.com', 'INSTAGRAM'],
   ],
   ai: [
     ['RULE-SET', 'openai@domain', 'AI'],
@@ -5050,7 +5054,12 @@ function prepareResourceMonitorConfig(sources, services = null) {
     }
   });
 
-  const matchRule = getActiveRules().find((rule) => normalizeRuleType(rule.type) === 'MATCH');
+  const resourceRuleAnchor = getActiveRules().find((rule) => (
+    normalizeRuleType(rule.type) === 'MATCH'
+    || (normalizeRuleType(rule.type) === 'GEOIP'
+      && String(rule.value || '').trim().toUpperCase() === 'RU'
+      && String(rule.target || '').trim().toUpperCase() === 'DIRECT')
+  ));
   Object.entries(RESOURCE_MONITOR_RULES).forEach(([service, rules]) => {
     if (!enabledKeys.has(service)) return;
     rules.forEach((parts) => {
@@ -5068,7 +5077,7 @@ function prepareResourceMonitorConfig(sources, services = null) {
         comment: `# webmihomo-monitor: ${service}`,
         indent: '  ',
         start: -1,
-        insertBeforeRuleId: matchRule?.id || '',
+        insertBeforeRuleId: resourceRuleAnchor?.id || '',
         isNew: true,
         deleted: false,
       });

@@ -506,6 +506,7 @@ proxy-groups:
 rules:
   - RULE-SET,category-gov-ru@domain,DIRECT
   - RULE-SET,netbios@inline,REJECT
+  - GEOIP,RU,DIRECT
   - MATCH,PROXY
 `);
 
@@ -543,6 +544,13 @@ rules:
     assert.match(output, /openai@domain: \{ type: http, format: mrs, behavior: domain, interval: 86400, url: "https:\/\/raw\.githubusercontent\.com\/MetaCubeX\/meta-rules-dat\/meta\/geo\/geosite\/openai\.mrs" \} # webmihomo-monitor: provider ai/);
     assert.match(output, /anthropic@domain: \{ type: http, format: mrs, behavior: domain, interval: 86400, url: "https:\/\/raw\.githubusercontent\.com\/MetaCubeX\/meta-rules-dat\/meta\/geo\/geosite\/anthropic\.mrs" \} # webmihomo-monitor: provider ai/);
     assert.ok(output.indexOf('RULE-SET,instagram@domain,INSTAGRAM') < output.indexOf('MATCH,PROXY'));
+    for (const rule of ['RULE-SET,instagram@domain,INSTAGRAM', 'DOMAIN-KEYWORD,instagram,INSTAGRAM',
+      'DOMAIN,api.facebook.com,INSTAGRAM', 'DOMAIN,graph.facebook.com,INSTAGRAM',
+      'DOMAIN,edge-mqtt.facebook.com,INSTAGRAM', 'GEOSITE,youtube,YOUTUBE']) {
+      assert.ok(output.includes(rule));
+      assert.ok(output.indexOf('RULE-SET,netbios@inline,REJECT') < output.indexOf(rule));
+      assert.ok(output.indexOf(rule) < output.indexOf('GEOIP,RU,DIRECT'));
+    }
     assert.doesNotMatch(output, /GEOSITE,telegram,TELEGRAM/);
     assert.ok(output.indexOf('DOMAIN-SUFFIX,telegram.org,TELEGRAM') < output.indexOf('MATCH,PROXY'));
     assert.ok(output.indexOf('GEOIP,telegram,TELEGRAM,no-resolve') < output.indexOf('MATCH,PROXY'));
