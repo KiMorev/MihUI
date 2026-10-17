@@ -472,6 +472,7 @@ const state = {
   },
   lastConfigCheckText: '',
   lastConfigCheckOk: false,
+  configurationError: null,
   kernelCheckBusy: false,
   routerMode: false,
   routerApiAvailable: false,
@@ -921,6 +922,9 @@ const els = {
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
   outputPreview: document.querySelector('#outputPreview'),
+  configurationError: document.querySelector('#configurationError'),
+  configurationErrorMessage: document.querySelector('#configurationErrorMessage'),
+  configurationErrorJump: document.querySelector('#configurationErrorJump'),
   providerTemplate: document.querySelector('#providerTemplate'),
 };
 
@@ -974,6 +978,7 @@ els.applyIntervalsButton.addEventListener('click', applyBulkIntervals);
 els.editConfigButton.addEventListener('click', beginConfigurationEdit);
 els.applyConfigButton.addEventListener('click', applyConfigurationEdit);
 els.cancelConfigEditButton.addEventListener('click', cancelConfigurationEdit);
+els.configurationErrorJump.addEventListener('click', jumpToConfigurationError);
 els.outputPreview.addEventListener('input', handleConfigurationDraftInput);
 els.outputPreview.addEventListener('scroll', syncConfigurationEditorScroll, { passive: true });
 els.outputPreview.addEventListener('click', handleConfigurationUrlClick);
@@ -2058,19 +2063,19 @@ async function handleTopbarSaveAction() {
 }
 
 function getReviewPrimaryActionState() {
-  if (state.isEditingConfiguration) return { disabled: true, label: 'Завершите редактирование' };
-  if (!state.outputText) return { disabled: true, label: 'Нет конфигурации' };
-  if (!state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
+  const text = getCurrentConfigurationText();
+  if (!text) return { disabled: true, label: 'Нет конфигурации' };
+  if (!state.isEditingConfiguration && !state.hasGroupsSection) return { disabled: true, label: 'Исправьте структуру' };
   if (!state.routerApiAvailable) return { disabled: true, label: 'Проверка недоступна' };
   if (state.routerBusy) return { disabled: true, label: 'Сохранение...' };
   if (state.kernelCheckBusy) return { disabled: true, label: 'Проверка...' };
-  if (isCurrentConfigKernelChecked()) {
+  if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
     return { disabled: false, label: 'Проверка пройдена · Проверить повторно', tone: 'success' };
   }
-  if (state.lastConfigCheckText === state.outputText) {
+  if (state.lastConfigCheckText === text) {
     return { disabled: false, label: 'Проверка не пройдена · Проверить повторно', tone: 'danger' };
   }
-  return { disabled: false, label: 'Проверить YAML в Mihomo' };
+  return { disabled: false, label: state.isEditingConfiguration ? 'Проверить черновик в Mihomo' : 'Проверить YAML в Mihomo' };
 }
 
 function renderReviewPrimaryActionButton() {
@@ -3574,26 +3579,32 @@ async function pollComponentJob() {
 }
 
 async function checkRouterConfig(options = {}) {
-  if (!state.outputText || !state.routerApiAvailable) return null;
+  const checkedText = getCurrentConfigurationText();
+  if (!checkedText || !state.routerApiAvailable) return null;
+  if (state.kernelCheckBusy) return false;
   setConfigCheckBusy(true);
 
   try {
     const data = await apiJson('/api/config/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: state.outputText }),
+      body: JSON.stringify({ text: checkedText }),
     });
-    state.lastConfigCheckText = state.outputText;
+    if (getCurrentConfigurationText() !== checkedText) return false;
+    state.configurationError = null;
+    state.lastConfigCheckText = checkedText;
     state.lastConfigCheckOk = Boolean(data.available);
-    if (state.lastConfigCheckOk) persistSuccessfulConfigCheck(state.outputText);
+    if (state.lastConfigCheckOk) persistSuccessfulConfigCheck(checkedText);
     if (!options.silent) {
       showMessage(data.available ? 'Проверка Mihomo пройдена.' : `Проверка недоступна: ${data.message || 'mihomo не найден'}`);
     }
     return true;
   } catch (error) {
-    state.lastConfigCheckText = state.outputText;
+    if (getCurrentConfigurationText() !== checkedText) return false;
+    state.configurationError = getConfigurationCheckError(error, checkedText);
+    state.lastConfigCheckText = checkedText;
     state.lastConfigCheckOk = false;
-    clearPersistedConfigCheck(state.outputText);
+    clearPersistedConfigCheck(checkedText);
     showMessage(`Проверка Mihomo не прошла: ${error?.message || error}`, { severity: 'error' });
     return false;
   } finally {
@@ -8170,6 +8181,7 @@ function renderReviewSummary(changes, diagnostics) {
   const warningCount = diagnostics.length - errorCount;
   const kernelCheck = getKernelCheckSummary();
   const hasStructuralError = Boolean(state.originalText && !state.hasGroupsSection);
+  const hasRawDraft = state.isEditingConfiguration && getCurrentConfigurationText() !== state.outputText;
 
   els.reviewWorkflow.classList.toggle('has-review-side', Boolean(state.originalText));
   els.reviewChecklist.textContent = '';
@@ -8179,34 +8191,34 @@ function renderReviewSummary(changes, diagnostics) {
   [
     {
       title: 'Локальная проверка',
-      value: !state.originalText
+      value: hasRawDraft ? 'Черновик не разобран' : !state.originalText
         ? 'Нет конфигурации'
         : errorCount > 0
           ? formatErrorCount(errorCount)
           : warningCount > 0
             ? formatWarningCount(warningCount)
             : 'Без ошибок',
-      note: !state.originalText
+      note: hasRawDraft ? 'Локальная проверка обновится после применения ручных изменений.' : !state.originalText
         ? 'Откройте YAML, чтобы запустить проверку.'
         : errorCount > 0
           ? 'Исправьте блокирующие ошибки перед сохранением.'
           : warningCount > 0
             ? 'Проверьте предупреждения перед сохранением.'
             : 'Синтаксис и обязательные поля корректны.',
-      variant: !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
+      variant: hasRawDraft || !state.originalText ? 'is-muted' : errorCount > 0 ? 'is-danger' : warningCount > 0 ? 'is-warning' : 'is-ok',
       icon: 'review',
     },
     {
       title: 'Структура и связи',
-      value: !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
-      note: !state.originalText
+      value: hasRawDraft || !state.originalText ? 'Не проверены' : hasStructuralError ? 'Ошибка структуры' : errorCount > 0 ? 'Требуют внимания' : 'Корректны',
+      note: hasRawDraft ? 'Для текущего черновика используйте проверку Mihomo.' : !state.originalText
         ? 'Связи появятся после загрузки конфигурации.'
         : hasStructuralError
           ? 'Отсутствует обязательный раздел proxy-groups.'
           : errorCount > 0
             ? 'Проверьте ссылки между подписками, группами и правилами.'
             : 'Подписки, группы и правила связаны корректно.',
-      variant: !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
+      variant: hasRawDraft || !state.originalText ? 'is-muted' : hasStructuralError || errorCount > 0 ? 'is-danger' : 'is-ok',
       action: diagnostics.length > 0 ? focusDiagnosticsPanel : null,
       icon: 'routing',
     },
@@ -8243,7 +8255,7 @@ function getReviewSummaryStatus(changeCount, missingConnectionCount, errorCount,
 }
 
 function renderReviewYamlSummary(changeCount) {
-  const text = state.outputText || '';
+  const text = getCurrentConfigurationText();
   const lineCount = text ? text.split(/\r?\n/).length : 0;
   const size = getUtf8ByteLength(text);
   const hasUnsavedChanges = changeCount > 0 || hasUnsavedRouterChanges();
@@ -8284,19 +8296,20 @@ function getUtf8ByteLength(value) {
 }
 
 function getKernelCheckSummary() {
-  if (!state.outputText) {
+  const text = getCurrentConfigurationText();
+  if (!text) {
     return { value: 'нет данных', note: 'Итоговый YAML пустой', variant: 'is-muted' };
   }
-  if (state.originalText && !state.hasGroupsSection) {
+  if (!state.isEditingConfiguration && state.originalText && !state.hasGroupsSection) {
     return { value: 'заблокирована', note: 'Исправьте proxy-groups', variant: 'is-danger' };
   }
   if (!state.routerApiAvailable) {
     return { value: 'недоступна', note: 'Только рядом с Mihomo', variant: 'is-muted' };
   }
-  if (state.lastConfigCheckText === state.outputText && state.lastConfigCheckOk) {
+  if (state.lastConfigCheckText === text && state.lastConfigCheckOk) {
     return { value: 'YAML принят', note: 'Текущий YAML принят Mihomo', variant: 'is-ok' };
   }
-  if (state.lastConfigCheckText === state.outputText) {
+  if (state.lastConfigCheckText === text) {
     return { value: 'не пройдена', note: 'Проверьте сообщение выше', variant: 'is-danger' };
   }
   return { value: 'не проверено', note: 'Нажмите основную кнопку ниже', variant: 'is-warning' };
@@ -13323,7 +13336,7 @@ function createGroupEditorDetail(group, activeProviders) {
   fields.className = 'group-editor-fields';
   nameText.textContent = 'Название группы';
   nameInput.value = group.name || '';
-  nameInput.title = group.isNew ? 'Имя новой группы' : 'Переименование обновит ссылки в rules и proxies других групп.';
+  nameInput.title = group.isNew ? 'Имя новой группы' : 'Переименование обновит ссылки на группу в конфигурации.';
   nameInput.addEventListener('input', () => renameGroup(group, nameInput.value));
   nameInput.addEventListener('change', render);
   nameLabel.append(nameText, nameInput);
@@ -14673,7 +14686,13 @@ function generateOutput() {
     nextLines.splice(replacement.start, replacement.end - replacement.start, ...replacement.lines);
   });
 
-  setOutputText(syncSmartModelSettings(syncResourceMonitorRuleProviders(nextLines)).join('\n'));
+  try {
+    const output = syncSmartModelSettings(syncResourceMonitorRuleProviders(nextLines)).join('\n');
+    setOutputText(rewriteRenamedGroupReferences(output, renamedGroups));
+  } catch (error) {
+    setOutputText('');
+    showMessage(error.message, { severity: 'error' });
+  }
   renderOutputOnly();
 }
 
@@ -14700,6 +14719,7 @@ function setOutputText(text) {
   if (state.outputText !== nextText) {
     state.lastConfigCheckText = '';
     state.lastConfigCheckOk = false;
+    state.configurationError = null;
   }
   state.outputText = nextText;
   restorePersistedConfigCheck();
@@ -14842,8 +14862,12 @@ function renderYamlPreview(text) {
 
   if (!value.trim()) return;
 
-  value.split('\n').forEach((line) => {
-    els.outputCodeView.append(createYamlCodeLine(line));
+  value.split('\n').forEach((line, index) => {
+    const row = createYamlCodeLine(line);
+    if (state.configurationError?.text === getCurrentConfigurationText() && state.configurationError.line === index + 1) {
+      row.classList.add('is-error');
+    }
+    els.outputCodeView.append(row);
   });
 }
 
@@ -15100,6 +15124,7 @@ function renderConfigurationEditorControls() {
   els.applyConfigButton.hidden = !isEditing;
   els.cancelConfigEditButton.hidden = !isEditing;
   els.editConfigButton.disabled = false;
+  renderConfigurationError();
   renderReviewPrimaryActionButton();
   els.downloadButton.disabled = isEditing || !state.outputText;
   els.reviewDownloadButton.disabled = isEditing || !state.outputText;
@@ -15126,7 +15151,11 @@ function beginConfigurationEdit() {
 
 function handleConfigurationDraftInput() {
   if (!state.isEditingConfiguration) return;
+  state.configurationError = null;
   renderYamlPreview(els.outputPreview.value);
+  renderConfigurationError();
+  renderReviewPrimaryActionButton();
+  renderChangesOnly();
   syncConfigurationEditorScroll();
 }
 
@@ -15161,7 +15190,9 @@ function applyConfigurationEdit() {
   const nextText = els.outputPreview.value;
   const error = getConfigurationInputError(nextText);
   if (error) {
-    showMessage(error);
+    state.configurationError = { text: nextText, message: error, line: 0, column: 0 };
+    renderConfigurationError();
+    showMessage(error, { severity: 'error' });
     return false;
   }
 
@@ -15176,6 +15207,59 @@ function applyConfigurationEdit() {
   return true;
 }
 
+function getCurrentConfigurationText() {
+  return String(state.isEditingConfiguration ? els.outputPreview.value || '' : state.outputText || '');
+}
+
+function getConfigurationCheckError(error, text) {
+  let message = String(error?.data?.message || error?.message || error);
+  message = message.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '');
+  const loggedMessage = [...message.matchAll(/\bmsg=("(?:\\.|[^"\\])*")/g)].find((match) => /\byaml:/i.test(match[1]));
+  if (loggedMessage) {
+    try { message = JSON.parse(loggedMessage[1]); } catch {}
+  }
+  const yamlStart = message.search(/\byaml:/i);
+  const location = yamlStart < 0 ? null : message.slice(yamlStart).match(/\bline\s+([1-9]\d*)(?:,\s*column\s+([1-9]\d*))?:\s*([^\r\n]*)/i);
+  const line = Number(location?.[1]) || 0;
+  return {
+    text,
+    message: location?.[3]?.trim() || message,
+    line: line <= String(text).split('\n').length ? line : 0,
+    column: Number(location?.[2]) || 0,
+  };
+}
+
+function renderConfigurationError() {
+  const error = state.configurationError;
+  const visible = Boolean(error && error.text === getCurrentConfigurationText());
+  els.configurationError.hidden = !visible;
+  els.outputPreview.setAttribute('aria-invalid', visible ? 'true' : 'false');
+  els.outputCodeView?.querySelectorAll('.yaml-line').forEach((row, index) => {
+    row.classList.toggle('is-error', visible && error.line === index + 1);
+  });
+  if (!visible) return;
+  const location = error.line ? `Строка ${error.line}${error.column ? `, столбец ${error.column}` : ''}: ` : '';
+  els.configurationErrorMessage.textContent = `${location}${error.message}`;
+  els.configurationErrorJump.hidden = !error.line;
+}
+
+function jumpToConfigurationError() {
+  const error = state.configurationError;
+  if (!error?.line || error.text !== getCurrentConfigurationText()) return;
+  if (!state.isEditingConfiguration) beginConfigurationEdit();
+  const lines = els.outputPreview.value.split('\n');
+  const lineStart = lines.slice(0, error.line - 1).reduce((offset, line) => offset + line.length + 1, 0);
+  const lineLength = lines[error.line - 1].replace(/\r$/, '').length;
+  const start = lineStart + Math.min(Math.max(0, error.column - 1), lineLength);
+  els.outputPreview.focus({ preventScroll: true });
+  els.outputPreview.setSelectionRange(start, error.column ? Math.min(start + 1, lineStart + lineLength) : lineStart + lineLength);
+  const styles = window.getComputedStyle?.(els.outputPreview);
+  const lineHeight = Number.parseFloat(styles?.lineHeight) || 20.15;
+  els.outputPreview.scrollTop = Math.max(0, (error.line - 3) * lineHeight);
+  els.outputPreview.scrollLeft = 0;
+  syncConfigurationEditorScroll();
+}
+
 function getConfigurationInputError(text) {
   if (!String(text || '').trim()) return 'Вставьте или введите конфигурацию.';
   const lines = splitLines(text);
@@ -15185,6 +15269,7 @@ function getConfigurationInputError(text) {
 
 function validateModel() {
   const errors = [];
+  const originalLines = splitLines(state.originalText);
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
   const names = activeProviders.map((provider) => provider.name);
   const duplicate = names.find((name, index) => names.indexOf(name) !== index);
@@ -15210,6 +15295,17 @@ function validateModel() {
     if (!group.name || /[\r\n]/.test(group.name)) {
       errors.push(`Некорректное имя группы: ${group.name || '(пусто)'}`);
     }
+    if (group.isNew) return;
+    const original = state.originalGroups.find((item) => item.name === (group.originalName || group.name));
+    const block = originalLines.slice(group.start, group.end);
+    const keyIndent = indentOf(block[0] || '') + 2;
+    ['proxies', 'use'].forEach((key) => {
+      if (!original || JSON.stringify(group[key]) === JSON.stringify(original[key])) return;
+      const entry = block.map((line) => parseKeyValueLine(line, keyIndent)).find((item) => item?.key === key);
+      if (entry && splitYamlScalarProperties(entry.value).value.startsWith('*')) {
+        errors.push(`Группа ${group.name}: список ${key} задан YAML-ссылкой. Измените его вручную в YAML.`);
+      }
+    });
   });
   getActiveRules().forEach((rule, index) => {
     const title = `Правило ${index + 1}`;
@@ -15318,6 +15414,196 @@ function slugifyName(value) {
     .slice(0, 48);
 }
 
+function rewriteRenamedGroupReferences(text, renamed) {
+  if (!renamed.size) return text;
+  // Keep offsets and change only reference values, leaving YAML formatting intact.
+  const lines = text.split('\n');
+  const maskedLines = lines.map((line) => {
+    const body = stripYamlComment(line);
+    return body + ' '.repeat(line.length - body.length);
+  });
+  const masked = maskedLines.join('\n');
+  const edits = [];
+  const anchors = new Map();
+  const aliases = [];
+  const scalars = [];
+  const parents = [];
+  let offset = 0;
+  let literalIndent = -1;
+
+  function pairAt(value) {
+    const pair = splitInlineKeyValue(value);
+    if (!pair) return null;
+    const colon = value.indexOf(':', value.indexOf(pair.key) + pair.key.length);
+    if (colon < 0 || (value[colon + 1] && !/[\s\[\]{},"']/.test(value[colon + 1]))) return null;
+    return { key: cleanScalar(pair.key), start: colon + 1 };
+  }
+
+  function replacement(value, path) {
+    const section = path[0];
+    const field = path[path.length - 1];
+    const reference = (section === 'proxies' && path.length === 3 && field === 'dialer-proxy')
+      || (section === 'proxy-providers' && ((path.length === 3 && field === 'proxy')
+        || (path.length === 4 && path[2] === 'override' && field === 'dialer-proxy')))
+      || (section === 'rule-providers' && path.length === 3 && field === 'proxy')
+      || (['listeners', 'tunnels'].includes(section) && path.length === 3 && field === 'proxy')
+      || (section === 'ntp' && path.length === 2 && field === 'dialer-proxy');
+    if (reference) return renamed.get(value) || value;
+    if (section === 'dns' && ['nameserver', 'fallback', 'default-nameserver', 'proxy-server-nameserver',
+      'direct-nameserver', 'nameserver-policy', 'proxy-server-nameserver-policy'].includes(path[1])) {
+      const hash = value.indexOf('#');
+      if (hash < 0) return value;
+      const end = value.indexOf('&', hash);
+      const name = value.slice(hash + 1, end < 0 ? undefined : end);
+      return renamed.has(name) ? value.slice(0, hash + 1) + renamed.get(name) + (end < 0 ? '' : value.slice(end)) : value;
+    }
+    if ((section === 'sub-rules' && path.length === 3) || (section === 'tunnels' && path.length === 2)) {
+      const parts = splitRuleParts(value);
+      const target = section === 'tunnels' ? 2 : getRuleTargetIndexFromParts(parts);
+      if (target < 0 || !renamed.has(cleanScalar(parts[target]))) return value;
+      let cursor = 0;
+      for (let index = 0; index <= target; index += 1) {
+        const start = value.indexOf(parts[index], cursor);
+        if (index === target) return value.slice(0, start) + renamed.get(cleanScalar(parts[index])) + value.slice(start + parts[index].length);
+        cursor = start + parts[index].length;
+      }
+    }
+    return value;
+  }
+
+  function visit(from, to, path, inFlow = false) {
+    while (from < to && /\s/.test(masked[from])) from += 1;
+    while (to > from && /\s/.test(masked[to - 1])) to -= 1;
+    const properties = masked.slice(from, to).match(/^(?:(?:&[^\s]+|![^\s]+)(?:\s+|$))*/)?.[0] || '';
+    const anchor = properties.match(/&([^\s]+)/)?.[1];
+    from += properties.length;
+    const value = masked.slice(from, to);
+    if (!value) return;
+    if ((value[0] === '{' && value.endsWith('}')) || (value[0] === '[' && value.endsWith(']'))) {
+      if (anchor) anchors.set(anchor, { from, to, path, collection: true });
+      let cursor = from + 1;
+      splitInlineItems(masked.slice(cursor, to - 1)).forEach((item) => {
+        const start = masked.indexOf(item, cursor);
+        cursor = start + item.length;
+        const pair = value[0] === '{' ? pairAt(item) : null;
+        visit(start + (pair?.start || 0), cursor, [...path, pair ? pair.key : '*'], true);
+      });
+      return;
+    }
+    if (value.startsWith('*')) {
+      const alias = { name: value.slice(1), path, from, to };
+      aliases.push(alias);
+      scalars.push(alias);
+      return;
+    }
+    const decoded = value.startsWith("'") && value.endsWith("'")
+      ? value.slice(1, -1).replace(/''/g, "'") : cleanScalar(value);
+    const next = replacement(decoded, path);
+    const scalar = { from, to, path, value: decoded, next };
+    scalars.push(scalar);
+    if (anchor) anchors.set(anchor, scalar);
+    if (next === decoded) return;
+    const plainSafe = !/^[\s\[\]{},#&*!|>'"%@`]|^[-?:](?:\s|$)|:(?:\s|$)|\s#|[\r\n]/.test(next)
+      && !/^(?:true|false|null|~|[-+]?(?:\d[\d_.eE+-]*|\.inf|\.nan))$/i.test(next)
+      && (!inFlow || !/[\[\]{},]/.test(next));
+    const encoded = value.startsWith("'") ? "'" + next.replace(/'/g, "''") + "'"
+      : value.startsWith('"') ? JSON.stringify(next)
+        : plainSafe ? next : JSON.stringify(next);
+    edits.push({ from, to, text: encoded });
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = maskedLines[index];
+    const start = offset;
+    offset += lines[index].length + 1;
+    if (!line.trim()) continue;
+    const indent = indentOf(line);
+    if (literalIndent >= 0 && indent > literalIndent) continue;
+    literalIndent = -1;
+    const sequence = line.slice(indent).match(/^-\s+/);
+    while (parents.length && (parents[parents.length - 1].indent > indent
+      || (parents[parents.length - 1].indent === indent && !(sequence && parents[parents.length - 1].mapping)))) parents.pop();
+    let path = parents.length ? parents[parents.length - 1].path : [];
+    const contentStart = indent + (sequence?.[0].length || 0);
+    if (sequence) {
+      path = [...path, '*'];
+      parents.push({ indent, path });
+    }
+    const pair = /^(?:(?:&[^\s]+|![^\s]+)\s+)*[\[{]/.test(line.slice(contentStart)) ? null : pairAt(line.slice(contentStart));
+    const valueStart = contentStart + (pair?.start || 0);
+    if (pair) {
+      path = [...path, pair.key];
+      parents.push({ indent: contentStart, path, mapping: true });
+    }
+    const value = line.slice(valueStart).trim();
+    const blockAnchor = value.match(/^(?:(?:![^\s]+|&[^\s]+)\s*)+$/)?.[0].match(/&([^\s]+)/)?.[1];
+    if (blockAnchor) {
+      let blockEnd = offset;
+      const boundaryIndent = pair ? contentStart : indent;
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const nested = maskedLines[next];
+        if (nested.trim() && (indentOf(nested) < boundaryIndent
+          || (indentOf(nested) === boundaryIndent && (!pair || !/^\s*-\s+/.test(nested))))) break;
+        blockEnd += lines[next].length + 1;
+      }
+      anchors.set(blockAnchor, { from: start + valueStart, to: blockEnd, path, collection: true });
+      continue;
+    }
+    if (/^[>|][+\-\d]*$/.test(value)) {
+      literalIndent = indent;
+      continue;
+    }
+    // A flow collection can span lines. Consume it as a single value.
+    let end = start + line.length;
+    if (/^(?:(?:&[^\s]+|![^\s]+)\s+)*[\[{]/.test(value)) {
+      let depth = 0;
+      let quote = '';
+      let escaped = false;
+      for (let cursor = start + valueStart; cursor < masked.length; cursor += 1) {
+        const char = masked[cursor];
+        if (quote) {
+          if (quote === '"' && char === '\\' && !escaped) { escaped = true; continue; }
+          if (char === quote && !escaped) quote = '';
+          escaped = false;
+          continue;
+        }
+        if (char === '"' || char === "'") quote = char;
+        else if (char === '[' || char === '{') depth += 1;
+        else if (char === ']' || char === '}') {
+          depth -= 1;
+          if (!depth) { end = cursor + 1; break; }
+        }
+      }
+      while (index + 1 < lines.length && offset <= end) {
+        index += 1;
+        offset += lines[index].length + 1;
+      }
+    }
+    visit(start + valueStart, end, path);
+  }
+  function checkAlias({ name, path }, seen = new Set()) {
+    const anchor = anchors.get(name);
+    if (!anchor || seen.has(name)) return;
+    const nestedSeen = new Set([...seen, name]);
+    const merge = path.lastIndexOf('<<');
+    const aliasPath = merge >= 0 && path.slice(merge + 1).every((key) => key === '*') ? path.slice(0, merge) : path;
+    const values = anchor.collection ? scalars.filter((scalar) => scalar.from >= anchor.from && scalar.to <= anchor.to) : [anchor];
+    const needsChange = values.some((scalar) => {
+      const targetPath = [...aliasPath, ...scalar.path.slice(anchor.path.length)];
+      if (scalar.name) {
+        checkAlias({ name: scalar.name, path: targetPath }, nestedSeen);
+        return false;
+      }
+      return replacement(scalar.value, targetPath) !== scalar.next;
+    });
+    if (needsChange) {
+      throw new Error(`Ссылка на группу задана YAML-алиасом *${name}. Измените её в YAML перед переименованием группы.`);
+    }
+  }
+  aliases.forEach((alias) => checkAlias(alias));
+  return edits.sort((a, b) => b.from - a.from).reduce((result, edit) => result.slice(0, edit.from) + edit.text + result.slice(edit.to), text);
+}
+
 function getRenamedGroupMap() {
   const renamed = new Map();
   state.groups.forEach((group) => {
@@ -15330,9 +15616,14 @@ function getRenamedGroupMap() {
 }
 
 function serializeProvidersSection() {
-  const result = ['proxy-providers:'];
+  const originalLines = splitLines(state.originalText);
+  const originalSection = findTopSection(originalLines, 'proxy-providers');
+  const originalHeader = originalSection ? originalLines[originalSection.start] : 'proxy-providers:';
+  const result = [isNestedMapHeaderValue(parseTopLevelKeyValueLine(originalHeader)?.value)
+    ? originalHeader
+    : replaceYamlLineValue(originalHeader, '')];
   const activeProviders = state.providers.filter((provider) => !provider.deleted);
-  if (activeProviders.length === 0) return ['proxy-providers: {}'];
+  if (activeProviders.length === 0) return [replaceYamlLineValue(originalHeader, '{}')];
   activeProviders.forEach((provider) => result.push(...serializeProvider(provider)));
   return result;
 }
@@ -15349,7 +15640,10 @@ function serializeProvider(provider) {
   const current = snapshotProvider(provider, { output: true });
   const changed = (...keys) => !original || keys.some((key) => current[key] !== original[key]);
   if (provider.name !== provider.originalName) {
-    lines[0] = `  ${formatKey(provider.name)}:`;
+    lines[0] = lines[0].replace(
+      /^(\s*)(?:"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^:]*?\S)([ \t]*:)/,
+      (_, indent, suffix) => `${indent}${formatKey(provider.name)}${suffix}`,
+    );
   }
 
   if (changed('hasType', 'type')) {
@@ -15505,10 +15799,8 @@ function getRulesInSerializationOrder() {
   return ordered;
 }
 
-function serializeRule(rule, renamedGroups = new Map()) {
-  const target = renamedGroups.get(rule.target) || rule.target;
-  const nextRule = { ...rule, target };
-  const body = buildRuleParts(nextRule).join(',');
+function serializeRule(rule) {
+  const body = buildRuleParts(rule).join(',');
   const comment = rule.comment ? ` ${rule.comment}` : '';
   return `${rule.indent || '  '}- ${body}${comment}`;
 }
@@ -15565,14 +15857,14 @@ function serializeGroupsSection(lines, groupsSection) {
 function serializeGroupBlock(lines, parsedGroup, currentGroup) {
   const block = lines.slice(parsedGroup.start, parsedGroup.end);
   const replacements = [
-    parsedGroup.proxiesStart === -1
+    parsedGroup.proxiesStart === -1 || JSON.stringify(currentGroup.proxies) === JSON.stringify(parsedGroup.proxies)
       ? null
       : {
           start: parsedGroup.proxiesStart - parsedGroup.start,
           end: parsedGroup.proxiesEnd - parsedGroup.start,
           lines: serializeListBlock('proxies', currentGroup.proxies, lines[parsedGroup.proxiesStart]),
         },
-    parsedGroup.useStart === -1
+    parsedGroup.useStart === -1 || JSON.stringify(getActiveGroupUse(currentGroup)) === JSON.stringify(parsedGroup.use)
       ? null
       : {
           start: parsedGroup.useStart - parsedGroup.start,
@@ -15589,7 +15881,7 @@ function serializeGroupBlock(lines, parsedGroup, currentGroup) {
     });
 
   setGroupName(block, currentGroup);
-  setGroupScalar(block, 'type', currentGroup.type || 'select');
+  if (currentGroup.type !== parsedGroup.type) setGroupScalar(block, 'type', currentGroup.type || 'select');
   (currentGroup.removeResourceCheckKeys || []).forEach((key) => setOptionalGroupScalar(block, key, ''));
   if (currentGroup.testUrl !== parsedGroup.testUrl) setOptionalGroupScalar(block, 'url', currentGroup.testUrl);
   if (currentGroup.expectedStatus !== parsedGroup.expectedStatus) setOptionalGroupScalar(block, 'expected-status', currentGroup.expectedStatus);
@@ -15637,9 +15929,30 @@ function createGroupBlock(group) {
 }
 
 function setGroupName(block, group) {
-  const indent = block[0].match(/^\s*/)?.[0] || '  ';
+  const originalValue = splitYamlScalarProperties(stripYamlComment(block[0].replace(/^\s*-\s+name\s*:\s*/, ''))).value;
+  if (cleanScalar(originalValue) !== group.name) {
+    block[0] = replaceYamlLineValue(block[0], formatScalar(group.name));
+  }
   const marker = formatResourceMonitorGroupMarker(group);
-  block[0] = `${indent}- name: ${formatScalar(group.name)}${marker}`;
+  const originalMarker = block[0].match(/[ \t]+#\s*webmihomo-monitor:\s*group\s+.*$/)?.[0] || '';
+  if (originalMarker.trim() !== marker.trim()) {
+    block[0] = `${originalMarker ? block[0].slice(0, -originalMarker.length) : block[0]}${marker}`;
+  }
+}
+
+function splitYamlScalarProperties(value) {
+  const match = String(value || '').match(/^((?:(?:&[^\s]+|!<[^>]*>|![^\s]+)(?:[ \t]+|$))*)(.*)$/);
+  return { properties: match[1], value: match[2] };
+}
+
+function replaceYamlLineValue(line, value) {
+  const match = line.match(/^(\s*(?:-\s+)?(?:"(?:\\.|[^"\\])*"|'(?:''|[^'])*'|[^:]+):[ \t]*)(.*)$/);
+  if (!match) return line;
+  const body = stripYamlComment(match[2]);
+  const { properties } = splitYamlScalarProperties(body);
+  const suffix = match[2].slice(body.length);
+  const separator = value && !properties && !/\s$/.test(match[1]) ? ' ' : '';
+  return `${match[1]}${separator}${properties}${properties && !/\s$/.test(properties) && value ? ' ' : ''}${value}${suffix}`;
 }
 
 function setGroupScalar(block, key, value) {
@@ -15649,7 +15962,7 @@ function setGroupScalar(block, key, value) {
   const foundIndex = block.findIndex((line) => re.test(line));
 
   if (foundIndex !== -1) {
-    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    block[foundIndex] = replaceYamlLineValue(block[foundIndex], formatScalar(value));
     return;
   }
 
@@ -15667,7 +15980,7 @@ function setOptionalGroupScalar(block, key, value) {
     return;
   }
   if (foundIndex !== -1) {
-    block[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    block[foundIndex] = replaceYamlLineValue(block[foundIndex], formatScalar(value));
     return;
   }
   const headerIndex = block.indexOf(header);
@@ -15693,7 +16006,10 @@ function getActiveGroupUse(group) {
 
 function serializeListBlock(key, items, originalLine) {
   const indent = originalLine.match(/^\s*/)[0];
-  return serializeListBlockWithIndent(key, items, indent);
+  return [
+    replaceYamlLineValue(originalLine, items.length === 0 ? '[]' : ''),
+    ...items.map((name) => `${indent}  - ${formatScalar(name)}`),
+  ];
 }
 
 function serializeListBlockWithIndent(key, items, indent) {
@@ -15710,7 +16026,7 @@ function setNestedScalar(lines, baseIndentLevel, key, value) {
   const foundIndex = lines.findIndex((line) => re.test(line));
 
   if (foundIndex !== -1) {
-    lines[foundIndex] = `${indent}${key}: ${formatScalar(value)}`;
+    lines[foundIndex] = replaceYamlLineValue(lines[foundIndex], formatScalar(value));
     return;
   }
 
@@ -16013,7 +16329,7 @@ function parseGroups(lines, section) {
     const keyIndent = groupIndent + 2;
     const proxiesMeta = findListBlock(lines, start, end, keyIndent, 'proxies');
     const useMeta = findUseBlock(lines, start, end, keyIndent);
-    const name = cleanScalar(stripYamlComment(match[2]));
+    const name = cleanScalar(splitYamlScalarProperties(stripYamlComment(match[2])).value);
     const monitorMarker = parseResourceMonitorGroupMarker(match[2]);
     groups.push({
       name,
@@ -16110,8 +16426,11 @@ function findListBlock(lines, start, end, keyIndent, key) {
   for (let index = start; index < end; index += 1) {
     const line = lines[index];
     if (indentOf(line) !== keyIndent) continue;
+    const entry = parseKeyValueLine(line, keyIndent);
+    if (entry?.key !== key) continue;
+    const value = splitYamlScalarProperties(entry.value).value;
 
-    const inline = line.match(new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*\\[(.*)\\]\\s*(?:#.*)?$`));
+    const inline = value.match(/^\[(.*)\]$/);
     if (inline) {
       return {
         start: index,
@@ -16120,7 +16439,7 @@ function findListBlock(lines, start, end, keyIndent, key) {
       };
     }
 
-    if (new RegExp(`^\\s*${escapeRegExp(key)}\\s*:\\s*(?:#.*)?$`).test(line)) {
+    if (!value) {
       listStart = index;
       break;
     }
@@ -16166,7 +16485,7 @@ function parseTopLevelKeyValueLine(line) {
 
 function readScalar(lines, indent, key) {
   const entry = lines.map((line) => parseKeyValueLine(line, indent)).find((item) => item?.key === key);
-  return entry ? cleanScalar(entry.value) : '';
+  return entry ? cleanScalar(splitYamlScalarProperties(entry.value).value) : '';
 }
 
 function readBoolScalar(lines, indent, key) {

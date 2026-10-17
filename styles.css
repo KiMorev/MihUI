@@ -9382,6 +9382,24 @@ button.review-check-card:focus-visible {
   background: #fbfcfe;
 }
 
+.configuration-error {
+  padding: 12px 16px;
+  border-bottom: 1px solid #efc5c5;
+  background: #fff4f4;
+  color: #a32929;
+}
+
+.configuration-error p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.output-viewer .yaml-line.is-error {
+  background: #ffdfdf;
+  box-shadow: inset 3px 0 #c63737;
+}
+
 #outputCodeView,
 #outputPreview {
   display: block;

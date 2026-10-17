@@ -1165,9 +1165,13 @@
                 </button>
               </div>
             </div>
+            <div id="configurationError" class="configuration-error" role="alert" hidden>
+              <p id="configurationErrorMessage"></p>
+              <button id="configurationErrorJump" class="button compact" type="button" hidden>Перейти к ошибке</button>
+            </div>
             <div id="outputViewer" class="output-viewer">
               <pre id="outputCodeView" class="yaml-code-view" aria-label="Просмотр итоговой YAML-конфигурации" data-placeholder="Здесь появится обновленная конфигурация"></pre>
-              <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" placeholder="Здесь появится обновленная конфигурация"></textarea>
+              <textarea id="outputPreview" spellcheck="false" readonly aria-label="Итоговая YAML-конфигурация для редактирования" aria-describedby="configurationErrorMessage" placeholder="Здесь появится обновленная конфигурация"></textarea>
             </div>
             <footer class="review-yaml-footer">
               <span id="reviewYamlStatus">YAML ещё не проверен в Mihomo</span>

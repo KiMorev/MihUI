@@ -1662,6 +1662,135 @@ rules:
     assert.equal(app.els.changesJumpButton.textContent, 'Изменения (1)');
   });
 
+  test(`${source.name}: form output preserves unchanged YAML anchors, tags and comments`, () => {
+    const app = loadApp(source);
+    const yaml = [
+      'proxy-providers: &subscriptions # subscription map',
+      '  "provider: one": !!map &subscription # provider header',
+      '    type: !!str "http" # provider type',
+      '    url: https://example.com/sub',
+      'proxy-groups:',
+      '  - name: &route !!str "Proxy" # routing group',
+      '    type: &kind !!str "select" # group type',
+      '    proxies: [DIRECT] # original inline list',
+      '    use: # providers in order',
+      '      - "provider: one" # preferred provider',
+      'x-subscription: *subscription',
+      'x-route: *route',
+      'x-kind: *kind',
+      'rules:',
+      '  - MATCH,Proxy',
+      '',
+    ].join('\n');
+    hydrate(app, yaml);
+
+    assert.equal(app.state.groups[0].name, 'Proxy');
+    assert.equal(app.state.groups[0].type, 'select');
+    app.generateOutput();
+
+    assert.equal(app.state.outputText, yaml);
+  });
+
+  test(`${source.name}: form edits preserve scalar anchors and header comments`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'proxy-providers: &subscriptions # subscription map',
+      '  "provider: one" : !!map &subscription # provider header',
+      '    type : !!str &providerType "http"  # provider type',
+      '    url: &subscriptionUrl "https://example.com/sub" # URL',
+      'proxy-groups:',
+      '  - name : &route !!str "Proxy"  # routing group',
+      '    type : &kind !!str "select"  # group type',
+      '    proxies: [DIRECT] # original inline list',
+      '    use: ["provider: one"]',
+      'x-subscription: *subscription',
+      'x-route: *route',
+      'x-kind: *kind',
+      'rules:',
+      '  - MATCH,Proxy',
+      '',
+    ].join('\n'));
+    const provider = app.state.providers[0];
+    const group = app.state.groups[0];
+    provider.name = 'renamed-provider';
+    provider.type = 'file';
+    provider.url = 'https://example.com/new';
+    group.use = ['renamed-provider'];
+    group.name = 'Renamed';
+    group.type = 'fallback';
+    app.generateOutput();
+
+    const output = app.state.outputText;
+    assert.match(output, /^proxy-providers: &subscriptions # subscription map/m);
+    assert.match(output, /^  renamed-provider : !!map &subscription # provider header/m);
+    assert.match(output, /^    type : !!str &providerType file  # provider type/m);
+    assert.match(output, /^    url: &subscriptionUrl https:\/\/example.com\/new # URL/m);
+    assert.match(output, /^  - name : &route !!str Renamed  # routing group/m);
+    assert.match(output, /^    type : &kind !!str fallback  # group type/m);
+    assert.match(output, /^    proxies: \[DIRECT\] # original inline list/m);
+    assert.match(output, /^x-subscription: \*subscription/m);
+    assert.match(output, /^x-route: \*route/m);
+    assert.match(output, /^x-kind: \*kind/m);
+  });
+
+  test(`${source.name}: unchanged groups do not acquire an implicit type`, () => {
+    const app = loadApp(source);
+    const yaml = 'proxy-groups:\n  - name: Proxy # header\n    proxies: [DIRECT] # routes\nrules:\n  - MATCH,Proxy\n';
+    hydrate(app, yaml);
+    app.generateOutput();
+    assert.equal(app.state.outputText, yaml);
+  });
+
+  test(`${source.name}: group list edits preserve YAML anchors, tags and header comments`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'proxy-providers:',
+      '  existing:',
+      '    type: http',
+      '    url: https://example.com/sub',
+      'proxy-groups:',
+      '  - name: Proxy',
+      '    type: select',
+      '    proxies: &pool !!seq [DIRECT] # shared routes',
+      '    use: !!seq &subscriptions # shared providers',
+      '      - existing',
+      'x-routes: *pool',
+      'x-providers: *subscriptions',
+      '',
+    ].join('\n'));
+    const group = app.state.groups[0];
+    assert.deepEqual([...group.proxies], ['DIRECT']);
+    assert.deepEqual([...group.use], ['existing']);
+
+    app.toggleGroupProxy(group, 'REJECT', true);
+    app.toggleGroupUse(group, 'existing', false);
+
+    assert.match(app.state.outputText, /^    proxies: &pool !!seq  # shared routes\n      - DIRECT\n      - REJECT/m);
+    assert.match(app.state.outputText, /^    use: !!seq &subscriptions \[\] # shared providers/m);
+    assert.equal((app.state.outputText.match(/^    proxies:/gm) || []).length, 1);
+    assert.equal((app.state.outputText.match(/^    use:/gm) || []).length, 1);
+  });
+
+  test(`${source.name}: group form refuses to replace an aliased YAML list`, () => {
+    const app = loadApp(source);
+    hydrate(app, [
+      'x-routes: &pool [DIRECT]',
+      'proxy-groups:',
+      '  - name: Proxy',
+      '    type: select',
+      '    proxies: *pool # shared routes',
+      '',
+    ].join('\n'));
+    const group = app.state.groups[0];
+    app.generateOutput();
+    assert.match(app.state.outputText, /proxies: \*pool # shared routes/);
+
+    app.toggleGroupProxy(group, 'REJECT', true);
+
+    assert.equal(app.state.outputText, '');
+    assert.match(app.els.messageBox.textContent, /список proxies задан YAML-ссылкой.*вручную в YAML/);
+  });
+
   test(`${source.name}: preserves optional http provider defaults until an explicit action`, () => {
     const app = loadApp(source);
     const activeProviders = hydrate(app, `
@@ -2666,6 +2795,37 @@ rules:
     assert.match(app.state.outputText, /  - MATCH,Service/);
     assert(flattenChanges(app.collectChanges(app.state.providers)).includes('Группа Proxy: переименована в Primary.'));
     assert.equal(app.getGroupUsage(proxy).used, true);
+  });
+
+  test(`${source.name}: group name swaps preserve rule and external reference targets`, () => {
+    const app = loadApp(source);
+    hydrate(app, `proxy-groups:
+  - name: A
+    type: select
+    proxies: [DIRECT]
+  - name: B
+    type: select
+    proxies: [DIRECT]
+rules:
+  - DOMAIN,a.example,A
+  - MATCH,B
+dns:
+  nameserver: [https://dns.example/#A, https://dns.example/#B]
+ntp:
+  dialer-proxy: A
+`);
+    const first = app.state.groups.find((group) => group.name === 'A');
+    const second = app.state.groups.find((group) => group.name === 'B');
+    app.renameGroup(first, 'Temporary');
+    app.renameGroup(second, 'A');
+    app.renameGroup(first, 'B');
+    assert.match(app.state.outputText, /DOMAIN,a.example,B/);
+    assert.match(app.state.outputText, /MATCH,A/);
+    assert.match(app.state.outputText, /nameserver: \[https:\/\/dns.example\/#B, https:\/\/dns.example\/#A\]/);
+    assert.match(app.state.outputText, /dialer-proxy: B/);
+    app.generateOutput();
+    assert.match(app.state.outputText, /DOMAIN,a.example,B/);
+    assert.match(app.state.outputText, /MATCH,A/);
   });
 
   test(`${source.name}: adds missing recommended connection settings only`, () => {
