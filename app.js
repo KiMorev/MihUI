@@ -11107,8 +11107,8 @@ function applyNodeNameFilter(provider, key, rawValue, node) {
   }
 
   const impact = getNodeNameRuleImpact(provider.name, value);
-  if (!impact.valid) {
-    showMessage('Проверьте выражение для filter: оно не распознаётся.', { severity: 'error' });
+  if (impact.valid === false) {
+    showMessage('Проверьте выражение: оно не распознаётся.', { severity: 'error' });
     return;
   }
   applyNodeProviderRule(provider, key, value);
@@ -11116,7 +11116,7 @@ function applyNodeNameFilter(provider, key, rawValue, node) {
   render();
   focusNodeActionTrigger(node, 'name');
   showMessage(
-    `Подписка ${provider.name}: в ${key === 'filter' ? 'filter' : 'exclude-filter'} добавлено «${value}» · совпадений: ${impact.matches.length}.`,
+    `Подписка ${provider.name}: в ${key === 'filter' ? 'filter' : 'exclude-filter'} добавлено «${value}» · ${impact.valid === null ? 'совпадения проверит Mihomo' : `совпадений: ${impact.matches.length}`}.`,
     { severity: 'success' },
   );
 }
@@ -11146,7 +11146,9 @@ function applyNodeProtocolExclude(provider, protocol, node) {
 }
 
 function applyNodeProviderRule(provider, key, value) {
-  const nextValue = appendPipeValue(provider[key], value);
+  const nextValue = key === 'excludeType'
+    ? appendPipeValue(provider[key], value)
+    : appendNodeNamePattern(provider[key], value);
   updateProvider(provider, key, nextValue);
   return nextValue;
 }
@@ -11157,9 +11159,12 @@ function getNodeNameRuleImpact(providerName, rawPattern) {
   if (!pattern) return { matches: [], total: nodes.length, valid: true };
 
   try {
-    const expression = new RegExp(pattern, 'i');
+    const expressions = pattern.split('`').map(compileNodeNamePattern);
+    if (expressions.some((expression) => expression === null)) {
+      return { matches: [], total: nodes.length, valid: null };
+    }
     return {
-      matches: nodes.filter((node) => expression.test(String(node.name || ''))),
+      matches: nodes.filter((node) => expressions.some((expression) => expression.test(String(node.name || '')))),
       total: nodes.length,
       valid: true,
     };
@@ -11168,9 +11173,24 @@ function getNodeNameRuleImpact(providerName, rawPattern) {
   }
 }
 
+function compileNodeNamePattern(pattern) {
+  let source = pattern;
+  const flags = new Set();
+  let modifier;
+  while ((modifier = source.match(/^\(\?([ims]*)(?:-([ims]+))?\)/)) && (modifier[1] || modifier[2])) {
+    for (const flag of modifier[1]) flags.add(flag);
+    for (const flag of modifier[2] || '') flags.delete(flag);
+    source = source.slice(modifier[0].length);
+  }
+  // Leave .NET-specific syntax and character classes to Mihomo's regexp2 engine.
+  if (/\\[a-z0-9]|\(\?(?![:=!])|-\[|\[\^?\]/i.test(source)) return null;
+  return new RegExp(source, [...flags].join(''));
+}
+
 function formatNodeNameRuleImpact(providerName, pattern) {
   const impact = getNodeNameRuleImpact(providerName, pattern);
-  if (!impact.valid) return 'Не удалось посчитать совпадения: проверьте выражение.';
+  if (impact.valid === false) return 'Не удалось посчитать совпадения: проверьте выражение.';
+  if (impact.valid === null) return 'Предпросмотр этого выражения недоступен. При сохранении конфигурацию проверит Mihomo.';
   const examples = impact.matches.slice(0, 3).map((node) => stripNodeFlagEmoji(node.name)).join(', ');
   return `Совпадения: ${impact.matches.length} из ${impact.total}${examples ? ` · ${examples}` : ''}`;
 }
@@ -11204,6 +11224,18 @@ function appendPipeValue(current, value) {
     .filter(Boolean);
   const exists = parts.some((part) => part.toLowerCase() === value.toLowerCase());
   return exists ? parts.join('|') : [...parts, value].join('|');
+}
+
+function appendNodeNamePattern(current, value) {
+  const existing = String(current || '');
+  if (!existing) return value;
+  const patterns = existing.split('`');
+  const additions = value.split('`').filter((pattern) => {
+    if (patterns.includes(pattern)) return false;
+    patterns.push(pattern);
+    return true;
+  });
+  return additions.length ? `${existing}\`${additions.join('`')}` : existing;
 }
 
 function suggestNodeNameFilter(node) {

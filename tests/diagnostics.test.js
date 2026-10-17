@@ -2728,6 +2728,77 @@ rules:
     assert.match(app.state.outputText, /\n    exclude-type: vless\s*\n/);
   });
 
+  test(`${source.name}: preserves node name expressions when appending provider rules`, () => {
+    const app = loadApp(source);
+    const cases = [
+      ['A\\|B', 'B', 'A\\|B`B'],
+      ['US | NL', 'DE', 'US | NL`DE'],
+      ['^US$|', 'DE', '^US$|`DE'],
+      ['US', 'us', 'US`us'],
+      ['US`us', 'US', 'US`us'],
+      ['(US|NL)\\|([A-Z]+)\\1', 'DE', '(US|NL)\\|([A-Z]+)\\1`DE'],
+      ['US`NL', 'NL`DE`DE', 'US`NL`DE'],
+      ['  US | NL  ', 'DE', '  US | NL  `DE'],
+      ['', '`', '`'],
+    ];
+
+    for (const key of ['filter', 'excludeFilter']) {
+      for (const [current, addition, expected] of cases) {
+        const [provider] = hydrate(app, 'proxy-providers:\n  AlphaNet:\n    type: http\n    url: https://alpha.example/sub\nproxy-groups:\n  - name: PROXY\n    type: select\n    use: [AlphaNet]\nrules:\n  - MATCH,PROXY\n');
+        provider[key] = current;
+        assert.equal(app.applyNodeProviderRule(provider, key, addition), expected, `${key}: ${current} + ${addition}`);
+        assert.equal(provider[key], expected);
+        const [reloaded] = hydrate(app, app.state.outputText);
+        assert.equal(reloaded[key], expected, `${key}: yaml round-trip`);
+      }
+    }
+  });
+
+  test(`${source.name}: keeps pipe-separated protocol exclusions`, () => {
+    const app = loadApp(source);
+    const [provider] = hydrate(app, 'proxy-providers:\n  AlphaNet:\n    type: http\n    url: https://alpha.example/sub\n    exclude-type: vless\nproxy-groups:\n  - name: PROXY\n    type: select\n    use: [AlphaNet]\nrules:\n  - MATCH,PROXY\n');
+
+    assert.equal(app.applyNodeProviderRule(provider, 'excludeType', 'trojan'), 'vless|trojan');
+    assert.equal(app.applyNodeProviderRule(provider, 'excludeType', 'VLESS'), 'vless|trojan');
+    const [reloaded] = hydrate(app, app.state.outputText);
+    assert.equal(reloaded.excludeType, 'vless|trojan');
+  });
+
+  test(`${source.name}: previews Mihomo name rules with explicit case and provider scope`, () => {
+    const app = loadApp(source);
+    app.state.mihomoNodes = [
+      { name: 'NL Amsterdam', provider: 'AlphaNet' },
+      { name: 'nl amsterdam', provider: 'AlphaNet' },
+      { name: 'DE Berlin', provider: 'AlphaNet' },
+      { name: 'NL Rotterdam', provider: 'BetaMesh' },
+    ];
+    const cases = [
+      ['nl', ['nl amsterdam']],
+      ['(?i)NL', ['NL Amsterdam', 'nl amsterdam']],
+      ['(?i)(?-i)NL', ['NL Amsterdam']],
+      ['(?im-s)nl', ['NL Amsterdam', 'nl amsterdam']],
+      ['NL`DE', ['NL Amsterdam', 'DE Berlin']],
+      ['(?i)nl`DE', ['NL Amsterdam', 'nl amsterdam', 'DE Berlin']],
+    ];
+
+    for (const [pattern, expected] of cases) {
+      const impact = app.getNodeNameRuleImpact('AlphaNet', pattern);
+      assert.equal(impact.valid, true, pattern);
+      assert.equal(impact.total, 3, pattern);
+      assert.deepEqual([...impact.matches].map((node) => node.name), expected, pattern);
+    }
+
+    const invalid = app.getNodeNameRuleImpact('AlphaNet', '[');
+    assert.equal(invalid.valid, false);
+    assert.equal(invalid.matches.length, 0);
+    for (const pattern of ['(?i:NL)', '(?x)NL', '\\w+', '(NL)\\1', '[a-z-[aeiou]]', '[]]', '[^]]']) {
+      const unknown = app.getNodeNameRuleImpact('AlphaNet', pattern);
+      assert.equal(unknown.valid, null, pattern);
+      assert.equal(unknown.total, 3, pattern);
+      assert.equal(unknown.matches.length, 0, pattern);
+    }
+  });
+
   test(`${source.name}: reports node rule impact, status and filtered totals`, () => {
     const app = loadApp(source);
     app.state.mihomoNodes = [
