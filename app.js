@@ -384,6 +384,7 @@ const state = {
   providers: [],
   groups: [],
   rules: [],
+  ruleSetInspector: { name: '', query: '', offset: 0, data: null, loading: false, error: '', requestId: 0 },
   originalProviders: [],
   originalGroups: [],
   originalRules: [],
@@ -921,6 +922,19 @@ const els = {
   groupOrderList: document.querySelector('#groupOrderList'),
   rulesEditorList: document.querySelector('#rulesEditorList'),
   ruleInspector: document.querySelector('#ruleInspector'),
+  ruleSetDialog: document.querySelector('#ruleSetDialog'),
+  ruleSetSelect: document.querySelector('#ruleSetSelect'),
+  ruleSetOpen: document.querySelector('#ruleSetOpen'),
+  ruleSetTitle: document.querySelector('#ruleSetTitle'),
+  ruleSetClose: document.querySelector('#ruleSetClose'),
+  ruleSetSearchForm: document.querySelector('#ruleSetSearchForm'),
+  ruleSetQuery: document.querySelector('#ruleSetQuery'),
+  ruleSetSearch: document.querySelector('#ruleSetSearch'),
+  ruleSetStatus: document.querySelector('#ruleSetStatus'),
+  ruleSetEntries: document.querySelector('#ruleSetEntries'),
+  ruleSetPage: document.querySelector('#ruleSetPage'),
+  ruleSetPrevious: document.querySelector('#ruleSetPrevious'),
+  ruleSetNext: document.querySelector('#ruleSetNext'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
@@ -1088,6 +1102,16 @@ els.routingViewTabs.forEach((button) => {
 els.ruleSearchInput?.addEventListener('input', handleRuleFilterChange);
 els.ruleTypeFilter?.addEventListener('change', handleRuleFilterChange);
 els.ruleTargetFilter?.addEventListener('change', handleRuleFilterChange);
+els.ruleSetOpen?.addEventListener('click', () => openRuleSetInspector(els.ruleSetSelect.value));
+els.ruleSetClose?.addEventListener('click', () => els.ruleSetDialog.close());
+els.ruleSetDialog?.addEventListener('close', closeRuleSetInspector);
+els.ruleSetSearchForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  state.ruleSetInspector.query = els.ruleSetQuery.value.trim();
+  loadRuleSetPage(0);
+});
+els.ruleSetPrevious?.addEventListener('click', () => loadRuleSetPage(Math.max(0, state.ruleSetInspector.offset - 50)));
+els.ruleSetNext?.addEventListener('click', () => loadRuleSetPage(state.ruleSetInspector.offset + 50));
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
@@ -7929,6 +7953,7 @@ function render() {
   renderRulesEditor();
   renderMainGroup(state.groups, activeProviders);
   renderGroups(activeProviders, groupsWithUse);
+  renderRuleSetSelector();
   renderNodeInventory();
   renderWhitelistMonitor();
   renderProtectedDns();
@@ -8698,6 +8723,8 @@ function getDiagnosticSeverity(text) {
   if (String(text) === MISSING_GROUPS_DIAGNOSTIC) return 'error';
   if (String(text).startsWith('Rules:')) return 'error';
   if (/^Группа .+?: provider .+ из use не найден\./.test(String(text))) return 'error';
+  if (/^Группа .+?: (?:цикл групп |ссылается на себя в proxies\.|имя совпадает с узлом из proxies\.|имя зарезервировано для встроенного выхода\.)/.test(String(text))) return 'error';
+  if (/^proxies: узел .+?: имя зарезервировано для встроенного выхода\.$/.test(String(text))) return 'error';
   if (String(text).includes('имя дублируется')) return 'error';
   if (String(text).includes('группа без имени')) return 'error';
   if (String(text).startsWith('proxy-groups: нет групп')) return 'error';
@@ -8837,7 +8864,10 @@ function collectDiagnostics(activeProviders) {
 
   const providerNames = new Set(activeProviders.map((provider) => normalizeLookupName(provider.name)));
   const groupNames = new Set();
-  const directProxyNames = new Set(getDirectProxyNames().map(normalizeLookupName));
+  const exactGroupNames = new Set();
+  const exactDirectProxyNames = new Set(getDirectProxyNames());
+  const directProxyNames = new Set([...exactDirectProxyNames].map(normalizeLookupName));
+  const reservedNames = new Set([...BUILT_IN_OUTBOUNDS].filter((name) => name !== 'GLOBAL'));
   const usedProviders = new Set();
 
   if (state.groups.length === 0) {
@@ -8848,12 +8878,26 @@ function collectDiagnostics(activeProviders) {
     const groupName = normalizeLookupName(group.name);
     if (!group.name) {
       addUniqueDiagnostic(diagnostics, 'proxy-groups: найдена группа без имени.');
-    } else if (groupNames.has(groupName)) {
+    } else if (exactGroupNames.has(group.name)) {
       addUniqueDiagnostic(diagnostics, `Группа ${group.name}: имя дублируется.`);
     } else {
       groupNames.add(groupName);
+      exactGroupNames.add(group.name);
+    }
+    if (reservedNames.has(group.name)) {
+      addUniqueDiagnostic(diagnostics, `Группа ${group.name}: имя зарезервировано для встроенного выхода.`);
+    }
+    if (exactDirectProxyNames.has(group.name)) {
+      addUniqueDiagnostic(diagnostics, `Группа ${group.name}: имя совпадает с узлом из proxies.`);
     }
   });
+
+  exactDirectProxyNames.forEach((name) => {
+    if (reservedNames.has(name)) {
+      addUniqueDiagnostic(diagnostics, `proxies: узел ${name}: имя зарезервировано для встроенного выхода.`);
+    }
+  });
+  collectGroupCycleDiagnostics().forEach((text) => addUniqueDiagnostic(diagnostics, text));
 
   getRuleTargets().forEach((target) => {
     if (!isKnownOutboundName(target, groupNames, directProxyNames)) {
@@ -8899,6 +8943,36 @@ function collectDiagnostics(activeProviders) {
     addUniqueDiagnostic(diagnostics, text);
   });
 
+  return diagnostics;
+}
+
+function collectGroupCycleDiagnostics() {
+  const diagnostics = [];
+  const groupsByName = new Map(state.groups.map((group) => [group.name, group]));
+  const visited = new Set();
+  const stack = [];
+  const visiting = new Map();
+
+  function visit(group) {
+    if (visited.has(group.name)) return;
+    visiting.set(group.name, stack.length);
+    stack.push(group.name);
+    group.proxies.forEach((name) => {
+      if (name === group.name) {
+        addUniqueDiagnostic(diagnostics, `Группа ${group.name}: ссылается на себя в proxies.`);
+      } else if (visiting.has(name)) {
+        const cycle = [...stack.slice(visiting.get(name)), name];
+        addUniqueDiagnostic(diagnostics, `Группа ${name}: цикл групп ${cycle.join(' → ')}.`);
+      } else if (groupsByName.has(name)) {
+        visit(groupsByName.get(name));
+      }
+    });
+    stack.pop();
+    visiting.delete(group.name);
+    visited.add(group.name);
+  }
+
+  groupsByName.forEach(visit);
   return diagnostics;
 }
 
@@ -9009,18 +9083,24 @@ function getDirectProxyNames() {
   const lines = splitLines(state.originalText);
   const proxiesSection = findTopSection(lines, 'proxies');
   const names = [];
+  let proxyIndent = null;
   if (!proxiesSection) return names;
 
   for (let index = proxiesSection.start + 1; index < proxiesSection.end; index += 1) {
+    const itemMatch = lines[index].match(/^(\s*)-\s+/);
+    if (itemMatch && proxyIndent === null) proxyIndent = itemMatch[1].length;
+    if (itemMatch && itemMatch[1].length !== proxyIndent) continue;
     const blockMatch = lines[index].match(/^\s*-\s+name\s*:\s*(.*)$/);
     if (blockMatch) {
-      names.push(cleanScalar(stripYamlComment(blockMatch[1])));
+      names.push(cleanScalar(splitYamlScalarProperties(stripYamlComment(blockMatch[1])).value));
       continue;
     }
 
     const inlineMatch = lines[index].match(/^\s*-\s+(\{.*\})\s*(?:#.*)?$/);
     const inlineMap = inlineMatch ? parseInlineMap(stripYamlComment(inlineMatch[1])) : null;
-    if (inlineMap?.has('name')) names.push(cleanScalar(inlineMap.get('name')));
+    if (inlineMap?.has('name')) names.push(cleanScalar(splitYamlScalarProperties(inlineMap.get('name')).value));
+    const nameEntry = proxyIndent === null ? null : parseKeyValueLine(lines[index], proxyIndent + 2);
+    if (nameEntry?.key === 'name') names.push(cleanScalar(splitYamlScalarProperties(stripYamlComment(nameEntry.value)).value));
   }
 
   return names.filter((name, index) => name && names.indexOf(name) === index);
@@ -11913,6 +11993,85 @@ function createRuleInspectorSummary(rule, index, activeRules) {
   actions.append(editButton, removeButton);
   wrap.append(actions);
   return wrap;
+}
+
+function renderRuleSetSelector() {
+  if (!els.ruleSetSelect) return;
+  const selected = els.ruleSetSelect.value;
+  const names = [...new Set(getActiveRules()
+    .filter((rule) => normalizeRuleType(rule.type) === 'RULE-SET')
+    .map((rule) => rule.value).filter(Boolean))];
+  els.ruleSetSelect.textContent = '';
+  (names.length ? names : ['Нет наборов RULE-SET']).forEach((name) => {
+    const option = document.createElement('option');
+    option.value = names.length ? name : '';
+    option.textContent = name;
+    els.ruleSetSelect.append(option);
+  });
+  if (names.includes(selected)) els.ruleSetSelect.value = selected;
+  els.ruleSetSelect.disabled = names.length === 0;
+  els.ruleSetOpen.disabled = names.length === 0 || !state.routerApiAvailable;
+  els.ruleSetOpen.title = state.routerApiAvailable ? '' : 'Нужно подключение к роутеру';
+}
+
+function openRuleSetInspector(name) {
+  const inspector = state.ruleSetInspector;
+  inspector.name = String(name || '');
+  inspector.query = '';
+  inspector.data = null;
+  inspector.error = '';
+  els.ruleSetTitle.textContent = `Набор правил: ${inspector.name}`;
+  els.ruleSetQuery.value = '';
+  els.ruleSetDialog.showModal();
+  return loadRuleSetPage(0);
+}
+
+function closeRuleSetInspector() {
+  state.ruleSetInspector.requestId += 1;
+  state.ruleSetInspector.loading = false;
+}
+
+async function loadRuleSetPage(offset = 0) {
+  const inspector = state.ruleSetInspector;
+  const requestId = ++inspector.requestId;
+  inspector.loading = true;
+  inspector.error = '';
+  inspector.data = null;
+  inspector.offset = offset;
+  renderRuleSetInspector();
+  try {
+    const data = await apiJson(`/api/rule-providers/inspect?name=${encodeURIComponent(inspector.name)}&query=${encodeURIComponent(inspector.query)}&offset=${offset}&limit=50`);
+    if (requestId !== inspector.requestId) return;
+    inspector.data = data;
+    inspector.offset = data.offset;
+  } catch (error) {
+    if (requestId !== inspector.requestId) return;
+    inspector.error = error.message || 'Не удалось прочитать набор правил.';
+  } finally {
+    if (requestId === inspector.requestId) {
+      inspector.loading = false;
+      renderRuleSetInspector();
+    }
+  }
+}
+
+function renderRuleSetInspector() {
+  const inspector = state.ruleSetInspector;
+  const data = inspector.data;
+  const entries = data?.entries || [];
+  const behaviors = { domain: 'домены', ipcidr: 'IP-сети', classical: 'правила' };
+  els.ruleSetQuery.disabled = inspector.loading;
+  els.ruleSetSearch.disabled = inspector.loading;
+  els.ruleSetStatus.classList.toggle('is-error', Boolean(inspector.error));
+  els.ruleSetStatus.textContent = inspector.error || (inspector.loading ? 'Читаем набор на роутере…'
+    : data ? `Формат: ${String(data.format).toUpperCase()} · Тип: ${behaviors[data.behavior] || data.behavior} · Всего${data.truncated ? ' в пределах лимита' : ''}: ${data.total} · Найдено: ${data.matched}${data.truncated ? '. Набор показан частично; поиск выполнен только в показанной части.' : ''}` : '');
+  els.ruleSetEntries.textContent = entries.join('\n');
+  els.ruleSetEntries.hidden = entries.length === 0;
+  els.ruleSetEntries.setAttribute('aria-busy', String(inspector.loading));
+  els.ruleSetPage.textContent = data ? (entries.length
+    ? `${inspector.offset + 1}–${inspector.offset + entries.length} из ${data.matched}` : 'Совпадений нет') : '';
+  els.ruleSetPrevious.disabled = inspector.loading || !data || inspector.offset === 0;
+  els.ruleSetNext.disabled = inspector.loading || !data || inspector.offset + entries.length >= data.matched;
 }
 
 function createRuleInspectorEditor(rule, index, count) {

@@ -18,8 +18,10 @@ import shlex
 import signal
 import socket
 import ssl
+import stat
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
@@ -538,6 +540,14 @@ class MihuiHandler(SimpleHTTPRequestHandler):
             return
         if route == "/api/providers/status":
             self.handle_providers_status()
+            return
+        if route == "/api/rule-providers/inspect":
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            result = inspect_rule_provider(self.app_dir, **{
+                key: params.get(key, [default])[0]
+                for key, default in (("name", ""), ("query", ""), ("offset", "0"), ("limit", "50"))
+            })
+            self.send_json(HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_REQUEST, result)
             return
         if route == "/api/nodes":
             self.handle_nodes_get()
@@ -4634,6 +4644,325 @@ def get_xray_provider_adapter_status(provider_name):
 def snapshot_xray_provider_adapter_statuses():
     with xray_provider_adapter_status_lock:
         return [dict(item) for item in xray_provider_adapter_statuses.values()]
+
+
+RULE_SET_MAX_BYTES = 16 * 1024 * 1024
+RULE_SET_MAX_ENTRIES = 100000
+rule_set_conversion_lock = threading.Lock()
+RULE_SET_MRS_WRAPPER = """import errno,mmap,os,resource,sys
+resource.setrlimit(resource.RLIMIT_DATA,(134217728,134217728))
+try:
+    probe=mmap.mmap(-1,134217729,flags=mmap.MAP_PRIVATE|mmap.MAP_ANONYMOUS,prot=mmap.PROT_READ|mmap.PROT_WRITE)
+except OSError as error:
+    if error.errno != errno.ENOMEM: raise
+else:
+    probe.close()
+    sys.exit(125)
+os.execv(sys.argv[1],sys.argv[1:])
+"""
+
+
+def rule_set_yaml_parts(value, separator=","):
+    """Split only outside quotes/flow collections; reject unsupported YAML."""
+    parts, start, depth, quote, escaped = [], 0, 0, "", False
+    for index, char in enumerate(value):
+        if quote:
+            if char == quote and not escaped:
+                quote = ""
+            escaped = char == "\\" and quote == '"' and not escaped
+        elif char in "\"'":
+            quote = char
+        elif char in "[{":
+            depth += 1
+        elif char in "]}":
+            depth -= 1
+            if depth < 0:
+                raise ValueError("Не удалось разобрать YAML набора правил")
+        elif depth == 0 and char == separator:
+            if separator == "#" and index and not value[index - 1].isspace():
+                continue
+            parts.append(value[start:index].strip())
+            if separator == "," and len(parts) > RULE_SET_MAX_ENTRIES:
+                raise ValueError("YAML набора правил превышает лимит просмотра")
+            start = index + 1
+            if separator in {":", "#"}:
+                parts.append(value[start:].strip())
+                return parts
+    if quote or depth:
+        raise ValueError("Для просмотра используйте обычный YAML без многострочных flow-коллекций")
+    parts.append(value[start:].strip())
+    if separator == "," and len(parts) > RULE_SET_MAX_ENTRIES:
+        raise ValueError("YAML набора правил превышает лимит просмотра")
+    return parts
+
+
+def rule_set_yaml_value(value, depth=0):
+    if depth > 16:
+        raise ValueError("Слишком глубокая вложенность YAML набора правил")
+    value = value.strip()
+    if not value:
+        return ""
+    if value.startswith(("*", "&", "!", "|", ">")):
+        raise ValueError("Просмотр YAML с алиасами, тегами или многострочными значениями пока недоступен")
+    if value.startswith('"'):
+        try:
+            return json.loads(value)
+        except ValueError:
+            raise ValueError("Не удалось разобрать строку YAML набора правил") from None
+    if value.startswith("'"):
+        if not value.endswith("'") or len(value) < 2:
+            raise ValueError("Не удалось разобрать строку YAML набора правил")
+        return value[1:-1].replace("''", "'")
+    if value.startswith("[") and value.endswith("]"):
+        return [rule_set_yaml_value(part, depth + 1) for part in rule_set_yaml_parts(value[1:-1]) if part]
+    if value.startswith("{") and value.endswith("}"):
+        result = {}
+        for part in rule_set_yaml_parts(value[1:-1]):
+            if not part:
+                continue
+            pair = rule_set_yaml_parts(part, ":")
+            if len(pair) != 2:
+                raise ValueError("Не удалось разобрать YAML набора правил")
+            key = rule_set_yaml_value(pair[0], depth + 1)
+            if not isinstance(key, str) or key in result or key == "<<":
+                raise ValueError("Не удалось разобрать YAML набора правил")
+            result[key] = rule_set_yaml_value(pair[1], depth + 1)
+        return result
+    return value
+
+
+def rule_set_yaml_lines(text, max_lines=None):
+    lines = []
+    for line in io.StringIO(text):
+        line = line.rstrip("\r\n")
+        quote, escaped, cleaned = "", False, line
+        for index, char in enumerate(line):
+            if quote:
+                if char == quote and not escaped:
+                    quote = ""
+                escaped = char == "\\" and quote == '"' and not escaped
+            elif char in "\"'":
+                quote = char
+            elif char == "#" and (not index or line[index - 1].isspace()):
+                cleaned = line[:index]
+                break
+        if cleaned.strip() and cleaned.strip() not in {"---", "..."}:
+            if max_lines is not None and len(lines) >= max_lines:
+                raise ValueError("YAML набора правил превышает лимит просмотра")
+            lines.append((len(line) - len(line.lstrip(" ")), cleaned.strip()))
+    return lines
+
+
+def rule_set_yaml_mapping(lines, depth=0):
+    if depth > 16:
+        raise ValueError("Слишком глубокая вложенность YAML набора правил")
+    result = {}
+    if not lines:
+        return result
+    indent = lines[0][0]
+    consumed_until = 0
+    for index, (level, line) in enumerate(lines):
+        if index < consumed_until or level != indent:
+            continue
+        pair = rule_set_yaml_parts(line, ":")
+        if len(pair) != 2:
+            raise ValueError("Не удалось разобрать описание набора правил")
+        key = rule_set_yaml_value(pair[0])
+        if not isinstance(key, str) or key in result or key == "<<":
+            raise ValueError("Повторяющиеся ключи или YAML-алиасы набора правил не поддерживаются")
+        if pair[1]:
+            result[key] = rule_set_yaml_value(pair[1])
+            continue
+        end = index + 1
+        while end < len(lines) and (lines[end][0] > indent or (lines[end][0] == indent and lines[end][1].startswith("- "))):
+            end += 1
+        consumed_until = end
+        children = lines[index + 1:end]
+        if children and children[0][1].startswith("- "):
+            child_indent = children[0][0]
+            if any(child_level != child_indent or not child.startswith("- ") for child_level, child in children):
+                raise ValueError("В payload набора правил ожидается список строк")
+            result[key] = [rule_set_yaml_value(child[2:]) for _, child in children]
+        else:
+            result[key] = rule_set_yaml_mapping(children, depth + 1)
+    return result
+
+
+def rule_set_provider_spec(lines, name):
+    for index, (indent, line) in enumerate(lines):
+        match = re.match(r"^rule-providers\s*:(.*)$", line)
+        if indent != 0 or not match:
+            continue
+        value = match.group(1).strip()
+        end = index + 1
+        while end < len(lines) and lines[end][0] > indent:
+            end += 1
+        if value:
+            providers = rule_set_yaml_value(value)
+            return providers.get(name) if isinstance(providers, dict) else None
+        children = lines[index + 1:end]
+        if not children:
+            return None
+        provider_indent, found = children[0][0], None
+        for child_index, (level, child) in enumerate(children):
+            if level != provider_indent:
+                continue
+            pair = rule_set_yaml_parts(child, ":")
+            if len(pair) != 2 or rule_set_yaml_value(pair[0]) != name:
+                continue
+            if found is not None:
+                raise ValueError("Имя набора правил повторяется в конфигурации")
+            child_end = child_index + 1
+            while child_end < len(children) and children[child_end][0] > provider_indent:
+                child_end += 1
+            found = rule_set_yaml_value(pair[1]) if pair[1] else rule_set_yaml_mapping(children[child_index + 1:child_end])
+        return found
+    return None
+
+
+def rule_set_read_file(path, limit=RULE_SET_MAX_BYTES):
+    descriptor = -1
+    try:
+        descriptor = os.open(str(path), os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Набор правил должен быть обычным файлом")
+        if info.st_size > limit:
+            raise ValueError("Набор правил превышает лимит просмотра")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            data = stream.read(limit + 1)
+        if len(data) > limit:
+            raise ValueError("Набор правил превышает лимит просмотра")
+        return data
+    except FileNotFoundError:
+        raise ValueError("Файл набора правил ещё не загружен или отсутствует") from None
+    except OSError:
+        raise ValueError("Не удалось прочитать файл набора правил") from None
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def decode_rule_set_mrs(app_dir, data, behavior):
+    binary = find_mihomo_binary(app_dir)
+    if not binary or os.name != "posix" or not Path("/dev/stdout").exists():
+        raise ValueError("Для просмотра MRS требуется установленное ядро Mihomo с convert-ruleset")
+    if behavior not in {"domain", "ipcidr"}:
+        raise ValueError("Просмотр MRS поддерживает только domain и ipcidr")
+    if not rule_set_conversion_lock.acquire(blocking=False):
+        raise ValueError("Другой MRS уже открывается; повторите попытку")
+    process = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="mihui-rules-") as directory:
+            source = Path(directory) / "source.mrs"
+            source.write_bytes(data)
+            # Mihomo's MRS converter exports text when the input format is mrs.
+            # Set the limit in a fresh process: preexec_fn is unsafe in this threaded server.
+            process = subprocess.Popen(
+                [sys.executable, "-c", RULE_SET_MRS_WRAPPER, binary, "convert-ruleset", behavior, "mrs", str(source), "/dev/stdout"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            output, deadline = bytearray(), time.monotonic() + 12
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError("Время открытия MRS истекло")
+                if not select.select([process.stdout], [], [], min(remaining, 0.1))[0]:
+                    continue
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                output.extend(chunk)
+                if len(output) > RULE_SET_MAX_BYTES:
+                    raise ValueError("Содержимое MRS превышает лимит просмотра")
+            if process.wait(timeout=max(0.01, deadline - time.monotonic())):
+                raise ValueError("Mihomo не смог открыть MRS; требуется convert-ruleset с ограничением памяти 128 МиБ")
+            return bytes(output)
+    except (OSError, subprocess.SubprocessError):
+        raise ValueError("Не удалось открыть MRS установленным ядром Mihomo") from None
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            process.stdout.close()
+        rule_set_conversion_lock.release()
+
+
+def inspect_rule_provider(app_dir, name, query="", offset=0, limit=50):
+    try:
+        if not isinstance(name, str) or not name or len(name) > 256 or len(str(query)) > 256:
+            raise ValueError("Укажите имя набора правил и поисковый текст не длиннее 256 символов")
+        try:
+            offset, limit = int(offset), int(limit)
+        except (ValueError, TypeError):
+            raise ValueError("Некорректная страница набора правил") from None
+        if offset < 0 or offset > RULE_SET_MAX_ENTRIES or not 1 <= limit <= 200:
+            raise ValueError("Некорректная страница набора правил")
+        config_path = get_config_path(app_dir)
+        text = rule_set_read_file(config_path, 2 * 1024 * 1024).decode("utf-8-sig")
+        section = []
+        for line in io.StringIO(text):
+            line = line.rstrip("\r\n")
+            if not section:
+                if re.match(r"^rule-providers\s*:", line):
+                    section.append(line)
+            elif line.strip() and not line.startswith((" ", "\t", "#")):
+                break
+            else:
+                section.append(line)
+        lines = rule_set_yaml_lines("\n".join(section))
+        spec = rule_set_provider_spec(lines, name)
+        if spec is None:
+            raise ValueError("Набор правил не найден в сохранённой конфигурации роутера")
+        if not isinstance(spec, dict):
+            raise ValueError("Не удалось разобрать описание набора правил")
+        kind, behavior, format_name = spec.get("type"), spec.get("behavior"), spec.get("format", "yaml")
+        if not all(isinstance(value, str) for value in (kind, behavior, format_name)) or kind not in {"http", "file", "inline"} or behavior not in {"domain", "ipcidr", "classical"} or format_name not in {"yaml", "text", "mrs"}:
+            raise ValueError("Тип, поведение или формат набора правил не поддерживается")
+        if kind == "inline":
+            entries = spec.get("payload", [])
+        else:
+            root = config_path.resolve().parent
+            configured_path = spec.get("path")
+            if not configured_path and kind == "http" and isinstance(spec.get("url"), str):
+                configured_path = "rules/" + hashlib.md5(spec["url"].encode("utf-8")).hexdigest()
+            if not isinstance(configured_path, str) or not configured_path:
+                raise ValueError("В конфигурации не указан файл набора правил")
+            path = (root / configured_path).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                raise ValueError("Просмотр файлов за пределами каталога Mihomo запрещён") from None
+            data = rule_set_read_file(path)
+            if format_name == "mrs":
+                data = decode_rule_set_mrs(app_dir, data, behavior)
+            text = data.decode("utf-8-sig")
+            if format_name in {"text", "mrs"}:
+                entries = []
+                for line in io.StringIO(text):
+                    if line.strip() and not line.lstrip().startswith(("#", "//")):
+                        entries.append(line.strip())
+                        if len(entries) > RULE_SET_MAX_ENTRIES:
+                            break
+            else:
+                payload = rule_set_yaml_mapping(rule_set_yaml_lines(text, RULE_SET_MAX_ENTRIES + 2))
+                entries = payload.get("payload", payload.get("rules"))
+        if not isinstance(entries, list) or any(not isinstance(entry, str) or len(entry) > 4096 for entry in entries):
+            raise ValueError("В наборе правил ожидается список строк длиной до 4096 символов")
+        truncated = len(entries) > RULE_SET_MAX_ENTRIES
+        entries = entries[:RULE_SET_MAX_ENTRIES]
+        total = len(entries)
+        needle = str(query).casefold()
+        matched = [entry for entry in entries if needle in entry.casefold()]
+        return {"ok": True, "name": name, "behavior": behavior, "format": format_name,
+                "source": "inline" if kind == "inline" else "file", "total": total, "matched": len(matched),
+                "offset": offset, "limit": limit, "entries": matched[offset:offset + limit], "truncated": truncated}
+    except UnicodeError:
+        return {"ok": False, "message": "Не удалось прочитать набор правил как UTF-8 текст"}
+    except (ValueError, OSError) as error:
+        return {"ok": False, "message": str(error) if isinstance(error, ValueError) else "Не удалось открыть набор правил"}
 
 
 def get_proxy_provider_statuses(app_dir):

@@ -1326,6 +1326,200 @@ rules:
     assert.equal(app.getDiagnosticSeverity('Группа EmptyAuto: прокси-режим пустой.'), 'warning');
   });
 
+  test(`${source.name}: reports group cycles and self references as blocking errors`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-groups:
+  - name: Entry
+    type: select
+    proxies: [A]
+  - name: A
+    type: select
+    proxies: [B]
+  - name: B
+    type: select
+    proxies: [A]
+  - name: Self
+    type: select
+    proxies: [Self, Self]
+rules:
+  - MATCH,Entry
+`);
+
+    const diagnostics = app.collectDiagnostics(activeProviders);
+    const cycle = 'Группа A: цикл групп A → B → A.';
+    const self = 'Группа Self: ссылается на себя в proxies.';
+    assert(diagnostics.includes(cycle));
+    assert.equal(diagnostics.filter((text) => text === self).length, 1);
+    assert.equal(app.getDiagnosticSeverity(cycle), 'error');
+    assert.equal(app.getDiagnosticSeverity(self), 'error');
+    assert.equal(app.getDiagnosticAction(cycle), null);
+    assert.equal(app.getDiagnosticAction(self), null);
+  });
+
+  test(`${source.name}: checks disconnected cycles without treating shared children as cycles`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxy-groups:
+  - name: Entry
+    type: select
+    proxies: [Left, Right]
+  - name: Left
+    type: select
+    proxies: [Leaf]
+  - name: Right
+    type: select
+    proxies: [Leaf]
+  - name: Leaf
+    type: select
+    proxies: [DIRECT]
+  - name: X
+    type: select
+    proxies: [Y]
+  - name: Y
+    type: select
+    proxies: [Z]
+  - name: Z
+    type: select
+    proxies: [X]
+rules:
+  - MATCH,Entry
+`);
+
+    assert.deepEqual([...app.collectDiagnostics(activeProviders)], ['Группа X: цикл групп X → Y → Z → X.']);
+    app.state.groups.splice(4);
+    assert.equal(app.collectDiagnostics(activeProviders).length, 0);
+  });
+
+  test(`${source.name}: reports exact group and direct proxy name collisions`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxies:
+  - {name: Shared, type: direct}
+proxy-groups:
+  - name: Shared
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,Shared
+`);
+
+    const message = 'Группа Shared: имя совпадает с узлом из proxies.';
+    assert(app.collectDiagnostics(activeProviders).includes(message));
+    assert.equal(app.getDiagnosticSeverity(message), 'error');
+    app.state.groups[0].name = 'SHARED';
+    assert.equal(app.collectDiagnostics(activeProviders).length, 0);
+  });
+
+  test(`${source.name}: finds direct proxy names after type without reading nested names`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxies:
+  - type: direct
+    name: Shared
+    metadata:
+      name: Nested
+proxy-groups:
+  - name: Shared
+    type: select
+    proxies: [DIRECT]
+  - name: Nested
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,Shared
+`);
+
+    assert.deepEqual([...app.collectDiagnostics(activeProviders)], ['Группа Shared: имя совпадает с узлом из proxies.']);
+  });
+
+  test(`${source.name}: decodes direct proxy name anchors while preserving quoted ampersands`, () => {
+    const app = loadApp(source);
+    for (const proxy of [
+      '  - name: &node Shared\n    type: direct',
+      '  - type: direct\n    name: &node Shared',
+      '  - {name: &node Shared, type: direct}',
+    ]) {
+      const activeProviders = hydrate(app, `
+proxies:
+${proxy}
+proxy-groups:
+  - name: Shared
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,Shared
+`);
+      assert.deepEqual([...app.collectDiagnostics(activeProviders)], ['Группа Shared: имя совпадает с узлом из proxies.']);
+    }
+
+    const activeProviders = hydrate(app, `
+proxies:
+  - name: "&node Shared"
+    type: direct
+proxy-groups:
+  - name: Shared
+    type: select
+    proxies: [DIRECT]
+  - name: "&node Shared"
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,Shared
+`);
+    assert.deepEqual([...app.collectDiagnostics(activeProviders)], ['Группа &node Shared: имя совпадает с узлом из proxies.']);
+  });
+
+  test(`${source.name}: rejects reserved outbound names for groups and direct proxies`, () => {
+    const app = loadApp(source);
+    const reservedNames = ['DIRECT', 'REJECT', 'REJECT-DROP', 'COMPATIBLE', 'PASS', 'PASS-RULE'];
+    const activeProviders = hydrate(app, `
+proxies:
+${reservedNames.map((name) => `  - {name: ${name}, type: direct}`).join('\n')}
+proxy-groups:
+${reservedNames.map((name) => `  - name: ${name}\n    type: select\n    proxies: [Local]`).join('\n')}
+  - name: Local
+    type: select
+    proxies: [REJECT]
+rules:
+  - MATCH,Local
+`);
+
+    const diagnostics = app.collectDiagnostics(activeProviders);
+    reservedNames.forEach((name) => {
+      const groupMessage = `Группа ${name}: имя зарезервировано для встроенного выхода.`;
+      const proxyMessage = `proxies: узел ${name}: имя зарезервировано для встроенного выхода.`;
+      assert(diagnostics.includes(groupMessage), name);
+      assert(diagnostics.includes(proxyMessage), name);
+      assert.equal(app.getDiagnosticSeverity(groupMessage), 'error');
+      assert.equal(app.getDiagnosticSeverity(proxyMessage), 'error');
+    });
+  });
+
+  test(`${source.name}: respects case-sensitive names and allows a custom GLOBAL group`, () => {
+    const app = loadApp(source);
+    const activeProviders = hydrate(app, `
+proxies:
+  - {name: direct, type: direct}
+proxy-groups:
+  - name: GLOBAL
+    type: select
+    proxies: [A, a, direct]
+  - name: A
+    type: select
+    proxies: [a]
+  - name: a
+    type: select
+    proxies: [DIRECT]
+rules:
+  - MATCH,GLOBAL
+`);
+
+    assert.equal(app.collectDiagnostics(activeProviders).length, 0);
+    app.state.groups[2].name = 'A';
+    assert(app.collectDiagnostics(activeProviders).includes('Группа A: имя дублируется.'));
+  });
+
   test(`${source.name}: reports provider urls Mihomo cannot fetch directly`, () => {
     const app = loadApp(source);
     const activeProviders = hydrate(app, `

@@ -396,6 +396,14 @@
               <span>После загрузки управляйте подключением подписок к группам.</span>
             </div>
           </div>
+          <div class="rule-set-launcher">
+            <label for="ruleSetSelect">Наборы правил RULE-SET</label>
+            <div>
+              <select id="ruleSetSelect" aria-describedby="ruleSetSelectHint" disabled><option value="">Нет наборов RULE-SET</option></select>
+              <button id="ruleSetOpen" class="button compact" type="button" disabled>Открыть набор</button>
+            </div>
+            <p id="ruleSetSelectHint">Наборы, используемые в правилах загруженной конфигурации.</p>
+          </div>
         </section>
       </section>
 
@@ -1212,6 +1220,30 @@
       </section>
       </div>
     </main>
+
+    <dialog id="ruleSetDialog" class="rule-set-dialog" aria-labelledby="ruleSetTitle" aria-describedby="ruleSetDescription">
+      <section class="rule-set-surface">
+        <header class="rule-set-head">
+          <h2 id="ruleSetTitle">Набор правил</h2>
+          <button id="ruleSetClose" class="button compact" type="button">Закрыть</button>
+        </header>
+        <p id="ruleSetDescription">Читается набор из сохранённой на роутере конфигурации. Поиск ищет текст без учёта регистра; совпадение не подтверждает маршрут сайта.</p>
+        <form id="ruleSetSearchForm" class="rule-set-search">
+          <label for="ruleSetQuery">Домен, IP или часть правила</label>
+          <div>
+            <input id="ruleSetQuery" type="search" maxlength="256" placeholder="example.com или 192.0.2." autocomplete="off" />
+            <button id="ruleSetSearch" class="button compact" type="submit">Найти</button>
+          </div>
+        </form>
+        <p id="ruleSetStatus" role="status" aria-live="polite"></p>
+        <pre id="ruleSetEntries" class="rule-set-entries" aria-label="Содержимое набора правил" hidden></pre>
+        <footer class="rule-set-pagination">
+          <button id="ruleSetPrevious" class="button compact" type="button" disabled>Назад</button>
+          <span id="ruleSetPage" aria-live="polite"></span>
+          <button id="ruleSetNext" class="button compact" type="button" disabled>Дальше</button>
+        </footer>
+      </section>
+    </dialog>
 
     <dialog id="providerCreateDialog" class="provider-create-dialog" aria-labelledby="providerCreateTitle" aria-describedby="providerCreateDescription">
       <form id="providerCreateForm" class="provider-create-surface">
