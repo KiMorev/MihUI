@@ -3,6 +3,7 @@ import argparse
 import base64
 import binascii
 import codecs
+import errno
 import gzip
 import hashlib
 import hmac
@@ -4696,14 +4697,39 @@ def rule_set_yaml_parts(value, separator=","):
     return parts
 
 
-def rule_set_yaml_value(value, depth=0):
+def rule_set_yaml_unwrap_anchor(value):
+    match = re.match(r"^&[A-Za-z0-9_.@-]+(?:\s+(.*))?$", value.strip())
+    return (match.group(1) or "").strip() if match else value.strip()
+
+
+def rule_set_yaml_merge(mapping, inherited):
+    if inherited is None:
+        return mapping
+    sources = inherited if isinstance(inherited, list) else [inherited]
+    if len(sources) > 128 or any(not isinstance(source, dict) for source in sources):
+        raise ValueError("YAML-шаблон набора правил должен быть словарём или списком словарей")
+    merged = {}
+    for source in sources:
+        for key, value in source.items():
+            merged.setdefault(key, value)
+        if len(merged) > RULE_SET_MAX_ENTRIES:
+            raise ValueError("YAML набора правил превышает лимит просмотра")
+    merged.update(mapping)
+    return merged
+
+
+def rule_set_yaml_value(value, depth=0, resolve_alias=None):
     if depth > 16:
         raise ValueError("Слишком глубокая вложенность YAML набора правил")
-    value = value.strip()
+    value = rule_set_yaml_unwrap_anchor(value)
     if not value:
         return ""
-    if value.startswith(("*", "&", "!", "|", ">")):
-        raise ValueError("Просмотр YAML с алиасами, тегами или многострочными значениями пока недоступен")
+    if value.startswith("*"):
+        if not resolve_alias or not re.fullmatch(r"\*[A-Za-z0-9_.@-]+", value):
+            raise ValueError("Не найден YAML-шаблон набора правил")
+        return resolve_alias(value[1:], depth + 1)
+    if value.startswith(("&", "!", "|", ">")):
+        raise ValueError("Просмотр YAML с тегами или многострочными значениями пока недоступен")
     if value.startswith('"'):
         try:
             return json.loads(value)
@@ -4714,9 +4740,9 @@ def rule_set_yaml_value(value, depth=0):
             raise ValueError("Не удалось разобрать строку YAML набора правил")
         return value[1:-1].replace("''", "'")
     if value.startswith("[") and value.endswith("]"):
-        return [rule_set_yaml_value(part, depth + 1) for part in rule_set_yaml_parts(value[1:-1]) if part]
+        return [rule_set_yaml_value(part, depth + 1, resolve_alias) for part in rule_set_yaml_parts(value[1:-1]) if part]
     if value.startswith("{") and value.endswith("}"):
-        result = {}
+        result, inherited, has_merge = {}, None, False
         for part in rule_set_yaml_parts(value[1:-1]):
             if not part:
                 continue
@@ -4724,10 +4750,16 @@ def rule_set_yaml_value(value, depth=0):
             if len(pair) != 2:
                 raise ValueError("Не удалось разобрать YAML набора правил")
             key = rule_set_yaml_value(pair[0], depth + 1)
-            if not isinstance(key, str) or key in result or key == "<<":
+            if pair[0] == "<<":
+                if has_merge:
+                    raise ValueError("Повторяющийся YAML merge набора правил")
+                inherited = rule_set_yaml_value(pair[1], depth + 1, resolve_alias)
+                has_merge = True
+                continue
+            if not isinstance(key, str) or key in result:
                 raise ValueError("Не удалось разобрать YAML набора правил")
-            result[key] = rule_set_yaml_value(pair[1], depth + 1)
-        return result
+            result[key] = rule_set_yaml_value(pair[1], depth + 1, resolve_alias)
+        return rule_set_yaml_merge(result, inherited)
     return value
 
 
@@ -4753,10 +4785,10 @@ def rule_set_yaml_lines(text, max_lines=None):
     return lines
 
 
-def rule_set_yaml_mapping(lines, depth=0):
+def rule_set_yaml_mapping(lines, depth=0, resolve_alias=None):
     if depth > 16:
         raise ValueError("Слишком глубокая вложенность YAML набора правил")
-    result = {}
+    result, inherited, has_merge = {}, None, False
     if not lines:
         return result
     indent = lines[0][0]
@@ -4768,10 +4800,17 @@ def rule_set_yaml_mapping(lines, depth=0):
         if len(pair) != 2:
             raise ValueError("Не удалось разобрать описание набора правил")
         key = rule_set_yaml_value(pair[0])
-        if not isinstance(key, str) or key in result or key == "<<":
-            raise ValueError("Повторяющиеся ключи или YAML-алиасы набора правил не поддерживаются")
-        if pair[1]:
-            result[key] = rule_set_yaml_value(pair[1])
+        if pair[0] == "<<":
+            if has_merge:
+                raise ValueError("Повторяющийся YAML merge набора правил")
+            inherited = rule_set_yaml_value(pair[1], depth + 1, resolve_alias)
+            has_merge = True
+            continue
+        if not isinstance(key, str) or key in result:
+            raise ValueError("Повторяющиеся ключи набора правил не поддерживаются")
+        value = rule_set_yaml_unwrap_anchor(pair[1])
+        if value:
+            result[key] = rule_set_yaml_value(value, depth + 1, resolve_alias)
             continue
         end = index + 1
         while end < len(lines) and (lines[end][0] > indent or (lines[end][0] == indent and lines[end][1].startswith("- "))):
@@ -4782,13 +4821,91 @@ def rule_set_yaml_mapping(lines, depth=0):
             child_indent = children[0][0]
             if any(child_level != child_indent or not child.startswith("- ") for child_level, child in children):
                 raise ValueError("В payload набора правил ожидается список строк")
-            result[key] = [rule_set_yaml_value(child[2:]) for _, child in children]
+            result[key] = [rule_set_yaml_value(child[2:], depth + 1, resolve_alias) for _, child in children]
         else:
-            result[key] = rule_set_yaml_mapping(children, depth + 1)
-    return result
+            result[key] = rule_set_yaml_mapping(children, depth + 1, resolve_alias)
+    return rule_set_yaml_merge(result, inherited)
 
 
-def rule_set_provider_spec(lines, name):
+def rule_set_yaml_anchor_resolver(text):
+    lines = [(len(line) - len(line.lstrip(" ")), line.rstrip("\r\n")) for line in io.StringIO(text)]
+    definitions, cache, active = {}, {}, set()
+    scalar_indent, continued_quote = None, ""
+
+    def closes_quote(value, quote):
+        index = 0
+        while index < len(value):
+            if quote == '"' and value[index] == "\\":
+                index += 2
+                continue
+            if value[index] == quote:
+                if quote == "'" and value[index:index + 2] == "''":
+                    index += 2
+                    continue
+                return True
+            index += 1
+        return False
+
+    for index, (indent, raw_line) in enumerate(lines):
+        if scalar_indent is not None:
+            if not raw_line.strip() or raw_line.lstrip().startswith("#") or indent > scalar_indent:
+                continue
+            scalar_indent = None
+        if continued_quote:
+            if closes_quote(raw_line, continued_quote):
+                continued_quote = ""
+            continue
+        cleaned = rule_set_yaml_lines(raw_line)
+        if not cleaned:
+            continue
+        line = cleaned[0][1]
+        try:
+            pair = rule_set_yaml_parts(line, ":")
+        except ValueError:
+            continue
+        if len(pair) != 2:
+            continue
+        value = pair[1]
+        scalar_value = rule_set_yaml_unwrap_anchor(value)
+        if re.match(r"^[|>][0-9+-]*(?:\s|$)", scalar_value):
+            scalar_indent = indent
+            continue
+        if scalar_value.startswith(("'", '"')) and not closes_quote(scalar_value[1:], scalar_value[0]):
+            continued_quote = scalar_value[0]
+            continue
+        match = re.match(r"^&([A-Za-z0-9_.@-]+)(?:\s+(.*))?$", value)
+        if match:
+            definitions.setdefault(match.group(1), []).append((index, match.group(2) or ""))
+    accesses = 0
+
+    def resolve(name, depth):
+        nonlocal accesses
+        accesses += 1
+        if accesses > 128 or depth > 16:
+            raise ValueError("Слишком много вложенных YAML-шаблонов набора правил")
+        if name in active:
+            raise ValueError("Обнаружен цикл YAML-шаблонов набора правил")
+        if name not in definitions:
+            raise ValueError("Не найден YAML-шаблон набора правил")
+        if len(definitions[name]) != 1:
+            raise ValueError("Имя YAML-шаблона набора правил объявлено несколько раз")
+        if name not in cache:
+            active.add(name)
+            try:
+                index, value = definitions[name][0]
+                end = index + 1
+                while end < len(lines) and (not lines[end][1].strip() or lines[end][1].lstrip().startswith("#") or lines[end][0] > lines[index][0]):
+                    end += 1
+                cache[name] = (rule_set_yaml_value(value, depth, resolve) if value
+                               else rule_set_yaml_mapping(rule_set_yaml_lines("\n".join(line for _, line in lines[index + 1:end])), depth, resolve))
+            finally:
+                active.remove(name)
+        return cache[name]
+
+    return resolve
+
+
+def rule_set_provider_spec(lines, name, resolve_alias=None):
     for index, (indent, line) in enumerate(lines):
         match = re.match(r"^rule-providers\s*:(.*)$", line)
         if indent != 0 or not match:
@@ -4798,7 +4915,7 @@ def rule_set_provider_spec(lines, name):
         while end < len(lines) and lines[end][0] > indent:
             end += 1
         if value:
-            providers = rule_set_yaml_value(value)
+            providers = rule_set_yaml_value(value, resolve_alias=resolve_alias)
             return providers.get(name) if isinstance(providers, dict) else None
         children = lines[index + 1:end]
         if not children:
@@ -4815,30 +4932,44 @@ def rule_set_provider_spec(lines, name):
             child_end = child_index + 1
             while child_end < len(children) and children[child_end][0] > provider_indent:
                 child_end += 1
-            found = rule_set_yaml_value(pair[1]) if pair[1] else rule_set_yaml_mapping(children[child_index + 1:child_end])
+            value = rule_set_yaml_unwrap_anchor(pair[1])
+            found = (rule_set_yaml_value(value, resolve_alias=resolve_alias) if value
+                     else rule_set_yaml_mapping(children[child_index + 1:child_end], resolve_alias=resolve_alias))
         return found
     return None
 
 
-def rule_set_read_file(path, limit=RULE_SET_MAX_BYTES):
+def rule_set_read_file(path, limit=RULE_SET_MAX_BYTES, is_config=False):
     descriptor = -1
+    label = "конфигурации Mihomo" if is_config else "набора правил"
     try:
+        if is_config:
+            try:
+                path = path.resolve()
+            except RuntimeError:
+                raise OSError(errno.ELOOP, "") from None
         descriptor = os.open(str(path), os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode):
-            raise ValueError("Набор правил должен быть обычным файлом")
+            raise ValueError(f"Файл {label} должен быть обычным файлом")
         if info.st_size > limit:
-            raise ValueError("Набор правил превышает лимит просмотра")
+            raise ValueError(f"Файл {label} превышает лимит просмотра")
         with os.fdopen(descriptor, "rb") as stream:
             descriptor = -1
             data = stream.read(limit + 1)
         if len(data) > limit:
-            raise ValueError("Набор правил превышает лимит просмотра")
+            raise ValueError(f"Файл {label} превышает лимит просмотра")
         return data
-    except FileNotFoundError:
-        raise ValueError("Файл набора правил ещё не загружен или отсутствует") from None
-    except OSError:
-        raise ValueError("Не удалось прочитать файл набора правил") from None
+    except OSError as error:
+        reason = {
+            errno.ENOENT: "файл отсутствует" if is_config else "файл ещё не загружен или отсутствует",
+            errno.EACCES: "недостаточно прав на чтение",
+            errno.EPERM: "недостаточно прав на чтение",
+            errno.ELOOP: "обнаружена символическая ссылка или цикл ссылок",
+            errno.EIO: "ошибка ввода-вывода",
+        }.get(error.errno, "системная ошибка чтения")
+        code = errno.errorcode.get(error.errno)
+        raise ValueError(f"Не удалось прочитать файл {label}: {reason}" + (f" ({code})" if code else "")) from None
     finally:
         if descriptor >= 0:
             os.close(descriptor)
@@ -4901,7 +5032,7 @@ def inspect_rule_provider(app_dir, name, query="", offset=0, limit=50):
         if offset < 0 or offset > RULE_SET_MAX_ENTRIES or not 1 <= limit <= 200:
             raise ValueError("Некорректная страница набора правил")
         config_path = get_config_path(app_dir)
-        text = rule_set_read_file(config_path, 2 * 1024 * 1024).decode("utf-8-sig")
+        text = rule_set_read_file(config_path, 2 * 1024 * 1024, is_config=True).decode("utf-8-sig")
         section = []
         for line in io.StringIO(text):
             line = line.rstrip("\r\n")
@@ -4913,7 +5044,7 @@ def inspect_rule_provider(app_dir, name, query="", offset=0, limit=50):
             else:
                 section.append(line)
         lines = rule_set_yaml_lines("\n".join(section))
-        spec = rule_set_provider_spec(lines, name)
+        spec = rule_set_provider_spec(lines, name, rule_set_yaml_anchor_resolver(text))
         if spec is None:
             raise ValueError("Набор правил не найден в сохранённой конфигурации роутера")
         if not isinstance(spec, dict):
