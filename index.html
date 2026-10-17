@@ -928,10 +928,17 @@
             </div>
           </div>
 
+          <label class="dns-upstream-editor">
+            <span>Защищённые DNS-серверы</span>
+            <textarea id="dnsUpstreamServers" rows="3" spellcheck="false" aria-describedby="dnsUpstreamHelp dnsUpstreamStatus" placeholder="https://1.1.1.1/dns-query&#10;tls://dns.example"></textarea>
+          </label>
+          <p id="dnsUpstreamHelp">От одного до четырёх адресов DoH (https://) или DoT (tls://), каждый с новой строки. Прокси выбирается выше. Домашние зоны и DNS белых списков сохраняют свои настройки.</p>
+          <p id="dnsUpstreamStatus" role="status"></p>
+
           <section class="dns-protection-lan-selector dns-smart-group" aria-labelledby="dnsSmartGroupTitle">
             <div>
               <strong id="dnsSmartGroupTitle">Отдельная Smart-группа для DNS</strong>
-              <span>Prizrak будет выбирать прокси для Cloudflare и Google независимо от остальных групп.</span>
+              <span>Prizrak будет выбирать прокси для защищённых DNS-серверов независимо от остальных групп.</span>
             </div>
             <div class="dns-smart-group-controls">
               <label>
@@ -1036,7 +1043,7 @@
           <dl class="dns-protection-router-grid">
             <div><dt>Системный резолвер</dt><dd id="dnsSystemResolver">—</dd></div>
             <div><dt>Локальные имена</dt><dd id="dnsLocalResolver">После успешной проверки</dd></div>
-            <div><dt>DNS провайдера</dt><dd id="dnsProviderServers">—</dd></div>
+            <div><dt>DNS провайдера (DHCP)</dt><dd id="dnsProviderServers">—</dd></div>
             <div><dt>Игнорировать DNSv4 провайдера</dt><dd id="dnsIgnoreProviderV4">—</dd></div>
             <div><dt>Игнорировать DNSv6 провайдера</dt><dd id="dnsIgnoreProviderV6">—</dd></div>
             <div><dt>Транзитные DNS-запросы</dt><dd id="dnsTransitState">—</dd></div>

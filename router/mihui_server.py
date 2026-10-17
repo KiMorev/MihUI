@@ -7791,6 +7791,7 @@ def default_dns_protection_runtime():
         "requestedMode": "system",
         "profile": "resilient",
         "proxyGroup": "PROXY",
+        "upstreams": list(DNS_PROTECTION_UPSTREAMS),
         "whitelistDns": False,
         "whitelistDnsHash": "",
         "whitelistDnsCount": 0,
@@ -7872,6 +7873,54 @@ def read_dns_protection_events(app_dir, limit=20):
     return events
 
 
+def validate_dns_protection_upstreams(value):
+    if not isinstance(value, list) or not 1 <= len(value) <= 4:
+        raise ValueError("Укажите от 1 до 4 защищённых DNS-серверов в поле upstreams")
+    normalized = []
+    for item in value:
+        if not isinstance(item, str) or not item or len(item) > 2048 or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in item):
+            raise ValueError("Каждый DNS-сервер должен содержать адрес https:// или tls:// без пробелов")
+        try:
+            parsed = urllib.parse.urlsplit(item)
+            port = parsed.port
+            hostname = parsed.hostname
+        except ValueError as error:
+            raise ValueError("Некорректный адрес защищённого DNS-сервера") from error
+        if (parsed.scheme not in {"https", "tls"} or not hostname or not parsed.netloc
+                or parsed.username is not None or parsed.password is not None or "#" in item
+                or "\\" in item or "%" in parsed.netloc or parsed.netloc.endswith(":")
+                or (port is not None and not 1 <= port <= 65535)):
+            raise ValueError("Разрешены только адреса https:// и tls:// без учётных данных и параметров после #")
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            if not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", hostname):
+                raise ValueError("Некорректное имя защищённого DNS-сервера")
+        if parsed.scheme == "tls" and (parsed.path or parsed.query or "?" in item):
+            raise ValueError("Адрес DNS-over-TLS не должен содержать путь или параметры запроса")
+        unsafe_parameters = {"skip-cert-verify", "insecure", "allowinsecure", "allow-insecure", "proxy", "interface", "dialer-proxy"}
+        if any(key.casefold().replace("_", "-") in unsafe_parameters
+               for key, _ in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)):
+            raise ValueError("Параметры обхода DNS-маршрута и отключения проверки TLS запрещены")
+        canonical = urllib.parse.urlunsplit((parsed.scheme, parsed.netloc.casefold(), parsed.path, parsed.query, ""))
+        if canonical in normalized:
+            raise ValueError("Список upstreams должен содержать уникальные DNS-серверы")
+        normalized.append(canonical)
+    return normalized
+
+
+def dns_protection_request_upstreams(app_dir, request_data):
+    selected = request_data.get("upstreams")
+    return validate_dns_protection_upstreams(
+        load_dns_protection_runtime(app_dir)["upstreams"] if selected is None else selected
+    )
+
+
+def dns_protection_upstreams_need_test(runtime, request_data, upstreams):
+    return (upstreams != runtime["upstreams"]
+            or (request_data.get("upstreams") is not None and runtime["requestedMode"] not in {"test", "active"}))
+
+
 def validate_dns_protection_request(payload, require_action=False):
     if not isinstance(payload, dict):
         raise TypeError("Запрос должен быть объектом")
@@ -7879,6 +7928,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action",
         "profile",
         "proxyGroup",
+        "upstreams",
         "whitelistDns",
         "lanInterfaces",
         "confirmations",
@@ -7911,6 +7961,7 @@ def validate_dns_protection_request(payload, require_action=False):
         raise ValueError("Выберите новую прокси-группу для DNS")
     if not isinstance(payload.get("whitelistDns", False), bool):
         raise ValueError("Поле whitelistDns должно быть логическим значением")
+    upstreams = validate_dns_protection_upstreams(payload["upstreams"]) if "upstreams" in payload else None
 
     lan_interfaces = payload.get("lanInterfaces")
     if "lanInterfaces" in payload and (
@@ -7947,6 +7998,7 @@ def validate_dns_protection_request(payload, require_action=False):
         "action": action,
         "profile": profile,
         "proxyGroup": proxy_group,
+        "upstreams": upstreams,
         "whitelistDns": payload.get("whitelistDns", False),
         "lanInterfaces": lan_interfaces,
         "expectedRevision": expected_revision,
@@ -8086,8 +8138,9 @@ def build_dns_whitelist_policy(domains):
     ])
 
 
-def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None):
-    upstreams = [f"{url}#{proxy_group}" for url in DNS_PROTECTION_UPSTREAMS]
+def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None, upstreams=None):
+    upstreams = [f"{url}#{proxy_group}" for url in validate_dns_protection_upstreams(
+        list(DNS_PROTECTION_UPSTREAMS) if upstreams is None else upstreams)]
     lines = [
         DNS_PROTECTION_MARKER_BEGIN,
         "dns:",
@@ -8118,11 +8171,11 @@ def build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver=False, 
     return "\n".join(lines) + "\n"
 
 
-def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None):
+def prepare_dns_protection_text(text, proxy_group, ipv6_enabled, local_resolver=False, whitelist_domains=None, upstreams=None):
     lines, managed_range = dns_protection_managed_range(text)
     if has_top_level_dns_config(text, ignore_range=managed_range):
         raise ValueError("Конфигурация уже содержит раздел dns верхнего уровня, не управляемый MihUI")
-    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver, whitelist_domains)
+    block = build_dns_protection_block(proxy_group, ipv6_enabled, local_resolver, whitelist_domains, upstreams)
     if managed_range:
         return "".join(lines[:managed_range[0]]) + block + "".join(lines[managed_range[1]:])
     prefix = str(text or "")
@@ -8706,6 +8759,74 @@ def parse_router_dns_settings(running_config, available=True):
     }
 
 
+def parse_provider_dns_servers(payload):
+    if not isinstance(payload, (dict, list)):
+        raise ValueError("Некорректный ответ локального API роутера.")
+    details = []
+    seen = set()
+    recognized = payload == []
+    pending = [payload]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            pending.extend(reversed(value))
+            continue
+        if not isinstance(value, dict):
+            continue
+        if value.get("status") == "error":
+            raise ValueError("Локальный API роутера не смог прочитать DNS-серверы.")
+        if "server" in value:
+            if not isinstance(value["server"], (dict, list)):
+                raise ValueError("Некорректный список DNS-серверов в ответе роутера.")
+            recognized = True
+        service = value.get("service")
+        if isinstance(service, str) and "address" in value:
+            recognized = True
+        if isinstance(service, str) and service.casefold().startswith("dhcp"):
+            address = value.get("address")
+            if not isinstance(address, str):
+                raise ValueError("Некорректный адрес DNS провайдера в ответе роутера.")
+            try:
+                address = str(ipaddress.ip_address(address))
+            except ValueError:
+                raise ValueError("Некорректный адрес DNS провайдера в ответе роутера.") from None
+            interface = value.get("interface", "")
+            interface = interface if isinstance(interface, str) else ""
+            key = (address, interface, service)
+            if key not in seen:
+                seen.add(key)
+                details.append({"address": address, "interface": interface, "service": service})
+        pending.extend(reversed(list(value.values())))
+    if not recognized:
+        raise ValueError("В ответе роутера не найден список DNS-серверов.")
+    return {
+        "servers": list(dict.fromkeys(item["address"] for item in details)),
+        "details": details,
+        "serversState": "detected" if details else "empty",
+    }
+
+
+def discover_provider_dns_servers():
+    request = urllib.request.Request(
+        "http://127.0.0.1:79/rci/show/ip/name-server", headers={"Accept": "application/json"}
+    )
+    try:
+        # The local RCI request must not pass through an environment HTTP proxy.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(request, timeout=2) as response:
+            data = response.read(256 * 1024 + 1)
+        if len(data) > 256 * 1024:
+            raise ValueError("Ответ локального API роутера слишком большой.")
+        return parse_provider_dns_servers(json.loads(data))
+    except urllib.error.HTTPError as error:
+        message = f"Локальный API роутера недоступен (HTTP {error.code})."
+    except (urllib.error.URLError, OSError, TimeoutError):
+        message = "Не удалось получить DNS провайдера через локальный API роутера."
+    except (ValueError, RecursionError):
+        message = "Локальный API роутера вернул некорректные данные DNS."
+    return {"servers": [], "details": [], "serversState": "unknown", "error": message}
+
+
 def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=None):
     app_dir = Path(app_dir)
     config_text = read_config_text(get_config_path(app_dir))
@@ -8735,6 +8856,7 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     ndmc = run_dns_tool(tools["ndmc"], ["-c", "show running-config"])
     running_config = ndmc.get("output", "") if ndmc["ok"] else ""
     router_dns = parse_router_dns_settings(running_config, available=ndmc["ok"])
+    router_dns["provider"].update(discover_provider_dns_servers())
     dns_override = any(
         strip_yaml_comment(line).strip() == "opkg dns-override"
         for line in running_config.splitlines()
@@ -8885,6 +9007,8 @@ def dns_resolver_warnings(capabilities):
 
 def preview_dns_protection(app_dir, request_data, record_event=True, proposed_text_override=None):
     app_dir = Path(app_dir)
+    upstreams = dns_protection_request_upstreams(app_dir, request_data)
+    upstreams_need_test = dns_protection_upstreams_need_test(load_dns_protection_runtime(app_dir), request_data, upstreams)
     capabilities = collect_dns_protection_capabilities(
         app_dir, request_data["proxyGroup"], lan_interfaces=request_data.get("lanInterfaces")
     )
@@ -8906,6 +9030,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
             capabilities["ipv6ClientDns"],
             capabilities["localResolver"]["ok"],
             whitelist_domains,
+            upstreams,
         )
         config_check = check_mihomo_config(app_dir, proposed_text)
         if not config_check.get("available"):
@@ -8927,6 +9052,8 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
     ):
         warnings.append({"code": "ipv6-unprotected", "message": "DNS по IPv6 обнаружен, но перехват IPv6 недоступен."})
     warnings.extend(dns_resolver_warnings(capabilities))
+    if upstreams_need_test and request_data["profile"] == "resilient":
+        warnings.append({"code": "upstreams-test-required", "message": "Перед включением защиты выполните проверку выбранных основных DNS-серверов без перехвата клиентов."})
 
     config_ready = bool(proposed_text is not None and config_check.get("ok"))
     result = {
@@ -8936,11 +9063,12 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
         "mode": get_dns_protection_mode(app_dir),
         "profile": request_data["profile"],
         "whitelistDns": request_data.get("whitelistDns", False),
+        "upstreams": upstreams,
         "proxyGroup": proxy_group,
         "revision": revision,
         "capabilities": capabilities,
         "canTest": bool(config_ready and capabilities["testReady"] and request_data["profile"] == "resilient"),
-        "canActivate": bool(config_ready and capabilities["activationReady"] and request_data["profile"] == "resilient"),
+        "canActivate": bool(config_ready and capabilities["activationReady"] and request_data["profile"] == "resilient" and not upstreams_need_test),
         "configCheck": config_check,
         "fallback": {
             "preserved": capabilities["systemFallback"]["ok"],
@@ -8953,7 +9081,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
             "listener": f":{DNS_PROTECTION_PORT}",
             "enhancedMode": "redir-host",
             "ipv6": capabilities["ipv6ClientDns"],
-            "upstreams": list(DNS_PROTECTION_UPSTREAMS),
+            "upstreams": upstreams,
             "upstreamRoute": proxy_group,
             "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
             "localPrivateResolver": capabilities["localResolver"]["ok"],
@@ -9396,6 +9524,7 @@ def get_dns_protection_status(app_dir):
         "profile": runtime["profile"],
         "whitelistDns": runtime["whitelistDns"],
         "proxyGroup": capabilities["selectedProxyGroup"],
+        "upstreams": runtime["upstreams"],
         "proxyGroups": capabilities["proxyGroups"],
         "smartGroup": get_dns_smart_group_status(app_dir, config_text),
         "revision": config_revision(config_text),
@@ -9576,18 +9705,19 @@ def dns_change_failure(result, restoration):
             "message": str(result.get("message") or "Изменение DNS не выполнено") + ". " + restoration["message"]}
 
 
-def prepare_dns_group_switch_text(text, old_group, new_group):
+def prepare_dns_group_switch_text(text, old_group, new_group, upstreams=None):
+    upstreams = validate_dns_protection_upstreams(list(DNS_PROTECTION_UPSTREAMS) if upstreams is None else upstreams)
     lines, managed_range = dns_protection_managed_range(text)
     if not managed_range:
         raise ValueError("DNS-блок MihUI не найден")
     changed = 0
     for index in range(*managed_range):
-        for url in DNS_PROTECTION_UPSTREAMS:
+        for url in upstreams:
             old = yaml_single_quote(f"{url}#{old_group}")
             if lines[index].strip() == f"- {old}":
                 lines[index] = lines[index].replace(old, yaml_single_quote(f"{url}#{new_group}"), 1)
                 changed += 1
-    if changed != len(DNS_PROTECTION_UPSTREAMS):
+    if changed != len(upstreams):
         raise ValueError("Маршрут основных DNS-серверов не совпадает с сохранённой группой")
     return "".join(lines)
 
@@ -9602,9 +9732,9 @@ def switch_dns_proxy_group(app_dir, request_data):
         if runtime["requestedMode"] != "active" or runtime.get("fallbackPending"):
             return {"ok": False, "stage": "preflight", "message": "Смена группы доступна только при работающем защищённом DNS"}
         retained = {**request_data, "action": "activate", "profile": runtime["profile"], "whitelistDns": runtime["whitelistDns"],
-                    "lanInterfaces": runtime["lanInterfaces"], "confirmations": {}}
+                    "upstreams": runtime["upstreams"], "lanInterfaces": runtime["lanInterfaces"], "confirmations": {}}
         try:
-            proposed = prepare_dns_group_switch_text(text, runtime["proxyGroup"], request_data["proxyGroup"])
+            proposed = prepare_dns_group_switch_text(text, runtime["proxyGroup"], request_data["proxyGroup"], runtime["upstreams"])
             preview = preview_dns_protection(app_dir, retained, record_event=False, proposed_text_override=proposed)
             if not preview["canActivate"]:
                 return {"ok": False, "stage": "preflight", "message": "Новая DNS-группа не прошла предварительную проверку", "preview": preview}
@@ -9705,10 +9835,11 @@ def apply_dns_system_mode(app_dir, request_data, current_text, runtime):
     else:
         revision = config_revision(current_text)
     final_runtime = default_dns_protection_runtime()
-    final_runtime.update({"updatedAt": int(time.time())})
+    final_runtime.update({"upstreams": runtime["upstreams"], "updatedAt": int(time.time())})
     save_dns_protection_runtime(app_dir, final_runtime)
     event = append_dns_protection_event(app_dir, "system", "Системный DNS восстановлен", profile="resilient")
-    return {"ok": True, "mode": "system", "revision": revision, "firewall": firewall, "event": event}
+    return {"ok": True, "mode": "system", "revision": revision, "upstreams": final_runtime["upstreams"],
+            "runtime": final_runtime, "firewall": firewall, "event": event}
 
 
 def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _proposed_text=None, _retained_runtime=None):
@@ -9746,6 +9877,15 @@ def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _propo
                 "message": "Конфигурация изменилась после загрузки настроек DNS",
                 "currentRevision": current_revision,
             }
+
+        upstreams = dns_protection_request_upstreams(app_dir, request_data)
+        if runtime["requestedMode"] == "active" and upstreams != runtime["upstreams"]:
+            return {"ok": False, "stage": "preflight",
+                    "message": "Для изменения основных DNS-серверов сначала верните системный DNS, затем выполните проверку"}
+        if (request_data["action"] == "activate" and _retained_runtime is None
+                and dns_protection_upstreams_need_test(runtime, request_data, upstreams)):
+            return {"ok": False, "stage": "preflight",
+                    "message": "Сначала выполните проверку выбранных основных DNS-серверов без перехвата клиентов"}
 
         if request_data["profile"] == "strict":
             confirmations = dns_protection_confirmation_plan("strict", request_data["confirmations"])
@@ -9831,6 +9971,7 @@ def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _propo
             capabilities["ipv6ClientDns"],
             capabilities["localResolver"]["ok"],
             whitelist_domains,
+            upstreams,
         )
         saved = save_checked_config(app_dir, proposed_text, expected_revision=current_revision)
         if not saved.get("ok") or not saved.get("applied"):
@@ -9853,6 +9994,7 @@ def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _propo
             "requestedMode": "test",
             "profile": "resilient",
             "proxyGroup": preview["proxyGroup"],
+            "upstreams": upstreams,
             "whitelistDns": request_data.get("whitelistDns", False),
             "whitelistDnsHash": dns_whitelist_metadata(whitelist_domains)["hash"],
             "whitelistDnsCount": len(whitelist_domains),
@@ -9930,13 +10072,14 @@ def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _propo
             "profile": "resilient",
             "whitelistDns": next_runtime["whitelistDns"],
             "proxyGroup": preview["proxyGroup"],
+            "upstreams": upstreams,
             "revision": saved["revision"],
             "capabilities": capabilities,
-            "warnings": preview["warnings"],
+            "warnings": [item for item in preview["warnings"] if item.get("code") != "upstreams-test-required"],
             "plan": preview["plan"],
             "configCheck": preview["configCheck"],
             "canTest": preview["canTest"],
-            "canActivate": preview["canActivate"],
+            "canActivate": bool(capabilities["activationReady"] and request_data["profile"] == "resilient"),
             "runtime": next_runtime,
             "probe": probe,
             "fallback": preview["fallback"],
