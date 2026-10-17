@@ -3265,6 +3265,27 @@ body.component-manager-open {
   gap: 16px;
 }
 
+.system-commands > summary {
+  min-height: 48px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.system-commands > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.system-commands[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.system-commands > .xkeen-commands-section {
+  padding: 14px;
+}
+
 .commands-page-head {
   display: flex;
   align-items: end;
@@ -5259,6 +5280,14 @@ body.component-manager-open {
   padding: 4px 18px;
 }
 
+.dns-settings > .dns-protection-profile-card {
+  padding: 0 0 16px;
+}
+
+.dns-flow-steps[hidden] {
+  display: none;
+}
+
 .dns-diagnostics > .panel {
   border: 0;
   box-shadow: none;
@@ -5471,11 +5500,15 @@ body.component-manager-open {
 .dns-protection-metrics {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(6, minmax(95px, 1fr));
+  grid-template-columns: repeat(4, minmax(95px, 1fr));
   gap: 10px;
   margin: 0;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.dns-protection-metrics.dns-current-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .dns-protection-metrics div,
@@ -9265,7 +9298,7 @@ button.review-check-card:focus-visible {
   gap: 16px;
 }
 
-.review-workflow.has-review-side {
+.review-workflow.has-review-side:has(.preview-panel[open]) {
   grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
   align-items: start;
 }
@@ -9435,8 +9468,58 @@ button.review-check-card:focus-visible {
 }
 
 .preview-panel .panel-head {
-  display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto;
+  border-top: 1px solid var(--line);
+}
+
+.review-workflow:not(:has(.preview-panel[open])) .review-checklist {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 24px;
+}
+
+.review-yaml-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 56px;
+  padding: 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.review-yaml-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.review-yaml-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.review-yaml-toggle h2 {
+  margin-right: auto;
+}
+
+.review-yaml-show,
+.review-yaml-hide {
+  color: var(--accent-dark);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.preview-panel:not([open]) .review-yaml-hide,
+.preview-panel[open] .review-yaml-show {
+  display: none;
+}
+
+.configuration-edit-help {
+  padding: 10px 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nodes-page-head .connection-action-hint {
+  color: var(--muted);
 }
 
 .review-yaml-change-status {
@@ -9859,7 +9942,7 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .review-workflow.has-review-side {
+  .review-workflow.has-review-side:has(.preview-panel[open]) {
     grid-template-columns: 1fr;
   }
 
@@ -10328,9 +10411,8 @@ button.review-check-card:focus-visible {
     grid-template-columns: 1fr;
   }
 
-  .preview-panel .panel-head {
+  .review-workflow:not(:has(.preview-panel[open])) .review-checklist {
     grid-template-columns: 1fr;
-    align-items: start;
   }
 
   .review-yaml-change-status {
@@ -11090,7 +11172,8 @@ button.review-check-card:focus-visible {
     text-align: center;
   }
 
-  .dns-protection-metrics {
+  .dns-protection-metrics,
+  .dns-protection-metrics.dns-current-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

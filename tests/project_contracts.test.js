@@ -247,7 +247,7 @@ test('primary UI files expose one safe XKeen network-files flow', () => {
     assert.match(source, /id="xkeenRestartButton"[\s\S]+?Перезапустить XKeen/);
     assert.match(source, /id="xkeenFilesRefreshButton"[\s\S]+?Обновить с роутера/);
     assert.match(source, /id="xkeenRestartAfterSave" type="checkbox" checked/);
-    assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и применить/);
+    assert.match(source, /id="xkeenFilesSaveButton"[\s\S]+?Сохранить и перезапустить/);
   }
 
   for (const name of ['app.js']) {
@@ -264,11 +264,11 @@ test('primary UI files expose one safe XKeen network-files flow', () => {
   }
 });
 
-test('primary UI files expose the native interactive XKeen commands section', () => {
+test('primary UI files expose the native interactive XKeen commands in System', () => {
   for (const name of ['index.html']) {
     const source = read(name);
-    assert.match(source, /data-section="commands"[^>]*[\s\S]+?>Команды</);
-    assert.match(source, /data-section-panel="commands"/);
+    assert.match(source, /data-section="system"[^>]*[\s\S]+?>Система</);
+    assert.match(source, /data-section-panel="system"/);
     assert.match(source, /id="xkeenCommandsBody"/);
     assert.match(source, /id="xkeenCommandConsole"/);
     assert.match(source, /id="xkeenCommandInputForm"/);
@@ -379,8 +379,8 @@ test('primary UI files styles expose mobile flow actions and touch targets', () 
     const source = read(name);
     assert.match(source, /\.mobile-flow-actions:not\(\[hidden\]\)/);
     assert.doesNotMatch(source, /\.mobile-flow-actions:not\(\[hidden\]\)\s*{[^}]*position:\s*sticky/);
-    assert.match(source, /\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: minmax\(330px, 0\.72fr\) minmax\(0, 1\.28fr\);/);
-    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.review-workflow\.has-review-side\s*{[\s\S]+?grid-template-columns: 1fr;/);
+    assert.match(source, /\.review-workflow\.has-review-side:has\(\.preview-panel\[open\]\)\s*{[\s\S]+?grid-template-columns: minmax\(330px, 0\.72fr\) minmax\(0, 1\.28fr\);/);
+    assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.review-workflow\.has-review-side:has\(\.preview-panel\[open\]\)\s*{[\s\S]+?grid-template-columns: 1fr;/);
     assert.doesNotMatch(source, /review-support-column/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.section-tab,[\s\S]+?min-height: 44px;/);
     assert.match(source, /@media \(max-width: 980px\)[\s\S]+?\.download-warning,[\s\S]+?min-height: 44px;/);
@@ -393,7 +393,7 @@ test('primary UI files show mobile section tabs only after the primary menu scro
   for (const name of ['index.html']) {
     const source = read(name);
     assert.match(source, /id="mobileSectionTabs" class="mobile-section-tabs"[^>]+aria-hidden="true" hidden/);
-    assert.match(source, /class="mobile-section-tab[^>]+data-section="settings"/);
+    assert.match(source, /class="mobile-section-tab[^>]+data-section="system"/);
   }
 
   for (const name of ['styles.css']) {

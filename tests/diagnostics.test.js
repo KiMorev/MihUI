@@ -208,6 +208,8 @@ globalThis.__app = {
   renderOutputOnly,
   renderConnectionSettings,
   renderProtectedDnsExclusions,
+  renderProtectedDns,
+  renderProtectedDnsConfigCheck,
   renderProtectedDnsLanSelector,
   renderProtectedDnsEvents,
   renameGroup,
@@ -331,6 +333,11 @@ for (const source of SOURCES) {
     const app = loadApp(source);
     const details = 'level=error msg="list private not found in GeoSite.dat"';
     assert.equal(app.getProtectedDnsConfigCheckOutput({ output: details }), details);
+    app.els.dnsPreflightDetails.open = false;
+    app.renderProtectedDnsConfigCheck({ ok: false, output: details });
+    assert.equal(app.els.dnsPreflightDetails.open, true);
+    assert.equal(app.els.dnsConfigCheck.open, true);
+    assert.equal(app.els.dnsConfigCheckOutput.textContent, details);
     const message = '<img src=x onerror=alert(1)>';
     app.state.protectedDns.events = [{ type: 'future_event', message }];
     app.renderProtectedDnsEvents();
@@ -359,6 +366,16 @@ for (const source of SOURCES) {
     const unknownRoute = app.getProtectedDnsRoutePresentation('unknown');
     assert.doesNotMatch(unknownRoute.resolver, /ndnproxy|Mihomo/);
     assert.notEqual(unknownRoute.destination, 'Системные DNS');
+
+    app.state.protectedDns.data = {
+      mode: 'active', profile: 'strict', proxyGroup: 'TELEGRAM',
+      runtime: { profile: 'resilient', proxyGroup: 'PROXY' },
+    };
+    app.state.protectedDns.preview = { profile: 'strict', proxyGroup: 'TELEGRAM' };
+    app.renderProtectedDns();
+    assert.equal(app.els.dnsCurrentGroup.textContent, 'PROXY');
+    assert.equal(app.els.dnsProfileValue.textContent, 'Отказоустойчивый');
+    assert.equal(app.els.dnsFlowSteps.hidden, true);
   });
 
   test(`${source.name}: rebuilding LAN controls preserves the focused interface without stealing outside focus`, () => {
@@ -3022,7 +3039,7 @@ rules:
     });
     assert.equal(
       app.getNodeInventorySummaryText(nodes, [nodes[0]]),
-      'Ноды: 1 из 3 · Подписки: 1 из 2 · Протоколы: 1 из 3',
+      'Серверы: 1 из 3 · Подписки: 1 из 2 · Протоколы: 1 из 3',
     );
   });
 
@@ -3257,6 +3274,7 @@ rules:
     app.state.outputText = Array.from({ length: 40 }, (_, index) => `line-${index}`).join('\n');
     app.els.outputCodeView.scrollTop = 240;
     app.els.outputCodeView.scrollLeft = 18;
+    app.els.configurationPreview.open = false;
     let selectionOffset = -1;
     app.els.outputPreview.setSelectionRange = (start) => {
       selectionOffset = start;
@@ -3264,6 +3282,7 @@ rules:
 
     app.beginConfigurationEdit();
 
+    assert.equal(app.els.configurationPreview.open, true);
     assert.equal(app.els.outputPreview.scrollTop, 240);
     assert.equal(app.els.outputPreview.scrollLeft, 18);
     assert.equal(app.els.outputCodeView.scrollTop, 240);

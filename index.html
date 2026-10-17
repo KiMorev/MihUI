@@ -86,12 +86,12 @@
           <button class="section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки и группы</span></button>
           <button class="section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты и исключения</span></button>
-          <button class="section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
-          <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="section-tab" type="button" data-section="connection" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-groups"></use></svg><span>Подключение</span></button>
+          <button class="section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Серверы</span></button>
           <button class="section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Защищённый DNS</span></button>
           <button class="section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+          <button class="section-tab" type="button" data-section="system" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Система</span></button>
         </nav>
         <div class="sidebar-footer" aria-live="polite">
           <button class="service-health-card" type="button" data-components-open aria-label="Открыть состояние сервисов и версии">
@@ -127,12 +127,12 @@
           <button class="mobile-section-tab is-active" type="button" data-section="overview" aria-pressed="true"><svg class="nav-icon" aria-hidden="true"><use href="#icon-overview"></use></svg><span>Обзор</span></button>
           <button class="mobile-section-tab" type="button" data-section="providers" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-providers"></use></svg><span>Подписки</span></button>
           <button class="mobile-section-tab" type="button" data-section="xkeen-files" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-ports"></use></svg><span>Порты</span></button>
-          <button class="mobile-section-tab" type="button" data-section="commands" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-terminal"></use></svg><span>Команды</span></button>
-          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Ноды</span></button>
+          <button class="mobile-section-tab" type="button" data-section="connection" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-groups"></use></svg><span>Подключение</span></button>
+          <button class="mobile-section-tab" type="button" data-section="nodes" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg><span>Серверы</span></button>
           <button class="mobile-section-tab" type="button" data-section="whitelist" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>Белые списки</span></button>
           <button class="mobile-section-tab" type="button" data-section="dns" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-shield-lock"></use></svg><span>DNS</span></button>
           <button class="mobile-section-tab" type="button" data-section="review" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-review"></use></svg><span>Проверка</span></button>
-          <button class="mobile-section-tab" type="button" data-section="settings" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Настройки</span></button>
+          <button class="mobile-section-tab" type="button" data-section="system" aria-pressed="false"><svg class="nav-icon" aria-hidden="true"><use href="#icon-settings"></use></svg><span>Система</span></button>
         </nav>
         <div class="mobile-topbar-meta">
           <div class="topbar-main">
@@ -258,7 +258,7 @@
           <button class="overview-step" type="button" data-section-target="nodes">
             <span class="overview-step-number">3</span>
             <svg class="overview-step-icon" aria-hidden="true"><use href="#icon-nodes"></use></svg>
-            <strong>Ноды Mihomo</strong>
+            <strong>Серверы Mihomo</strong>
             <span id="overviewNodesStatus" class="overview-step-status">Нет данных</span>
             <span id="overviewNodesSummary" class="overview-step-note">Список появится после ответа Mihomo</span>
             <span class="overview-step-action">Открыть <span aria-hidden="true">→</span></span>
@@ -515,18 +515,15 @@
             </span>
           </label>
           <button id="xkeenFilesSaveButton" class="button primary" type="button" disabled>
-            <span>Сохранить и применить</span>
+            <span>Сохранить и перезапустить</span>
           </button>
         </footer>
       </section>
 
-      <section class="app-section xkeen-commands-section" data-section-panel="commands" hidden>
-        <header class="commands-page-head">
-          <div>
-            <h2>Команды XKeen</h2>
-            <p>Управление XKeen и установленными компонентами с выводом операции в MihUI.</p>
-          </div>
-          <span id="xkeenCommandsAvailability" class="commands-availability">Проверяем XKeen…</span>
+      <section class="app-section" data-section-panel="system" hidden>
+        <header class="settings-page-head">
+          <h2>Система</h2>
+          <p>Компоненты, обслуживание и параметры интерфейса.</p>
         </header>
 
         <section id="xkeenCommandConsole" class="panel command-console" aria-live="polite" hidden>
@@ -546,22 +543,62 @@
           <p id="xkeenCommandError" class="command-console-error" hidden></p>
         </section>
 
-        <div id="xkeenCommandsBody" class="commands-grid" aria-live="polite">
-          <section class="panel commands-loading">
-            <strong>Загружаем команды…</strong>
-            <span>Каталог будет доступен после подключения к MihUI на роутере.</span>
-          </section>
-        </div>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Компоненты и обслуживание</h2>
+          </div>
+          <div class="settings-form">
+            <div class="panel-actions">
+              <button class="button compact" type="button" data-components-open>Компоненты и версии</button>
+              <button id="systemMaintenanceButton" class="button compact" type="button">Обслуживание</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel settings-panel">
+          <div class="panel-head">
+            <h2>Интерфейс</h2>
+          </div>
+          <div class="settings-form">
+            <label class="settings-toggle">
+              <input id="hideProviderUrlsSetting" type="checkbox" />
+              <span>
+                <strong>Скрывать ссылки подписок</strong>
+                <small>Только отображение в редакторе; YAML при копировании и скачивании не меняется.</small>
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <details class="panel system-commands">
+          <summary>Расширенные команды XKeen</summary>
+          <div class="xkeen-commands-section">
+            <header class="commands-page-head">
+              <div>
+                <h2>Команды XKeen</h2>
+                <p>Управление XKeen и установленными компонентами с выводом операции в MihUI.</p>
+              </div>
+              <span id="xkeenCommandsAvailability" class="commands-availability">Проверяем XKeen…</span>
+            </header>
+            <div id="xkeenCommandsBody" class="commands-grid" aria-live="polite">
+              <section class="panel commands-loading">
+                <strong>Загружаем команды…</strong>
+                <span>Каталог будет доступен после подключения к MihUI на роутере.</span>
+              </section>
+            </div>
+          </div>
+        </details>
       </section>
 
-      <section class="app-section" data-section-panel="nodes" hidden>
-        <div id="nodeInventoryPanel" class="node-inventory-page hidden" aria-live="polite">
+      <section class="app-section" data-section-panel="connection" hidden>
+        <div id="connectionPanel" class="node-inventory-page hidden" aria-live="polite">
           <header class="nodes-page-head">
             <div>
-              <h2>Ноды Mihomo</h2>
-              <p id="nodeInventoryStatus">Текущий список еще не получен</p>
+              <h2>Подключение</h2>
+              <p id="connectionStatus">Состояние ещё не получено</p>
+              <p class="connection-action-hint">Выбор сервера в группе применяется сразу.</p>
             </div>
-            <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
+            <button id="connectionRefreshButton" class="button compact" type="button" disabled>
               <span>Обновить</span>
             </button>
           </header>
@@ -630,10 +667,27 @@
               </div>
               <p id="resourceMonitorNotice" class="resource-monitor-notice" hidden></p>
             </section>
+          </section>
+        </div>
+      </section>
+
+      <section class="app-section" data-section-panel="nodes" hidden>
+        <div id="nodeInventoryPanel" class="node-inventory-page hidden" aria-live="polite">
+          <header class="nodes-page-head">
+            <div>
+              <h2>Каталог серверов</h2>
+              <p id="nodeInventoryStatus">Текущий список еще не получен</p>
+            </div>
+            <button id="nodeInventoryRefreshButton" class="button compact" type="button" disabled>
+              <span>Обновить</span>
+            </button>
+          </header>
+
+          <section class="panel node-inventory-panel">
             <div class="node-inventory-controls">
               <button id="nodeFiltersToggleButton" class="button ghost compact node-filters-toggle" type="button" aria-expanded="true">
                 <span>Фильтры</span>
-                <strong id="nodeFiltersToggleSummary">Все ноды</strong>
+                <strong id="nodeFiltersToggleSummary">Все серверы</strong>
               </button>
               <label class="node-search-control">
                 <span>Поиск</span>
@@ -665,7 +719,7 @@
               </button>
             </div>
             <div class="node-inventory-summary">
-              <strong>Все ноды</strong>
+              <strong>Все серверы</strong>
               <span id="nodeInventorySummary"></span>
             </div>
             <div id="nodeInventoryList" class="node-inventory-list empty-state">
@@ -888,6 +942,12 @@
             <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
           </div>
 
+          <dl class="dns-protection-metrics dns-current-summary">
+            <div><dt>DNS-группа</dt><dd id="dnsCurrentGroup">—</dd></div>
+            <div><dt>Профиль</dt><dd id="dnsProfileValue">—</dd></div>
+            <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
+          </dl>
+
           <details class="dns-disclosure dns-status-details">
             <summary>Маршрут и состояние подключения</summary>
           <div class="dns-protection-route" aria-label="Текущий маршрут DNS клиентов">
@@ -906,19 +966,37 @@
 
           <dl class="dns-protection-metrics">
             <div><dt>Текущий режим</dt><dd id="dnsModeValue">—</dd></div>
-            <div><dt>Профиль</dt><dd id="dnsProfileValue">—</dd></div>
             <div><dt>Слушатель Mihomo</dt><dd id="dnsListenerValue">—</dd></div>
             <div><dt>IPv4</dt><dd id="dnsIpv4Value">—</dd></div>
             <div><dt>IPv6</dt><dd id="dnsIpv6Value">—</dd></div>
-            <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
           </dl>
           </details>
         </section>
 
-        <section class="panel dns-protection-profile-card">
+        <footer class="panel dns-protection-actions">
+          <ol id="dnsFlowSteps" class="dns-flow-steps" aria-label="Этапы включения">
+            <li data-dns-step="preview">1. Проверка</li>
+            <li data-dns-step="test">2. Тест</li>
+            <li data-dns-step="activate">3. Включение</li>
+          </ol>
+          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
+          <p id="dnsActionNotice" aria-live="polite" hidden></p>
+          <div>
+            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
+            <button id="dnsSwitchButton" class="button primary" type="button" hidden>Применить смену группы</button>
+            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
+            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
+            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
+          </div>
+        </footer>
+
+        <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
+
+        <details id="dnsSettings" class="panel dns-disclosure dns-settings">
+          <summary>Настройки защиты</summary>
+        <section class="dns-protection-profile-card">
           <header class="dns-protection-block-head">
             <div>
-              <h3>Настройка защиты</h3>
               <p>Выберите прокси и домашние сети, для которых нужно включить защиту.</p>
             </div>
           </header>
@@ -1005,34 +1083,11 @@
           </fieldset>
           </details>
         </section>
+        </details>
 
-        <footer class="panel dns-protection-actions">
-          <ol class="dns-flow-steps" aria-label="Этапы включения">
-            <li data-dns-step="preview">1. Проверка</li>
-            <li data-dns-step="test">2. Тест</li>
-            <li data-dns-step="activate">3. Включение</li>
-          </ol>
-          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
-          <p id="dnsActionNotice" aria-live="polite" hidden></p>
-          <div>
-            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
-            <button id="dnsSwitchButton" class="button primary" type="button" hidden>Применить смену группы</button>
-            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
-            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
-            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
-          </div>
-        </footer>
-
-        <section class="panel dns-protection-preflight-card">
-          <header class="dns-protection-block-head">
-            <div>
-              <h3>Проверка готовности</h3>
-              <p>Предварительная проверка только читает настройки и показывает план. Клиенты ещё не переключаются.</p>
-            </div>
-
-          </header>
-          <details class="dns-disclosure">
-            <summary>Результаты проверки и план изменений</summary>
+        <details id="dnsPreflightDetails" class="panel dns-disclosure dns-protection-preflight-card">
+          <summary>Проверка готовности</summary>
+          <p>Предварительная проверка только читает настройки и показывает план. Клиенты ещё не переключаются.</p>
           <div id="dnsCapabilities" class="dns-protection-capability-list empty-state">Проверка ещё не выполнялась.</div>
           <details id="dnsConfigCheck" class="dns-protection-config-check" hidden>
             <summary>
@@ -1042,10 +1097,10 @@
             <pre id="dnsConfigCheckOutput"></pre>
           </details>
           <div id="dnsPlan" class="dns-protection-plan" hidden></div>
-          </details>
-          <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
-        </section>
+        </details>
 
+        <details class="panel dns-disclosure dns-diagnostics">
+          <summary>Диагностика и журналы</summary>
         <details class="panel dns-disclosure dns-protection-router-card">
           <summary>Системный резерв роутера</summary>
           <dl class="dns-protection-router-grid">
@@ -1066,8 +1121,6 @@
 
 
 
-        <details class="panel dns-disclosure dns-diagnostics">
-          <summary>Диагностика и журналы</summary>
         <section class="panel dns-protection-journal" aria-labelledby="dnsObservationTitle">
           <header class="dns-protection-block-head">
             <div>
@@ -1155,17 +1208,21 @@
             </div>
           </aside>
 
-          <section class="panel preview-panel">
-            <div class="panel-head">
+          <details id="configurationPreview" class="panel preview-panel">
+            <summary class="review-yaml-toggle">
               <h2>Итоговый YAML</h2>
               <span id="reviewChangeStatus" class="review-yaml-change-status">Без локальных изменений</span>
+              <span class="review-yaml-show">Показать</span>
+              <span class="review-yaml-hide">Скрыть</span>
+            </summary>
+            <div class="panel-head">
               <div class="panel-actions">
                 <button id="editConfigButton" class="button compact" type="button" aria-label="Редактировать конфигурацию">
                   <svg class="button-icon" aria-hidden="true"><use href="#icon-edit"></use></svg>
                   <span>Редактировать</span>
                 </button>
                 <button id="applyConfigButton" class="button primary compact" type="button" hidden>
-                  <span>Применить изменения</span>
+                  <span>Принять черновик</span>
                 </button>
                 <button id="cancelConfigEditButton" class="button compact" type="button" hidden>
                   <span>Отменить</span>
@@ -1180,6 +1237,7 @@
                 </button>
               </div>
             </div>
+            <p id="configurationEditHelp" class="configuration-edit-help">Правки YAML меняют черновик конфигурации.</p>
             <div id="configurationError" class="configuration-error" role="alert" hidden>
               <p id="configurationErrorMessage"></p>
               <button id="configurationErrorJump" class="button compact" type="button" hidden>Перейти к ошибке</button>
@@ -1192,32 +1250,10 @@
               <span id="reviewYamlStatus">YAML ещё не проверен в Mihomo</span>
               <span id="reviewYamlMeta">Строк: 0 · Размер: 0 Б</span>
             </footer>
-          </section>
+          </details>
         </div>
       </section>
 
-      <section class="app-section" data-section-panel="settings" hidden>
-        <header class="settings-page-head">
-          <h2>Настройки</h2>
-          <p>Параметры интерфейса WebMihomo.</p>
-        </header>
-
-        <section class="panel settings-panel">
-          <div class="panel-head">
-            <h2>Интерфейс</h2>
-          </div>
-          <div class="settings-form">
-            <label class="settings-toggle">
-              <input id="hideProviderUrlsSetting" type="checkbox" />
-              <span>
-                <strong>Скрывать ссылки подписок</strong>
-                <small>Только отображение в редакторе; YAML при копировании и скачивании не меняется.</small>
-              </span>
-            </label>
-          </div>
-        </section>
-
-      </section>
       </div>
     </main>
 

@@ -6,7 +6,7 @@ const ROUTE_CHILD_LIMIT = 24;
 const ROUTE_AUTO_PROXIES_TARGET = '__route_auto_proxies__';
 const HAPP_BROWSER_DECRYPTOR_MODULE = './happ-decryptor/happ-decryptor.js';
 const HAPP_BROWSER_DECRYPTOR_VERSION = '20260709-1';
-const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'commands', 'nodes', 'whitelist', 'dns', 'review', 'settings']);
+const APP_SECTIONS = new Set(['overview', 'providers', 'xkeen-files', 'connection', 'nodes', 'whitelist', 'dns', 'review', 'system']);
 const MOBILE_SECTION_TABS_MEDIA = '(max-width: 560px)';
 const XKEEN_NETWORK_FILE_KEYS = ['portProxying', 'portExclude', 'ipExclude', 'xkeenConfig'];
 const MISSING_GROUPS_DIAGNOSTIC = 'Файл: отсутствует обязательный раздел proxy-groups.';
@@ -642,6 +642,7 @@ const els = {
   mobileSectionTabs: document.querySelector('#mobileSectionTabs'),
   topbarValidation: document.querySelector('#topbarValidation'),
   componentOpenButtons: document.querySelectorAll('[data-components-open]'),
+  systemMaintenanceButton: document.querySelector('#systemMaintenanceButton'),
   serviceHealthItems: document.querySelectorAll('[data-service-health]'),
   serviceHealthChecked: document.querySelectorAll('[data-service-health-checked]'),
   serviceUpdateBadges: document.querySelectorAll('[data-service-update-badge]'),
@@ -754,6 +755,9 @@ const els = {
   connectionSettingsPanel: document.querySelector('#connectionSettingsPanel'),
   changesPanel: document.querySelector('#changesPanel'),
   nodeInventoryPanel: document.querySelector('#nodeInventoryPanel'),
+  connectionPanel: document.querySelector('#connectionPanel'),
+  connectionStatus: document.querySelector('#connectionStatus'),
+  connectionRefreshButton: document.querySelector('#connectionRefreshButton'),
   nodeInventoryControls: document.querySelector('.node-inventory-controls'),
   nodeInventoryStatus: document.querySelector('#nodeInventoryStatus'),
   nodeInventoryRefreshButton: document.querySelector('#nodeInventoryRefreshButton'),
@@ -839,6 +843,10 @@ const els = {
   whitelistMonitorRestoreButton: document.querySelector('#whitelistMonitorRestoreButton'),
   whitelistMonitorSaveButton: document.querySelector('#whitelistMonitorSaveButton'),
   dnsRefreshButton: document.querySelector('#dnsRefreshButton'),
+  dnsSettings: document.querySelector('#dnsSettings'),
+  dnsPreflightDetails: document.querySelector('#dnsPreflightDetails'),
+  dnsFlowSteps: document.querySelector('#dnsFlowSteps'),
+  dnsCurrentGroup: document.querySelector('#dnsCurrentGroup'),
   dnsObservationEnabled: document.querySelector('#dnsObservationEnabled'),
   dnsObservationInterval: document.querySelector('#dnsObservationInterval'),
   dnsObservationTimeout: document.querySelector('#dnsObservationTimeout'),
@@ -936,6 +944,8 @@ const els = {
   ruleSetPrevious: document.querySelector('#ruleSetPrevious'),
   ruleSetNext: document.querySelector('#ruleSetNext'),
   groupsMatrix: document.querySelector('#groupsMatrix'),
+  configurationPreview: document.querySelector('#configurationPreview'),
+  configurationEditHelp: document.querySelector('#configurationEditHelp'),
   outputViewer: document.querySelector('#outputViewer'),
   outputCodeView: document.querySelector('#outputCodeView'),
   outputPreview: document.querySelector('#outputPreview'),
@@ -1011,6 +1021,7 @@ els.mobileChangesButton.addEventListener('click', focusChangesPanel);
 els.mobileReviewButton.addEventListener('click', handleTopbarSaveAction);
 els.mobileDownloadButton.addEventListener('click', downloadYaml);
 els.nodeInventoryRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
+els.connectionRefreshButton.addEventListener('click', () => loadNodeInventory({ silent: false }));
 els.nodeResetFiltersButton.addEventListener('click', resetNodeFilters);
 els.nodeFiltersToggleButton.addEventListener('click', toggleNodeFilters);
 els.nodeSearchInput.addEventListener('input', handleNodeFilterChange);
@@ -1113,6 +1124,10 @@ els.ruleSetSearchForm?.addEventListener('submit', (event) => {
 els.ruleSetPrevious?.addEventListener('click', () => loadRuleSetPage(Math.max(0, state.ruleSetInspector.offset - 50)));
 els.ruleSetNext?.addEventListener('click', () => loadRuleSetPage(state.ruleSetInspector.offset + 50));
 els.componentOpenButtons.forEach((button) => button.addEventListener('click', openComponentManager));
+els.systemMaintenanceButton.addEventListener('click', () => {
+  openComponentManager();
+  openComponentMaintenance();
+});
 els.closeComponentManagerButton.addEventListener('click', closeComponentManager);
 els.componentManagerDialog.addEventListener('close', handleComponentManagerClosed);
 els.dismissComponentJobButton.addEventListener('click', dismissComponentJob);
@@ -1339,7 +1354,7 @@ function setActiveSection(section, options = {}) {
       loadProtectedDns({ silent: true });
       loadDnsObservation();
     }
-    if (section === 'commands' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
+    if (section === 'system' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
       loadXkeenCommands({ silent: true });
     }
     updateMobileSectionTabsVisibility();
@@ -1694,7 +1709,7 @@ async function saveRouterConfig() {
     if (data.reload?.smartReset?.ok === false) {
       showMessage('Конфиг сохранён, но автовыбор Smart ещё не включён.', {
         severity: 'warning',
-        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Подключение».',
       });
     } else if (monitorSettingsApplied && whitelistSettingsApplied) {
       showMessage(`Конфиг сохранен и подтвержден Mihomo. Применено в ${appliedAt}.`, { severity: 'success' });
@@ -1770,7 +1785,7 @@ async function restoreSelectedBackup() {
     if (data.reload?.smartReset?.ok === false) {
       showMessage('Версия восстановлена, но автовыбор Smart ещё не включён.', {
         severity: 'warning',
-        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Ноды».',
+        details: data.reload.smartReset.message || 'Снимите фиксацию в разделе «Подключение».',
       });
     } else {
       showMessage(data.reload?.ok ? 'Версия восстановлена, Mihomo перезагружен.' : 'Версия восстановлена, но Mihomo не удалось перезагрузить.', {
@@ -1976,6 +1991,7 @@ function renderRouterControls() {
   els.routerSaveButton.setAttribute('aria-busy', String(state.routerBusy || state.kernelCheckBusy));
   const saveLabel = els.routerSaveButton.querySelector('span');
   if (saveLabel) saveLabel.textContent = saveState.label;
+  els.routerSaveButton.title = state.routerMode ? 'Сохранить конфигурацию на роутере' : saveState.label;
   els.providerStatusRefreshButton.disabled = !state.routerApiAvailable || state.providerStatusLoading || !hasActiveProviders;
   els.providerStatusRefreshButton.title = state.routerApiAvailable
     ? 'Получить статусы подписок из Mihomo API'
@@ -2443,8 +2459,8 @@ function renderXkeenNetworkFiles() {
   els.xkeenFilesSaveButton.querySelector('span').textContent = editorState.saving
     ? 'Сохранение...'
     : els.xkeenRestartAfterSave.checked
-      ? 'Сохранить и применить'
-      : 'Сохранить';
+      ? 'Сохранить и перезапустить'
+      : 'Сохранить файлы';
   els.xkeenFilesChangeStatus.textContent = changedKeys.length ? `Изменено файлов: ${changedKeys.length}` : 'Изменений нет';
   if (restartBusy) {
     els.xkeenFilesStatus.textContent = 'XKeen и активное прокси-ядро перезапускаются...';
@@ -5771,6 +5787,10 @@ function renderProtectedDnsConfigCheck(configCheck) {
   const tone = configCheck?.ok === true ? 'ok' : available ? 'error' : 'warning';
   els.dnsConfigCheck.hidden = !configCheck;
   if (!configCheck) return;
+  if (configCheck.ok !== true) {
+    if (els.dnsPreflightDetails) els.dnsPreflightDetails.open = true;
+    els.dnsConfigCheck.open = true;
+  }
   els.dnsConfigCheck.className = `dns-protection-config-check is-${tone}`;
   els.dnsConfigCheckSummary.textContent = configCheck.ok === true
     ? 'Конфигурация корректна'
@@ -6238,8 +6258,12 @@ function renderProtectedDns() {
   els.dnsRouteDestination.textContent = route.destination;
   els.dnsRouteNoteLabel.textContent = route.noteLabel;
   els.dnsFallbackPath.textContent = route.note;
+  els.dnsCurrentGroup.textContent = ['active', 'test'].includes(mode)
+    ? runtime.proxyGroup || data.proxyGroup || '—'
+    : mode === 'system' ? 'Не используется' : 'Не подтверждена';
   els.dnsModeValue.textContent = presentation.label;
-  els.dnsProfileValue.textContent = data.profile === 'strict' ? 'Строгий' : data.profile === 'resilient' ? 'Отказоустойчивый' : '—';
+  const currentProfile = runtime.profile || data.profile;
+  els.dnsProfileValue.textContent = currentProfile === 'strict' ? 'Строгий' : currentProfile === 'resilient' ? 'Отказоустойчивый' : '—';
   els.dnsListenerValue.textContent = mode === 'test' || mode === 'active' ? ':1053' : 'Не активен';
   const ipv4Addresses = capabilities.addresses?.ipv4 || [];
   const ipv6Addresses = capabilities.addresses?.ipv6 || [];
@@ -6344,14 +6368,16 @@ function renderProtectedDns() {
   const nextStep = mode === 'active' ? 'active'
     : !strictSelected && canTest && mode === 'test' && canActivate ? 'activate'
       : !strictSelected && canTest && (mode !== 'test' || protectedDnsUpstreamsNeedTest()) ? 'test' : 'preview';
+  els.dnsFlowSteps.hidden = mode === 'active';
   els.dnsFlowHint.textContent = !apiAvailable
     ? 'Откройте MihUI на роутере, чтобы настроить защиту DNS.'
     : changingRoute ? 'Во время применения запросы могут кратковременно идти через системный DNS. Защита будет подтверждена после проверки DNS-ответов.'
       : busy ? 'Дождитесь завершения проверки роутера.'
       : mode === 'active' ? groupChange.message || (groupChange.changed
         ? `Выбрана группа ${groupChange.selected}. Нажмите «Применить смену группы»: приложение проверит новый маршрут и восстановит защиту.`
-        : 'Защита включена. Для смены прокси выберите другую группу и примените изменение. Остальные настройки меняются через системный режим.')
+        : 'Защита включена. Смена прокси — в «Настройках защиты». Остальные настройки меняются через системный режим.')
         : lanSelection.state !== 'ready' ? lanSelection.message
+          : upstreamInput.error ? upstreamInput.error
           : strictSelected ? 'Строгий профиль доступен только для просмотра плана. Для включения выберите отказоустойчивый профиль в дополнительных настройках.'
             : nextStep === 'activate' ? 'Тест пройден. Включите защиту, чтобы перевести устройства на защищённый DNS.'
               : nextStep === 'test' ? 'Настройки проверены. Запустите тест: устройства пока останутся на системном DNS.'
@@ -6382,12 +6408,14 @@ async function previewProtectedDns() {
   if (state.protectedDns.action || !state.routerApiAvailable) return;
   const upstreamError = getProtectedDnsUpstreamInput().error;
   if (upstreamError) {
+    if (els.dnsSettings) els.dnsSettings.open = true;
     state.protectedDns.error = upstreamError;
     renderProtectedDns();
     return;
   }
   const lanSelection = getProtectedDnsLanSelectionState((state.protectedDns.preview || state.protectedDns.data)?.capabilities || {});
   if (lanSelection.state !== 'ready') {
+    if (els.dnsSettings) els.dnsSettings.open = true;
     state.protectedDns.error = lanSelection.message;
     renderProtectedDns();
     return;
@@ -6412,6 +6440,7 @@ async function previewProtectedDns() {
     state.protectedDns.error = getProtectedDnsErrorMessage(error, 'preview');
   } finally {
     state.protectedDns.action = '';
+    if (els.dnsPreflightDetails) els.dnsPreflightDetails.open = true;
     renderProtectedDns();
   }
 }
@@ -8108,13 +8137,13 @@ function renderOverview(activeProviders, groupsWithUse, changes, diagnostics) {
       attentionItems.push({ section: 'review', title: formatWarningCount(warnings), text: 'Есть предупреждения по группам или подпискам.', severity: 'warning' });
     }
     if (missingConnectionCount > 0) {
-      attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.', severity: 'neutral' });
+      attentionItems.push({ section: 'review', title: `Рекомендаций: ${missingConnectionCount}`, text: 'Можно включить недостающие настройки подключения.', severity: 'neutral', onClick: focusConnectionSettingsPanel });
     }
     if (changeCount > 0) {
       attentionItems.push({ section: 'review', title: formatChangeCount(changeCount), text: 'Перед сохранением проверьте итоговые изменения.', severity: 'neutral' });
     }
     if (state.routerApiAvailable && state.nodeInventoryError) {
-      attentionItems.push({ section: 'nodes', title: 'Ноды недоступны', text: state.nodeInventoryError, severity: 'danger' });
+      attentionItems.push({ section: 'nodes', title: 'Серверы недоступны', text: state.nodeInventoryError, severity: 'danger' });
     }
   }
 
@@ -8228,7 +8257,7 @@ function renderOverviewHealth() {
         actionLabel = 'Открыть сервисы';
       } else if (nodesProblem) {
         actionTarget = 'nodes';
-        actionLabel = 'Открыть ноды';
+        actionLabel = 'Открыть серверы';
       } else {
         actionTarget = 'provider';
         actionLabel = 'Открыть подписку';
@@ -8296,7 +8325,7 @@ function renderReviewSummary(changes, diagnostics) {
           : warningCount > 0
             ? formatWarningCount(warningCount)
             : 'Без ошибок',
-      note: hasRawDraft ? 'Локальная проверка обновится после применения ручных изменений.' : !state.originalText
+      note: hasRawDraft ? 'Локальная проверка обновится после принятия черновика.' : !state.originalText
         ? 'Откройте YAML, чтобы запустить проверку.'
         : errorCount > 0
           ? 'Исправьте блокирующие ошибки перед сохранением.'
@@ -8653,7 +8682,9 @@ function focusConnectionSettingsPanel() {
   els.connectionSettingsPanel.classList.remove('target-highlight');
   window.setTimeout(() => {
     els.connectionSettingsPanel.classList.add('target-highlight');
-    els.connectionSettingsPanel.querySelector('.connection-settings-toggle')?.focus({ preventScroll: true });
+    const toggle = els.connectionSettingsPanel.querySelector('.connection-settings-toggle');
+    if (toggle?.getAttribute('aria-expanded') === 'false') toggle.click();
+    toggle?.focus({ preventScroll: true });
   }, 200);
 }
 
@@ -8678,7 +8709,7 @@ function renderMobileFlowActions() {
   els.mobileReviewButton.querySelector('span').textContent = saveState.label;
   els.mobileReviewButton.classList.toggle('danger', saveState.tone === 'danger');
   els.mobileDownloadButton.disabled = !hasValidConfig || isEditing || !state.outputText;
-  els.mobileReviewButton.title = saveState.label;
+  els.mobileReviewButton.title = state.routerMode ? 'Сохранить конфигурацию на роутере' : saveState.label;
 }
 
 function renderRecommendationsJumpButton(count) {
@@ -8828,6 +8859,7 @@ function focusDiagnosticTarget(target) {
 
   if (target.type === 'rules') {
     setActiveSection('review', { scroll: false });
+    els.configurationPreview.open = true;
   }
 
   const element = findDiagnosticTargetElement(target);
@@ -9117,6 +9149,7 @@ function normalizeLookupName(value) {
 }
 
 function renderConnectionSettings() {
+  const expanded = els.connectionSettingsPanel.querySelector('.connection-settings-toggle')?.getAttribute?.('aria-expanded') === 'true';
   els.connectionSettingsPanel.textContent = '';
 
   if (!state.originalText) {
@@ -9152,11 +9185,10 @@ function renderConnectionSettings() {
   button.addEventListener('click', addRecommendedConnectionSettings);
   toggleButton.className = 'button compact connection-settings-toggle';
   toggleButton.type = 'button';
-  toggleButton.textContent = 'Скрыть';
-  toggleButton.hidden = missing.length === 1;
-  toggleButton.setAttribute('aria-expanded', 'true');
+  toggleButton.textContent = expanded ? 'Скрыть' : 'Подробнее';
+  toggleButton.setAttribute('aria-expanded', String(expanded));
   body.className = 'connection-settings-body';
-  body.hidden = false;
+  body.hidden = !expanded;
   grid.className = 'connection-settings-grid';
 
   missing.forEach((definition) => {
@@ -10509,6 +10541,7 @@ function formatDataSize(value) {
 function renderNodeInventory() {
   const isVisible = state.routerMode && state.routerApiAvailable;
   els.nodeInventoryPanel.classList.toggle('hidden', !isVisible);
+  els.connectionPanel.classList.toggle('hidden', !isVisible);
   if (!isVisible) {
     if (els.nodeGroupSelections) els.nodeGroupSelections.hidden = true;
     if (els.resourceMonitorPanel) els.resourceMonitorPanel.hidden = true;
@@ -10538,16 +10571,20 @@ function renderNodeInventory() {
   els.nodeFiltersToggleButton.setAttribute('aria-expanded', String(!filtersCollapsed));
   els.nodeFiltersToggleSummary.textContent = activeFilterCount > 0
     ? `${activeFilterCount} ${activeFilterCount === 1 ? 'активен' : 'активны'}`
-    : 'Все ноды';
-  els.nodeInventoryRefreshButton.hidden = false;
-  els.nodeInventoryRefreshButton.disabled = state.nodeInventoryLoading;
-  els.nodeInventoryRefreshButton.querySelector('span').textContent = state.nodeInventoryLoading
-    ? 'Загрузка...'
-    : state.nodeInventoryError
-      ? 'Повторить'
-      : 'Обновить';
+    : 'Все серверы';
+  [els.nodeInventoryRefreshButton, els.connectionRefreshButton].forEach((button) => {
+    button.hidden = false;
+    button.disabled = state.nodeInventoryLoading;
+    button.querySelector('span').textContent = state.nodeInventoryLoading
+      ? 'Загрузка...'
+      : state.nodeInventoryError
+        ? 'Повторить'
+        : 'Обновить';
+  });
 
   renderNodeInventoryStatus(nodes);
+  els.connectionStatus.textContent = els.nodeInventoryStatus.textContent;
+  els.connectionStatus.className = els.nodeInventoryStatus.className;
 
   renderNodeGroupSelections(nodes);
   renderResourceMonitor();
@@ -10911,7 +10948,7 @@ function getNodeInventorySummaryText(nodes, filtered) {
   const protocolCount = new Set(nodes.map((node) => node.protocol).filter(Boolean)).size;
   const filteredProtocolCount = new Set(filtered.map((node) => node.protocol).filter(Boolean)).size;
   return [
-    `Ноды: ${filtered.length} из ${nodes.length}`,
+    `Серверы: ${filtered.length} из ${nodes.length}`,
     `Подписки: ${filteredProviderCount} из ${providerCount}`,
     `Протоколы: ${filteredProtocolCount} из ${protocolCount}`,
   ].join(' · ');
@@ -15381,6 +15418,10 @@ function renderChangesOnly() {
 
 function renderConfigurationEditorControls() {
   const isEditing = state.isEditingConfiguration;
+  if (isEditing) els.configurationPreview.open = true;
+  els.configurationEditHelp.textContent = state.routerMode
+    ? 'Правки YAML меняют черновик. Для применения на роутере сохраните конфигурацию кнопкой в шапке.'
+    : 'Правки YAML меняют черновик. Готовую конфигурацию можно скачать.';
   els.outputPreview.readOnly = !isEditing;
   els.outputPreview.classList.toggle('is-editing', isEditing);
   if (els.outputViewer) els.outputViewer.classList.toggle('is-editing', isEditing);
@@ -15502,6 +15543,7 @@ function renderConfigurationError() {
     row.classList.toggle('is-error', visible && error.line === index + 1);
   });
   if (!visible) return;
+  els.configurationPreview.open = true;
   const location = error.line ? `Строка ${error.line}${error.column ? `, столбец ${error.column}` : ''}: ` : '';
   els.configurationErrorMessage.textContent = `${location}${error.message}`;
   els.configurationErrorJump.hidden = !error.line;
@@ -15510,6 +15552,7 @@ function renderConfigurationError() {
 function jumpToConfigurationError() {
   const error = state.configurationError;
   if (!error?.line || error.text !== getCurrentConfigurationText()) return;
+  els.configurationPreview.open = true;
   if (!state.isEditingConfiguration) beginConfigurationEdit();
   const lines = els.outputPreview.value.split('\n');
   const lineStart = lines.slice(0, error.line - 1).reduce((offset, line) => offset + line.length + 1, 0);

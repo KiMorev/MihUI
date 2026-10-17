@@ -23,6 +23,7 @@ function loadEditor() {
   }));
   rows.forEach((row) => { row.classList.row = row; });
   const els = {
+    configurationPreview: { open: false },
     outputPreview: {
       value: state.outputText,
       setAttribute(name, value) { this[name] = value; },
@@ -88,15 +89,20 @@ test('persistent diagnostics highlight the line and jump into editing at its col
   app.state.outputText = 'first:\r\nsecond:\r\n  bad: [\r\nlast: value';
   app.state.configurationError = { text: app.state.outputText, message: 'expected key', line: 3, column: 3 };
   app.renderConfigurationError();
+  assert.equal(app.els.configurationPreview.open, true);
   assert.equal(app.els.configurationError.hidden, false);
   assert.equal(app.els.configurationErrorMessage.textContent, 'Строка 3, столбец 3: expected key');
   assert.equal(app.rows[2].isError, true);
+  app.els.configurationPreview.open = false;
   app.jumpToConfigurationError();
+  assert.equal(app.els.configurationPreview.open, true);
   assert.equal(app.state.isEditingConfiguration, true);
   assert.deepEqual(app.els.outputPreview.selection, [19, 20]);
   assert.equal(app.context.scrollSynced, true);
   app.els.outputPreview.value += '\n';
+  app.els.configurationPreview.open = false;
   app.renderConfigurationError();
+  assert.equal(app.els.configurationPreview.open, false);
   assert.equal(app.els.configurationError.hidden, true);
   assert.equal(app.rows[2].isError, false);
 });
