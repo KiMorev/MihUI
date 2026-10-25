@@ -3579,6 +3579,8 @@ async function startComponentAction(payload) {
     if (error?.status === 409) {
       await pollComponentJob();
       if (state.components.job.running) state.components.actionError = '';
+    } else if (payload.action === 'update') {
+      await loadComponents({ force: true, silent: true });
     }
     if (state.components.actionError) showMessage(state.components.actionError, { severity: 'warning' });
     return false;

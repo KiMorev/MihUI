@@ -1064,7 +1064,7 @@ class ProviderAdapterTests(unittest.TestCase):
         ) as run:
             self.assertEqual(mihui_server.fetch_component_metadata(request, 1024), b"[]")
         command = run.call_args.args[0]
-        self.assertEqual(command[:2], ["curl", "-4"])
+        self.assertEqual(command[:4], ["curl", "-4", "--doh-url", "https://1.1.1.1/dns-query"])
         self.assertIn("User-agent: MihUI", command)
         self.assertEqual(command[-1], request.full_url)
 

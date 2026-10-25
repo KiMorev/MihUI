@@ -78,7 +78,7 @@ test('legacy managed server offers service repair after the new UI is installed'
   assert.equal(state.components.mihuiServiceRepairRequired, false);
 });
 
-function loadComponentAction(apiJson, pollComponentJob = async () => {}) {
+function loadComponentAction(apiJson, pollComponentJob = async () => {}, loadComponents = async () => {}) {
   const state = { components: { job: { running: false, ok: null }, jobVisible: false, pendingAction: null, actionError: '' } };
   const errors = [];
   const classes = new Set();
@@ -96,6 +96,7 @@ function loadComponentAction(apiJson, pollComponentJob = async () => {}) {
     renderComponentManager() { context.renderComponentJob(); },
     renderXkeenNetworkFiles() {},
     pollComponentJob: () => pollComponentJob(state),
+    loadComponents: (options) => loadComponents(state, options),
     showMessage: (message) => errors.push(message),
     getComponentActionLabel: () => 'Переключение ядра',
     getComponentActionSuccessLabel: () => 'Ядро переключено',
@@ -140,4 +141,28 @@ test('conflict resumes the real running job instead of replacing it with an erro
   assert.equal(runtime.els.componentJobMessage.textContent, job.message);
   assert.equal(runtime.classes.has('is-error'), false);
   assert.deepEqual(runtime.errors, []);
+});
+
+test('rejected update refreshes stale versions and keeps the launch error visible', async () => {
+  const refreshes = [];
+  const runtime = loadComponentAction(async () => {
+    throw new Error('Не удалось проверить релизы Prizrak-Core: DNS недоступен');
+  }, undefined, async (state, options) => {
+    refreshes.push(JSON.parse(JSON.stringify(options)));
+    state.components.items.mihomo = { latest: '', versions: [], updateAvailable: false, error: 'DNS недоступен' };
+    state.components.updateCount = 0;
+    state.components.job = { running: false, ok: false, message: 'Предыдущая операция завершилась ошибкой' };
+  });
+  runtime.state.components.items = { mihomo: { latest: 'v1.19.33-r2', updateAvailable: true } };
+  runtime.state.components.updateCount = 1;
+
+  assert.equal(await runtime.context.startComponentAction({ component: 'mihomo', action: 'update', target: 'v1.19.33-r2' }), false);
+  assert.deepEqual(refreshes, [{ force: true, silent: true }]);
+  assert.equal(runtime.state.components.items.mihomo.updateAvailable, false);
+  assert.equal(runtime.state.components.updateCount, 0);
+  assert.equal(runtime.state.components.jobVisible, true);
+  assert.equal(runtime.els.componentJobPanel.hidden, false);
+  assert.match(runtime.els.componentJobMessage.textContent, /Не удалось проверить релизы Prizrak-Core: DNS недоступен/);
+  assert.equal(runtime.classes.has('is-error'), true);
+  assert.deepEqual(runtime.errors, [runtime.state.components.actionError]);
 });

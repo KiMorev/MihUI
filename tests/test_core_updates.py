@@ -47,6 +47,93 @@ class CoreUpdateTests(unittest.TestCase):
             mihui_server.save_mihomo_core(app_dir, "mihomo")
             self.assertEqual(mihui_server.get_mihomo_core_repo(app_dir), "MetaCubeX/mihomo")
 
+    def test_release_cache_retries_failed_lookup_after_one_minute(self):
+        failed = True
+
+        def releases(repo):
+            if repo == mihui_server.PRIZRAK_GITHUB_REPO:
+                if failed:
+                    raise OSError("Could not resolve host: api.github.com")
+                return ["v1.19.33-r2"]
+            return ["v2.1.1"]
+
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            mihui_server.save_mihomo_core(app_dir, "prizrak")
+            mihui_server.invalidate_component_release_cache()
+            with mock.patch.object(mihui_server, "fetch_component_releases", side_effect=releases) as fetch, \
+                    mock.patch.object(mihui_server, "fetch_xkeen_beta_build", return_value={
+                        "version": "2.1.1", "buildTimestamp": "2026-10-23 08:42:00 MSK"}), \
+                    mock.patch.object(mihui_server.time, "time", return_value=1000) as clock:
+                first, _ = mihui_server.get_component_release_catalog(app_dir)
+                self.assertIn("Could not resolve host", first["mihomo"]["error"])
+                clock.return_value = 1059
+                mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(fetch.call_count, 2)
+                failed = False
+                clock.return_value = 1060
+                recovered, checked_at = mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(recovered["mihomo"]["latest"], "v1.19.33-r2")
+                self.assertEqual(recovered["mihomo"]["error"], "")
+                self.assertEqual(checked_at, 1060)
+                self.assertEqual(fetch.call_count, 4)
+                clock.return_value = 1060 + mihui_server.COMPONENT_RELEASE_CACHE_TTL - 1
+                mihui_server.get_component_release_catalog(app_dir)
+                self.assertEqual(fetch.call_count, 4)
+
+    def test_validate_prizrak_update_refreshes_stale_or_failed_catalog(self):
+        recovered = {"core": "prizrak", "latest": "v1.19.33-r2", "versions": ["v1.19.33-r2"], "error": ""}
+        initial_releases = [
+            {"core": "prizrak", "latest": "v1.19.33-r1", "versions": ["v1.19.33-r1"], "error": ""},
+            {"core": "prizrak", "latest": "", "versions": [], "error": "Could not resolve host: api.github.com"},
+        ]
+        for initial in initial_releases:
+            with self.subTest(initial=initial), mock.patch.object(
+                    mihui_server, "get_components_status", side_effect=[
+                        {"components": {"mihomo": initial}}, {"components": {"mihomo": recovered}}]) as status:
+                result = mihui_server.validate_component_action(Path("."), {
+                    "component": "mihomo", "action": "update", "target": "v1.19.33-r2"})
+                self.assertEqual(result["target"], "v1.19.33-r2")
+                self.assertEqual(status.call_args_list, [mock.call(Path(".")), mock.call(Path("."), force=True)])
+
+    def test_validate_prizrak_update_reports_remaining_dns_error(self):
+        release = {"core": "prizrak", "latest": "", "versions": [],
+                   "error": "Could not resolve host: api.github.com"}
+        with mock.patch.object(mihui_server, "get_components_status", return_value={
+                "components": {"mihomo": release}}):
+            with self.assertRaisesRegex(ValueError, "Не удалось проверить релизы Prizrak-Core:.*api.github.com"):
+                mihui_server.validate_component_action(Path("."), {
+                    "component": "mihomo", "action": "update", "target": "v1.19.33-r2"})
+
+    def test_validate_prizrak_update_rejects_missing_version_after_refresh(self):
+        release = {"core": "prizrak", "latest": "v1.19.33-r1", "versions": ["v1.19.33-r1"], "error": ""}
+        with mock.patch.object(mihui_server, "get_components_status", return_value={
+                "components": {"mihomo": release}}) as status:
+            with self.assertRaisesRegex(ValueError, "Версия Prizrak-Core отсутствует в проверенном списке релизов"):
+                mihui_server.validate_component_action(Path("."), {
+                    "component": "mihomo", "action": "update", "target": "v1.19.33-r2"})
+            self.assertEqual(status.call_args_list, [mock.call(Path(".")), mock.call(Path("."), force=True)])
+
+    def test_validate_all_updates_reports_prizrak_dns_failure(self):
+        status = {"components": {
+            "xkeen": {"updateAvailable": False},
+            "mihomo": {"core": "prizrak", "updateAvailable": False,
+                       "error": "Could not resolve host: api.github.com"},
+        }}
+        with mock.patch.object(mihui_server, "get_components_status", return_value=status):
+            with self.assertRaisesRegex(ValueError, "Не удалось проверить релизы Prizrak-Core:.*api.github.com"):
+                mihui_server.validate_component_action(Path("."), {"component": "all", "action": "update"})
+
+    def test_metadata_dns_fallback_failure_preserves_lookup_error(self):
+        request = mihui_server.urllib.request.Request("https://api.github.com/")
+        error = mihui_server.urllib.error.URLError(mihui_server.socket.gaierror(-2, "DNS failure"))
+        with mock.patch.object(mihui_server.urllib.request, "urlopen", side_effect=error), \
+                mock.patch.object(mihui_server.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 6, stdout=b"", stderr=b"curl: (6) Could not resolve host: api.github.com")) as run:
+            with self.assertRaisesRegex(RuntimeError, "резервный DNS.*Could not resolve host: api.github.com"):
+                mihui_server.fetch_component_metadata(request, 1024)
+            self.assertEqual(run.call_count, 1)
+
     def test_switch_validates_core_and_uses_latest_stable_release(self):
         with tempfile.TemporaryDirectory() as directory, \
                 mock.patch.object(mihui_server, "fetch_component_releases", return_value=["v1.19.32-r1"]) as fetch:
@@ -210,6 +297,81 @@ class CoreUpdateTests(unittest.TestCase):
                     with mock.patch.object(mihui_server, "fetch_component_metadata", return_value=bad):
                         with self.assertRaisesRegex(RuntimeError, "Контрольная сумма"):
                             mihui_server.download_prizrak_binary(binary, "v1.19.32-r1", folder)
+
+    def test_prizrak_update_recovers_dns_and_installs_checked_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app_dir = Path(directory)
+            binary = app_dir / "mihomo"
+            header = bytearray(20)
+            header[:6] = b"\x7fELF\x01\x01"
+            header[18:20] = (8).to_bytes(2, "little")
+            old_binary, new_binary = bytes(header) + b"r1", bytes(header) + b"r2"
+            binary.write_bytes(old_binary)
+            config = app_dir / "config.yaml"
+            config.write_text("mixed-port: 7890\n", encoding="utf-8")
+            (app_dir / "mihui.env").write_text(f'MIHUI_CONFIG_PATH="{config}"\n', encoding="utf-8")
+            mihui_server.save_mihomo_core(app_dir, "prizrak")
+            archive = gzip.compress(new_binary)
+            name = "prizrak-core-linux-mipsle-softfloat-v1.19.33-r2.gz"
+            release = json.dumps({"assets": [{"name": name,
+                "digest": "sha256:" + hashlib.sha256(archive).hexdigest()}]}).encode()
+
+            def version_info(_):
+                return {"binary": str(binary), "version":
+                        "1.19.33-r2" if binary.read_bytes() == new_binary else "1.19.33-r1"}
+
+            def command(args, **kwargs):
+                if args[0] == "curl":
+                    if "--doh-url" not in args:
+                        return 6, "curl: (6) Could not resolve host: github.com"
+                    Path(args[args.index("--output") + 1]).write_bytes(archive)
+                elif args[-1] == "-v":
+                    return 0, "Mihomo Meta v1.19.33-r2 linux mipsle"
+                return 0, ""
+
+            statuses = [{"components": {"mihomo": {
+                "core": "prizrak", "versions": [], "error": "Could not resolve host: api.github.com"}}},
+                {"components": {"mihomo": {"core": "prizrak", "latest": "v1.19.33-r2",
+                    "versions": ["v1.19.33-r2"], "error": ""}}}]
+            with mock.patch.object(mihui_server, "get_components_status", side_effect=statuses), \
+                    mock.patch.object(mihui_server, "find_xkeen_binary", return_value="xkeen"), \
+                    mock.patch.object(mihui_server, "read_mihomo_binary_version", side_effect=version_info), \
+                    mock.patch.object(mihui_server, "get_mihomo_service_status", side_effect=lambda _: {
+                        "state": "ok", "detail": version_info(app_dir)["version"]}), \
+                    mock.patch.object(mihui_server, "fetch_component_metadata", return_value=release), \
+                    mock.patch.object(mihui_server, "run_component_command", side_effect=command) as run:
+                request = mihui_server.validate_component_action(app_dir, {
+                    "component": "mihomo", "action": "update", "target": "v1.19.33-r2"})
+                mihui_server.run_mihomo_component_update(app_dir, request["target"])
+            self.assertEqual(binary.read_bytes(), new_binary)
+            self.assertEqual(mihui_server.get_mihomo_core(app_dir), "prizrak")
+            self.assertEqual(config.read_text(encoding="utf-8"), "mixed-port: 7890\n")
+            self.assertFalse(list(app_dir.glob("mihui-mihomo-update-*")))
+            downloads = [call.args[0] for call in run.call_args_list if call.args[0][0] == "curl"]
+            self.assertEqual(len(downloads), 2)
+            self.assertEqual(downloads[1][1:4], list(mihui_server.COMPONENT_DNS_FALLBACK_ARGS))
+            self.assertEqual(downloads[1][4:], downloads[0][1:])
+            self.assertIn("=https", downloads[1])
+            self.assertTrue(downloads[1][-1].endswith("/v1.19.33-r2/" + name))
+            self.assertEqual([call.args[0][1] for call in run.call_args_list
+                              if call.args[0][0] == "xkeen"], ["-stop", "-start"])
+
+    def test_prizrak_download_does_not_retry_http_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            binary = folder / "mihomo"
+            header = bytearray(20)
+            header[:6] = b"\x7fELF\x01\x01"
+            header[18:20] = (8).to_bytes(2, "little")
+            binary.write_bytes(header)
+            release = json.dumps({"assets": [{
+                "name": "prizrak-core-linux-mipsle-softfloat-v1.19.33-r2.gz"}]}).encode()
+            with mock.patch.object(mihui_server, "fetch_component_metadata", return_value=release), \
+                    mock.patch.object(mihui_server, "run_component_command", return_value=(
+                        22, "curl: (22) The requested URL returned error: 404")) as run:
+                with self.assertRaisesRegex(RuntimeError, "404"):
+                    mihui_server.download_prizrak_binary(binary, "v1.19.33-r2", folder)
+                self.assertEqual(run.call_count, 1)
 
     def test_switch_install_update_and_failure_preserve_config_and_core(self):
         for scenario in ("switch", "update", "config-error", "download-error", "startup-error", "old-runtime", "rollback-error"):

@@ -69,6 +69,7 @@ XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
 XKEEN_COMMAND_TIMEOUT = 30 * 60
 XKEEN_COMMAND_MAX_OUTPUT_CHARS = 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
+COMPONENT_DNS_FALLBACK_ARGS = ("-4", "--doh-url", "https://1.1.1.1/dns-query")
 COMPONENT_ACTION_TIMEOUT = 10 * 60
 MIHUI_UPDATE_TIMEOUT = 5 * 60
 PROVIDER_ADAPTER_PATH = "/mihomo/provider.yaml"
@@ -2657,8 +2658,8 @@ def fetch_component_metadata(request, max_bytes):
     except urllib.error.URLError as error:
         if not isinstance(error.reason, socket.gaierror):
             raise
-        # Keep DNS family selection local to this retry: the server is threaded.
-        command = ["curl", "-4", "--fail", "--silent", "--show-error", "--location",
+        # The numeric DoH endpoint does not depend on the failed system resolver.
+        command = ["curl", *COMPONENT_DNS_FALLBACK_ARGS, "--fail", "--silent", "--show-error", "--location",
                    "--proto", "=https", "--proto-redir", "=https",
                    "--connect-timeout", "8", "--max-time", "15",
                    "--max-filesize", str(max_bytes)]
@@ -2668,7 +2669,7 @@ def fetch_component_metadata(request, max_bytes):
         result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 timeout=20, check=False, env=_xkeen_command_environment())
         if result.returncode:
-            raise RuntimeError("Повтор проверки через IPv4 не удался: " +
+            raise RuntimeError("Проверка через резервный DNS не удалась: " +
                                result.stderr.decode("utf-8", "replace").strip()) from error
         body = result.stdout
     if len(body) > max_bytes:
@@ -2767,7 +2768,10 @@ def get_component_release_catalog(app_dir, force=False):
     now = int(time.time())
     with component_release_cache_lock:
         checked_at = int(component_release_cache.get("checkedAt") or 0)
-        if (not force and checked_at and now - checked_at < COMPONENT_RELEASE_CACHE_TTL
+        cached_catalog = component_release_cache.get("catalog") or {}
+        cache_ttl = 60 if any(item.get("error") or item.get("betaError")
+                             for item in cached_catalog.values()) else COMPONENT_RELEASE_CACHE_TTL
+        if (not force and checked_at and now - checked_at < cache_ttl
                 and component_release_cache.get("repositories") == repositories):
             return dict(component_release_cache.get("catalog") or {}), checked_at
 
@@ -2902,6 +2906,9 @@ def validate_component_action(app_dir, payload):
         if mihomo.get("updateAvailable") and mihomo.get("latest"):
             updates.append({"component": "mihomo", "target": mihomo["latest"]})
         if not updates:
+            if mihomo.get("error"):
+                label = "Prizrak-Core" if mihomo.get("core") == "prizrak" else "Mihomo"
+                raise ValueError(f"Не удалось проверить релизы {label}: {mihomo['error']}")
             raise ValueError("Доступных обновлений компонентов нет")
         return {"component": component, "action": action, "target": "", "updates": updates}
     if component not in {"xkeen", "mihomo"}:
@@ -2934,15 +2941,24 @@ def validate_component_action(app_dir, payload):
         raise ValueError("Выбор целевой версии Mihomo не поддерживается для этой операции")
     if component == "mihomo" and action == "update":
         status = get_components_status(app_dir)
-        versions = status["components"]["mihomo"].get("versions") or []
+        release = status["components"]["mihomo"]
+        label = "Prizrak-Core" if release.get("core") == "prizrak" else "Mihomo"
+        if target and not COMPONENT_VERSION_PATTERN.fullmatch(target):
+            raise ValueError(f"Некорректная версия {label}")
+        if release.get("error") or (target and target.lstrip("v") not in
+                                   {str(version).lstrip("v") for version in release.get("versions") or []}):
+            release = get_components_status(app_dir, force=True)["components"]["mihomo"]
+        if release.get("error"):
+            raise ValueError(f"Не удалось проверить релизы {label}: {release['error']}")
+        versions = release.get("versions") or []
         if not target:
-            target = status["components"]["mihomo"].get("latest") or ""
+            target = release.get("latest") or ""
         if not COMPONENT_VERSION_PATTERN.fullmatch(target):
-            raise ValueError("Некорректная версия Mihomo")
+            raise ValueError(f"Нет доступного релиза {label}")
         normalized_target = target.lstrip("v")
         allowed = {str(version).lstrip("v") for version in versions}
         if normalized_target not in allowed:
-            raise ValueError("Версия Mihomo отсутствует в проверенном списке релизов")
+            raise ValueError(f"Версия {label} отсутствует в проверенном списке релизов")
         target = f"v{normalized_target}"
     return {"component": component, "action": action, "target": target}
 
@@ -3230,13 +3246,18 @@ def download_prizrak_binary(binary_path, target, directory):
         raise RuntimeError(f"В релизе Prizrak-Core отсутствует сборка {architecture}")
     archive = directory / "prizrak.gz"
     update_component_action_state(phase="download", message=f"Скачиваем Prizrak-Core {target}")
-    require_component_command(
-        ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https",
+    command = ["curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https",
          "--proto-redir", "=https", "--connect-timeout", "15", "--max-time", "180",
          "--max-filesize", str(64 * 1024 * 1024), "--output", str(archive),
-         f"https://github.com/{PRIZRAK_GITHUB_REPO}/releases/download/{target}/{name}"],
-        "Не удалось скачать Prizrak-Core", timeout=200,
-    )
+         f"https://github.com/{PRIZRAK_GITHUB_REPO}/releases/download/{target}/{name}"]
+    returncode, output = run_component_command(command, timeout=200)
+    if returncode == 6:
+        append_component_action_output("Повторяем загрузку Prizrak-Core через резервный DNS")
+        returncode, output = run_component_command(
+            [command[0], *COMPONENT_DNS_FALLBACK_ARGS, *command[1:]], timeout=200)
+    if returncode:
+        detail = strip_ansi(output).strip().splitlines()
+        raise RuntimeError(detail[-1] if detail else "Не удалось скачать Prizrak-Core")
     digest = str(asset.get("digest") or "")
     if digest.startswith("sha256:"):
         checksum = hashlib.sha256()
