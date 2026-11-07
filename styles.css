@@ -6354,6 +6354,22 @@ body.component-manager-open {
   padding: 14px;
 }
 
+.github-settings-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+#githubToken {
+  width: 100%;
+  max-width: 520px;
+}
+
+#githubTokenStatus[data-error='true'] {
+  color: var(--danger);
+}
+
 .settings-toggle {
   min-height: 44px;
   display: flex;

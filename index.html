@@ -555,6 +555,23 @@
           </div>
         </section>
 
+        <section class="panel settings-panel" aria-labelledby="githubSettingsTitle">
+          <div class="panel-head">
+            <h2 id="githubSettingsTitle">Обновления GitHub</h2>
+          </div>
+          <form id="githubTokenForm" class="settings-form">
+            <label for="githubToken">GitHub-токен</label>
+            <input id="githubToken" type="password" autocomplete="new-password" spellcheck="false" maxlength="255" required aria-describedby="githubTokenHelp" placeholder="Введите новый токен" />
+            <p id="githubTokenHelp" class="github-settings-note">Необязательно. Для проверки релизов достаточно fine-grained токена с доступом только к публичным репозиториям. Токен хранится на роутере.</p>
+            <div class="panel-actions">
+              <button id="githubTokenSaveButton" class="button primary compact" type="submit" disabled>Сохранить</button>
+              <button id="githubTokenCheckButton" class="button compact" type="button" disabled>Проверить</button>
+              <button id="githubTokenDeleteButton" class="button compact" type="button" disabled>Удалить</button>
+            </div>
+            <p id="githubTokenStatus" class="github-settings-note" role="status" aria-live="polite">Откройте раздел «Система», чтобы загрузить настройку.</p>
+          </form>
+        </section>
+
         <section class="panel settings-panel">
           <div class="panel-head">
             <h2>Интерфейс</h2>

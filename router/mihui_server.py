@@ -34,6 +34,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, ExitStack
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -69,6 +70,7 @@ XKEEN_BETA_ARCHIVE_MAX_BYTES = 2 * 1024 * 1024
 XKEEN_COMMAND_TIMEOUT = 30 * 60
 XKEEN_COMMAND_MAX_OUTPUT_CHARS = 1024 * 1024
 COMPONENT_RELEASE_CACHE_TTL = 6 * 60 * 60
+GITHUB_CHECK_MIN_INTERVAL = 60
 COMPONENT_DNS_FALLBACK_ARGS = ("-4", "--doh-url", "https://1.1.1.1/dns-query")
 COMPONENT_ACTION_TIMEOUT = 10 * 60
 MIHUI_UPDATE_TIMEOUT = 5 * 60
@@ -415,6 +417,9 @@ component_action_state = {
 }
 component_release_cache_lock = threading.Lock()
 component_release_cache = {"checkedAt": 0, "catalog": {}}
+github_api_lock = threading.RLock()
+github_api_states = {}
+github_release_cache = {}
 xkeen_files_lock = threading.Lock()
 xkeen_command_jobs_lock = threading.Lock()
 xkeen_command_jobs = {}
@@ -518,6 +523,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
         if route == "/api/update/status":
             self.send_json(HTTPStatus.OK, snapshot_update_state())
             return
+        if route == "/api/github/status":
+            self.send_json(HTTPStatus.OK, {"ok": True, **get_github_status(self.app_dir)})
+            return
         if route == "/api/services/status":
             self.send_json(HTTPStatus.OK, get_services_status(self.app_dir))
             return
@@ -588,6 +596,9 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?", 1)[0]
+        if route in {"/api/github/token", "/api/github/check"}:
+            self.handle_github_settings(route)
+            return
         if route == "/api/config/save":
             self.handle_config_save()
             return
@@ -753,7 +764,7 @@ class MihuiHandler(SimpleHTTPRequestHandler):
 
     def handle_update_check(self):
         version = read_version(self.app_dir)
-        latest = fetch_latest_release(get_env(self.app_dir).get("MIHUI_GITHUB_REPO", DEFAULT_GITHUB_REPO))
+        latest = fetch_latest_release(get_env(self.app_dir).get("MIHUI_GITHUB_REPO", DEFAULT_GITHUB_REPO), self.app_dir)
         self.send_json(
             HTTPStatus.OK,
             {
@@ -762,8 +773,30 @@ class MihuiHandler(SimpleHTTPRequestHandler):
                 "latest": latest.get("tag"),
                 "updateAvailable": bool(latest.get("tag") and is_newer_version(latest["tag"], version)),
                 "message": latest.get("message", ""),
+                "retryAt": latest.get("retryAt", 0),
+                "retryable": latest.get("retryable", True),
             },
         )
+
+    def handle_github_settings(self, route):
+        if self.headers.get("X-Mihui-Action") != "github-token":
+            self.send_json(HTTPStatus.FORBIDDEN, {"ok": False, "message": "Не указан служебный заголовок подтверждения операции"})
+            return
+        try:
+            if route == "/api/github/token":
+                payload = self.read_json_body()
+                if not isinstance(payload, dict):
+                    raise ValueError("Некорректный токен GitHub")
+                save_github_token(self.app_dir, payload.get("token"))
+                result = {"ok": True, "message": "Настройка GitHub сохранена"}
+            else:
+                result = fetch_latest_release(
+                    get_env(self.app_dir).get("MIHUI_GITHUB_REPO", DEFAULT_GITHUB_REPO), self.app_dir, force=True)
+            self.send_json(HTTPStatus.OK, {**result, **get_github_status(self.app_dir)})
+        except (TypeError, ValueError):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "message": "Некорректный токен GitHub"})
+        except OSError:
+            self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "message": "Не удалось сохранить настройку GitHub"})
 
     def handle_update_start(self):
         with update_lock:
@@ -2651,10 +2684,124 @@ def read_mihomo_binary_version(app_dir):
     }
 
 
-def fetch_component_metadata(request, max_bytes):
+class GithubRequestError(RuntimeError):
+    def __init__(self, message, retry_at=0, retryable=False):
+        super().__init__(message)
+        self.retry_at = retry_at
+        self.retryable = retryable
+
+
+def github_app_key(app_dir):
+    return str(Path(app_dir).resolve()) if app_dir is not None else ""
+
+
+def read_github_token(app_dir):
+    path = Path(app_dir) / "github-token" if app_dir is not None else None
+    return path.read_text(encoding="utf-8").strip() if path and path.is_file() else ""
+
+
+def save_github_token(app_dir, token):
+    if not isinstance(token, str) or (token and not re.fullmatch(r"[A-Za-z0-9_]{20,255}", token)):
+        raise ValueError("Некорректный токен GitHub")
+    path = Path(app_dir) / "github-token"
+    with github_api_lock:
+        if token:
+            fd, temporary = tempfile.mkstemp(prefix=".github-token-", dir=app_dir)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as output:
+                    output.write(token + "\n")
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, path)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+        else:
+            path.unlink(missing_ok=True)
+        key = github_app_key(app_dir)
+        github_api_states.pop(key, None)
+        for cache_key in list(github_release_cache):
+            if cache_key[0] == key:
+                github_release_cache.pop(cache_key)
+        invalidate_component_release_cache()
+
+
+def get_github_status(app_dir):
+    with github_api_lock:
+        return {"configured": bool(read_github_token(app_dir)),
+                **github_api_states.get(github_app_key(app_dir), {})}
+
+
+def github_retry_at(headers, now):
+    retry_after = str(headers.get("retry-after") or "").strip()
+    try:
+        retry_at = now + max(0, int(retry_after))
+    except ValueError:
+        try:
+            retry_at = int(parsedate_to_datetime(retry_after).timestamp()) if retry_after else 0
+        except (ValueError, TypeError, OverflowError):
+            retry_at = 0
+    if headers.get("x-ratelimit-remaining") == "0":
+        try:
+            retry_at = max(retry_at, int(headers.get("x-ratelimit-reset") or 0) + 1)
+        except ValueError:
+            pass
+    return retry_at if retry_at > now else 0
+
+
+def fetch_github_metadata(app_dir, url, max_bytes):
+    if urllib.parse.urlsplit(url)[:2] != ("https", "api.github.com"):
+        raise ValueError("Некорректный адрес GitHub API")
+    with github_api_lock:
+        status = github_api_states.setdefault(github_app_key(app_dir), {})
+        now = int(time.time())
+        retry_at = int(status.get("retryAt") or 0)
+        if retry_at > now:
+            raise GithubRequestError("Лимит GitHub исчерпан. Дождитесь сброса квоты.", retry_at)
+        retry_at = 0
+        token = read_github_token(app_dir)
+        request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"})
+        if token:
+            # Redirects must not forward the credential to another origin.
+            request.add_unredirected_header("Authorization", f"Bearer {token}")
+        headers = {}
+        try:
+            body = fetch_component_metadata(request, max_bytes, headers)
+        except urllib.error.HTTPError as error:
+            headers = {name.lower(): str(value) for name, value in (error.headers or {}).items()}
+            retry_at = github_retry_at(headers, int(time.time()))
+            error_body = error.read(4096).decode("utf-8", "replace") if error.fp else ""
+            error.close()
+            if error.code == 429 or (error.code == 403 and (retry_at or "rate limit" in (str(error) + error_body).lower())):
+                retry_at = retry_at or int(time.time()) + 60
+                message = "Лимит GitHub исчерпан. Дождитесь сброса квоты."
+            elif error.code == 401:
+                message = "GitHub отклонил токен. Проверьте срок действия и права доступа."
+            else:
+                message = f"GitHub вернул HTTP {error.code}"
+            status.update(lastCheckOk=False, lastError=message)
+            raise GithubRequestError(message, retry_at, error.code >= 500) from None
+        except Exception as error:
+            message = str(error).replace(token, "[скрыто]") if token else str(error)
+            status.update(checkedAt=int(time.time()), lastCheckOk=False, lastError=message)
+            raise GithubRequestError(message, retryable=True) from None
+        else:
+            status.update(lastCheckOk=True, lastError="")
+            return body
+        finally:
+            checked_at = int(time.time())
+            for header, field in (("x-ratelimit-limit", "limit"), ("x-ratelimit-remaining", "remaining"),
+                                  ("x-ratelimit-reset", "resetAt")):
+                if str(headers.get(header, "")).isdigit():
+                    status[field] = int(headers[header])
+            status["checkedAt"] = checked_at
+            status["retryAt"] = max(github_retry_at(headers, checked_at), retry_at)
+
+
+def fetch_component_metadata(request, max_bytes, response_headers=None):
     try:
         with urllib.request.urlopen(request, timeout=8) as response:
             body = response.read(max_bytes + 1)
+            if response_headers is not None:
+                response_headers.update({name.lower(): str(value) for name, value in response.headers.items()})
     except urllib.error.URLError as error:
         if not isinstance(error.reason, socket.gaierror):
             raise
@@ -2666,8 +2813,23 @@ def fetch_component_metadata(request, max_bytes):
         for name, value in request.header_items():
             command.extend(["--header", f"{name}: {value}"])
         command.append(request.full_url)
-        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                timeout=20, check=False, env=_xkeen_command_environment())
+        with tempfile.TemporaryDirectory(prefix="mihui-headers-") as directory:
+            headers_path = Path(directory) / "headers"
+            if response_headers is not None:
+                command[-1:-1] = ["--dump-header", str(headers_path)]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    timeout=20, check=False, env=_xkeen_command_environment())
+            status_code = 0
+            if response_headers is not None and headers_path.is_file():
+                for line in headers_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if line.startswith("HTTP/"):
+                        status_code = int(line.split()[1])
+                        response_headers.clear()
+                    elif ":" in line:
+                        name, value = line.split(":", 1)
+                        response_headers[name.lower()] = value.strip()
+            if result.returncode == 22 and status_code >= 400:
+                raise urllib.error.HTTPError(request.full_url, status_code, "GitHub API error", response_headers, None)
         if result.returncode:
             raise RuntimeError("Проверка через резервный DNS не удалась: " +
                                result.stderr.decode("utf-8", "replace").strip()) from error
@@ -2677,12 +2839,9 @@ def fetch_component_metadata(request, max_bytes):
     return body
 
 
-def fetch_component_releases(repo, limit=10):
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/releases?per_page={int(limit)}",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
-    )
-    data = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
+def fetch_component_releases(repo, limit=10, app_dir=None):
+    data = json.loads(fetch_github_metadata(app_dir,
+        f"https://api.github.com/repos/{repo}/releases?per_page={int(limit)}", 4 * 1024 * 1024).decode("utf-8"))
     versions = []
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict) or item.get("draft") or item.get("prerelease"):
@@ -2771,13 +2930,13 @@ def get_component_release_catalog(app_dir, force=False):
         cached_catalog = component_release_cache.get("catalog") or {}
         cache_ttl = 60 if any(item.get("error") or item.get("betaError")
                              for item in cached_catalog.values()) else COMPONENT_RELEASE_CACHE_TTL
-        if (not force and checked_at and now - checked_at < cache_ttl
+        if (checked_at and now - checked_at < (GITHUB_CHECK_MIN_INTERVAL if force else cache_ttl)
                 and component_release_cache.get("repositories") == repositories):
             return dict(component_release_cache.get("catalog") or {}), checked_at
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         release_futures = {
-            name: executor.submit(fetch_component_releases, repo)
+            name: executor.submit(fetch_component_releases, repo, app_dir=app_dir)
             for name, repo in repositories.items()
         }
         beta_future = executor.submit(fetch_xkeen_beta_build, repositories["xkeen"])
@@ -2925,7 +3084,7 @@ def validate_component_action(app_dir, payload):
         if target == "mihomo" and has_config_smart_groups(read_config_text(get_config_path(app_dir))):
             raise ValueError("Перед переходом на Mihomo переведите Smart-группы в MihUI или удалите их и сохраните конфиг")
         try:
-            versions = fetch_component_releases(get_mihomo_core_repo(app_dir, target))
+            versions = fetch_component_releases(get_mihomo_core_repo(app_dir, target), app_dir=app_dir)
         except Exception as error:
             raise ValueError(f"Не удалось проверить релизы выбранного ядра: {error}") from error
         if not versions:
@@ -3219,7 +3378,7 @@ def restore_mihomo_binary(app_dir, xkeen_binary, binary_path, backup_path, was_r
             raise RuntimeError("Прежнее ядро не отвечает после восстановления")
 
 
-def download_prizrak_binary(binary_path, target, directory):
+def download_prizrak_binary(binary_path, target, directory, app_dir=None):
     with binary_path.open("rb") as source:
         header = source.read(20)
     if len(header) < 20 or header[:4] != b"\x7fELF" or header[4] not in {1, 2} or header[5] not in {1, 2}:
@@ -3236,11 +3395,9 @@ def download_prizrak_binary(binary_path, target, directory):
     if not architecture:
         raise RuntimeError("Архитектура установленного ядра не поддерживается для Prizrak-Core")
     name = f"prizrak-core-linux-{architecture}-{target}.gz"
-    request = urllib.request.Request(
+    release = json.loads(fetch_github_metadata(app_dir,
         f"https://api.github.com/repos/{PRIZRAK_GITHUB_REPO}/releases/tags/{urllib.parse.quote(target, safe='')}",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
-    )
-    release = json.loads(fetch_component_metadata(request, 4 * 1024 * 1024).decode("utf-8"))
+        4 * 1024 * 1024).decode("utf-8"))
     asset = next((item for item in release.get("assets", []) if item.get("name") == name), None)
     if not asset or release.get("draft") or release.get("prerelease"):
         raise RuntimeError(f"В релизе Prizrak-Core отсутствует сборка {architecture}")
@@ -3304,7 +3461,7 @@ def run_mihomo_component_update(app_dir, target, core=None):
     try:
         update_component_action_state(phase="backup", message="Сохраняем текущую версию Mihomo")
         if core == "prizrak":
-            candidate = download_prizrak_binary(binary_path, target, backup_dir)
+            candidate = download_prizrak_binary(binary_path, target, backup_dir, app_dir=app_dir)
             code, output = run_component_command([str(candidate), "-v"], timeout=15)
             if code or component_version_key(output) != component_version_key(target):
                 raise RuntimeError("Не удалось проверить версию загруженного Prizrak-Core")
@@ -12111,17 +12268,30 @@ def read_version(app_dir):
     return "dev"
 
 
-def fetch_latest_release(repo):
-    try:
-        request = urllib.request.Request(
-            f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "MihUI"},
-        )
-        with urllib.request.urlopen(request, timeout=8) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        return {"ok": True, "tag": data.get("tag_name") or ""}
-    except Exception as error:
-        return {"ok": False, "tag": "", "message": str(error)}
+def fetch_latest_release(repo, app_dir=None, force=False):
+    with github_api_lock:
+        key = (github_app_key(app_dir), repo)
+        now = int(time.time())
+        cached = github_release_cache.get(key)
+        ttl = COMPONENT_RELEASE_CACHE_TTL if cached and cached["result"]["ok"] else GITHUB_CHECK_MIN_INTERVAL
+        if force:
+            ttl = GITHUB_CHECK_MIN_INTERVAL
+        if cached and not cached["result"]["ok"] and cached["result"].get("retryAt"):
+            ttl = min(ttl, max(0, cached["result"]["retryAt"] - cached["checkedAt"]))
+        if cached and now - cached["checkedAt"] < ttl:
+            return dict(cached["result"])
+        try:
+            data = json.loads(fetch_github_metadata(app_dir,
+                f"https://api.github.com/repos/{repo}/releases/latest", 4 * 1024 * 1024).decode("utf-8"))
+            result = {"ok": True, "tag": data.get("tag_name") or "", "message": ""}
+        except Exception as error:
+            token = read_github_token(app_dir)
+            message = str(error).replace(token, "[скрыто]") if token else str(error)
+            result = {"ok": False, "tag": (cached or {}).get("result", {}).get("tag", ""), "message": message,
+                      "retryAt": getattr(error, "retry_at", 0) or now + GITHUB_CHECK_MIN_INTERVAL,
+                      "retryable": getattr(error, "retryable", True)}
+        github_release_cache[key] = {"checkedAt": now, "result": result}
+        return dict(result)
 
 
 def is_newer_version(latest, current):

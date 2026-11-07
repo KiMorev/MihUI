@@ -173,3 +173,19 @@ test('MiHUI update check rejects an HTTP 200 response with ok false', async () =
     return true;
   });
 });
+
+for (const reason of ['rate-limit', 'invalid-token']) {
+  test(`MiHUI update check stops quick retries for ${reason}`, async () => {
+    const runtime = loadUpdateCheck([{
+      body: {
+        ok: false, version: 'v0.2.173', message: 'Проверка недоступна', retryable: false,
+        retryAt: reason === 'rate-limit' ? Math.floor(Date.now() / 1000) + 3600 : 0,
+      },
+    }]);
+    await runtime.app.checkMihuiUpdate();
+    assert.equal(runtime.timers.length, 0);
+    assert.equal(runtime.state.mihuiUpdateCheckFailed, true);
+    assert.equal(runtime.hint.disabled, false);
+    assert.match(runtime.hint.textContent, reason === 'rate-limit' ? /повтор после/ : /проверить снова/);
+  });
+}

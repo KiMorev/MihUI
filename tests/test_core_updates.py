@@ -30,7 +30,7 @@ class CoreUpdateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app_dir = Path(directory)
             mihui_server.invalidate_component_release_cache()
-            with mock.patch.object(mihui_server, "fetch_component_releases", side_effect=lambda repo:
+            with mock.patch.object(mihui_server, "fetch_component_releases", side_effect=lambda repo, **kwargs:
                     ["v1.19.32-r1"] if repo == mihui_server.PRIZRAK_GITHUB_REPO else ["v1.19.32"]) as fetch, \
                     mock.patch.object(mihui_server, "fetch_xkeen_beta_build", return_value={
                         "version": "2.1.0", "buildTimestamp": "2026-10-05 12:00:00 MSK"}):
@@ -50,7 +50,7 @@ class CoreUpdateTests(unittest.TestCase):
     def test_release_cache_retries_failed_lookup_after_one_minute(self):
         failed = True
 
-        def releases(repo):
+        def releases(repo, **kwargs):
             if repo == mihui_server.PRIZRAK_GITHUB_REPO:
                 if failed:
                     raise OSError("Could not resolve host: api.github.com")
@@ -142,7 +142,7 @@ class CoreUpdateTests(unittest.TestCase):
                 "component": "mihomo", "action": "core", "target": "prizrak"})
             self.assertEqual(result["core"], "prizrak")
             self.assertEqual(result["target"], "v1.19.32-r1")
-            fetch.assert_called_once_with(mihui_server.PRIZRAK_GITHUB_REPO)
+            fetch.assert_called_once_with(mihui_server.PRIZRAK_GITHUB_REPO, app_dir=app_dir)
             for target in ("shell", "mihomo", "https://example.com"):
                 with self.subTest(target=target), self.assertRaises(ValueError):
                     mihui_server.validate_component_action(app_dir, {
@@ -387,7 +387,7 @@ class CoreUpdateTests(unittest.TestCase):
                 versions = [{"binary": str(binary), "version": "1.19.32"},
                             {"binary": str(binary), "version": "1.19.32-r1"}]
 
-                def download(old, target, folder):
+                def download(old, target, folder, **kwargs):
                     if scenario == "download-error":
                         raise RuntimeError("download failed")
                     candidate = folder / "prizrak"

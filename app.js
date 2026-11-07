@@ -515,6 +515,7 @@ const state = {
   updatePollTimer: 0,
   mihuiUpdateCheckTimer: 0,
   mihuiUpdateCheckFailed: false,
+  github: { loaded: false, busy: false, data: {}, error: '' },
   mihuiUpdateStartedAt: 0,
   mihuiUpdateAccepted: false,
   mihuiUpdateReconnects: 0,
@@ -583,6 +584,12 @@ const els = {
   backupHistoryStatus: document.querySelector('#backupHistoryStatus'),
   backupUnsavedWarning: document.querySelector('#backupUnsavedWarning'),
   updateHint: document.querySelector('#updateHint'),
+  githubTokenForm: document.querySelector('#githubTokenForm'),
+  githubToken: document.querySelector('#githubToken'),
+  githubTokenSaveButton: document.querySelector('#githubTokenSaveButton'),
+  githubTokenCheckButton: document.querySelector('#githubTokenCheckButton'),
+  githubTokenDeleteButton: document.querySelector('#githubTokenDeleteButton'),
+  githubTokenStatus: document.querySelector('#githubTokenStatus'),
   uiLinks: document.querySelector('#uiLinks'),
   restoreBackupButton: document.querySelector('#restoreBackupButton'),
   fileInput: document.querySelector('#fileInput'),
@@ -1019,6 +1026,12 @@ els.checkConfigButton.addEventListener('click', () => checkRouterConfig({ silent
 els.copyButton.addEventListener('click', copyYaml);
 els.hideProviderUrlsSetting.addEventListener('change', () => setProviderUrlMasking(els.hideProviderUrlsSetting.checked));
 els.updateHint.addEventListener('click', handleMihuiUpdateHintClick);
+els.githubTokenForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  updateGithubSettings('save');
+});
+els.githubTokenCheckButton.addEventListener('click', () => updateGithubSettings('check'));
+els.githubTokenDeleteButton.addEventListener('click', () => updateGithubSettings('delete'));
 els.changesJumpButton.addEventListener('click', focusChangesPanel);
 els.recommendationsJumpButton.addEventListener('click', focusConnectionSettingsPanel);
 els.mobileChangesButton.addEventListener('click', focusChangesPanel);
@@ -1361,6 +1374,7 @@ function setActiveSection(section, options = {}) {
     if (section === 'system' && !state.xkeenCommands.loaded && !state.xkeenCommands.loading) {
       loadXkeenCommands({ silent: true });
     }
+    if (section === 'system') loadGithubSettings();
     updateMobileSectionTabsVisibility();
     centerActiveMobileSectionTab();
   };
@@ -1888,6 +1902,71 @@ async function loadRouterMetadata() {
   }
 }
 
+function renderGithubSettings() {
+  const { loaded, busy, data, error } = state.github;
+  els.githubToken.disabled = busy;
+  els.githubTokenSaveButton.disabled = busy || !loaded;
+  els.githubTokenCheckButton.disabled = busy || !loaded;
+  els.githubTokenDeleteButton.disabled = busy || !loaded || !data.configured;
+  const parts = [data.configured ? 'Токен сохранён.' : 'Токен не задан. Проверка без авторизации.'];
+  if (data.lastCheckOk === true) parts.push(data.configured ? 'Токен работает.' : 'GitHub доступен.');
+  if (Number.isInteger(data.remaining) && Number.isInteger(data.limit)) {
+    parts.push(`Осталось ${data.remaining} из ${data.limit} запросов.`);
+  }
+  if (data.resetAt) parts.push(`Сброс квоты в ${new Date(data.resetAt * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}.`);
+  if (data.retryAt > Date.now() / 1000) parts.push(`Следующая проверка после ${new Date(data.retryAt * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}.`);
+  if (error || data.lastError) parts.push(error || data.lastError);
+  els.githubTokenStatus.textContent = busy ? 'Выполняется…' : parts.join(' ');
+  els.githubTokenStatus.dataset.error = String(Boolean(error || data.lastCheckOk === false));
+}
+
+async function loadGithubSettings() {
+  if (state.github.busy || window.location?.protocol === 'file:') return;
+  state.github.busy = true;
+  renderGithubSettings();
+  try {
+    state.github.data = await apiJson('/api/github/status');
+    state.github.loaded = true;
+    state.github.error = '';
+  } catch (error) {
+    state.github.error = `Настройка GitHub недоступна: ${error.message}`;
+  } finally {
+    state.github.busy = false;
+    renderGithubSettings();
+  }
+}
+
+async function updateGithubSettings(action) {
+  if (state.github.busy) return;
+  const token = action === 'save' ? els.githubToken.value.trim() : '';
+  if (action === 'save' && !token) return;
+  state.github.busy = true;
+  state.github.error = '';
+  renderGithubSettings();
+  try {
+    state.github.data = await apiJson(action === 'check' ? '/api/github/check' : '/api/github/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Mihui-Action': 'github-token' },
+      body: JSON.stringify(action === 'check' ? {} : { token }),
+    });
+    if (action === 'check') {
+      await checkMihuiUpdate();
+    } else {
+      if (state.mihuiUpdateCheckTimer) window.clearTimeout(state.mihuiUpdateCheckTimer);
+      state.mihuiUpdateCheckTimer = 0;
+      state.mihuiUpdateCheckFailed = true;
+      setMihuiUpdateHint(false, `${String(els.updateHint.textContent || 'MihUI').split(' · ')[0].split(' -> ')[0]} · проверить снова`);
+    }
+  } catch (error) {
+    if (error.data && typeof error.data.configured === 'boolean') state.github.data = error.data;
+    state.github.error = error.message;
+  } finally {
+    els.githubToken.value = '';
+    state.github.busy = false;
+    renderGithubSettings();
+  }
+}
+
 function handleMihuiUpdateHintClick() {
   if (state.mihuiUpdateCheckFailed) {
     state.mihuiUpdateCheckFailed = false;
@@ -1922,6 +2001,18 @@ async function checkMihuiUpdate(attempt = 0) {
       : String(els.updateHint.textContent || 'MihUI').split(' · ')[0].split(' -> ')[0];
     const delay = MIHUI_UPDATE_CHECK_RETRY_DELAYS_MS[attempt];
     const errorMessage = error?.message || String(error);
+    if (error?.data?.retryAt || error?.data?.retryable === false) {
+      if (state.mihuiUpdateCheckTimer) window.clearTimeout(state.mihuiUpdateCheckTimer);
+      state.mihuiUpdateCheckTimer = 0;
+      state.mihuiUpdateCheckFailed = true;
+      const retryAt = Number(error.data.retryAt) || 0;
+      const label = retryAt > Date.now() / 1000
+        ? `повтор после ${new Date(retryAt * 1000).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`
+        : 'проверить снова';
+      setMihuiUpdateHint(false, `${currentVersion} · ${label}`);
+      els.updateHint.title = errorMessage;
+      return;
+    }
     if (delay !== undefined) {
       const delaySeconds = Math.ceil(delay / 1000);
       setMihuiUpdateHint(true, `${currentVersion} · ошибка проверки, повтор через ${delaySeconds} с`);
