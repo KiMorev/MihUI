@@ -959,14 +959,13 @@
             <p id="dnsStateMessage">MihUI сначала проверит возможности роутера и ничего не переключит без вашей команды.</p>
           </div>
 
+          <details class="dns-disclosure dns-status-details">
+            <summary>Маршрут и состояние подключения</summary>
           <dl class="dns-protection-metrics dns-current-summary">
             <div><dt>DNS-группа</dt><dd id="dnsCurrentGroup">—</dd></div>
             <div><dt>Профиль</dt><dd id="dnsProfileValue">—</dd></div>
             <div><dt>Проверено</dt><dd id="dnsCheckedAt">—</dd></div>
           </dl>
-
-          <details class="dns-disclosure dns-status-details">
-            <summary>Маршрут и состояние подключения</summary>
           <div class="dns-protection-route" aria-label="Текущий маршрут DNS клиентов">
             <div class="dns-protection-route-main">
               <span>Устройства</span>
@@ -990,26 +989,7 @@
           </details>
         </section>
 
-        <footer class="panel dns-protection-actions">
-          <ol id="dnsFlowSteps" class="dns-flow-steps" aria-label="Этапы включения">
-            <li data-dns-step="preview">1. Проверка</li>
-            <li data-dns-step="test">2. Тест</li>
-            <li data-dns-step="activate">3. Включение</li>
-          </ol>
-          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
-          <p id="dnsActionNotice" aria-live="polite" hidden></p>
-          <div>
-            <button id="dnsPreviewButton" class="button compact" type="button">Проверить и показать план</button>
-            <button id="dnsSwitchButton" class="button primary" type="button" hidden>Применить смену группы</button>
-            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
-            <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
-            <button id="dnsActivateButton" class="button primary" type="button">Включить защиту</button>
-          </div>
-        </footer>
-
-        <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
-
-        <details id="dnsSettings" class="panel dns-disclosure dns-settings">
+        <details id="dnsSettings" class="panel dns-disclosure dns-settings" open>
           <summary>Настройки защиты</summary>
         <section class="dns-protection-profile-card">
           <header class="dns-protection-block-head">
@@ -1020,8 +1000,8 @@
 
           <div class="dns-protection-settings-grid">
             <label>
-              <span>Прокси для DNS</span>
-              <select id="dnsProxyGroup">
+              <span>Прокси DNS в обычном режиме</span>
+              <select id="dnsProxyGroup" aria-describedby="dnsRoutePolicy">
                 <option value="PROXY">PROXY</option>
               </select>
             </label>
@@ -1031,6 +1011,19 @@
             </div>
           </div>
 
+          <p id="dnsRoutePolicy" class="dns-route-policy" role="status"></p>
+
+          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
+            <div>
+              <strong id="dnsLanTitle">Домашние сети</strong>
+              <span>Отметьте сети с вашими устройствами. Защита будет работать только для них.</span>
+            </div>
+            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
+            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
+          </section>
+
+          <details class="dns-disclosure">
+            <summary>Дополнительно: DNS-серверы, Smart и профиль</summary>
           <label class="dns-upstream-editor">
             <span>Защищённые DNS-серверы</span>
             <textarea id="dnsUpstreamServers" rows="3" spellcheck="false" aria-describedby="dnsUpstreamHelp dnsUpstreamStatus" placeholder="https://1.1.1.1/dns-query&#10;tls://dns.example"></textarea>
@@ -1052,18 +1045,6 @@
             </div>
             <p id="dnsSmartGroupStatus" role="status">Создание доступно только с установленным Prizrak-Core.</p>
           </section>
-
-          <section class="dns-protection-lan-selector" aria-labelledby="dnsLanTitle">
-            <div>
-              <strong id="dnsLanTitle">Домашние сети</strong>
-              <span>Отметьте сети с вашими устройствами. Защита будет работать только для них.</span>
-            </div>
-            <div id="dnsLanInterfaces" class="dns-protection-lan-list empty-state">Интерфейсы появятся после проверки роутера.</div>
-            <p id="dnsLanSelectionMessage">Выбор ещё не проверен.</p>
-          </section>
-
-          <details class="dns-disclosure">
-            <summary>Дополнительные настройки · белые списки и профиль</summary>
           <div class="dns-protection-lan-selector">
             <label class="dns-whitelist-toggle">
               <input id="dnsWhitelistDns" type="checkbox" aria-describedby="dnsWhitelistDnsHelp dnsWhitelistDnsStatus" />
@@ -1101,6 +1082,33 @@
           </details>
         </section>
         </details>
+
+        <footer class="panel dns-protection-actions">
+          <p id="dnsFlowHint" class="dns-flow-hint" aria-live="polite"></p>
+          <div id="dnsBlockers" class="dns-blockers" role="status" aria-live="polite" hidden></div>
+          <p id="dnsActionNotice" aria-live="polite" hidden></p>
+          <div class="dns-primary-actions">
+            <button id="dnsPreviewButton" class="button compact" type="button">Проверить настройки</button>
+            <button id="dnsEnableButton" class="button primary" type="button" aria-describedby="dnsFlowHint dnsBlockers">Проверить и включить защиту</button>
+            <button id="dnsSwitchButton" class="button primary" type="button" hidden>Применить смену группы</button>
+            <button id="dnsSystemButton" class="button" type="button">Вернуться к системному DNS</button>
+          </div>
+          <details class="dns-disclosure dns-manual-actions">
+            <summary>Пошаговая проверка без автоматического включения</summary>
+            <ol id="dnsFlowSteps" class="dns-flow-steps" aria-label="Этапы включения">
+              <li data-dns-step="preview">1. Проверка</li>
+              <li data-dns-step="test">2. Тест</li>
+              <li data-dns-step="activate">3. Включение</li>
+            </ol>
+            <p>Тест запускает DNS Mihomo отдельно. Устройства переключатся только после включения защиты.</p>
+            <div>
+              <button id="dnsTestButton" class="button" type="button">Запустить тестовый режим</button>
+              <button id="dnsActivateButton" class="button" type="button">Включить защиту</button>
+            </div>
+          </details>
+        </footer>
+
+        <div id="dnsWarnings" class="dns-protection-warning-list" hidden></div>
 
         <details id="dnsPreflightDetails" class="panel dns-disclosure dns-protection-preflight-card">
           <summary>Проверка готовности</summary>

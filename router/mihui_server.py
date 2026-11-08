@@ -8731,6 +8731,15 @@ def dns_whitelist_metadata(domains):
     return {"count": len(domains), "hash": config_revision("\n".join(domains)) if domains else ""}
 
 
+def effective_dns_proxy_group(config_text, normal_group):
+    for line in str(config_text).splitlines():
+        if f"# {WHITELIST_FALLBACK_MARKER} catch-all" in line:
+            parts = parse_whitelist_rule_line(line)
+            if parts and len(parts) == 2 and parts[0] == "MATCH":
+                return parts[1]
+    return normal_group
+
+
 def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hosts=None):
     # Called under whitelist_monitor_lock. Do not take dns_protection_lock here:
     # DNS actions acquire it before the whitelist lock. The config lock makes
@@ -8738,6 +8747,19 @@ def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hos
     with config_write_lock:
         runtime = load_dns_protection_runtime(app_dir)
         domains = None
+        old_group = effective_dns_proxy_group(current_text, runtime["proxyGroup"])
+        new_group = effective_dns_proxy_group(next_text, runtime["proxyGroup"])
+        route_changed = (runtime["requestedMode"] in {"test", "active"}
+                         and has_managed_dns_config(current_text) and old_group != new_group)
+        if route_changed:
+            if (not runtime["managedBlockRevision"]
+                    or dns_managed_block_revision(current_text) != runtime["managedBlockRevision"]):
+                raise ValueError("DNS-блок изменён вручную. Повторно проверьте DNS до изменения белых списков")
+            groups = get_dns_proxy_groups(app_dir)
+            route = check_dns_proxy_route(groups.get("proxies", {}), new_group)
+            if not route["ok"]:
+                raise ValueError(f"DNS-маршрут {new_group} для нового режима не подтверждён. " + route["message"])
+            next_text = prepare_dns_group_switch_text(next_text, old_group, new_group, runtime["upstreams"])
         if allowed_hosts is not None and runtime["whitelistDns"]:
             if (not runtime["managedBlockRevision"]
                     or dns_managed_block_revision(current_text) != runtime["managedBlockRevision"]):
@@ -8749,8 +8771,9 @@ def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hos
             end = next_text.index(DNS_WHITELIST_END, start) + len(DNS_WHITELIST_END)
             next_text = next_text[:start] + build_dns_whitelist_policy(domains) + next_text[end:]
         result = save_checked_config(app_dir, next_text, expected_revision=config_revision(current_text))
-        if domains is not None and result.get("ok") and result.get("applied"):
-            metadata = dns_whitelist_metadata(domains)
+        if (domains is not None or route_changed) and result.get("ok") and result.get("applied"):
+            metadata = dns_whitelist_metadata(domains) if domains is not None else {
+                "hash": runtime["whitelistDnsHash"], "count": runtime["whitelistDnsCount"]}
             save_dns_protection_runtime(app_dir, {
                 **runtime,
                 "managedRevision": result["revision"],
@@ -8759,7 +8782,12 @@ def save_whitelist_config_with_dns(app_dir, current_text, next_text, allowed_hos
                 "whitelistDnsCount": metadata["count"],
                 "updatedAt": int(time.time()),
             })
-            append_dns_protection_event(app_dir, "whitelist_dns_synced",
+            if route_changed:
+                append_dns_protection_event(app_dir, "whitelist_dns_route",
+                                            f"DNS-маршрут автоматически переключён: {old_group} → {new_group}",
+                                            proxyGroup=new_group, normalProxyGroup=runtime["proxyGroup"])
+            if domains is not None:
+                append_dns_protection_event(app_dir, "whitelist_dns_synced",
                                         "Яндекс DoT обновлён вместе с временными правилами белых списков",
                                         whitelistDnsCount=metadata["count"])
         return result
@@ -9164,14 +9192,20 @@ def create_dns_smart_group(app_dir, request_data):
 
 
 def check_dns_proxy_route(proxies, group):
+    blocked_path = []
+
     def check(name, visiting):
+        nonlocal blocked_path
         if not isinstance(name, str) or name in visiting or len(visiting) >= 32:
+            blocked_path = [*visiting, str(name)]
             return False
         item = proxies.get(name)
         if not isinstance(item, dict):
+            blocked_path = [*visiting, name]
             return False
         kind = str(item.get("type") or "").casefold().replace("-", "")
         if not kind or kind in {"direct", "compatible", "pass", "reject", "rejectdrop", "dns"}:
+            blocked_path = [*visiting, name]
             return False
         members = item.get("all")
         if members is None:
@@ -9187,11 +9221,14 @@ def check_dns_proxy_route(proxies, group):
             members = [selected]
         elif kind not in {"urltest", "fallback", "loadbalance", "smart"}:
             return False
-        return all(check(member, visiting | {name}) for member in members)
+        return all(check(member, (*visiting, name)) for member in members)
 
-    ok = isinstance(proxies, dict) and check(group, set())
-    return {"ok": ok, "message": "Выбранная DNS-группа ведёт в прокси" if ok else
-            "DNS-группа ведёт в DIRECT либо её прокси-путь не подтверждён. Выберите группу с прокси без прямого выхода"}
+    ok = isinstance(proxies, dict) and check(group, ())
+    message = "Выбранная DNS-группа ведёт в прокси" if ok else (
+        "DNS-группа ведёт в DIRECT либо её прокси-путь не подтверждён. Выберите группу с прокси без прямого выхода")
+    if not ok and blocked_path:
+        message += ": " + " → ".join(blocked_path)
+    return {"ok": ok, "message": message, **({"blockedPath": blocked_path} if not ok else {})}
 
 
 def probe_dns_endpoint(
@@ -9489,7 +9526,8 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
     selected_group = proxy_group or runtime.get("proxyGroup") or "PROXY"
     if not proxy_group and selected_group not in groups.get("groups", []):
         selected_group = "PROXY" if "PROXY" in groups.get("groups", []) else next(iter(groups.get("groups", [])), "")
-    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), selected_group)
+    effective_group = effective_dns_proxy_group(config_text, selected_group)
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), effective_group)
 
     ndmc = run_dns_tool(tools["ndmc"], ["-c", "show running-config"])
     running_config = ndmc.get("output", "") if ndmc["ok"] else ""
@@ -9586,6 +9624,10 @@ def collect_dns_protection_capabilities(app_dir, proxy_group="", lan_interfaces=
         "ipv6ClientDns": ipv6_client_dns,
         "proxyGroups": groups.get("groups", []),
         "selectedProxyGroup": selected_group,
+        "effectiveProxyGroup": effective_group,
+        "whitelistRouting": has_whitelist_fallback_config(config_text),
+        "proxyGroupOptions": [{"name": name, **check_dns_proxy_route(groups.get("proxies", {}), name)}
+                              for name in groups.get("groups", [])],
         "proxyRoute": proxy_route,
         "localResolver": local_resolver,
         "dnsOverride": dns_override,
@@ -9664,7 +9706,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
             whitelist_domains = get_dns_whitelist_domains(app_dir, config_text)
         proposed_text = proposed_text_override if proposed_text_override is not None else prepare_dns_protection_text(
             config_text,
-            proxy_group,
+            capabilities.get("effectiveProxyGroup", proxy_group),
             capabilities["ipv6ClientDns"],
             capabilities["localResolver"]["ok"],
             whitelist_domains,
@@ -9696,13 +9738,17 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
     config_ready = bool(proposed_text is not None and config_check.get("ok"))
     result = {
         "ok": config_ready,
-        "message": "Конфигурация DNS прошла проверку." if config_ready else str(config_check.get("message") or "Проверка конфигурации DNS не пройдена")[-2000:],
+        "message": ("Строгий профиль доступен только для просмотра плана." if request_data["profile"] == "strict"
+                    else "Проверки пройдены. Можно включить защиту." if capabilities["activationReady"]
+                    else "Конфигурация корректна, но включение защиты пока заблокировано.") if config_ready
+                   else str(config_check.get("message") or "Проверка конфигурации DNS не пройдена")[-2000:],
         "stage": "preview",
         "mode": get_dns_protection_mode(app_dir),
         "profile": request_data["profile"],
         "whitelistDns": request_data.get("whitelistDns", False),
         "upstreams": upstreams,
         "proxyGroup": proxy_group,
+        "effectiveProxyGroup": capabilities.get("effectiveProxyGroup", proxy_group),
         "revision": revision,
         "capabilities": capabilities,
         "canTest": bool(config_ready and capabilities["testReady"] and request_data["profile"] == "resilient"),
@@ -9720,7 +9766,7 @@ def preview_dns_protection(app_dir, request_data, record_event=True, proposed_te
             "enhancedMode": "redir-host",
             "ipv6": capabilities["ipv6ClientDns"],
             "upstreams": upstreams,
-            "upstreamRoute": proxy_group,
+            "upstreamRoute": capabilities.get("effectiveProxyGroup", proxy_group),
             "proxyServerResolver": DNS_PROTECTION_PROXY_RESOLVER,
             "localPrivateResolver": capabilities["localResolver"]["ok"],
             "localNames": list(DNS_PROTECTION_LOCAL_NAMES) if capabilities["localResolver"]["ok"] else [],
@@ -10162,6 +10208,7 @@ def get_dns_protection_status(app_dir):
         "profile": runtime["profile"],
         "whitelistDns": runtime["whitelistDns"],
         "proxyGroup": capabilities["selectedProxyGroup"],
+        "effectiveProxyGroup": capabilities.get("effectiveProxyGroup", capabilities["selectedProxyGroup"]),
         "upstreams": runtime["upstreams"],
         "proxyGroups": capabilities["proxyGroups"],
         "smartGroup": get_dns_smart_group_status(app_dir, config_text),
@@ -10372,7 +10419,9 @@ def switch_dns_proxy_group(app_dir, request_data):
         retained = {**request_data, "action": "activate", "profile": runtime["profile"], "whitelistDns": runtime["whitelistDns"],
                     "upstreams": runtime["upstreams"], "lanInterfaces": runtime["lanInterfaces"], "confirmations": {}}
         try:
-            proposed = prepare_dns_group_switch_text(text, runtime["proxyGroup"], request_data["proxyGroup"], runtime["upstreams"])
+            proposed = prepare_dns_group_switch_text(text,
+                effective_dns_proxy_group(text, runtime["proxyGroup"]),
+                effective_dns_proxy_group(text, request_data["proxyGroup"]), runtime["upstreams"])
             preview = preview_dns_protection(app_dir, retained, record_event=False, proposed_text_override=proposed)
             if not preview["canActivate"]:
                 return {"ok": False, "stage": "preflight", "message": "Новая DNS-группа не прошла предварительную проверку", "preview": preview}
@@ -10710,6 +10759,7 @@ def apply_dns_protection_action(app_dir, request_data, _locks_held=False, _propo
             "profile": "resilient",
             "whitelistDns": next_runtime["whitelistDns"],
             "proxyGroup": preview["proxyGroup"],
+            "effectiveProxyGroup": capabilities.get("effectiveProxyGroup", preview["proxyGroup"]),
             "upstreams": upstreams,
             "revision": saved["revision"],
             "capabilities": capabilities,
@@ -10767,7 +10817,7 @@ def run_dns_protection_lease_cycle(app_dir):
         },
     }
     groups = get_dns_proxy_groups(app_dir)
-    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), runtime["proxyGroup"])
+    proxy_route = check_dns_proxy_route(groups.get("proxies", {}), effective_dns_proxy_group(config_text, runtime["proxyGroup"]))
     probe = probe_mihomo_dns_listener(runtime_capabilities["ipv6ClientDns"], timeout_ms=1800) if proxy_route["ok"] else {"ok": False}
     firewall_state = None
     failed_checks = []

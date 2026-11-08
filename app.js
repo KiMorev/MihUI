@@ -902,6 +902,9 @@ const els = {
   dnsStrictInterceptTransit: document.querySelector('#dnsStrictInterceptTransit'),
   dnsStrictWanConfirm: document.querySelector('#dnsStrictWanConfirm'),
   dnsPreviewButton: document.querySelector('#dnsPreviewButton'),
+  dnsEnableButton: document.querySelector('#dnsEnableButton'),
+  dnsBlockers: document.querySelector('#dnsBlockers'),
+  dnsRoutePolicy: document.querySelector('#dnsRoutePolicy'),
   dnsSwitchButton: document.querySelector('#dnsSwitchButton'),
   dnsFlowHint: document.querySelector('#dnsFlowHint'),
   dnsCapabilities: document.querySelector('#dnsCapabilities'),
@@ -1079,6 +1082,7 @@ els.dnsLanInterfaces?.addEventListener('change', handleProtectedDnsLanChange);
 els.dnsSmartGroupSource?.addEventListener('change', renderProtectedDnsSmartGroup);
 els.dnsSmartGroupCreate?.addEventListener('click', createProtectedDnsSmartGroup);
 els.dnsPreviewButton?.addEventListener('click', previewProtectedDns);
+els.dnsEnableButton?.addEventListener('click', enableProtectedDns);
 els.dnsSwitchButton?.addEventListener('click', () => runProtectedDnsAction('switch'));
 els.dnsSystemButton?.addEventListener('click', () => runProtectedDnsAction('system'));
 els.dnsTestButton?.addEventListener('click', () => runProtectedDnsAction('test'));
@@ -5672,13 +5676,21 @@ function renderProtectedDnsProxyGroups(data = {}) {
   const groups = Array.isArray(source)
     ? source.map((item) => typeof item === 'string' ? item : item?.name).filter(Boolean)
     : [];
-  const preferred = String(state.protectedDns.proxyGroupDraft || data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
+  let preferred = String(state.protectedDns.proxyGroupDraft || data.proxyGroup || data.capabilities?.selectedProxyGroup || state.protectedDns.data?.proxyGroup || els.dnsProxyGroup.value || 'PROXY');
   const names = [...new Set(groups.length ? groups : [preferred, 'PROXY'])];
+  const options = data.capabilities?.proxyGroupOptions || [];
+  const compatible = (name) => options.find((item) => item.name === name)?.ok !== false;
+  if (!state.protectedDns.proxyGroupDraft && !data.runtime?.managedBlockRevision && !compatible(preferred)) {
+    preferred = ['DNS-SMART', 'FASTEST', 'FALLBACK', ...names].find((name) => names.includes(name) && compatible(name)) || preferred;
+    state.protectedDns.proxyGroupDraft = preferred;
+  }
   els.dnsProxyGroup.textContent = '';
   names.forEach((name) => {
     const option = document.createElement('option');
     option.value = name;
-    option.textContent = name;
+    option.disabled = !compatible(name);
+    option.textContent = compatible(name) ? name : `${name} — не подходит для DNS`;
+    option.title = options.find((item) => item.name === name)?.message || '';
     els.dnsProxyGroup.append(option);
   });
   els.dnsProxyGroup.value = names.includes(preferred) ? preferred : names[0];
@@ -5961,8 +5973,8 @@ function getProtectedDnsModePresentation(mode) {
   return {
     system: {
       label: 'Системный DNS',
-      title: 'Работает системный DNS роутера',
-      message: 'Перехват отключён. Запросы обслуживает ndnproxy и настроенные системные DNS-серверы.',
+      title: 'Используется системный DNS роутера',
+      message: 'Защита выключена. Доступность системного DNS показывается отдельно от выбранного режима.',
     },
     test: {
       label: 'Тестовый режим',
@@ -6314,6 +6326,38 @@ function renderProtectedDnsEvents() {
   });
 }
 
+function getProtectedDnsBlockers(preview) {
+  if (!preview) return [];
+  const blockers = (preview.capabilities?.checks || []).filter((item) => item.required && !item.ok)
+    .map((item) => ({ label: getProtectedDnsCapabilityLabel(item.id), message: item.message || 'Проверка не пройдена' }));
+  if (preview.configCheck?.ok === false) blockers.unshift({ label: 'Конфигурация', message: preview.configCheck.message || 'Конфигурация DNS не прошла проверку' });
+  const failed = preview.capabilities?.systemFallback?.probes?.filter((item) => item.transport === 'udp' && !item.ok) || [];
+  const fallback = blockers.find((item) => item.label === getProtectedDnsCapabilityLabel('system-fallback'));
+  if (fallback && failed.length) {
+    fallback.message = failed.map((item) => `${item.lanAddress || item.address}:53 — ${item.error?.category === 'timeout' ? 'тайм-аут' : item.rcode !== undefined ? `DNS-код ${item.rcode}` : item.error?.detail || 'нет ответа'} (UDP)`).join('; ');
+  }
+  return blockers;
+}
+
+function renderProtectedDnsBlockers(preview) {
+  if (!els.dnsBlockers) return;
+  const blockers = getProtectedDnsBlockers(preview);
+  els.dnsBlockers.hidden = blockers.length === 0;
+  els.dnsBlockers.textContent = '';
+  if (!blockers.length) return;
+  const title = document.createElement('strong');
+  title.textContent = `Что мешает включению: ${blockers.length}`;
+  const list = document.createElement('ul');
+  for (const blocker of blockers) {
+    const item = document.createElement('li');
+    const label = document.createElement('strong');
+    label.textContent = `${blocker.label}. `;
+    item.append(label, document.createTextNode(blocker.message));
+    list.append(item);
+  }
+  els.dnsBlockers.append(title, list);
+}
+
 function renderProtectedDns() {
   if (!els.dnsStateBadge) return;
   const apiAvailable = state.routerMode && state.routerApiAvailable;
@@ -6326,7 +6370,7 @@ function renderProtectedDns() {
   const mode = data.mode || 'unknown';
   const presentation = getProtectedDnsModePresentation(mode);
   const strictSelected = getProtectedDnsProfile() === 'strict';
-  const busy = state.protectedDns.loading || Boolean(state.protectedDns.action);
+  const busy = state.protectedDns.loading || Boolean(state.protectedDns.action) || state.protectedDns.enabling === true;
   const settingsLocked = busy || runtime.requestedMode === 'active';
   const groupChange = getProtectedDnsGroupChangeState();
   const changingRoute = state.protectedDns.action === 'switch' || state.protectedDns.action === 'smart-group' && runtime.requestedMode === 'active';
@@ -6361,7 +6405,7 @@ function renderProtectedDns() {
   els.dnsRouteNoteLabel.textContent = route.noteLabel;
   els.dnsFallbackPath.textContent = route.note;
   els.dnsCurrentGroup.textContent = ['active', 'test'].includes(mode)
-    ? runtime.proxyGroup || data.proxyGroup || '—'
+    ? data.effectiveProxyGroup || capabilities.effectiveProxyGroup || runtime.proxyGroup || data.proxyGroup || '—'
     : mode === 'system' ? 'Не используется' : 'Не подтверждена';
   els.dnsModeValue.textContent = presentation.label;
   const currentProfile = runtime.profile || data.profile;
@@ -6418,9 +6462,17 @@ function renderProtectedDns() {
     els.dnsUpstreamStatus.classList.toggle('is-error', Boolean(upstreamInput.error));
   }
   const upstreams = getProtectedDnsUpstreamLabels(preview?.plan?.upstreams || getProtectedDnsSavedUpstreams());
-  const upstreamRoute = groupChange.active ? groupChange.current : els.dnsProxyGroup.value || 'PROXY';
+  const whitelistRouting = capabilities.whitelistRouting === true;
+  const upstreamRoute = whitelistRouting ? visible.effectiveProxyGroup || capabilities.effectiveProxyGroup
+    : groupChange.active ? groupChange.current : els.dnsProxyGroup.value || 'PROXY';
   const upstreamState = changingRoute ? 'применение изменений' : ['unknown', 'fallback'].includes(mode) ? 'маршрут не подтверждён' : `через ${upstreamRoute}`;
   els.dnsUpstreams.textContent = `${upstreams.length ? upstreams.join(', ') : 'Cloudflare и Google'} · ${upstreamState}`;
+  if (els.dnsRoutePolicy) {
+    const normal = els.dnsProxyGroup.value || 'не выбрана';
+    els.dnsRoutePolicy.textContent = whitelistRouting
+      ? `Сейчас действуют белые списки: DNS через ${upstreamRoute}. После восстановления интернета автоматически вернётся ${normal}.`
+      : `Обычный режим: ${normal}. При временных правилах белых списков DNS автоматически использует их прокси-группу (обычно WHITE-RU), затем вернётся к ${normal}.`;
+  }
   els.dnsStrictOptions.hidden = !strictSelected;
   els.dnsStrictOptions.disabled = !strictSelected || settingsLocked;
   els.dnsProfileResilient.disabled = settingsLocked;
@@ -6447,13 +6499,19 @@ function renderProtectedDns() {
   renderProtectedDnsCapabilities(capabilities);
   renderProtectedDnsConfigCheck(preview?.configCheck);
   renderProtectedDnsPlan(preview?.plan);
-  renderProtectedDnsWarnings(visible.warnings || [], strictSelected);
+  renderProtectedDnsWarnings((visible.warnings || []).filter((item) => !preview || !['system-fallback', 'system-fallback-not-tested', 'upstreams-test-required'].includes(item.code)), strictSelected);
   renderProtectedDnsExclusions(data.exclusions || []);
   renderProtectedDnsEvents();
+  renderProtectedDnsBlockers(preview);
+  if (els.dnsEnableButton) {
+    els.dnsEnableButton.hidden = mode === 'active';
+    els.dnsEnableButton.disabled = !apiAvailable || busy || strictSelected || lanSelection.state !== 'ready' || Boolean(upstreamInput.error);
+    els.dnsEnableButton.textContent = state.protectedDns.enabling ? 'Проверяем и включаем…' : getProtectedDnsBlockers(preview).length ? 'Повторить проверку и включить' : 'Проверить и включить защиту';
+  }
 
   els.dnsRefreshButton.disabled = !apiAvailable || busy;
   els.dnsPreviewButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error);
-  els.dnsPreviewButton.textContent = state.protectedDns.action === 'preview' ? 'Проверяем…' : 'Проверить и показать план';
+  els.dnsPreviewButton.textContent = state.protectedDns.action === 'preview' ? 'Проверяем…' : 'Проверить настройки';
   els.dnsSystemButton.disabled = !apiAvailable || busy || (mode === 'system' && fallback.pending !== true);
   els.dnsTestButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error) || strictSelected || !canTest || mode === 'active';
   els.dnsActivateButton.disabled = !apiAvailable || busy || lanSelection.state !== 'ready' || Boolean(upstreamInput.error) || strictSelected || !canActivate || mode !== 'test';
@@ -6483,7 +6541,11 @@ function renderProtectedDns() {
           : strictSelected ? 'Строгий профиль доступен только для просмотра плана. Для включения выберите отказоустойчивый профиль в дополнительных настройках.'
             : nextStep === 'activate' ? 'Тест пройден. Включите защиту, чтобы перевести устройства на защищённый DNS.'
               : nextStep === 'test' ? 'Настройки проверены. Запустите тест: устройства пока останутся на системном DNS.'
-                : 'Проверьте настройки. Это покажет план изменений и не переключит DNS устройств.';
+                : 'Выберите прокси и домашнюю сеть. MihUI проверит настройки, выполнит тест и включит защиту только после успешных проверок.';
+  if (!busy && getProtectedDnsBlockers(preview).length) els.dnsFlowHint.textContent = 'Включение остановлено. Исправьте причины ниже и повторите проверку.';
+  else if (!busy && mode !== 'active' && !strictSelected && lanSelection.state === 'ready' && !upstreamInput.error) {
+    els.dnsFlowHint.textContent = 'Кнопка «Проверить и включить защиту» выполнит проверку настроек и DNS, затем переключит устройства. При ошибке включение остановится.';
+  }
   for (const [step, button] of [['preview', els.dnsPreviewButton], ['test', els.dnsTestButton], ['activate', els.dnsActivateButton]]) {
     button.hidden = step !== 'preview' && step !== nextStep;
     button.classList.toggle('primary', step === nextStep);
@@ -6542,7 +6604,22 @@ async function previewProtectedDns() {
     state.protectedDns.error = getProtectedDnsErrorMessage(error, 'preview');
   } finally {
     state.protectedDns.action = '';
-    if (els.dnsPreflightDetails) els.dnsPreflightDetails.open = true;
+    renderProtectedDns();
+  }
+}
+
+async function enableProtectedDns() {
+  if (state.protectedDns.enabling || state.protectedDns.action || !state.routerApiAvailable) return;
+  state.protectedDns.enabling = true;
+  try {
+    await previewProtectedDns();
+    const preview = state.protectedDns.preview;
+    if (state.protectedDns.error || !preview?.canTest || !preview.capabilities?.activationReady) return;
+    await runProtectedDnsAction('test');
+    if (state.protectedDns.error || state.protectedDns.data?.mode !== 'test') return;
+    await runProtectedDnsAction('activate');
+  } finally {
+    state.protectedDns.enabling = false;
     renderProtectedDns();
   }
 }
